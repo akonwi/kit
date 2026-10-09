@@ -24,6 +24,9 @@ struct Model {
   follow_ups: Int,
   restores: Int,
   recalls: Int,
+  // Requests for command history, and the cursors of older pages asked for.
+  bash_recalls: Int,
+  older: [Int64],
   // Escapes reaching the application, as the Shell's turn abort does.
   aborts: Int,
   submissions: Int,
@@ -96,6 +99,12 @@ impl cui::Component for Host {
             recall_history: fn() {
               model.recalls =+ 1
             },
+            recall_bash: fn() {
+              model.bash_recalls =+ 1
+            },
+            older_bash: fn(before: Int64) {
+              model.older.push(before)
+            },
             open_palette: fn() {
               model.palette_opens =+ 1
             },
@@ -138,6 +147,8 @@ fn model() mut Model {
     follow_ups: 0,
     restores: 0,
     recalls: 0,
+    bash_recalls: 0,
+    older: [],
     aborts: 0,
     submissions: 0,
     accept_attachments: true,
@@ -839,4 +850,197 @@ test fn bash_drafts_report_whether_the_result_joins_the_context() Void!Str {
   let _ = value.control.clear()
   terminal.flush()
   testing::assert(value.mode == "", "an ordinary draft has no mode")
+}
+
+fn commands() [composer::HistoryEntry] {
+  [
+    composer::HistoryEntry{id: "bash_3", text: "!git status"},
+    composer::HistoryEntry{id: "bash_2", text: "!!make test"},
+    composer::HistoryEntry{id: "bash_1", text: "!ls"},
+  ]
+}
+
+fn page(entries: [composer::HistoryEntry], more: Bool, before: Int) composer::BashPage? {
+  Maybe::new(
+    composer::BashPage{
+      entries: entries,
+      more: more,
+      before: Int64::from(before),
+    },
+  )
+}
+
+test fn up_and_down_in_bash_mode_ask_for_earlier_commands() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.flush()
+  terminal.key(key("down"))
+  terminal.flush()
+  try testing::assert(value.bash_recalls == 2 and value.recalls == 0, "both keys recall commands")
+
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.follow_ups = 1
+  })
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.key(key("down"))
+  terminal.flush()
+  testing::assert(
+    value.restores == 1 and value.bash_recalls == 3,
+    "queued follow-ups keep Up; Down still recalls commands",
+  )
+}
+
+test fn command_history_lists_commands_with_their_mode_and_filters_by_command() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  let _ = value.control.open_bash_history(commands())
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      " ┌──────────────────────────────────────────────┐",
+      " │ !ls                                          │",
+      " │ !!make test                                  │",
+      " │▌!git status                                  │",
+      " └──────────────────────────────────────────────┘",
+      " !",
+      "",
+    ],
+  )
+  // The command after `!` is the query; `!` itself matches nothing extra.
+  terminal.key(character("ma"))
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(6).or("") == " │▌!!make test                                  │",
+    "got {rows(terminal).at(6).or("")}",
+  )
+  terminal.key(key("return"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "!!make test", "the command keeps its mode: {value.submitted}")
+}
+
+test fn the_sessions_commands_replace_the_known_ones_as_they_load() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!zz"))
+  terminal.flush()
+  let _ = value.control.open_bash_history(commands())
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(6).or("") == " │ Loading history…                             │",
+    "nothing known matches while history loads",
+  )
+  let _ = value.control.answer_bash_history(
+    page([composer::HistoryEntry{id: "bash_9", text: "!zz top"}], false, 0),
+    false,
+  )
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(6).or("") == " │▌!zz top                                      │",
+    "got {rows(terminal).at(6).or("")}",
+  )
+  // Leaving bash mode closes the picker.
+  terminal.key(key("home"))
+  terminal.key(key("delete"))
+  terminal.flush()
+  expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", " zz", ""])
+}
+
+test fn moving_up_past_the_oldest_command_reads_older_pages() Void!Str {
+  let terminal = headless::new(56, 12)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  let _ = value.control.open_bash_history([])
+  terminal.flush()
+  let _ = value.control.answer_bash_history(page(commands(), true, 40), false)
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.key(key("up"))
+  terminal.flush()
+  try testing::assert(value.older.size() == 0, "the newest commands come first")
+  terminal.key(key("up"))
+  terminal.key(key("up"))
+  terminal.flush()
+  try testing::assert(
+    value.older.size() == 1 and value.older.at(0).or(Int64::from(0)) == Int64::from(40),
+    "one read of the page before the cursor: {value.older.size()}",
+  )
+  let _ = value.control.answer_bash_history(
+    page([composer::HistoryEntry{id: "bash_0", text: "!pwd"}], false, 0),
+    true,
+  )
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(5).or("") == " │ !pwd                                         │" and rows(terminal).at(6).or("") == " │▌!ls                                          │",
+    "the older page goes above the selection, which stays",
+  )
+  // With no older page left, Up wraps.
+  terminal.key(key("up"))
+  terminal.key(key("up"))
+  terminal.flush()
+  testing::assert(
+    value.older.size() == 1 and rows(terminal).at(8).or("") == " │▌!git status                                  │",
+    "got {rows(terminal).at(8).or("")}",
+  )
+}
+
+test fn a_failed_older_page_ends_paging() Void!Str {
+  let terminal = headless::new(56, 12)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  let _ = value.control.open_bash_history([])
+  let _ = value.control.answer_bash_history(page(commands(), true, 40), false)
+  terminal.flush()
+  terminal.key(key("down"))
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.flush()
+  try testing::assert(value.older.size() == 1, "the oldest asks for more")
+  let _ = value.control.answer_bash_history(Maybe::new<composer::BashPage>(), true)
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.flush()
+  testing::assert(
+    value.older.size() == 1 and rows(terminal).at(8).or("") == " │▌!git status                                  │",
+    "Up wraps instead: {rows(terminal).at(8).or("")}",
+  )
 }

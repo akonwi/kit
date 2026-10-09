@@ -21,6 +21,8 @@ let max_rows = 10
 struct Item {
   key: Str,
   label: Str,
+  // The text the query matches, when it is not the label.
+  search: Str,
 }
 
 // filter returns the items matching query in catalog order, using the
@@ -32,7 +34,11 @@ fn filter(catalog: [Item], query: Str) [Item] {
     false => {
       let matches = mut List::new<Item>()
       for item in catalog {
-        if palette::string_score(strings::ToLower(item.label), needle) > 0 {
+        let text = match item.search == "" {
+          true => item.label,
+          false => item.search,
+        }
+        if palette::string_score(strings::ToLower(text), needle) > 0 {
           matches.push(item)
         }
       }
@@ -170,6 +176,8 @@ struct Props {
   // The rows matching the query, in display order.
   items: [Item],
   selection: Str,
+  // The row shown when no item matches, such as "No results".
+  empty: Str,
   // A click activates the clicked row.
   activate: fn(Str),
 }
@@ -224,7 +232,7 @@ impl cui::Component for Picker {
     if items.size() == 0 {
       rows.push(
         cui::text(
-          " No results",
+          " {self.props.empty}",
           styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
           text_style: ui::text_style(foreground: colors.muted),
         ),
@@ -361,7 +369,13 @@ impl Picker {
 private fn items(labels: [Str]) [Item] {
   let result = mut List::new<Item>()
   for label in labels {
-    result.push(Item{key: label, label: label})
+    result.push(
+      Item{
+        key: label,
+        label: label,
+        search: "",
+      },
+    )
   }
   result.@
 }
@@ -381,6 +395,22 @@ test fn filtering_keeps_catalog_order() Void!Str {
     keys(filter(catalog, "Fix")) == "fix tests fix lint",
     keys(filter(catalog, "Fix")),
   )
+}
+
+test fn a_search_text_replaces_the_label_for_matching() Void!Str {
+  let catalog = [
+    Item{
+      key: "1",
+      label: "!!make test",
+      search: "make test",
+    },
+    Item{
+      key: "2",
+      label: "!ls",
+      search: "ls",
+    },
+  ]
+  testing::assert(keys(filter(catalog, "!")) == "", "the label's prefix is not searched")
 }
 
 test fn moving_wraps_at_both_ends() Void!Str {

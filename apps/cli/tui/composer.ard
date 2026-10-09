@@ -16,9 +16,13 @@ struct Ref {
   restore_action: (fn(Str) Bool)?,
   prepend_action: (fn(Str) Bool)?,
   history_action: (fn([HistoryEntry]) Bool)?,
+  bash_history_action: (fn([HistoryEntry]) Bool)?,
+  bash_page_action: (fn(BashPage?, Bool) Bool)?,
 }
 
-// HistoryEntry is one earlier prompt that message history can recall.
+// HistoryEntry is one earlier prompt or command that history can recall. Its
+// text is what recalling it puts in the composer; a command's starts with `!`
+// or `!!`.
 struct HistoryEntry {
   id: Str,
   text: Str,
@@ -32,6 +36,8 @@ fn ref() mut Ref {
     restore_action: Maybe::new<fn(Str) Bool>(),
     prepend_action: Maybe::new<fn(Str) Bool>(),
     history_action: Maybe::new<fn([HistoryEntry]) Bool>(),
+    bash_history_action: Maybe::new<fn([HistoryEntry]) Bool>(),
+    bash_page_action: Maybe::new<fn(BashPage?, Bool) Bool>(),
   })
 }
 
@@ -83,7 +89,44 @@ impl Ref {
       _ => false,
     }
   }
+
+  // open_bash_history lists the commands already known, newest first, while
+  // the session's command history loads. The command after `!` filters it.
+  fn mut open_bash_history(entries: [HistoryEntry]) Bool {
+    match self.bash_history_action {
+      action => action(entries),
+      _ => false,
+    }
+  }
+
+  // answer_bash_history delivers a page of command history, or nothing when
+  // it could not be read. The first page replaces the commands already known;
+  // an older page is added after them.
+  fn mut answer_bash_history(page: BashPage?, older: Bool) Bool {
+    match self.bash_page_action {
+      action => action(page, older),
+      _ => false,
+    }
+  }
 }
+
+// BashPage is one newest-first page of a session's command history.
+struct BashPage {
+  entries: [HistoryEntry],
+  // Whether older commands remain, and the cursor that reads them.
+  more: Bool,
+  before: Int64,
+}
+
+// Which earlier entries the composer's picker lists.
+enum Recall {
+  none,
+  prompts,
+  commands,
+}
+
+// Older command pages read while the picker is open, as in the vaxis client.
+let bash_page_limit = 5
 
 // Props contains live Shell-owned dependencies. Composer owns its draft,
 // editor ref, command bindings, and focus lifecycle.
@@ -105,6 +148,11 @@ struct Props {
   // Up on a blank draft, with nothing queued, asks for earlier prompts; the
   // Shell answers through `Ref.open_history`.
   recall_history: fn(),
+  // Up or Down in bash mode asks for earlier commands; the Shell answers
+  // through `Ref.open_bash_history` and `Ref.answer_bash_history`.
+  recall_bash: fn(),
+  // Moving up past the oldest command asks for the page before the cursor.
+  older_bash: fn(Int64),
   open_palette: fn(),
   mode_changed: fn(Str),
 }
@@ -115,10 +163,15 @@ struct Composer {
   editor: mut cui::TextAreaRef,
   draft: Str,
   mode: Str,
-  // Message history, newest first, while its picker is open.
+  // The open history picker's entries, newest first.
   history: [HistoryEntry],
-  history_open: Bool,
+  history_kind: Recall,
   history_selection: Str,
+  // Command history paging: a read in flight, and the older pages left.
+  bash_loading: Bool,
+  bash_more: Bool,
+  bash_before: Int64,
+  bash_pages: Int,
 }
 
 fn view(props: Props) cui::View {
@@ -133,8 +186,12 @@ private fn new(props: mut Props) mut Composer {
     draft: "",
     mode: "",
     history: [],
-    history_open: false,
+    history_kind: Recall::none,
     history_selection: "",
+    bash_loading: false,
+    bash_more: false,
+    bash_before: Int64::from(0),
+    bash_pages: 0,
   })
 }
 
@@ -159,6 +216,12 @@ impl cui::Lifecycle for Composer {
     self.props.control.history_action = Maybe::new(fn(entries: [HistoryEntry]) Bool {
       self.request_history(entries)
     })
+    self.props.control.bash_history_action = Maybe::new(fn(entries: [HistoryEntry]) Bool {
+      self.request_bash_history(entries)
+    })
+    self.props.control.bash_page_action = Maybe::new(fn(page: BashPage?, older: Bool) Bool {
+      self.request_bash_page(page, older)
+    })
     // Pastes reach this listener before the focused editor inserts them.
     let _ = context.on_paste(fn(paste: mut event::PasteEvent) {
       if self.props.enabled and self.editor_focused() {
@@ -181,6 +244,8 @@ impl cui::Lifecycle for Composer {
     self.props.control.restore_action = Maybe::new<fn(Str) Bool>()
     self.props.control.prepend_action = Maybe::new<fn(Str) Bool>()
     self.props.control.history_action = Maybe::new<fn([HistoryEntry]) Bool>()
+    self.props.control.bash_history_action = Maybe::new<fn([HistoryEntry]) Bool>()
+    self.props.control.bash_page_action = Maybe::new<fn(BashPage?, Bool) Bool>()
   }
 }
 
@@ -288,9 +353,9 @@ impl Composer {
     match self.context {
       context => {
         let _ = context.dispatch(fn() {
-          if self.props.enabled and self.props.follow_ups == 0 and entries.size() > 0 {
+          if self.props.enabled and self.history_kind == Recall::none and self.props.follow_ups == 0 and entries.size() > 0 {
             self.history = entries
-            self.history_open = true
+            self.history_kind = Recall::prompts
             self.history_selection = inline_picker::last_key(self.history_matches())
           }
         })
@@ -300,38 +365,21 @@ impl Composer {
     }
   }
 
-  // Message history listed oldest first, so the newest prompt sits nearest
-  // the composer. Multi-line prompts show on one line.
-  private fn history_catalog() [inline_picker::Item] {
-    let items = mut List::new<inline_picker::Item>()
-    mut index = self.history.size() - 1
-    while index >= 0 {
-      let entry = self.history.at(index).expect("history entry")
-      items.push(inline_picker::Item{key: entry.id, label: one_line(entry.text)})
-      index = index - 1
-    }
-    items.@
-  }
-
-  private fn history_matches() [inline_picker::Item] {
-    inline_picker::filter(self.history_catalog(), self.draft)
-  }
-
-  private fn mut close_history() {
-    self.history_open = false
-    self.history = []
-    self.history_selection = ""
-  }
-
-  private fn mut move_history(delta: Int) Bool {
+  // Opens command history from the commands already known, unless the draft
+  // left bash mode meanwhile. The session's history replaces them as it loads.
+  private fn mut request_bash_history(entries: [HistoryEntry]) Bool {
     match self.context {
       context => {
         let _ = context.dispatch(fn() {
-          self.history_selection = inline_picker::move(
-            self.history_matches(),
-            self.history_selection,
-            delta,
-          )
+          if self.props.enabled and self.history_kind == Recall::none and strings::HasPrefix(self.draft, "!") {
+            self.history = entries
+            self.history_kind = Recall::commands
+            self.bash_loading = true
+            self.bash_more = false
+            self.bash_before = Int64::from(0)
+            self.bash_pages = 0
+            self.history_selection = inline_picker::last_key(self.history_matches())
+          }
         })
         true
       },
@@ -339,9 +387,139 @@ impl Composer {
     }
   }
 
-  // Puts the prompt with id in the composer, from Enter or a click.
+  private fn mut request_bash_page(page: BashPage?, older: Bool) Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.apply_bash_page(page, older)
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  // An empty first page keeps the commands already known. A failed older
+  // page ends paging.
+  private fn mut apply_bash_page(page: BashPage?, older: Bool) {
+    if self.history_kind == Recall::commands {
+      self.bash_loading = false
+      match page {
+        loaded => {
+          if older {
+            let known = mut Map::new<Bool>()
+            for entry in self.history {
+              known.set(entry.id, true)
+            }
+            let merged = mut List::new<HistoryEntry>()
+            for entry in self.history {
+              merged.push(entry)
+            }
+            for entry in loaded.entries {
+              if not known.get(entry.id).or(false) {
+                merged.push(entry)
+                known.set(entry.id, true)
+              }
+            }
+            self.history = merged.@
+            self.bash_pages = self.bash_pages + 1
+            if self.history_selection == "" {
+              self.history_selection = inline_picker::last_key(self.history_matches())
+            }
+          } else if loaded.entries.size() > 0 {
+            self.history = loaded.entries
+            self.history_selection = inline_picker::last_key(self.history_matches())
+          }
+          if older or loaded.entries.size() > 0 {
+            self.bash_more = loaded.more
+            self.bash_before = loaded.before
+          }
+        },
+        _ => { self.bash_more = false },
+      }
+    }
+  }
+
+  // History listed oldest first, so the newest entry sits nearest the
+  // composer. Multi-line entries show on one line; a command is matched
+  // without its `!` or `!!`.
+  private fn history_catalog() [inline_picker::Item] {
+    let items = mut List::new<inline_picker::Item>()
+    mut index = self.history.size() - 1
+    while index >= 0 {
+      let entry = self.history.at(index).expect("history entry")
+      let search = match self.history_kind == Recall::commands {
+        true => one_line(bash_query(entry.text)),
+        false => "",
+      }
+      items.push(
+        inline_picker::Item{
+          key: entry.id,
+          label: one_line(entry.text),
+          search: search,
+        },
+      )
+      index = index - 1
+    }
+    items.@
+  }
+
+  // Prompts are filtered by the draft, and commands by the draft's command.
+  private fn history_matches() [inline_picker::Item] {
+    let query = match self.history_kind == Recall::commands {
+      true => bash_query(self.draft),
+      false => self.draft,
+    }
+    inline_picker::filter(self.history_catalog(), query)
+  }
+
+  private fn mut close_history() {
+    self.history_kind = Recall::none
+    self.history = []
+    self.history_selection = ""
+    self.bash_loading = false
+    self.bash_more = false
+    self.bash_before = Int64::from(0)
+    self.bash_pages = 0
+  }
+
+  // Whether moving up from the oldest match reads older commands instead of
+  // wrapping.
+  private fn pages_older() Bool {
+    let matches = self.history_matches()
+    let oldest = match matches.at(0) {
+      first => first.key == self.history_selection,
+      _ => true,
+    }
+    self.history_kind == Recall::commands and oldest and self.bash_more and self.bash_pages < bash_page_limit
+  }
+
+  private fn mut move_history(delta: Int) Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if delta < 0 and self.pages_older() {
+            if not self.bash_loading {
+              self.bash_loading = true
+              (self.props.older_bash)(self.bash_before)
+            }
+          } else {
+            self.history_selection = inline_picker::move(
+              self.history_matches(),
+              self.history_selection,
+              delta,
+            )
+          }
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  // Puts the entry with id in the composer, from Enter or a click.
   private fn mut choose_history(id: Str) {
-    if self.history_open and inline_picker::contains(self.history_matches(), id) {
+    if self.history_kind != Recall::none and inline_picker::contains(self.history_matches(), id) {
       for entry in self.history {
         if entry.id == id {
           self.close_history()
@@ -389,9 +567,27 @@ impl Composer {
     }
   }
 
+  private fn mut request_bash_recall() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.props.enabled and self.history_kind == Recall::none and strings::HasPrefix(self.draft, "!") {
+            (self.props.recall_bash)()
+          }
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
   private fn mut change(value: Str) {
     // An open history picker follows the draft, selecting the newest match.
-    if self.history_open {
+    // Command history closes when the draft leaves bash mode.
+    if self.history_kind == Recall::commands and not strings::HasPrefix(value, "!") {
+      self.close_history()
+    }
+    if self.history_kind != Recall::none {
       self.draft = value
       self.history_selection = inline_picker::last_key(self.history_matches())
     }
@@ -505,8 +701,16 @@ impl cui::Component for Composer {
     let dismiss = keymap::simple_command("composer.history.dismiss", "Close history", fn() Bool {
       self.request_history_dismissal()
     })
+    let recall_bash = keymap::simple_command(
+      "composer.recall_bash",
+      "Recall earlier commands",
+      fn() Bool {
+        self.request_bash_recall()
+      },
+    )
     let bindings = mut List::new<keymap::Binding>()
-    if self.history_open {
+    let bash_mode = strings::HasPrefix(self.draft, "!")
+    if self.history_kind != Recall::none {
       // The open picker takes the keys it navigates by; typing still edits
       // the draft, which is its query.
       bindings.push(
@@ -524,8 +728,13 @@ impl cui::Component for Composer {
       }
       if self.props.follow_ups > 0 {
         bindings.push(keymap::binding(keymap::key("up"), restore.with()))
+      } else if bash_mode {
+        bindings.push(keymap::binding(keymap::key("up"), recall_bash.with()))
       } else if strings::TrimSpace(self.draft) == "" {
         bindings.push(keymap::binding(keymap::key("up"), recall.with()))
+      }
+      if bash_mode {
+        bindings.push(keymap::binding(keymap::key("down"), recall_bash.with()))
       }
     }
     let editor = cui::text_area(
@@ -556,18 +765,24 @@ impl cui::Component for Composer {
         self.input(value)
       },
       key_bindings: editing,
-      commands: [send, open_palette, restore, recall, previous, next, choose, dismiss],
+      commands: [send, open_palette, restore, recall, recall_bash, previous, next, choose, dismiss],
       bindings: bindings.@,
     )
     let children = mut List::new<cui::View>()
     children.push(editor)
-    if self.history_open {
+    if self.history_kind != Recall::none {
+      // The session's commands are still loading when none are known yet.
+      let empty = match self.bash_loading {
+        true => "Loading history…",
+        false => "No results",
+      }
       children.push(
         inline_picker::view(
           inline_picker::Props{
             themes: self.props.themes,
             items: self.history_matches(),
             selection: self.history_selection,
+            empty: empty,
             activate: fn(id: Str) {
               self.choose_history(id)
             },
@@ -585,6 +800,24 @@ impl cui::Component for Composer {
         flex_direction: ui::FlexDirection::column,
       ),
     )
+  }
+}
+
+// The command a bash draft names, without its `!` or `!!` and the spaces
+// after it.
+fn bash_query(value: Str) Str {
+  let command = match strings::HasPrefix(value, "!!") {
+    true => strings::TrimPrefix(value, "!!"),
+    false => strings::TrimPrefix(value, "!"),
+  }
+  strings::TrimLeft(command, " \t")
+}
+
+// The composer text that runs command again in its context mode.
+fn bash_text(command: Str, exclude: Bool) Str {
+  match exclude {
+    true => "!!{command}",
+    false => "!{command}",
   }
 }
 

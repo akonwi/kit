@@ -704,6 +704,12 @@ impl Shell {
         recall_history: fn() {
           self.request_message_history()
         },
+        recall_bash: fn() {
+          self.request_bash_history()
+        },
+        older_bash: fn(before: Int64) {
+          self.request_older_bash_history(before)
+        },
         open_palette: fn() {
           self.request_composer_palette()
         },
@@ -739,6 +745,37 @@ impl Shell {
           }
         },
       }
+    }
+  }
+
+  // Opens the composer's command history from the commands shown, then
+  // replaces them with the session's newest commands.
+  fn mut request_bash_history() {
+    if self.phase == Phase::ready {
+      let control = self.composer_control
+      self.dispatch(fn() {
+        let _ = control.open_bash_history(bash_entries(self.attached.shown_commands()))
+        // One picker's worth of the newest commands keeps opening cheap.
+        self.attached.load_bash_history(
+          Int64::from(0),
+          10,
+          fn(page: sessionbridge::BashHistoryPage?) {
+            let _ = control.answer_bash_history(bash_page(page), false)
+          },
+        )
+      })
+    }
+  }
+
+  // Adds the commands run before the cursor to the composer's history.
+  fn mut request_older_bash_history(before: Int64) {
+    if self.phase == Phase::ready {
+      let control = self.composer_control
+      self.dispatch(fn() {
+        self.attached.load_bash_history(before, 100, fn(page: sessionbridge::BashHistoryPage?) {
+          let _ = control.answer_bash_history(bash_page(page), true)
+        })
+      })
     }
   }
 
@@ -1549,6 +1586,32 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
     subject.workspace == WorkspacePane::agent and not subject.scratchpad_open,
     "workspace state resets",
   )
+}
+
+// Commands as the composer recalls them, with the prefix of their mode.
+private fn bash_entries(items: [sessionbridge::BashHistoryItem]) [composer::HistoryEntry] {
+  let entries = mut List::new<composer::HistoryEntry>()
+  for item in items {
+    entries.push(
+      composer::HistoryEntry{id: item.ID, text: composer::bash_text(item.Command, item.Exclude)},
+    )
+  }
+  entries.@
+}
+
+private fn bash_page(page: sessionbridge::BashHistoryPage?) composer::BashPage? {
+  match page {
+    loaded => {
+      Maybe::new(
+        composer::BashPage{
+          entries: bash_entries(loaded.Items),
+          more: loaded.More,
+          before: loaded.Before,
+        },
+      )
+    },
+    _ => Maybe::new<composer::BashPage>(),
+  }
 }
 
 private fn opened_rename(subject: mut Shell, failure: Str) rename::Request!Str {
