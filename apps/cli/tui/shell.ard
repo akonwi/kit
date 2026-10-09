@@ -616,6 +616,14 @@ impl Shell {
             })
           },
         },
+        work: transcript_pane::Work{
+          open: self.attached.open_work,
+          toggle: fn(key: Str, open: Bool) {
+            self.dispatch(fn() {
+              self.attached.toggle_work(key, open)
+            })
+          },
+        },
         load_older: fn() {
           self.request_older_history()
         },

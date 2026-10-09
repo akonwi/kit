@@ -535,3 +535,122 @@ test fn earlier_pages_prepend_and_reject_overlap() Void!Str {
   let repeated = transcript::prepend_history(persisted(["b", "c"], [2, 3]), shown)
   testing::assert(repeated.is_err(), "a repeated message is rejected")
 }
+
+// Builders for grouping tests. A reply that calls tools, a tool result, and
+// a user prompt, each in turn_id.
+fn reply(id: Str, turn_id: Str, text: Str, calls: [Str]) transcript::Message {
+  let built = mut transcript::message(id, turn_id, transcript::Role::assistant)
+  built.text = text
+  let listed = mut List::new<transcript::ToolCall>()
+  for call in calls {
+    listed.push(transcript::ToolCall{id: call, name: "read"})
+  }
+  built.tool_calls = listed.@
+  built.@
+}
+
+fn result(call: Str, turn_id: Str, state: transcript::ToolState) transcript::Message {
+  let built = mut transcript::message("result-{call}", turn_id, transcript::Role::tool)
+  built.tool_call_id = call
+  built.tool_name = "read"
+  built.tool_state = state
+  built.@
+}
+
+fn prompt(id: Str, turn_id: Str) transcript::Message {
+  let built = mut transcript::message(id, turn_id, transcript::Role::user)
+  built.text = id
+  built.@
+}
+
+// Rows as `id` for messages and `key calls/failed[ running]` for work.
+fn describe_rows(rows: [transcript::Row]) Str {
+  mut out = ""
+  for row in rows {
+    let shown = match row.work {
+      work => {
+        let running = match work.running {
+          true => " running",
+          false => "",
+        }
+        "{work.key} {work.calls}/{work.failed}{running}"
+      },
+      _ => row.message.id,
+    }
+    out = match out == "" {
+      true => shown,
+      false => "{out} | {shown}",
+    }
+  }
+  out
+}
+
+test fn a_turns_tool_calls_group_after_the_prose_that_introduced_them() Void!Str {
+  let completed = transcript::ToolState::completed
+  let rows = transcript::rows(
+    [
+      // A reply that only calls tools continues the run.
+      prompt("ask", "t1"),
+      reply("a1", "t1", "Let me look.", ["c1", "c2"]),
+      result("c1", "t1", completed),
+      result("c2", "t1", transcript::ToolState::failed),
+      reply("a2", "t1", "", ["c3"]),
+      result("c3", "t1", completed),
+      reply("a3", "t1", "Found it.", []),
+    ],
+  )
+  testing::assert(describe_rows(rows) == "ask | a1 | work:t1:c1 3/1 | a3", describe_rows(rows))
+}
+
+test fn prose_and_new_turns_start_new_runs() Void!Str {
+  let completed = transcript::ToolState::completed
+  let rows = transcript::rows(
+    [
+      reply("a1", "t1", "", ["c1"]),
+      result("c1", "t1", completed),
+      reply("a2", "t1", "Next, the tests.", ["c2"]),
+      result("c2", "t1", completed),
+      reply("b1", "t2", "", ["d1"]),
+      result("d1", "t2", completed),
+    ],
+  )
+  testing::assert(
+    describe_rows(rows) == "work:t1:c1 1/0 | a2 | work:t1:c2 1/0 | work:t2:d1 1/0",
+    describe_rows(rows),
+  )
+}
+
+test fn a_run_is_running_until_its_calls_finish_unless_the_turn_was_aborted() Void!Str {
+  let running = transcript::rows(
+    [
+      reply("a1", "t1", "", ["c1", "c2"]),
+      result("c1", "t1", transcript::ToolState::completed),
+      result("c2", "t1", transcript::ToolState::running),
+    ],
+  )
+  try testing::assert(describe_rows(running) == "work:t1:c1 2/0 running", describe_rows(running))
+
+  let stopped = reply("a2", "t1", "Stopped.", [])
+  let aborted = mut stopped
+  aborted.aborted = true
+  let rows = transcript::rows(
+    [reply("a1", "t1", "", ["c1"]), result("c1", "t1", transcript::ToolState::planned), aborted.@],
+  )
+  testing::assert(describe_rows(rows) == "work:t1:c1 1/0 | a2", describe_rows(rows))
+}
+
+test fn a_live_run_keeps_its_key_when_the_turn_is_persisted() Void!Str {
+  let live = transcript::rows(
+    [
+      reply("live-assistant:c1", "t1", "", ["c1"]),
+      result("c1", "t1", transcript::ToolState::running),
+    ],
+  )
+  let persisted = transcript::rows(
+    [reply("msg-9", "t1", "", ["c1"]), result("c1", "t1", transcript::ToolState::completed)],
+  )
+  testing::assert(
+    live.at(0).expect("live").work.expect("work").key == persisted.at(0).expect("persisted").work.expect("work").key,
+    "the run keeps its key",
+  )
+}
