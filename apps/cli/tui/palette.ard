@@ -5,6 +5,7 @@ use cooper/ui
 use kit/tui/after_commit
 use kit/tui/format
 use kit/tui/modal
+use kit/tui/status
 use kit/tui/theme
 use go:strings
 
@@ -13,6 +14,9 @@ let current_marker = "__palette_current__"
 
 // Item is one flat palette row. search_terms participate in matching without
 // being displayed, so providers can be found by their authentication method.
+// A disabled row, given a reason or marked disabled, is inert: it is not
+// selected by default and a click does not activate it. Its reason replaces
+// its description as "⊘ reason"; without one the description stays.
 struct Item {
   key: Str,
   label: Str,
@@ -21,6 +25,15 @@ struct Item {
   meta: Str,
   search_terms: [Str],
   disabled_reason: Str,
+  // A status icon before the label. The picker reserves a status column for
+  // every row while any row in the catalog has one.
+  status: status::Status?,
+  disabled: Bool?,
+}
+
+// inert reports whether the row is disabled, by a reason or by its flag.
+fn inert(item: Item) Bool {
+  item.disabled_reason != "" or item.disabled.or(false)
 }
 
 // Branch is one row of a searchable tree. parent is the key of the row it is
@@ -318,7 +331,7 @@ fn query_selection(props: Props, previous: Str) Str {
         }
       } else {
         for entry in ranked_branches(tree, query) {
-          if next == "" and entry.item.disabled_reason == "" {
+          if next == "" and not inert(entry.item) {
             next = entry.item.key
           }
         }
@@ -335,7 +348,7 @@ fn query_selection(props: Props, previous: Str) Str {
 private fn enabled(items: [Item], key: Str) Bool {
   mut found = false
   for item in items {
-    if item.key == key and item.disabled_reason == "" {
+    if item.key == key and not inert(item) {
       found = true
     }
   }
@@ -500,7 +513,8 @@ fn first_enabled(items: [Item]) Str {
     if result == "" {
       result = item.key
     }
-    if item.disabled_reason == "" and not found {
+    let enabled = not inert(item)
+    if enabled and not found {
       result = item.key
       found = true
     }
@@ -532,6 +546,8 @@ struct Columns {
   meta: Int,
   // Whether any row has a description.
   described: Bool,
+  // Whether any row has a status, reserving the status column.
+  status: Bool,
 }
 
 fn columns(catalog: [Item]) Columns {
@@ -540,8 +556,12 @@ fn columns(catalog: [Item]) Columns {
     hint: 0,
     meta: 0,
     described: false,
+    status: false,
   }
   for item in catalog {
+    if item.status.is_some() {
+      columns.status = true
+    }
     if item.description != "" or item.disabled_reason != "" {
       columns.described = true
     }
@@ -885,7 +905,7 @@ impl cui::Component for Picker {
       let visible = items(self.props)
       mut initial_exists = false
       for item in visible {
-        if item.key == self.source.initial_selection and item.disabled_reason == "" {
+        if item.key == self.source.initial_selection and not inert(item) {
           initial_exists = true
         }
       }
@@ -1067,15 +1087,16 @@ private fn row(props: Props, item: Item, columns: Columns) cui::View {
   let active = item.key == props.selection
   let hovered = item.key == props.hovered
   let colors = props.themes.current()
+  let disabled = inert(item)
   let fill = match {
-    active and item.disabled_reason != "" => colors.picker_disabled,
+    active and disabled => colors.picker_disabled,
     active => colors.picker_selected,
-    hovered and item.disabled_reason == "" => colors.picker_hovered,
+    hovered and not disabled => colors.picker_hovered,
     _ => colors.background,
   }
   // Explorer rows identify the attached session with the primary text token;
   // selection still controls only the row fill and gutter.
-  let label_color = match item.disabled_reason != "" {
+  let label_color = match disabled {
     true => colors.disabled,
     false => {
       match is_current(item) {
@@ -1088,56 +1109,69 @@ private fn row(props: Props, item: Item, columns: Columns) cui::View {
     true => item.description,
     false => "⊘ {item.disabled_reason}",
   }
+  let cells = mut List::new<cui::View>()
+  cells.push(
+    cui::text(
+      match active {
+        true => "▌",
+        false => " ",
+      },
+      text_style: ui::text_style(foreground: colors.primary),
+    ),
+  )
+  if columns.status {
+    cells.push(status_cell(props.themes, item.status))
+  }
+  cells.push(
+    cui::box(
+      [
+        cui::text(
+          item.label,
+          text_style: ui::text_style(foreground: label_color),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      ],
+      styles: label_column(columns),
+    ),
+  )
+  cells.push(
+    cui::box(
+      [
+        cui::text(
+          item.hint,
+          text_style: ui::text_style(foreground: colors.muted),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      ],
+      styles: hint_column(columns),
+    ),
+  )
+  cells.push(
+    cui::text(
+      description,
+      styles: description_column(columns),
+      text_style: ui::text_style(foreground: colors.muted),
+      wrap: ui::TextWrap::none,
+      overflow: ui::TextOverflow::ellipsis,
+    ),
+  )
+  cells.push(
+    cui::box(
+      [
+        cui::text(
+          item.meta,
+          text_style: ui::text_style(foreground: colors.muted),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      ],
+      styles: meta_column(columns, 2),
+    ),
+  )
   cui::box(
-    [
-      cui::text(
-        match active {
-          true => "▌",
-          false => " ",
-        },
-        text_style: ui::text_style(foreground: colors.primary),
-      ),
-      cui::box(
-        [
-          cui::text(
-            item.label,
-            text_style: ui::text_style(foreground: label_color),
-            wrap: ui::TextWrap::none,
-            overflow: ui::TextOverflow::ellipsis,
-          ),
-        ],
-        styles: label_column(columns),
-      ),
-      cui::box(
-        [
-          cui::text(
-            item.hint,
-            text_style: ui::text_style(foreground: colors.muted),
-            wrap: ui::TextWrap::none,
-            overflow: ui::TextOverflow::ellipsis,
-          ),
-        ],
-        styles: hint_column(columns),
-      ),
-      cui::text(
-        description,
-        styles: description_column(columns),
-        text_style: ui::text_style(foreground: colors.muted),
-        wrap: ui::TextWrap::none,
-        overflow: ui::TextOverflow::ellipsis,
-      ),
-      cui::box(
-        [
-          cui::text(
-            item.meta,
-            text_style: ui::text_style(foreground: colors.muted),
-            wrap: ui::TextWrap::none,
-            overflow: ui::TextOverflow::ellipsis,
-          ),
-        ],
-        styles: meta_column(columns, 2),
-      ),
-    ],
+    cells.@,
     styles: ui::style(
       background: fill,
       height: ui::cells(1),
@@ -1156,7 +1190,7 @@ private fn row(props: Props, item: Item, columns: Columns) cui::View {
         event::MouseEventType::up => {
           if received.button == event::MouseButton::left {
             props.on_selection_change(item.key)
-            if item.disabled_reason == "" {
+            if not disabled {
               props.on_activate(item)
             }
             received.prevent_default()
@@ -1165,6 +1199,22 @@ private fn row(props: Props, item: Item, columns: Columns) cui::View {
         _ => (),
       }
     },
+  )
+}
+
+// One row's status column: its icon and a cell of space, or blank cells.
+private fn status_cell(themes: theme::Context, value: status::Status?) cui::View {
+  let icon: [cui::View] = match value {
+    shown => [status::icon(themes, shown)],
+    _ => [],
+  }
+  cui::box(
+    icon,
+    styles: ui::style(
+      width: ui::cells(2),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+    ),
   )
 }
 

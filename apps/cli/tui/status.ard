@@ -1,0 +1,58 @@
+use cooper/cui
+use cooper/ui
+use kit/tui/spinner
+use kit/tui/theme
+
+// Status is the state of a row or tab that does work on its own, such as a
+// subagent. Surfaces pass the state; `icon` owns its glyph and tone so every
+// surface draws a state the same way.
+enum Status {
+  // Doing work: the shared spinner.
+  // Live and ready, such as a connected server.
+  // At rest: finished, or available but not started.
+  // Aborted, interrupted, or cancelled.
+  working,
+  active,
+  idle,
+  failed,
+  stopped,
+}
+
+// glyph is a settled status's one-cell glyph. Working is animated by `icon`;
+// its glyph is the spinner's first frame, for text-only uses.
+fn glyph(status: Status) Str {
+  match status {
+    Status::working => "⠋",
+    Status::active => "●",
+    Status::idle => "○",
+    Status::failed => "✗",
+    Status::stopped => "⊘",
+  }
+}
+
+// color is the status's theme tone.
+fn color(colors: theme::Theme, status: Status) ui::Color {
+  match status {
+    Status::working => colors.accent_text,
+    Status::active => colors.accent_text,
+    Status::idle => colors.muted,
+    Status::failed => colors.danger_text,
+    Status::stopped => colors.warning_text,
+  }
+}
+
+// icon is the status's one-cell indicator.
+fn icon(themes: theme::Context, status: Status) cui::View {
+  let tone = color(themes.current(), status)
+  match status {
+    Status::working => spinner::spinner(styles: ui::style(foreground: tone, flex_shrink: 0.0)),
+    _ => {
+      cui::text(
+        glyph(status),
+        styles: ui::style(flex_shrink: 0.0),
+        text_style: ui::text_style(foreground: tone),
+        wrap: ui::TextWrap::none,
+      )
+    },
+  }
+}
