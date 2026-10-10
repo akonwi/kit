@@ -193,3 +193,16 @@ func TestRuntimeDiffUnavailableWithoutService(t *testing.T) {
 		t.Fatalf("error=%v", e)
 	}
 }
+
+func TestDiffRoutesProjectDeadlineLimit(t *testing.T) {
+	mux := http.NewServeMux()
+	registerSessionRoutes(mux, diffRouteService{err: &protocol.DiffError{Code: protocol.DiffErrorLimit, Message: "the diff took longer than the server allows", Details: map[string]string{"limit": "deadline"}}})
+	r := httptest.NewRequest(http.MethodPost, "/v1/sessions/session_test/diff/working-tree", strings.NewReader(`{"workspaceId":"workspace_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := strings.TrimSpace(w.Body.String())
+	want := `{"error":{"code":"limit_exceeded","details":{"limit":"deadline"},"message":"the diff took longer than the server allows"}}`
+	if w.Code != http.StatusRequestEntityTooLarge || body != want {
+		t.Fatalf("response = %d %s\nwant     = %d %s", w.Code, body, http.StatusRequestEntityTooLarge, want)
+	}
+}

@@ -161,7 +161,8 @@ func (s *Service) listCursor(session string, in protocol.ObserveWorkingTreeInput
 	}
 	return s.listPage(o, c.Offset, c.PageSize, in.Cursor), nil
 }
-func (s *Service) ReadFile(ctx context.Context, session, cwd string, in protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
+func (s *Service) ReadFile(ctx context.Context, session, cwd string, in protocol.ReadFileDiffInput) (_ protocol.FileDiffPage, err error) {
+	defer projectDeadline(ctx, &err)
 	return s.readFile(ctx, session, cwd, in, nil)
 }
 
@@ -212,7 +213,7 @@ func (s *Service) readFile(ctx context.Context, session, cwd string, in protocol
 	f := o.files[i]
 	if o.committed {
 		var cancel context.CancelFunc
-		ctx, cancel = boundedContext(ctx)
+		ctx, cancel = s.boundedContext(ctx)
 		defer cancel()
 	}
 	if cursorFileRevision != "" && cursorFileRevision != f.summary.FileRevision {

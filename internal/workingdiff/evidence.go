@@ -25,7 +25,8 @@ type LineRangeEvidence struct {
 
 // ReadLineRange revalidates a retained observation and returns exact old/new
 // source lines. It never derives evidence from rendered hunks.
-func (s *Service) ReadLineRange(ctx context.Context, session, cwd string, input LineRangeInput) (LineRangeEvidence, error) {
+func (s *Service) ReadLineRange(ctx context.Context, session, cwd string, input LineRangeInput) (_ LineRangeEvidence, err error) {
+	defer projectDeadline(ctx, &err)
 	if input.Side != "old" && input.Side != "new" || input.StartLine <= 0 || input.EndLine < input.StartLine || input.Target != nil && input.Target.Validate() != nil {
 		return LineRangeEvidence{}, &Error{Code: InvalidPath, Message: "diff evidence range is invalid"}
 	}
@@ -139,7 +140,8 @@ func (s *Service) resolveAnnotationObservation(ctx context.Context, session, cwd
 
 // ReadFileForAnnotation reconstructs and pins one server-authorized committed
 // observation for the duration of a guarded file read.
-func (s *Service) ReadFileForAnnotation(ctx context.Context, session, cwd string, input protocol.ReadFileDiffInput, target *protocol.PinnedDiffTarget) (protocol.FileDiffPage, error) {
+func (s *Service) ReadFileForAnnotation(ctx context.Context, session, cwd string, input protocol.ReadFileDiffInput, target *protocol.PinnedDiffTarget) (_ protocol.FileDiffPage, err error) {
+	defer projectDeadline(ctx, &err)
 	observation, err := s.resolveAnnotationObservation(ctx, session, cwd, LineRangeInput{
 		TargetID: input.TargetID, TargetRevision: input.TargetRevision, Path: input.Path,
 		FileRevision: input.ExpectedFileRevision, Target: target,
