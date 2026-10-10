@@ -50,3 +50,35 @@ func TestEventsProjectAnnotationChanges(t *testing.T) {
 		t.Fatalf("submitted = %+v", got[2])
 	}
 }
+
+func TestSubmittedKeepTheirWholeNotesAndTargets(t *testing.T) {
+	got := Submitted([]protocol.SubmittedAnnotation{
+		{OriginalAnnotationID: 2, Anchor: FileAnchor("workspace_a", "a.go", "rev", 3, 4), Body: "the whole note", Preview: protocol.AnnotationPreview{StartLine: 3, EndLine: 4, Text: "a\nb"}},
+		{OriginalAnnotationID: 3, Anchor: DiffAnchor("difftarget_a", "diffrev_a", "a.go", "diff_file_a", "new", 1, 1), DiffTarget: &protocol.PinnedDiffTarget{Kind: protocol.DiffTargetCommit}},
+	})
+	if got[0].ID != 2 || got[0].Body != "the whole note" || got[0].Preview != "a\nb" || got[0].Kind != "file" {
+		t.Fatalf("file = %+v", got[0])
+	}
+	if got[1].TargetKind != protocol.DiffTargetCommit {
+		t.Fatalf("diff = %+v", got[1])
+	}
+	if diff := Summaries([]protocol.AnnotationSummary{{ID: 1, Anchor: DiffAnchor("difftarget_a", "diffrev_a", "a.go", "diff_file_a", "old", 1, 1)}}); diff[0].TargetKind != protocol.DiffTargetWorkingTree {
+		t.Fatalf("working tree = %+v", diff[0])
+	}
+}
+
+func TestMessagesCarryTheirSentAnnotations(t *testing.T) {
+	got := Messages([]protocol.TranscriptMessage{{
+		ID: "message_a", Role: "user",
+		Content: []protocol.TranscriptContent{
+			protocol.TextBlock("look"),
+			protocol.NewTranscriptContent(protocol.AnnotationsContent{Annotations: []protocol.SubmittedAnnotation{
+				{OriginalAnnotationID: 4, Anchor: FileAnchor("workspace_a", "a.go", "rev", 1, 1), Body: "why"},
+			}}),
+		},
+	}})
+	blocks := got[0].Content
+	if len(blocks) != 2 || blocks[1].Kind != "annotations" || len(blocks[1].Annotations) != 1 || blocks[1].Annotations[0].Body != "why" {
+		t.Fatalf("content = %+v", blocks)
+	}
+}

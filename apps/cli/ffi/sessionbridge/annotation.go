@@ -18,9 +18,11 @@ type Annotation struct {
 	// WorkspaceID identifies a file annotation's workspace.
 	WorkspaceID string
 	// TargetID and TargetRevision identify a diff annotation's observation,
-	// and Side is its "old" or "new" side.
+	// and Side is its "old" or "new" side. TargetKind is "working_tree",
+	// "commit", or "branch".
 	TargetID       string
 	TargetRevision string
+	TargetKind     string
 	Side           string
 	Path           string
 	FileRevision   string
@@ -45,7 +47,7 @@ func Summaries(source []protocol.AnnotationSummary) []Annotation {
 }
 
 func summaryAnnotation(summary protocol.AnnotationSummary) Annotation {
-	projected := anchored(summary.Anchor)
+	projected := anchored(summary.Anchor, summary.DiffTarget)
 	projected.ID = summary.ID
 	projected.Body, projected.Preview = summary.BodyPreview, summary.Preview
 	projected.Stale, projected.StaleReason = summary.Stale, string(summary.StaleReason)
@@ -63,14 +65,31 @@ func Record(annotation protocol.Annotation) Annotation {
 	})
 }
 
-func anchored(anchor protocol.AnnotationAnchor) Annotation {
+func anchored(anchor protocol.AnnotationAnchor, target *protocol.PinnedDiffTarget) Annotation {
 	if file := anchor.WorkspaceFile; file != nil {
 		return Annotation{Kind: "file", WorkspaceID: file.WorkspaceID, Path: file.Path, FileRevision: file.FileRevision, StartLine: file.StartLine, EndLine: file.EndLine}
 	}
 	if diff := anchor.WorkingTreeDiff; diff != nil {
-		return Annotation{Kind: "diff", TargetID: diff.TargetID, TargetRevision: diff.TargetRevision, Side: diff.Side, Path: diff.Path, FileRevision: diff.FileRevision, StartLine: diff.StartLine, EndLine: diff.EndLine}
+		kind := protocol.DiffTargetWorkingTree
+		if target != nil {
+			kind = target.Kind
+		}
+		return Annotation{Kind: "diff", TargetID: diff.TargetID, TargetRevision: diff.TargetRevision, TargetKind: kind, Side: diff.Side, Path: diff.Path, FileRevision: diff.FileRevision, StartLine: diff.StartLine, EndLine: diff.EndLine}
 	}
 	return Annotation{}
+}
+
+// Submitted projects the annotations a sent message carries, with their
+// whole notes and frozen source.
+func Submitted(source []protocol.SubmittedAnnotation) []Annotation {
+	result := make([]Annotation, 0, len(source))
+	for _, annotation := range source {
+		projected := anchored(annotation.Anchor, annotation.DiffTarget)
+		projected.ID = annotation.OriginalAnnotationID
+		projected.Body, projected.Preview = annotation.Body, annotation.Preview.Text
+		result = append(result, projected)
+	}
+	return result
 }
 
 // bounded cuts text to the summary bound without splitting a character.

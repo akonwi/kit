@@ -67,10 +67,16 @@ struct HostProps {
 struct Host {
   model: mut Model,
   themes: theme::Context,
+  // User messages whose annotations are expanded.
+  expanded_notes: [Str: Bool],
 }
 
 fn host(props: mut HostProps) mut Host {
-  (mut Host{model: props.model, themes: props.themes})
+  (mut Host{
+    model: props.model,
+    themes: props.themes,
+    expanded_notes: [:],
+  })
 }
 
 impl cui::Component for Host {
@@ -100,6 +106,12 @@ impl cui::Component for Host {
           folded: self.model.folded,
           toggle: fn(id: Str) {
             self.model.folded.set(id, not self.model.folded.get(id).or(false))
+          },
+        },
+        notes: transcript_pane::Notes{
+          expanded: self.expanded_notes,
+          toggle: fn(id: Str) {
+            self.expanded_notes.set(id, not self.expanded_notes.get(id).or(false))
           },
         },
         plugins: transcript_pane::Plugins{
@@ -179,6 +191,7 @@ fn identified_message(id: Str, role: transcript::Role, text: Str, pending: Bool)
     aborted: false,
     pending: pending,
     attachments: [],
+    annotations: [],
     bash: Maybe::new<sessionbridge::Bash>(),
     plugin_id: "",
     details: "",
@@ -309,6 +322,7 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
         aborted: false,
         pending: false,
         attachments: [],
+        annotations: [],
         bash: Maybe::new<sessionbridge::Bash>(),
         plugin_id: "",
         details: "",
@@ -2504,4 +2518,98 @@ test fn thinking_no_run_takes_in_shows_muted_and_italic() Void!Str {
     same_color(cell.style.foreground, colors.muted) and cell.style.italic,
     "thinking is muted italic",
   )
+}
+
+test fn sent_annotations_expand_from_one_row() Void!Str {
+  let terminal = headless::new(40, 16)
+  defer terminal.destroy()
+  let sent = mut identified_message("user-1", transcript::Role::user, "tighten these", false)
+  sent.annotations = [
+    sessionbridge::Annotation{
+      ID: Uint64::from(1),
+      Kind: "file",
+      Path: "tui/shell.ard",
+      StartLine: 3,
+      EndLine: 6,
+      Body: "Keep the cursor visible.",
+      Preview: "one\ntwo\nthree\nfour",
+    },
+    sessionbridge::Annotation{
+      ID: Uint64::from(2),
+      Kind: "diff",
+      Side: "old",
+      Path: "main.go",
+      StartLine: 9,
+      EndLine: 9,
+      Body: "Why?",
+      Preview: "x := 1",
+    },
+  ]
+  let model = mut Model{
+    messages: [sent.@],
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  let collapsed = shown_rows(terminal)
+  try expect_rows(
+    collapsed,
+    [
+      " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄",
+      "   tighten these",
+      "",
+      "   🗨️ 2 annotations ▸",
+      " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+      "",
+    ],
+  )
+  terminal.click(6, 16 - collapsed.size() + 3)
+  settle(terminal)
+  expect_rows(
+    shown_rows(terminal),
+    [
+      " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ │",
+      "   tighten these                       ┃",
+      "                                       ┃",
+      "   🗨️ 2 annotations ▾                  ┃",
+      "                                       ┃",
+      "   ▎ tui/shell.ard:3–6                 ┃",
+      "   ▎   one                             ┃",
+      "   ▎   two                             ┃",
+      "   ▎   three …                         ┃",
+      "   ▎ Keep the cursor visible.          ┃",
+      "                                       ┃",
+      "   ▎ main.go −9                        ┃",
+      "   ▎   x := 1                          ┃",
+      "   ▎ Why?                              ┃",
+      " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ┃",
+      "                                       ┃",
+    ],
+  )
+}
+
+// The rows from the first that shows anything.
+fn shown_rows(terminal: headless::TestApp) [Str] {
+  let all = rows(terminal)
+  let kept = mut List::new<Str>()
+  for row in all {
+    if kept.size() > 0 or row != "" {
+      kept.push(row)
+    }
+  }
+  kept.@
 }

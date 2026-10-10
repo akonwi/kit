@@ -6,6 +6,7 @@ use go:github.com/akonwi/vaxis
 use go:kit/ffi/pluginmessage
 use go:kit/ffi/sessionbridge
 use go:kit/ffi/toolpresentation
+use kit/tui/annotations
 use kit/tui/attachments
 use kit/tui/controls
 use kit/tui/image_preview
@@ -87,6 +88,14 @@ struct Images {
   request: fn(Str),
 }
 
+// Annotations sent with user messages. Clicking a message's annotations
+// row expands or collapses them.
+struct Notes {
+  // Message IDs whose annotations are expanded.
+  expanded: [Str: Bool],
+  toggle: fn(Str),
+}
+
 // Direct shell runs. A finished run's header folds and unfolds its output.
 struct Bash {
   // Execution IDs whose output is folded.
@@ -153,6 +162,7 @@ struct Props {
   images: Images,
   bash: Bash,
   plugins: Plugins,
+  notes: Notes,
   work: Work,
   // Requests the next earlier page. Repeated requests while one is in flight
   // are ignored by the owner.
@@ -325,6 +335,7 @@ impl Pane {
     let images = self.props.images
     let bash = self.props.bash
     let plugins = self.props.plugins
+    let notes = self.props.notes
     let work = self.props.work
     let colors = themes.current()
     self.tail_key = ""
@@ -384,7 +395,7 @@ impl Pane {
           render_item: fn(entry: Entry) cui::View {
             match entry.status {
               true => self.history_row(),
-              false => transcript_row(themes, images, bash, plugins, work, entry),
+              false => transcript_row(themes, images, bash, plugins, notes, work, entry),
             }
           },
           estimated_height: 4,
@@ -515,6 +526,7 @@ private fn transcript_row(
   images: Images,
   bash: Bash,
   plugins: Plugins,
+  notes: Notes,
   work: Work,
   entry: Entry,
 ) cui::View {
@@ -524,7 +536,7 @@ private fn transcript_row(
   }
   let view = match entry.work {
     run => work_view(themes, images, work, run),
-    _ => entry_view(themes, images, bash, plugins, entry.key, entry.message).or(layout::blank()),
+    _ => entry_view(themes, images, bash, plugins, notes, entry.key, entry.message).or(layout::blank()),
   }
   cui::box(
     [view],
@@ -545,7 +557,9 @@ private fn renders(message: transcript::Message) Bool {
   match message.role {
     // Buffer streamed prose in the model, but reveal it only after the
     // assistant message settles so incomplete Markdown never reaches layout.
-    transcript::Role::user => message.text != "" or message.attachments.size() > 0,
+    transcript::Role::user => {
+      message.text != "" or message.attachments.size() > 0 or message.annotations.size() > 0
+    },
     transcript::Role::assistant => {
       let settled = message.text != "" and not message.pending
       settled or transcript::only_thinks(message)
@@ -562,12 +576,13 @@ private fn entry_view(
   images: Images,
   bash: Bash,
   plugins: Plugins,
+  notes: Notes,
   key: Str,
   message: transcript::Message,
 ) cui::View? {
   let colors = themes.current()
   match message.role {
-    transcript::Role::user => user_entry(themes, images, key, message),
+    transcript::Role::user => user_entry(themes, images, notes, key, message),
     transcript::Role::assistant => {
       let tone = match {
         message.aborted => colors.muted,
@@ -630,11 +645,12 @@ private fn entry_view(
 private fn user_entry(
   themes: theme::Context,
   images: Images,
+  notes: Notes,
   key: Str,
   message: transcript::Message,
 ) cui::View? {
   let colors = themes.current()
-  match message.text == "" and message.attachments.size() == 0 {
+  match message.text == "" and message.attachments.size() == 0 and message.annotations.size() == 0 {
     true => Maybe::new<cui::View>(),
     false => {
       let body = mut List::new<cui::View>()
@@ -663,6 +679,20 @@ private fn user_entry(
               open(id)
             }),
           )
+        }
+      }
+      if message.annotations.size() > 0 {
+        if message.text != "" and message.attachments.size() == 0 {
+          body.push(cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)))
+        }
+        let expanded = notes.expanded.get(message.id).or(false)
+        body.push(
+          annotations_label(colors, notes, message.id, message.annotations.size(), expanded),
+        )
+        if expanded {
+          for annotation in message.annotations {
+            body.push(sent_annotation(colors, annotation))
+          }
         }
       }
       let edge = fn(glyph: Str) cui::View {
@@ -697,6 +727,124 @@ private fn user_entry(
       )
     },
   }
+}
+
+// A user message's annotations row, which expands or collapses them.
+private fn annotations_label(
+  colors: theme::Theme,
+  notes: Notes,
+  id: Str,
+  count: Int,
+  expanded: Bool,
+) cui::View {
+  let noun = match count == 1 {
+    true => "annotation",
+    false => "annotations",
+  }
+  let mark = match expanded {
+    true => "▾",
+    false => "▸",
+  }
+  let toggle = notes.toggle
+  cui::box(
+    [
+      layout::line(
+        "{annotations::glyph} {count} {noun} {mark}",
+        ui::text_style(foreground: colors.primary_text, background: colors.user_fill),
+      ),
+    ],
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+    ),
+    on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+      if received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+        toggle(id)
+        received.prevent_default()
+      }
+    },
+  )
+}
+
+// Lines of a sent annotation's source shown before the rest is cut.
+let sent_preview_lines = 3
+
+// A sent annotation, expanded: where it was, the start of its source as it
+// was then, and the note, beside an accent bar.
+private fn sent_annotation(colors: theme::Theme, annotation: sessionbridge::Annotation) cui::View {
+  let fill = colors.user_fill
+  let lines = strings::Split(strings::TrimRight(annotation.Preview, "\n"), "\n")
+  let shown = mut List::new<cui::View>()
+  shown.push(
+    cui::text(
+      annotations::location(annotation),
+      text_style: ui::text_style(foreground: colors.muted, background: fill),
+      wrap: ui::TextWrap::none,
+      overflow: ui::TextOverflow::ellipsis,
+    ),
+  )
+  for line, index in lines {
+    if index < sent_preview_lines {
+      let more = index == sent_preview_lines - 1 and lines.size() > sent_preview_lines
+      let source = strings::ReplaceAll(line, "\t", "  ")
+      shown.push(
+        cui::text(
+          match more {
+            true => "  {source} …",
+            false => "  {source}",
+          },
+          text_style: ui::text_style(foreground: colors.muted, background: fill),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      )
+    }
+  }
+  shown.push(
+    cui::text(
+      annotation.Body,
+      text_style: ui::text_style(foreground: colors.foreground, background: fill),
+    ),
+  )
+  cui::box(
+    [
+      cui::box(
+        [
+          cui::text(
+            strings::TrimSuffix(strings::Repeat("▎\n", 256), "\n"),
+            styles: ui::style(position: ui::Position::absolute, top: ui::cells(0), left: ui::cells(0)),
+            text_style: ui::text_style(foreground: colors.accent_text, background: fill),
+            selectable: false,
+          ),
+        ],
+        styles: ui::style(
+          width: ui::cells(2),
+          flex_shrink: 0.0,
+          position: ui::Position::relative,
+          overflow: ui::Overflow::hidden,
+        ),
+      ),
+      cui::box(
+        shown.@,
+        styles: ui::style(
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+          flex_direction: ui::FlexDirection::column,
+        ),
+      ),
+    ],
+    styles: ui::style(
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+      margin: ui::Edges{
+        top: ui::cells(1),
+        right: ui::cells(0),
+        bottom: ui::cells(0),
+        left: ui::cells(0),
+      },
+    ),
+  )
 }
 
 // One attached file in a user message. An image's row toggles its preview.

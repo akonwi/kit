@@ -3,8 +3,11 @@ use ard/testing
 use go:api/contract as protocol
 use cooper
 use cooper/cui
+use cooper/event
 use cooper/testing as headless
 use cooper/ui
+use go:kit/ffi/sessionbridge
+use kit/tui/annotations
 use kit/tui/diff_pane
 use kit/tui/theme
 use go:strings
@@ -98,6 +101,10 @@ fn props(
     pick_target: fn(request: diff_pane::TargetRequest) {},
     wrap: false,
     set_wrap: fn(wrap: Bool) {},
+    annotations: [],
+    remove_annotation: fn(id: Uint64) {},
+    release_focus: fn() {},
+    reveal: diff_pane::no_reveal(),
   }
 }
 
@@ -452,5 +459,327 @@ test fn the_split_rule_spans_a_wrapped_row() Void!Str {
       " 2   after                                                   │ 2   after                                                   │",
       "───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│",
     ],
+  )
+}
+
+// What an annotated Diff pane asked of the session.
+struct Calls {
+  saved: [Str],
+  removed: [Uint64],
+}
+
+fn calls() mut Calls {
+  (mut Calls{saved: [], removed: []})
+}
+
+// Props for an annotated pane over `observed` and `read`, recording what
+// it asks.
+fn annotated(notes: [sessionbridge::Annotation], recorded: mut Calls, reveal: diff_pane::Reveal) diff_pane::Props {
+  let made = mut props(Maybe::new(observed), Maybe::new(read))
+  made.annotations = notes
+  made.annotate = Maybe::new(
+    annotations::Service{
+      create: fn(anchor: protocol::AnnotationAnchor, body: Str) Str {
+        let diff = anchor.WorkingTreeDiff.@
+        recorded.saved.push(
+          "create {diff.TargetID}@{diff.TargetRevision} {diff.Path}@{diff.FileRevision} {diff.Side} {diff.StartLine}-{diff.EndLine}: {body}",
+        )
+        ""
+      },
+      update: fn(id: Uint64, body: Str) Str {
+        recorded.saved.push("update {id}: {body}")
+        ""
+      },
+      remove: fn(id: Uint64) Str {
+        ""
+      },
+      body: fn(id: Uint64) Str!Str {
+        Result::ok("")
+      },
+    },
+  )
+  made.remove_annotation = fn(id: Uint64) {
+    recorded.removed.push(id)
+  }
+  made.reveal = reveal
+  made.@
+}
+
+fn diff_note(id: Int, side: Str, start: Int, end: Int, body: Str) sessionbridge::Annotation {
+  sessionbridge::Annotation{
+    ID: Uint64::fit(id),
+    Kind: "diff",
+    TargetID: "difftarget_1",
+    TargetRevision: "revision_1",
+    TargetKind: "working_tree",
+    Side: side,
+    Path: "main.go",
+    FileRevision: "file_1",
+    StartLine: start,
+    EndLine: end,
+    Body: body,
+  }
+}
+
+fn typed(terminal: headless::TestApp, text: Str) {
+  for character in strings::Split(text, "") {
+    terminal.key(
+      event::key(
+        character,
+        character,
+        event::KeyEventType::press,
+        event::Modifiers{
+          shift: false,
+          ctrl: false,
+          alt: false,
+          super: false,
+        },
+      ),
+    )
+  }
+  terminal.flush()
+}
+
+fn wait_until(terminal: headless::TestApp, done: fn() Bool) {
+  mut attempts = 0
+  while attempts < 200 and not done() {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+}
+
+fn left_drag(terminal: headless::TestApp, x: Int, y: Int) {
+  terminal.mouse(
+    event::mouse(
+      event::MouseEventType::drag,
+      event::MouseButton::left,
+      x,
+      y,
+      event::Modifiers{
+        shift: false,
+        ctrl: false,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+}
+
+test fn a_hovered_lines_plus_annotates_its_side() Void!Str {
+  let recorded = calls()
+  let terminal = headless::new(44, 16)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(annotated([], recorded, diff_pane::no_reveal())),
+  )
+  defer renderer.destroy()
+  wait_for(terminal, "var y")
+  terminal.mouse_move(20, 6)
+  terminal.flush()
+  let colors = theme::system()
+  let plus = terminal.frame().cell(5, 6).expect("the +")
+  try testing::assert(
+    same_color(plus.style.background, colors.primary) and rows(terminal).at(6).or("") == "   2 + var x = 2",
+    "the hovered line's marker becomes the +: {rows(terminal).at(6).or("")}",
+  )
+  terminal.click(5, 6)
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      " Working tree ▾  2 changed files   Wrap off",
+      "────────────────────────────────────────────",
+      " ▾ main.go                                 ┃",
+      "───────────────────────────────────────────┃",
+      " 1 1   package main                        ┃",
+      " 2   − var x = 1                           ┃",
+      "   2 + var x = 2                           ┃",
+      "       ┌─────────────────────────────────┐ ┃",
+      "       │                                 │ ┃",
+      "       │                                 │ ┃",
+      "       │                                 │ ┃",
+      "       │           Cancel      Comment   │ ┃",
+      "       └─────────────────────────────────┘ ┃",
+      "   3 + var y = 3                           ┃",
+      "───────────────────────────────────────────│",
+      " ▾ logo.png                                │",
+    ],
+  )
+  typed(terminal, "why")
+  terminal.key(
+    event::key(
+      "return",
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: false,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  wait_until(terminal, fn() Bool {
+    recorded.saved.size() > 0
+  })
+  testing::assert(
+    recorded.saved.at(0).or("") == "create difftarget_1@revision_1 main.go@file_1 new 2-2: why",
+    "an added line is on the new side: {recorded.saved.at(0).or("")}",
+  )
+}
+
+test fn a_range_keeps_to_the_side_it_starts_on() Void!Str {
+  let recorded = calls()
+  let terminal = headless::new(44, 16)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(annotated([], recorded, diff_pane::no_reveal())),
+  )
+  defer renderer.destroy()
+  wait_for(terminal, "var y")
+  terminal.mouse_move(20, 6)
+  terminal.flush()
+  terminal.mouse_down(5, 6)
+  left_drag(terminal, 5, 7)
+  left_drag(terminal, 20, 7)
+  terminal.flush()
+  let colors = theme::system()
+  let picked = terminal.frame().cell(30, 7).expect("a picked line")
+  try testing::assert(
+    same_color(picked.style.background, colors.surface_hovered),
+    "the picked lines are filled",
+  )
+  // An old line has no new number, so the range doesn't reach it.
+  left_drag(terminal, 20, 5)
+  terminal.mouse_up(20, 5)
+  terminal.flush()
+  typed(terminal, "both")
+  terminal.click(32, 12)
+  wait_until(terminal, fn() Bool {
+    recorded.saved.size() > 0
+  })
+  testing::assert(
+    recorded.saved.at(0).or("") == "create difftarget_1@revision_1 main.go@file_1 new 2-3: both",
+    "the range stays on the new side: {recorded.saved.at(0).or("")}",
+  )
+}
+
+test fn saved_notes_sit_under_their_last_line() Void!Str {
+  let recorded = calls()
+  let terminal = headless::new(44, 12)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(
+      annotated([diff_note(7, "old", 1, 2, "why drop it?")], recorded, diff_pane::no_reveal()),
+    ),
+  )
+  defer renderer.destroy()
+  wait_for(terminal, "drop it")
+  try expect_rows(
+    rows(terminal),
+    [
+      " Working tree ▾  2 changed files   Wrap off",
+      "────────────────────────────────────────────",
+      " ▾ main.go                                 ┃",
+      "───────────────────────────────────────────┃",
+      " 1 1   package main                        ┃",
+      " 2   − var x = 1                           ┃",
+      "     ×  🗨️ why drop it?                    ┃",
+      "   2 + var x = 2                           ┃",
+      "   3 + var y = 3                           ┃",
+      "───────────────────────────────────────────┃",
+      " ▾ logo.png                                ┃",
+      "───────────────────────────────────────────│",
+    ],
+  )
+  let colors = theme::system()
+  try testing::assert(
+    same_color(terminal.frame().cell(1, 4).expect("a context line").style.background, colors.primary),
+    "a context line's old number is annotated",
+  )
+  terminal.click(5, 6)
+  terminal.flush()
+  testing::assert(
+    recorded.removed.size() == 1 and recorded.removed.at(0).or(Uint64::from(0)) == Uint64::from(7),
+    "its × removes it",
+  )
+}
+
+test fn a_chip_reveals_its_lines() Void!Str {
+  let recorded = calls()
+  let terminal = headless::new(44, 8)
+  defer terminal.destroy()
+  let reveal = diff_pane::Reveal{
+    opening: 1,
+    target_id: "difftarget_1",
+    working_tree: true,
+    path: "main.go",
+    side: "new",
+    line: 3,
+  }
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(annotated([], recorded, reveal)),
+  )
+  defer renderer.destroy()
+  wait_for(terminal, "var y")
+  wait_until(terminal, fn() Bool {
+    rows(terminal).at(2).or("") != " ▾ main.go"
+  })
+  testing::assert(
+    strings::Contains(terminal.frame().text(), "   3 + var y = 3"),
+    "the lines are scrolled into view: {strings::Join(mut rows(terminal), "|\n")}",
+  )
+}
+
+test fn split_halves_annotate_their_own_side() Void!Str {
+  let recorded = calls()
+  let terminal = headless::new(124, 10)
+  defer terminal.destroy()
+  let made = mut annotated([diff_note(3, "old", 3, 3, "keep z")], recorded, diff_pane::no_reveal())
+  made.read = Maybe::new(paired_read)
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(made.@),
+  )
+  defer renderer.destroy()
+  wait_for(terminal, "var z")
+  terminal.click(column_of(terminal, 0, "Unified") + 2, 0)
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(7).or("") == "   ×  🗨️ keep z                                              │                                                             │",
+    "an old note sits in the old half: {strings::Join(mut rows(terminal), "|\n")}",
+  )
+  // The new half's line 1 is a context line; its + annotates the new side.
+  terminal.mouse_move(80, 4)
+  terminal.flush()
+  terminal.click(64, 4)
+  terminal.flush()
+  typed(terminal, "x")
+  terminal.key(
+    event::key(
+      "return",
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: false,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  wait_until(terminal, fn() Bool {
+    recorded.saved.size() > 0
+  })
+  testing::assert(
+    recorded.saved.at(0).or("") == "create difftarget_1@revision_1 main.go@file_1 new 1-1: x",
+    "the right half is the new side: {recorded.saved.at(0).or("")}",
   )
 }

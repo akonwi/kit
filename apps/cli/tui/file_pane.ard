@@ -5,7 +5,6 @@ use ard/unsafe
 use go:api/contract as protocol
 use cooper/cui
 use cooper/event
-use cooper/keymap
 use cooper/ui
 use go:fmt
 use go:github.com/akonwi/kit/internal/highlight
@@ -15,7 +14,6 @@ use go:kit/ffi/sessionbridge
 use kit/tui/after_commit
 use kit/tui/annotations
 use kit/tui/code
-use kit/tui/controls
 use kit/tui/format
 use kit/tui/layout
 use kit/tui/theme
@@ -279,20 +277,6 @@ private struct Lines {
   end: Int,
 }
 
-// The note editor's lines and text. `id` is the annotation it edits, or 0
-// for a new one on `revision`.
-private struct Editing {
-  start: Int,
-  end: Int,
-  id: Uint64,
-  revision: Str,
-  draft: Str,
-  // Whether the body is still loading, or a save is under way.
-  loading: Bool,
-  saving: Bool,
-  failure: Str,
-}
-
 private struct Pane {
   props: mut Props,
   context: cui::Context?,
@@ -319,9 +303,7 @@ private struct Pane {
   was_shown: Bool,
   // The line a gutter press started on, while it is held; else 0.
   drag_from: Int,
-  editing: Editing?,
-  // Counts editor openings, so a superseded load or save is ignored.
-  edit_generation: Int,
+  editing: mut annotations::Drafting,
 }
 
 private fn new(props: mut Props) mut Pane {
@@ -345,8 +327,7 @@ private fn new(props: mut Props) mut Pane {
     reveal: false,
     was_shown: false,
     drag_from: 0,
-    editing: Maybe::new<Editing>(),
-    edit_generation: 0,
+    editing: annotations::drafting(),
   })
 }
 
@@ -361,7 +342,7 @@ impl cui::Lifecycle for Pane {
 
   fn mut unmounting(context: cui::Context) {
     self.generation =+ 1
-    self.edit_generation =+ 1
+    self.editing.close()
     self.stop_highlight()
     self.context = Maybe::new<cui::Context>()
   }
@@ -596,8 +577,8 @@ impl Pane {
 
   // The lines being picked or annotated, or 0 to 0.
   private fn picked() Lines {
-    match self.editing {
-      editing => Lines{start: editing.start, end: editing.end},
+    match self.editing.current {
+      draft => Lines{start: draft.start, end: draft.end},
       _ => {
         match {
           self.drag_from == 0 => Lines{start: 0, end: 0},
@@ -617,7 +598,7 @@ impl Pane {
     for note in notes {
       ends.set(note.EndLine, true)
     }
-    let editing = self.editing
+    let editing = self.editing.current
     let edited = match editing {
       open => open.id,
       _ => Uint64::from(0),
@@ -718,19 +699,19 @@ impl Pane {
       self.drag_from = 0
       match self.read {
         file => {
-          if self.can_annotate() and self.editing.is_none() {
-            self.edit_generation =+ 1
-            self.editing = Maybe::new(
-              Editing{
-                start: range.start,
-                end: range.end,
-                id: Uint64::from(0),
-                revision: file.Revision,
-                draft: "",
-                loading: false,
-                saving: false,
-                failure: "",
-              },
+          if self.can_annotate() and not self.editing.is_open() {
+            self.editing.begin(
+              file.Path,
+              "",
+              range.start,
+              range.end,
+              sessionbridge::FileAnchor(
+                file.Workspace.WorkspaceID,
+                file.Path,
+                file.Revision,
+                range.start,
+                range.end,
+              ),
             )
           }
         },
@@ -747,7 +728,7 @@ impl Pane {
       // A held press's drags go to the gutter it started in; the lines it
       // crosses learn of it as the pointer enters them.
       self.extend(number)
-    } else if kind == event::MouseEventType::move and received.button == event::MouseButton::none and self.editing.is_none() and self.drag_from == 0 {
+    } else if kind == event::MouseEventType::move and received.button == event::MouseButton::none and (not self.editing.is_open()) and self.drag_from == 0 {
       self.cursor = number
     }
   }
@@ -755,7 +736,7 @@ impl Pane {
   private fn mut gutter_mouse(number: Int, received: mut event::MouseEvent) {
     let kind = received.event_type
     if kind == event::MouseEventType::down and received.button == event::MouseButton::left {
-      if self.can_annotate() and self.editing.is_none() {
+      if self.can_annotate() and not self.editing.is_open() {
         self.drag_from = number
         self.cursor = number
         received.prevent_default()
@@ -777,7 +758,7 @@ impl Pane {
       current => ui::span_style(foreground: colors.foreground),
       _ => ui::span_style(foreground: colors.muted),
     }
-    let offers = current and self.can_annotate() and self.editing.is_none()
+    let offers = current and self.can_annotate() and (not self.editing.is_open())
     let spans = match offers {
       true => {
         [
@@ -842,234 +823,45 @@ impl Pane {
     )
   }
 
-  // A saved note under its last line: a × where the + would be, then the
-  // note, which a click edits.
   private fn mut note_view(note: sessionbridge::Annotation) cui::View {
-    let colors = self.props.themes.current()
-    let id = note.ID
     let remove = self.props.remove_annotation
-    let delete = keymap::simple_command("annotation.remove", "Remove annotation", fn() Bool {
-      remove(id)
-      true
-    })
-    let edit = keymap::simple_command("annotation.edit", "Edit annotation", fn() Bool {
-      self.begin_edit(note)
-      true
-    })
-    let body = match annotations::may_be_cut(note.Body) {
-      true => "{note.Body}…",
-      false => note.Body,
-    }
-    cui::box(
-      [
-        cui::box(
-          [
-            controls::button(
-              self.props.themes,
-              "×",
-              delete,
-              variant: controls::ButtonVariant::secondary,
-              compact: true,
-              focusable: false,
-              foreground: colors.muted,
-            ),
-          ],
-          styles: ui::style(
-            width: ui::cells(self.digits() + 2),
-            flex_shrink: 0.0,
-            flex_direction: ui::FlexDirection::row,
-            justify_content: ui::Justify::end,
-          ),
-        ),
-        controls::button(
-          self.props.themes,
-          "{annotations::glyph} {body}",
-          edit,
-          variant: controls::ButtonVariant::secondary,
-          compact: true,
-          focusable: false,
-          stretch: true,
-          styles: ui::style(flex_grow: 1.0, flex_shrink: 1.0),
-        ),
-      ],
-      styles: ui::style(flex_direction: ui::FlexDirection::row, background: colors.surface),
+    annotations::note_row(
+      self.props.themes,
+      note,
+      self.digits() + 2,
+      fn() {
+        remove(note.ID)
+      },
+      fn() {
+        self.begin_edit(note)
+      },
     )
   }
 
   private fn mut editor_view() cui::View {
-    match self.editing {
-      editing => {
-        annotations::editor(
-          annotations::EditorProps{
-            themes: self.props.themes,
-            draft: editing.draft,
-            editing: editing.id != Uint64::from(0),
-            busy: editing.loading or editing.saving,
-            failure: editing.failure,
-            indent: self.digits() + 2,
-            input: fn(value: Str) {
-              self.edit_draft(value)
-            },
-            save: fn() {
-              self.save()
-            },
-            cancel: fn() {
-              self.close_editor()
-            },
-          },
-        )
+    let release = self.props.release_focus
+    self.editing.view(
+      self.props.themes,
+      self.digits() + 2,
+      self.context,
+      self.props.annotate,
+      fn() {
+        release()
       },
-      _ => cui::box([]),
-    }
+    )
   }
 
-  // Opens the editor on a saved note, loading its body when the snapshot
-  // may have cut it short.
   private fn mut begin_edit(note: sessionbridge::Annotation) {
-    if self.editing.is_none() and self.can_annotate() {
-      self.edit_generation =+ 1
-      let generation = self.edit_generation
-      let loading = annotations::may_be_cut(note.Body)
-      self.editing = Maybe::new(
-        Editing{
-          start: note.StartLine,
-          end: note.EndLine,
-          id: note.ID,
-          revision: note.FileRevision,
-          draft: note.Body,
-          loading: loading,
-          saving: false,
-          failure: "",
-        },
-      )
+    if (not self.editing.is_open()) and self.can_annotate() {
       match self.context {
         context => {
           match self.props.annotate {
-            service => {
-              if loading {
-                let preview = note.Body
-                let dispatch = context.dispatch
-                async::start(fn() {
-                  let result = service.body(note.ID)
-                  let _ = dispatch(fn() {
-                    self.body_loaded(generation, preview, result)
-                  })
-                })
-              }
-            },
+            service => self.editing.edit(note, context, service),
             _ => (),
           }
         },
         _ => (),
       }
-    }
-  }
-
-  private fn mut body_loaded(generation: Int, preview: Str, result: Str!Str) {
-    match self.editing {
-      editing => {
-        if generation == self.edit_generation {
-          let next = mut editing
-          next.loading = false
-          match result {
-            ok(body) => {
-              // Text typed meanwhile is kept.
-              if next.draft == preview {
-                next.draft = body
-              }
-            },
-            err(failure) => { next.failure = failure },
-          }
-          self.editing = Maybe::new(next.@)
-        }
-      },
-      _ => (),
-    }
-  }
-
-  private fn mut edit_draft(value: Str) {
-    match self.editing {
-      editing => {
-        let next = mut editing
-        next.draft = value
-        self.editing = Maybe::new(next.@)
-      },
-      _ => (),
-    }
-  }
-
-  private fn mut save() {
-    match self.editing {
-      editing => {
-        match self.context {
-          context => {
-            match self.props.annotate {
-              service => {
-                let body = strings::TrimSpace(editing.draft)
-                if body != "" and not editing.loading or editing.saving {
-                  let next = mut editing
-                  next.saving = true
-                  next.failure = ""
-                  self.editing = Maybe::new(next.@)
-                  let generation = self.edit_generation
-                  let dispatch = context.dispatch
-                  let anchor = match self.read {
-                    file => {
-                      sessionbridge::FileAnchor(
-                        file.Workspace.WorkspaceID,
-                        file.Path,
-                        editing.revision,
-                        editing.start,
-                        editing.end,
-                      )
-                    },
-                    _ => protocol::AnnotationAnchor{},
-                  }
-                  async::start(fn() {
-                    let failure = match editing.id == Uint64::from(0) {
-                      true => service.create(anchor, body),
-                      false => service.update(editing.id, body),
-                    }
-                    let _ = dispatch(fn() {
-                      self.saved(generation, failure)
-                    })
-                  })
-                }
-              },
-              _ => (),
-            }
-          },
-          _ => (),
-        }
-      },
-      _ => (),
-    }
-  }
-
-  private fn mut saved(generation: Int, failure: Str) {
-    if generation == self.edit_generation {
-      match failure == "" {
-        true => self.close_editor(),
-        false => {
-          match self.editing {
-            editing => {
-              let next = mut editing
-              next.saving = false
-              next.failure = failure
-              self.editing = Maybe::new(next.@)
-            },
-            _ => (),
-          }
-        },
-      }
-    }
-  }
-
-  private fn mut close_editor() {
-    if self.editing.is_some() {
-      self.edit_generation =+ 1
-      self.editing = Maybe::new<Editing>()
-      self.props.release_focus()
     }
   }
 

@@ -155,6 +155,8 @@ struct Shell {
   scratchpad_control: mut scratchpad::PaneRef,
   // Whether Diff lines wrap, a saved preference.
   diff_wrap: Bool,
+  // The lines an annotation's chip last asked the Diff tab to show.
+  diff_reveal: diff_pane::Reveal,
   active_modal: Modal,
   // The notification host owns notifications; Shell only raises them.
   notifications: mut toast::Control,
@@ -190,6 +192,7 @@ fn new(props: mut Props) mut Shell {
     workspace: workspace::tabs(),
     scratchpad_control: scratchpad::pane_ref(),
     diff_wrap: props.options.DiffWrapLines,
+    diff_reveal: diff_pane::no_reveal(),
     active_modal: NoModal{},
     notifications: notifications,
     connect_button: cui::box_ref(),
@@ -473,6 +476,19 @@ impl Shell {
                     self.set_diff_wrap(wrap)
                   })
                 },
+                annotations: self.attached.annotations,
+                annotate: self.attached.annotation_service(),
+                remove_annotation: fn(id: Uint64) {
+                  self.dispatch(fn() {
+                    self.attached.remove_annotation(id)
+                  })
+                },
+                release_focus: fn() {
+                  self.dispatch(fn() {
+                    self.focus_composer()
+                  })
+                },
+                reveal: self.diff_reveal,
               },
             ),
           ],
@@ -787,6 +803,14 @@ impl Shell {
             })
           },
         },
+        notes: transcript_pane::Notes{
+          expanded: self.attached.expanded_notes,
+          toggle: fn(id: Str) {
+            self.dispatch(fn() {
+              self.attached.toggle_sent_annotations(id)
+            })
+          },
+        },
         plugins: transcript_pane::Plugins{
           expanded: self.attached.expanded_plugins,
           toggle: fn(turn_id: Str) {
@@ -856,12 +880,22 @@ impl Shell {
     }
   }
 
-  // Opens an annotation's lines: a file's in its File tab, in the current
-  // workspace even when the file has since changed, and a diff's in the
-  // Diff tab.
+  // Opens an annotation's lines: a diff's in the Diff tab, and a file's in
+  // its File tab. A stale one opens the file as it is now, to annotate
+  // again.
   fn mut open_annotation(annotation: sessionbridge::Annotation) {
-    match annotation.Kind == "diff" {
-      true => self.open_tab(workspace::diff()),
+    match annotation.Kind == "diff" and not annotation.Stale {
+      true => {
+        self.diff_reveal = diff_pane::Reveal{
+          opening: self.diff_reveal.opening + 1,
+          target_id: annotation.TargetID,
+          working_tree: annotation.TargetKind == "working_tree",
+          path: annotation.Path,
+          side: annotation.Side,
+          line: annotation.StartLine,
+        }
+        self.open_tab(workspace::diff())
+      },
       false => self.open_file(annotation.Path, annotation.StartLine),
     }
   }
@@ -1836,6 +1870,10 @@ impl Shell {
   // draft, autosave worker, and save-before-unmount handshake.
   fn mut close_tab(id: Str) {
     let selected = id == self.workspace.selected
+    // A reopened Diff tab starts without the last chip's lines.
+    if id == workspace::diff().id {
+      self.diff_reveal = diff_pane::no_reveal()
+    }
     if id == workspace::scratchpad().id and self.scratchpad_control.close(true) {
       ()
     } else if self.workspace.close(id) and selected {
