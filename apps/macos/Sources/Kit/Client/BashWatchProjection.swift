@@ -49,15 +49,7 @@ actor BashWatchProjection {
     private func publish() async {
         guard var session = latest else { return }
         if hasPoll { session.activeBashID = activeID }
-        for execution in executions {
-            if let index = session.messages.firstIndex(where: { $0.id == execution.id }) {
-                session.messages[index] = execution.message
-            } else if anchors[execution.id] == "" {
-                session.messages.insert(execution.message, at: 0)
-            } else if let anchor = anchors[execution.id], let index = session.messages.firstIndex(where: { $0.id == anchor }) {
-                session.messages.insert(execution.message, at: index + 1)
-            } else { session.messages.append(execution.message) }
-        }
+        session.messages = BashExecution.merge(executions, anchors: anchors, into: session.messages)
         lastPublishedID = session.messages.last?.id
         await receive(session)
     }

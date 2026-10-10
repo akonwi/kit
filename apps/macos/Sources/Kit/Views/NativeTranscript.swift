@@ -54,6 +54,9 @@ struct NativeTranscript: NSViewRepresentable {
     private(set) var indices: [String: Int] = [:]
     private var sections: [String: [TranscriptReadingSection]] = [:]
     private var arrival: String?
+    /// Source messages behind the current rows. Unchanged leading messages
+    /// keep their rows, so live updates do work proportional to the changed tail.
+    private var source: [TranscriptMessage] = []
 
     init(_ input: NativeTranscript) {
         self.input = input
@@ -320,7 +323,7 @@ struct NativeTranscript: NSViewRepresentable {
         // Snapshot/history loads retain the existing restoration behavior.
         if old.contains(where: { $0.id != Self.headerID }), input.active || next.active, follow.followsBottom,
            let last = next.messages.last, last.role == "assistant", !last.text.isEmpty,
-           !old.contains(where: { $0.id == "message:" + last.id }) {
+           indices["message:" + last.id] == nil {
             arrival = "message:" + last.id
         }
         let styleChanged = input.theme != next.theme || typography != next.typography
@@ -342,27 +345,15 @@ struct NativeTranscript: NSViewRepresentable {
             text: "\(next.hasHistory)|\(next.historyLoading)|\(next.historyError ?? "")", tools: [])
         // Namespace message identities separately from container-owned rows.
         let headers = next.hasHistory || next.historyError != nil ? [header] : []
-        // Replayed/overlapping updates must not give the native table duplicate
-        // identities. Keep the first position and the latest value for each ID.
-        // Normalize the rows themselves, not just the lookup used by anchors.
-        messages = headers
-        indices = [:]
-        for (index, row) in headers.enumerated() { indices[row.id] = index }
-        for message in next.messages {
-            let row = Self.row(from: message)
-            if let index = indices[row.id] {
-                messages[index] = row
-            } else {
-                indices[row.id] = messages.count
-                messages.append(row)
-            }
-        }
-        let diff = messages.map(\.id).difference(from: old.map(\.id))
+        let base = rebuildRows(from: next.messages, headers: headers)
+        source = next.messages
+        // Rows before `base` are unchanged in identity, position, and value.
+        let diff = messages[base...].map(\.id).difference(from: old[min(base, old.count)...].map(\.id))
         var removals = IndexSet(), insertions = IndexSet()
         for change in diff {
             switch change {
-            case .remove(let offset, _, _): removals.insert(offset)
-            case .insert(let offset, _, _): insertions.insert(offset)
+            case .remove(let offset, _, _): removals.insert(base + offset)
+            case .insert(let offset, _, _): insertions.insert(base + offset)
             }
         }
         if old.isEmpty { table.reloadData() }
@@ -375,8 +366,12 @@ struct NativeTranscript: NSViewRepresentable {
             table.insertRows(at: insertions, withAnimation: [])
             table.endUpdates()
         }
-        let previous = Dictionary(uniqueKeysWithValues: old.map { ($0.id, $0) })
-        for (row, message) in messages.enumerated() where previous[message.id] != message || styleChanged || activityChanged.contains(message.id) {
+        let previous = Dictionary(uniqueKeysWithValues: old[min(base, old.count)...].map { ($0.id, $0) })
+        var reconfigure = IndexSet(integersIn: (styleChanged ? 0 : base)..<messages.count)
+        for id in activityChanged { if let row = indices[id] { reconfigure.insert(row) } }
+        for row in reconfigure {
+            let message = messages[row]
+            guard row < base || previous[message.id] != message || styleChanged || activityChanged.contains(message.id) else { continue }
             heights.removeValue(forKey: message.id)
             heightOrder.removeAll { $0 == message.id }
             if !insertions.contains(row), let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false) as? NativeTranscriptCell {
@@ -389,6 +384,48 @@ struct NativeTranscript: NSViewRepresentable {
         if follow.followsBottom { positionAtBottom() }
         else if !diff.isEmpty, let saved { restore(saved) }
         publishVisibility()
+    }
+
+    /// Replaces `messages` and `indices` for `next`, reusing rows for its
+    /// unchanged leading messages. Returns how many leading rows are unchanged
+    /// in identity, position, and value.
+    private func rebuildRows(from next: [TranscriptMessage], headers: [TranscriptMessage], reuse: Bool = true) -> Int {
+        let oldHeaders = messages.first?.id == Self.headerID ? 1 : 0
+        // Rows map one-to-one onto source messages only when the previous
+        // update had no duplicate identities.
+        let reusable = reuse && oldHeaders == headers.count && messages.prefix(oldHeaders).elementsEqual(headers)
+            && messages.count == headers.count + source.count
+        var stable = 0
+        if reusable {
+            let limit = min(source.count, next.count)
+            while stable < limit, source[stable] == next[stable] { stable += 1 }
+        }
+        let retained = reusable ? headers.count + stable : 0
+        var rows: [TranscriptMessage]
+        if reusable {
+            rows = Array(messages.prefix(retained))
+            for row in messages[retained...] { indices.removeValue(forKey: row.id) }
+        } else {
+            rows = headers
+            indices = [:]
+            for (index, row) in headers.enumerated() { indices[row.id] = index }
+        }
+        // Replayed/overlapping updates must not give the native table duplicate
+        // identities. Keep the first position and the latest value for each ID.
+        // Normalize the rows themselves, not just the lookup used by anchors.
+        for message in next[stable...] {
+            let row = Self.row(from: message)
+            if let index = indices[row.id] {
+                // A duplicate of a retained row changes that row's value.
+                guard index >= retained else { return rebuildRows(from: next, headers: headers, reuse: false) }
+                rows[index] = row
+            } else {
+                indices[row.id] = rows.count
+                rows.append(row)
+            }
+        }
+        messages = rows
+        return retained
     }
 
     private func viewportChanged() {

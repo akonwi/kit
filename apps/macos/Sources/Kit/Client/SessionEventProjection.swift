@@ -17,6 +17,9 @@ struct SessionEventProjection {
     private var activeRunID: String?
     private var pendingInteractions: Set<String> = []
     private var thinkingTools: [String: String] = [:]
+    /// Row position of every tool call in `session.messages`. Positions are
+    /// verified on use because rare row removals can shift them.
+    private var toolRows: [String: Int] = [:]
 
     init(_ snapshot: WireSessionSnapshot, terminalError: String? = nil) throws {
         try self.init(session: SessionProjection.snapshot(snapshot), source: snapshot.messages ?? [],
@@ -51,6 +54,9 @@ struct SessionEventProjection {
         }
         persistedTools = Set(source.filter { $0.role == "tool" }.compactMap(\.toolCallId))
         lastTurn = source.last?.turnId
+        for (index, row) in self.session.messages.enumerated() {
+            for tool in row.tools { toolRows[tool.id] = index }
+        }
     }
 
     mutating func updateSubagents(_ snapshot: WireSessionSnapshot) throws {
@@ -147,7 +153,7 @@ struct SessionEventProjection {
                 let value = joined(thinking[id])
                 session.activity = value.split(separator: "\n").last.map(String.init) ?? "Thinking…"
                 if let toolID = thinkingTools[id],
-                   let row = session.messages.firstIndex(where: { $0.tools.contains { $0.id == toolID } }),
+                   let row = toolRow(toolID),
                    let tool = session.messages[row].tools.firstIndex(where: { $0.id == toolID }) {
                     session.messages[row].tools[tool].thinking = value
                 }
@@ -159,7 +165,7 @@ struct SessionEventProjection {
                 let message = TranscriptMessage(id: id, role: "assistant", text: value, tools: [])
                 // Completion can be delivered again without a new snapshot.
                 // Update the existing response without moving it past later rows.
-                if let index = session.messages.firstIndex(where: { $0.id == id }) {
+                if let index = session.messages.lastIndex(where: { $0.id == id }) {
                     session.messages[index] = message
                 } else {
                     session.messages.append(message)
@@ -168,7 +174,7 @@ struct SessionEventProjection {
             if let finalThinking = event.thinking {
                 thinking[id] = [-1: finalThinking]
                 if let toolID = thinkingTools[id],
-                   let row = session.messages.firstIndex(where: { $0.tools.contains { $0.id == toolID } }),
+                   let row = toolRow(toolID),
                    let tool = session.messages[row].tools.firstIndex(where: { $0.id == toolID }) {
                     session.messages[row].tools[tool].thinking = finalThinking
                 }
@@ -180,7 +186,7 @@ struct SessionEventProjection {
             guard let id = event.toolCallId, !id.isEmpty, let name = event.toolName, !name.isEmpty else { throw ClientError.invalidPayload }
             guard !persistedTools.contains(id) else { return }
             session.activity = "Working…"
-            var row = session.messages.firstIndex { $0.tools.contains { $0.id == id } }
+            var row = toolRow(id)
             if row == nil {
                 if lastTurn == event.turnId, session.messages.last?.role == "tools" { row = session.messages.count - 1 }
                 else {
@@ -189,6 +195,7 @@ struct SessionEventProjection {
                 }
             }
             let index = row!
+            toolRows[id] = index
             let old = session.messages[index].tools.first { $0.id == id }
             let output = SessionProjection.visibleText(event.content ?? [])
             let completed = event.kind == "tool.completed"
@@ -278,6 +285,22 @@ struct SessionEventProjection {
     private mutating func retainPluginInteractions() {
         session.pendingInteractions = (session.pendingInteractions ?? []).filter { $0.plugin != nil }
         pendingInteractions = Set((session.pendingInteractions ?? []).map(\.id))
+    }
+
+    /// The row containing a tool call, without scanning the transcript when
+    /// the recorded position is still accurate.
+    private mutating func toolRow(_ id: String) -> Int? {
+        if let index = toolRows[id], session.messages.indices.contains(index),
+           session.messages[index].tools.contains(where: { $0.id == id }) {
+            return index
+        }
+        guard toolRows[id] != nil,
+              let index = session.messages.lastIndex(where: { $0.tools.contains { $0.id == id } }) else {
+            toolRows[id] = nil
+            return nil
+        }
+        toolRows[id] = index
+        return index
     }
 
     private static func status(runID: String?, pending: Set<String>) -> SessionTabStatus {

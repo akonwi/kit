@@ -36,6 +36,48 @@ import Testing
         #expect(adapter.indices == ["message:b": 0, "message:a": 1])
     }
 
+    @Test func incrementalUpdatesMatchAFreshTranscript() {
+        func message(_ id: String, _ text: String, role: String = "assistant") -> TranscriptMessage {
+            TranscriptMessage(id: id, role: role, text: text, tools: [])
+        }
+        let presentation = TranscriptPresentationState(), workspace = WorkspaceState(demo: false)
+        let theme = MicaTheme(dark: false)
+        func input(_ messages: [TranscriptMessage], hasHistory: Bool = true) -> NativeTranscript {
+            NativeTranscript(messages: messages, hasHistory: hasHistory, historyLoading: false, historyError: nil,
+                active: true, presentation: presentation, workspace: workspace, resumeRequest: 0,
+                latestOutOfView: .constant(false), loadHistory: {}, theme: theme)
+        }
+        let a = message("a", "First", role: "user"), b = message("b", "Partial"), c = message("c", "Third")
+        let steps: [(String, NativeTranscript)] = [
+            ("initial", input([a, b])),
+            ("append", input([a, b, c])),
+            ("tail edit", input([a, b, message("c", "Third, revised")])),
+            ("middle edit", input([a, message("b", "Complete"), message("c", "Third, revised")])),
+            ("prepend history", input([message("z", "Older", role: "user"), a, message("b", "Complete"), message("c", "Third, revised")])),
+            ("remove", input([message("z", "Older", role: "user"), a, message("c", "Third, revised")])),
+            ("duplicate of retained row", input([message("z", "Older", role: "user"), a, message("c", "Third, revised"), message("a", "Replayed")])),
+            ("after duplicate", input([message("z", "Older", role: "user"), a, message("c", "Third, revised"), message("d", "Fourth")])),
+            ("history exhausted", input([message("z", "Older", role: "user"), a, message("c", "Third, revised"), message("d", "Fourth")], hasHistory: false)),
+            ("cleared", input([], hasHistory: false))
+        ]
+        let adapter = NativeTranscriptCoordinator(steps[0].1)
+        defer { adapter.stop() }
+        for (name, step) in steps {
+            adapter.receive(step)
+            let fresh = NativeTranscriptCoordinator(step)
+            fresh.receive(step)
+            defer { fresh.stop() }
+            #expect(adapter.messages == fresh.messages, "\(name)")
+            #expect(adapter.indices == fresh.indices, "\(name)")
+            #expect(adapter.table.numberOfRows == fresh.messages.count, "\(name)")
+        }
+        // The duplicate step keeps the first position with the latest value.
+        let replayed = steps[6].1
+        adapter.receive(replayed)
+        #expect(adapter.messages.map(\.id) == ["native-transcript-header", "message:z", "message:a", "message:c"])
+        #expect(adapter.messages.map(\.text).dropFirst() == ["Older", "Replayed", "Third, revised"])
+    }
+
     @Test func transcriptColumnRemainsCenteredAcrossResizes() async throws {
         let input = NativeTranscript(messages: [
             TranscriptMessage(id: "message", role: "user", text: "Identical transcript content", tools: [])

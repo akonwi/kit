@@ -226,6 +226,35 @@ struct SessionEventProjectionTests {
         #expect(state.session.messages[0].tools[0].failed)
         #expect(state.session.messages[0].tools[0].arguments == "{}")
     }
+    @Test func unfinishedSnapshotToolCallReceivesLiveUpdatesInPlace() throws {
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot())) as! [String: Any]
+        json["activeTurnId"] = "t"
+        json["messages"] = [
+            ["id": "question", "turnId": "t", "sequence": 1, "role": "user", "createdAt": "",
+             "content": [["kind": "text", "text": "Read it"]]],
+            ["id": "assistant", "turnId": "t", "sequence": 2, "role": "assistant", "createdAt": "", "stopReason": "toolUse",
+             "content": [["kind": "toolCall", "toolCallId": "a", "toolName": "read"]]]
+        ]
+        var state = try SessionEventProjection(JSONDecoder().decode(WireSessionSnapshot.self, from: JSONSerialization.data(withJSONObject: json)))
+        try state.apply(event("tool.completed", ["toolCallId": "a", "toolName": "read", "content": [["kind": "text", "text": "Contents"]]]))
+        #expect(state.session.messages.map(\.id) == ["question", "tools-a"])
+        #expect(state.session.messages[1].tools.map(\.id) == ["a"])
+        #expect(state.session.messages[1].tools[0].status == "Completed")
+        #expect(state.session.messages[1].tools[0].output == "Contents")
+    }
+
+    @Test func toolUpdatesFollowRowsAfterEarlierRowsAreRemoved() throws {
+        var state = try SessionEventProjection(snapshot())
+        try state.apply(event("user.message.added", ["text": "Annotations"]))
+        try state.apply(event("tool.started", ["toolCallId": "a", "toolName": "read"]))
+        #expect(state.session.messages.map(\.id) == ["live-user-t", "tools-a"])
+        state.discardAnnotationPreview()
+        try state.apply(event("tool.completed", ["toolCallId": "a", "toolName": "read", "content": [["kind": "text", "text": "Done"]]]))
+        #expect(state.session.messages.map(\.id) == ["tools-a"])
+        #expect(state.session.messages[0].tools.map(\.status) == ["Completed"])
+        #expect(state.session.messages[0].tools.map(\.output) == ["Done"])
+    }
+
     @Test func thinkingStreamsButProseAppearsAtomically() throws {
         var state = try SessionEventProjection(snapshot())
         try state.apply(event("assistant.started", ["messageId": "m"]))
