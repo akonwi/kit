@@ -46,34 +46,26 @@ fn item(key: Str, label: Str, search: Str?, detail: Str?, meta: Str?, aliases: [
   }
 }
 
-// Columns sizes the label and meta of rows with details, from the whole
-// catalog so filtering never shifts them, within the palette's caps.
-struct Columns {
-  label: Int,
-  meta: Int,
-}
+// Columns lays out rows with details as the palette does: the label first,
+// sized from the whole catalog so filtering never shifts it.
+type Columns = palette::Columns
 
 fn columns(catalog: [Item]) Columns {
-  mut label = 1
-  mut meta = 0
+  let rows = mut List::new<palette::Item>()
   for entry in catalog {
-    if entry.label.size() > label {
-      label = entry.label.size()
-    }
-    if entry.meta.size() > meta {
-      meta = entry.meta.size()
-    }
+    rows.push(
+      palette::Item{
+        key: entry.key,
+        label: entry.label,
+        hint: "",
+        description: entry.detail,
+        meta: entry.meta,
+        search_terms: [],
+        disabled_reason: "",
+      },
+    )
   }
-  Columns{
-    label: match label > 32 {
-      true => 32,
-      false => label,
-    },
-    meta: match meta > 20 {
-      true => 20,
-      false => meta,
-    },
-  }
+  palette::columns(rows.@)
 }
 
 // filter returns the items matching query in catalog order, using the
@@ -557,15 +549,13 @@ impl Picker {
       columns => {
         cui::box(
           [
-            cui::text(
-              text,
-              styles: ui::style(width: ui::cells(columns.label + 2), flex_shrink: 0.0),
-              wrap: ui::TextWrap::none,
-              overflow: ui::TextOverflow::ellipsis,
+            cui::box(
+              [cui::text(text, wrap: ui::TextWrap::none, overflow: ui::TextOverflow::ellipsis)],
+              styles: palette::label_column(columns),
             ),
             cui::text(
               item.detail,
-              styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+              styles: palette::description_column(columns),
               text_style: ui::text_style(foreground: colors.muted),
               wrap: ui::TextWrap::none,
               overflow: ui::TextOverflow::ellipsis,
@@ -579,12 +569,7 @@ impl Picker {
                   overflow: ui::TextOverflow::ellipsis,
                 ),
               ],
-              styles: ui::style(
-                width: ui::cells(columns.meta + 2),
-                flex_shrink: 0.0,
-                flex_direction: ui::FlexDirection::row,
-                justify_content: ui::Justify::end,
-              ),
+              styles: palette::meta_column(columns, 0),
             ),
           ],
           styles: ui::style(

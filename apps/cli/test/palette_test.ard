@@ -1087,3 +1087,126 @@ test fn labels_without_other_columns_fill_the_row() Void!Str {
   }
   testing::assert(found, "the whole path shows:\n{strings::Join(mut rows(terminal), "|\n")}")
 }
+
+test fn labels_without_descriptions_fill_the_row_beside_their_meta() Void!Str {
+  let terminal = headless::new(100, 8)
+  defer terminal.destroy()
+  let label = "6a0e72815ecc  fix(cli): size a workspace pane's gutter"
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    cui::child(
+      palette::new_picker,
+      palette::PickerProps{
+        themes: theme::context(theme::store(theme::system())),
+        catalog: [
+          palette::Item{
+            key: "commit",
+            label: label,
+            hint: "",
+            description: "",
+            meta: "commit",
+            search_terms: [],
+            disabled_reason: "",
+          },
+        ],
+        placeholder: "Search targets…",
+        initial_selection: "",
+        title: "Compare",
+        footer: "",
+        error: "",
+        dismiss: keymap::simple_command("test.targets.dismiss", "Dismiss", fn() Bool {
+          true
+        }),
+        on_query_change: fn(query: Str) {},
+        on_selection_change: fn(selected: Str) {},
+        on_activate: fn(item: palette::Item) {},
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  mut found = false
+  for row in rows(terminal) {
+    if strings::Contains(row, "▌{label}") and strings::HasSuffix(strings::TrimRight(row, " │"), "commit") {
+      found = true
+    }
+  }
+  testing::assert(
+    found,
+    "the whole label shows, then its meta:\n{strings::Join(mut rows(terminal), "|\n")}",
+  )
+}
+
+fn entry(label: Str, hint: Str, description: Str, meta: Str) palette::Item {
+  palette::Item{
+    key: label,
+    label: label,
+    hint: hint,
+    description: description,
+    meta: meta,
+    search_terms: [],
+    disabled_reason: "",
+  }
+}
+
+// The picker's first result row, inside its frame.
+fn first_row(width: Int, catalog: [palette::Item]) Str {
+  let terminal = headless::new(width, 8)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    cui::child(
+      palette::new_picker,
+      palette::PickerProps{
+        themes: theme::context(theme::store(theme::system())),
+        catalog: catalog,
+        placeholder: "Search…",
+        initial_selection: "",
+        title: "Pick",
+        footer: "",
+        error: "",
+        dismiss: keymap::simple_command("test.columns.dismiss", "Dismiss", fn() Bool {
+          true
+        }),
+        on_query_change: fn(query: Str) {},
+        on_selection_change: fn(selected: Str) {},
+        on_activate: fn(item: palette::Item) {},
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  mut found = ""
+  for row in rows(terminal) {
+    if strings::Contains(row, "▌") {
+      found = row
+    }
+  }
+  found
+}
+
+test fn the_hint_gives_way_before_the_label() Void!Str {
+  let catalog = [
+    entry("Claude Sonnet 4.5", "anthropic/claude-sonnet-4-5-20250929", "", "200K context"),
+  ]
+  let roomy = first_row(100, catalog)
+  try testing::assert(
+    strings::Contains(roomy, "▌Claude Sonnet 4.5  anthropic/claude-sonnet-4-5-20250929  "),
+    "with room, both show whole: {roomy}|",
+  )
+  let tight = first_row(60, catalog)
+  testing::assert(
+    strings::Contains(tight, "│▌Claude Sonnet 4.5  anthrop…    200K context  │"),
+    "the hint is cut, not the label: {tight}|",
+  )
+}
+
+test fn descriptions_keep_a_third_of_the_row_from_long_labels() Void!Str {
+  let label = "a session name long enough to take most of the picker row by itself"
+  let shown = first_row(100, [entry(label, "", "~/Developer/kit", "2h ago")])
+  // The row is 78 cells inside the frame; a third of it is 25.
+  testing::assert(
+    strings::Contains(shown, "…  ~/Developer/kit") and strings::Contains(shown, "2h ago"),
+    "the label gives way to the description: {shown}|",
+  )
+}
