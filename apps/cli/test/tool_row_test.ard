@@ -57,7 +57,7 @@ struct Shown {
 }
 
 // Mounts one row in a terminal width cells wide and lets it measure itself.
-fn show(width: Int, called: transcript::ToolCall, outcome: transcript::Message) Shown {
+fn show(width: Int, called: transcript::ToolCall, outcome: transcript::Message, servers: [Str]?) Shown {
   let terminal = headless::new(width, 2)
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let renderer = cui::mount(
@@ -69,6 +69,7 @@ fn show(width: Int, called: transcript::ToolCall, outcome: transcript::Message) 
         result: outcome,
         selected: false,
         on_select: fn() {},
+        servers: servers.or([]),
       },
     ),
   )
@@ -133,4 +134,35 @@ test fn a_narrow_row_moves_its_summary_below_and_keeps_the_path_end() Void!Str {
   defer shown.terminal.destroy()
   defer shown.renderer.destroy()
   expect_rows(rows(shown.terminal), ["  Read file", "   …/native-macos-client.md:1–2"])
+}
+
+test fn a_call_with_nothing_to_summarize_shows_only_its_title() Void!Str {
+  let shown = show(
+    64,
+    call("read_scratchpad", "{{}}"),
+    result(transcript::ToolState::completed, "notes"),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(rows(shown.terminal), ["  Read scratchpad", ""])
+  let narrow = show(
+    30,
+    call("subagent_inbox", "{{}}"),
+    result(transcript::ToolState::completed, ""),
+  )
+  defer narrow.terminal.destroy()
+  defer narrow.renderer.destroy()
+  expect_rows(rows(narrow.terminal), ["  Check inbox", ""])
+}
+
+test fn an_mcp_call_is_titled_after_its_server() Void!Str {
+  let shown = show(
+    64,
+    call("everything", "{{\"action\":\"search\",\"query\":\"dns records\"}}"),
+    result(transcript::ToolState::completed, ""),
+    servers: ["everything"],
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(rows(shown.terminal), ["  Search everything   dns records", ""])
 }

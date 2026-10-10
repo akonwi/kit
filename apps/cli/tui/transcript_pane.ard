@@ -116,6 +116,8 @@ struct Work {
   outputs: [Str: Bool],
   // Shows or hides the output of the tool row with the key.
   toggle_output: fn(Str),
+  // The session's MCP servers, whose tools are titled after them.
+  servers: [Str],
 }
 
 // The key of a tool row, unique in the session.
@@ -588,6 +590,7 @@ private fn entry_view(
             result: message,
             selected: false,
             on_select: fn() {},
+            servers: [],
           },
         ),
       )
@@ -1105,6 +1108,7 @@ fn work_view(themes: theme::Context, work: Work, run: transcript::Work) cui::Vie
                   call: step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name)),
                   result: result,
                   selected: selected,
+                  servers: work.servers,
                   on_select: fn() {
                     choose(row)
                     toggle_output(row)

@@ -137,9 +137,9 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   - [x] `change_cwd`: Change directory · path.
   - [ ] `change_cwd`: check the working-directory toast and location
     refresh.
-  - [ ] `read_scratchpad` (new title): Read scratchpad.
+  - [x] `read_scratchpad` (new title): Read scratchpad, without a chip.
   - [x] `edit_scratchpad`: Update scratchpad · N edits.
-  - [ ] `confirm_from_user`, `input_from_user`, `select_from_user`,
+  - [x] `confirm_from_user`, `input_from_user`, `select_from_user`,
     `guided_questions` (new titles): Confirm, Ask (input and select), and
     Ask questions · the request's title. The request itself is in the
     interaction dock (TUI-COOPER-007).
@@ -151,19 +151,21 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     agent by action · the agent name.
   - [ ] `subagent`: the agent name opens its conversation tab
     (TUI-COOPER-009).
-  - [ ] `show_image` (new title): Show image · path or caption, with the
-    image previewed below the group.
-  - [ ] `inspect_image` (new title): Inspect image · path. The image goes to
+  - [x] `show_image` (new title): Show image · path, or caption without one.
+  - [ ] `show_image`: the image previewed below the group (with
+    tool-result image previews).
+  - [x] `inspect_image` (new title): Inspect image · path. The image goes to
     the model only.
   Subagent tools, shown in subagent conversation tabs (TUI-COOPER-009):
-  - [ ] `subagent_inbox`, `subagent_send`, `subagent_reply`,
-    `subagent_inspect` (new titles): Check inbox, Message sibling, Reply,
-    Inspect request · the agent or receipt.
+  - [x] `subagent_inbox`, `subagent_send`, `subagent_reply`,
+    `subagent_inspect` (new titles): Check inbox (without a chip), Message
+    sibling, Reply, Inspect request · the agent or receipt.
   Runtime tools:
-  - [ ] MCP namespaces, one tool per server named after it (new titles): List
-    `<server>` tools, Search `<server>` tools · query, Describe or Call
-    `<server>` · tool, Log out of `<server>`.
-  - [ ] Plugin tools, named `<plugin>__<tool>` (new titles): the humanized
+  - [x] MCP namespaces, one tool per server named after it (new titles): List
+    `<server>`, Search `<server>` · query, Describe or Call `<server>` ·
+    tool, Log out of `<server>`, recognized by the session's configured
+    servers. Titles stay short for the title column and clip beyond it.
+  - [x] Plugin tools, named `<plugin>__<tool>` (new titles): the humanized
     tool name · the plugin.
 - [~] TUI-COOPER-006 — Command palette, inline pickers, and configuration,
   theme, and model pickers, with shortcuts discovered from Cooper keymaps.

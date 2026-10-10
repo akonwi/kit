@@ -45,7 +45,7 @@ func TestPresentUsesTypedTitlesAndSummaries(t *testing.T) {
 		{name: "malformed find arguments", call: Call{Name: "find", Arguments: `{`}, want: Presentation{Title: "Find files", Summary: `{`}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got := Present(test.call, test.result)
+			got := Present(test.call, test.result, nil)
 			if got.Title != test.want.Title || got.Summary != test.want.Summary {
 				t.Fatalf("Present() = %q · %q, want %q · %q", got.Title, got.Summary, test.want.Title, test.want.Summary)
 			}
@@ -55,11 +55,11 @@ func TestPresentUsesTypedTitlesAndSummaries(t *testing.T) {
 
 func TestPathLedSummariesReportTheirPath(t *testing.T) {
 	t.Parallel()
-	read := Present(Call{Name: "read", Arguments: `{"path":"docs/a.md"}`}, Result{})
+	read := Present(Call{Name: "read", Arguments: `{"path":"docs/a.md"}`}, Result{}, nil)
 	if !read.PathFirst || read.Path != "docs/a.md" {
 		t.Fatalf("read = %+v, want a path-led summary of docs/a.md", read)
 	}
-	if search := Present(Call{Name: "grep", Arguments: `{"pattern":"x","path":"docs"}`}, Result{}); search.PathFirst {
+	if search := Present(Call{Name: "grep", Arguments: `{"pattern":"x","path":"docs"}`}, Result{}, nil); search.PathFirst {
 		t.Fatalf("search = %+v, want a pattern-led summary", search)
 	}
 }
@@ -98,5 +98,41 @@ func TestBashCommandSummarizesLikeTheVaxisClient(t *testing.T) {
 	long := BashCommand("grep " + strings.Repeat("x", 100))
 	if !long.Summarized || utf8.RuneCountInString(long.Text) > maxBashCommandSummaryLength || !strings.HasSuffix(long.Text, "…") {
 		t.Fatalf("long command presentation = %+v", long)
+	}
+}
+
+func TestPresentTitlesToolsVaxisDidNotKnow(t *testing.T) {
+	t.Parallel()
+	servers := []string{"Cloudflare API", "everything"}
+	for _, test := range []struct {
+		name string
+		call Call
+		want Presentation
+	}{
+		{name: "read scratchpad", call: Call{Name: "read_scratchpad", Arguments: `{}`}, want: Presentation{Title: "Read scratchpad"}},
+		{name: "confirm", call: Call{Name: "confirm_from_user", Arguments: `{"title":"Push the branch?"}`}, want: Presentation{Title: "Confirm", Summary: "Push the branch?"}},
+		{name: "input", call: Call{Name: "input_from_user", Arguments: `{"title":"Release version"}`}, want: Presentation{Title: "Ask", Summary: "Release version"}},
+		{name: "select", call: Call{Name: "select_from_user", Arguments: `{"title":"Pick a theme","options":[]}`}, want: Presentation{Title: "Ask", Summary: "Pick a theme"}},
+		{name: "guided", call: Call{Name: "guided_questions", Arguments: `{"title":"Release","questions":[]}`}, want: Presentation{Title: "Ask questions", Summary: "Release"}},
+		{name: "show image", call: Call{Name: "show_image", Arguments: `{"path":"shots/home.png","caption":"Home"}`}, want: Presentation{Title: "Show image", Summary: "shots/home.png", Path: "shots/home.png", PathFirst: true}},
+		{name: "inspect image", call: Call{Name: "inspect_image", Arguments: `{"path":"shots/home.png"}`}, want: Presentation{Title: "Inspect image", Summary: "shots/home.png", Path: "shots/home.png", PathFirst: true}},
+		{name: "inbox", call: Call{Name: "subagent_inbox", Arguments: `{}`}, want: Presentation{Title: "Check inbox"}},
+		{name: "message sibling", call: Call{Name: "subagent_send", Arguments: `{"agent":"reviewer","message":"Look"}`}, want: Presentation{Title: "Message sibling", Summary: "reviewer"}},
+		{name: "reply", call: Call{Name: "subagent_reply", Arguments: `{"receipt":"req_1","message":"Done"}`}, want: Presentation{Title: "Reply", Summary: "req_1"}},
+		{name: "inspect request", call: Call{Name: "subagent_inspect", Arguments: `{"receipt":"req_1"}`}, want: Presentation{Title: "Inspect request", Summary: "req_1"}},
+		{name: "mcp list", call: Call{Name: "cloudflare_api", Arguments: `{"action":"list"}`}, want: Presentation{Title: "List Cloudflare API"}},
+		{name: "mcp search", call: Call{Name: "cloudflare_api", Arguments: `{"action":"search","query":"dns"}`}, want: Presentation{Title: "Search Cloudflare API", Summary: "dns"}},
+		{name: "mcp describe", call: Call{Name: "everything", Arguments: `{"action":"describe","tool":"echo"}`}, want: Presentation{Title: "Describe everything", Summary: "echo"}},
+		{name: "mcp call", call: Call{Name: "everything", Arguments: `{"action":"call","tool":"echo","arguments":{}}`}, want: Presentation{Title: "Call everything", Summary: "echo"}},
+		{name: "mcp logout", call: Call{Name: "cloudflare_api", Arguments: `{"action":"logout"}`}, want: Presentation{Title: "Log out of Cloudflare API"}},
+		{name: "plugin tool", call: Call{Name: "tool-demo__echo", Arguments: `{"text":"hi"}`}, want: Presentation{Title: "Echo", Summary: "tool-demo"}},
+		{name: "unconfigured server", call: Call{Name: "github", Arguments: `{"action":"list"}`}, want: Presentation{Title: "Github", Summary: `{"action":"list"}`}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := Present(test.call, Result{}, servers); got != test.want {
+				t.Fatalf("Present() = %+v, want %+v", got, test.want)
+			}
+		})
 	}
 }

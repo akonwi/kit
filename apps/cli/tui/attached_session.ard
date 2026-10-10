@@ -1120,6 +1120,15 @@ impl Controller {
     self.open_output = [:]
   }
 
+  // The names of the session's MCP servers.
+  fn mcp_server_names() [Str] {
+    let names = mut List::new<Str>()
+    for server in self.mcp_servers {
+      names.push(server.Name)
+    }
+    names.@
+  }
+
   // Shows or hides the output of the tool row with key.
   fn mut toggle_output(key: Str) {
     self.open_output.set(key, not self.open_output.get(key).or(false))

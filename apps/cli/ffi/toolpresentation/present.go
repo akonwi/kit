@@ -51,10 +51,15 @@ type Presentation struct {
 	PathFirst bool
 }
 
-// Present returns the title and summary of a tool call.
-func Present(call Call, result Result) Presentation {
+// Present returns the title and summary of a tool call. servers names the
+// session's MCP servers, each of which the model calls as one tool. A summary
+// may be empty when the call has nothing to add to its title.
+func Present(call Call, result Result, servers []string) Presentation {
 	arguments := parseArguments(call.Arguments)
 	path, _ := arguments["path"].(string)
+	if server, ok := mcpServer(call.Name, servers); ok {
+		return presentMCP(call, arguments, server)
+	}
 	presentation := present(call, arguments, path, result)
 	presentation.Path = path
 	presentation.PathFirst = pathFirst(call.Name)
@@ -149,9 +154,108 @@ func present(call Call, arguments map[string]any, path string, result Result) Pr
 		}
 		agent, _ := arguments["agent"].(string)
 		return Presentation{Title: title, Summary: summaryOrFallback(call, strings.TrimSpace(agent))}
+	case "read_scratchpad":
+		return Presentation{Title: "Read scratchpad"}
+	case "confirm_from_user", "input_from_user", "select_from_user", "guided_questions":
+		title := map[string]string{
+			"confirm_from_user": "Confirm", "input_from_user": "Ask",
+			"select_from_user": "Ask", "guided_questions": "Ask questions",
+		}[strings.ToLower(call.Name)]
+		request, _ := arguments["title"].(string)
+		return Presentation{Title: title, Summary: summaryOrFallback(call, strings.TrimSpace(request))}
+	case "show_image":
+		caption, _ := arguments["caption"].(string)
+		summary = strings.TrimSpace(path)
+		if summary == "" {
+			summary = strings.TrimSpace(caption)
+		}
+		return Presentation{Title: "Show image", Summary: summaryOrFallback(call, summary)}
+	case "inspect_image":
+		return Presentation{Title: "Inspect image", Summary: summaryOrFallback(call, strings.TrimSpace(path))}
+	case "subagent_inbox":
+		return Presentation{Title: "Check inbox"}
+	case "subagent_send":
+		agent, _ := arguments["agent"].(string)
+		return Presentation{Title: "Message sibling", Summary: summaryOrFallback(call, strings.TrimSpace(agent))}
+	case "subagent_reply", "subagent_inspect":
+		title := "Reply"
+		if strings.ToLower(call.Name) == "subagent_inspect" {
+			title = "Inspect request"
+		}
+		receipt, _ := arguments["receipt"].(string)
+		return Presentation{Title: title, Summary: summaryOrFallback(call, strings.TrimSpace(receipt))}
 	default:
+		if plugin, tool, ok := pluginTool(call.Name); ok {
+			return Presentation{Title: humanize(tool), Summary: plugin}
+		}
 		return Presentation{Title: humanize(call.Name), Summary: fallbackArguments(call)}
 	}
+}
+
+// presentMCP presents a call to the tool of an MCP server, which lists,
+// searches, describes, or calls the server's tools, or logs out of it. Titles
+// stay short to fit the title column.
+func presentMCP(call Call, arguments map[string]any, server string) Presentation {
+	action, _ := arguments["action"].(string)
+	query, _ := arguments["query"].(string)
+	tool, _ := arguments["tool"].(string)
+	switch action {
+	case "list":
+		return Presentation{Title: "List " + server}
+	case "search":
+		return Presentation{Title: "Search " + server, Summary: summaryOrFallback(call, strings.TrimSpace(query))}
+	case "describe":
+		return Presentation{Title: "Describe " + server, Summary: summaryOrFallback(call, strings.TrimSpace(tool))}
+	case "call":
+		return Presentation{Title: "Call " + server, Summary: summaryOrFallback(call, strings.TrimSpace(tool))}
+	case "logout":
+		return Presentation{Title: "Log out of " + server}
+	default:
+		return Presentation{Title: server, Summary: fallbackArguments(call)}
+	}
+}
+
+// mcpServer is the MCP server among servers whose tool is name.
+func mcpServer(name string, servers []string) (string, bool) {
+	for _, server := range servers {
+		if tool, ok := mcpToolName(server); ok && tool == name {
+			return server, true
+		}
+	}
+	return "", false
+}
+
+// mcpToolName is the name the model calls server's tool by, as Kit's MCP
+// manager derives it: lowercase ASCII letters, digits, `_`, and `-`, with
+// each run of other characters as one `_`, trimmed of `_` and `-`.
+func mcpToolName(server string) (string, bool) {
+	var name strings.Builder
+	underscore := false
+	for _, character := range strings.ToLower(server) {
+		if character <= 127 && (character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '_' || character == '-') {
+			name.WriteRune(character)
+			underscore = false
+			continue
+		}
+		if !underscore {
+			name.WriteByte('_')
+			underscore = true
+		}
+	}
+	tool := strings.Trim(name.String(), "_-")
+	return tool, tool != ""
+}
+
+// pluginToolID matches a plugin tool's model-facing name, `<plugin>__<tool>`.
+var pluginToolID = regexp.MustCompile(`^([a-z][a-z0-9-]{0,31})__(.+)$`)
+
+// pluginTool splits a plugin tool's name into its plugin and local tool.
+func pluginTool(name string) (string, string, bool) {
+	match := pluginToolID.FindStringSubmatch(name)
+	if match == nil {
+		return "", "", false
+	}
+	return match[1], match[2], true
 }
 
 func parseArguments(raw string) map[string]any {
@@ -165,7 +269,7 @@ func parseArguments(raw string) map[string]any {
 // pathFirst reports tools whose summary leads with a path.
 func pathFirst(name string) bool {
 	switch strings.ToLower(name) {
-	case "change_cwd", "read", "write", "edit", "ls":
+	case "change_cwd", "read", "write", "edit", "ls", "show_image", "inspect_image":
 		return true
 	default:
 		return false

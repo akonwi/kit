@@ -630,6 +630,7 @@ impl Shell {
             })
           },
           outputs: self.attached.open_output,
+          servers: self.attached.mcp_server_names(),
           toggle_output: fn(key: Str) {
             self.dispatch(fn() {
               self.attached.toggle_output(key)
