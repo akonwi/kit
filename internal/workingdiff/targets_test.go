@@ -586,3 +586,123 @@ func TestCatalogValidatesAncestorObjectStorage(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestCommittedObservationGitProcessesScaleWithChangeNotRepository(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapperDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "git.log")
+	wrapper := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + logPath + "'\nexec '" + realGit + "' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(wrapperDir, "git"), []byte(wrapper), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	dir, service, workspaceID := targetFixture(t)
+	const directories = 300
+	for index := range directories {
+		nested := filepath.Join(dir, fmt.Sprintf("dir-%03d", index), "nested")
+		if err := os.MkdirAll(nested, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(nested, "file.txt"), []byte("same\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "many directories")
+	if err := os.WriteFile(filepath.Join(dir, "dir-150", "nested", "file.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "one nested change")
+	catalog, err := service.ListTargets(t.Context(), "session_test", dir, protocol.ListDiffTargetsInput{WorkspaceID: workspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := findTarget(t, catalog, protocol.DiffTargetCommit, func(entry protocol.DiffTargetEntry) bool { return entry.Metadata.Subject == "one nested change" })
+	if err := os.WriteFile(logPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Files) != 1 || page.Files[0].Path != "dir-150/nested/file.txt" || page.Files[0].Change != "modified" || !page.Observation.Complete {
+		t.Fatalf("observation = %+v", page)
+	}
+	observeLog, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observeCommands := strings.Split(strings.TrimSpace(string(observeLog)), "\n")
+	if diffTrees := strings.Count(string(observeLog), " diff-tree "); diffTrees != 1 || len(observeCommands) > 10 {
+		t.Fatalf("observe ran %d git processes (%d diff-tree) for %d directories: %v", len(observeCommands), diffTrees, directories, observeCommands)
+	}
+	if err := os.WriteFile(logPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := service.ReadFile(t.Context(), "session_test", dir, protocol.ReadFileDiffInput{TargetID: page.Observation.Target.ID, TargetRevision: page.Observation.Revision, Path: page.Files[0].Path, ExpectedFileRevision: page.Files[0].FileRevision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.File.Path != "dir-150/nested/file.txt" {
+		t.Fatalf("file = %+v", file)
+	}
+	readLog, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readCommands := strings.Split(strings.TrimSpace(string(readLog)), "\n")
+	if diffTrees := strings.Count(string(readLog), " diff-tree "); diffTrees != 1 || len(readCommands) > 10 {
+		t.Fatalf("read ran %d git processes (%d diff-tree) for %d directories: %v", len(readCommands), diffTrees, directories, readCommands)
+	}
+}
+
+func TestParseRawTreeDiffSeparatesChangedSides(t *testing.T) {
+	oldOID := strings.Repeat("a", 40)
+	newOID := strings.Repeat("b", 40)
+	zero := strings.Repeat("0", 40)
+	raw := strings.Join([]string{
+		":100644 100644 " + oldOID + " " + newOID + " M", "src/modified.go",
+		":000000 100755 " + zero + " " + newOID + " A", "bin/added",
+		":120000 000000 " + oldOID + " " + zero + " D", "link",
+		":100644 160000 " + oldOID + " " + newOID + " T", "vendor/module",
+		":100644 100644 " + oldOID + " " + newOID + " M", "../escape",
+	}, "\x00") + "\x00"
+	oldTree, newTree, omitted, ok := parseRawTreeDiff([]byte(raw))
+	if !ok {
+		t.Fatal("raw diff rejected")
+	}
+	wantOld := map[string]treeEntry{
+		"src/modified.go": {mode: 0100644, kind: "blob", oid: oldOID},
+		"link":            {mode: 0120000, kind: "blob", oid: oldOID},
+		"vendor/module":   {mode: 0100644, kind: "blob", oid: oldOID},
+	}
+	wantNew := map[string]treeEntry{
+		"src/modified.go": {mode: 0100644, kind: "blob", oid: newOID},
+		"bin/added":       {mode: 0100755, kind: "blob", oid: newOID},
+		"vendor/module":   {mode: 0160000, kind: "commit", oid: newOID},
+	}
+	if fmt.Sprint(oldTree) != fmt.Sprint(wantOld) || fmt.Sprint(newTree) != fmt.Sprint(wantNew) || omitted != 1 {
+		t.Fatalf("old = %v\nnew = %v\nomitted = %d", oldTree, newTree, omitted)
+	}
+}
+
+func TestParseRawTreeDiffRejectsMalformedRecords(t *testing.T) {
+	oid := strings.Repeat("a", 40)
+	for name, raw := range map[string]string{
+		"missing path":   ":100644 100644 " + oid + " " + oid + " M\x00",
+		"missing colon":  "100644 100644 " + oid + " " + oid + " M\x00a\x00",
+		"rename status":  ":100644 100644 " + oid + " " + oid + " R100\x00a\x00b\x00",
+		"short oid":      ":100644 100644 abc " + oid + " M\x00a\x00",
+		"tree entry":     ":040000 040000 " + oid + " " + oid + " M\x00dir\x00",
+		"both absent":    ":000000 000000 " + strings.Repeat("0", 40) + " " + strings.Repeat("0", 40) + " M\x00a\x00",
+		"absent with id": ":000000 100644 " + oid + " " + oid + " A\x00a\x00",
+	} {
+		if _, _, _, ok := parseRawTreeDiff([]byte(raw)); ok {
+			t.Errorf("%s: accepted %q", name, raw)
+		}
+	}
+}

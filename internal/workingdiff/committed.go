@@ -5,10 +5,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"unicode/utf8"
 
 	protocol "github.com/akonwi/kit/api/contract"
@@ -45,19 +45,10 @@ func (s *Service) observeCommittedObservation(ctx context.Context, session, cwd,
 	if err != nil {
 		return nil, err
 	}
-	baseTree := map[string]treeEntry{}
-	omitted := 0
-	if ref.Base.Kind == "commit" {
-		baseTree, omitted, err = s.readCommitTree(ctx, repo, pinned[ref.Base.OID].tree)
-		if err != nil {
-			return nil, err
-		}
-	}
-	headTree, headOmitted, err := s.readCommitTree(ctx, repo, pinned[ref.Head.OID].tree)
+	baseTree, headTree, omitted, err := s.diffCommittedTrees(ctx, repo, committedBaseTree(ref, pinned), pinned[ref.Head.OID].tree)
 	if err != nil {
 		return nil, err
 	}
-	omitted += headOmitted
 	selectedPaths := boundedCommittedPaths(baseTree, headTree)
 	blobEntries := make(map[string]treeEntry, len(selectedPaths)*2)
 	for _, path := range selectedPaths {
@@ -156,85 +147,123 @@ func (s *Service) verifyPinnedTarget(ctx context.Context, repo *repository, ref 
 	return commits, nil
 }
 
-func (s *Service) readCommitTree(ctx context.Context, repo *repository, rootTreeOID string) (map[string]treeEntry, int, error) {
-	result := map[string]treeEntry{}
+// committedBaseTree returns the base tree OID for a pinned target, or the
+// empty string when the target compares against the empty tree.
+func committedBaseTree(ref targetReference, commits map[string]commitInfo) string {
+	if ref.Base.Kind != "commit" {
+		return ""
+	}
+	return commits[ref.Base.OID].tree
+}
+
+// emptyTreeOID returns the well-known empty tree object ID for the
+// repository's object format.
+func emptyTreeOID(repo *repository) string {
+	if repo.config["extensions.objectformat"] == "sha256" {
+		return "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321"
+	}
+	return "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+}
+
+// diffCommittedTrees compares two committed trees with one git process and
+// returns only the entries that differ: base-side entries in oldTree and
+// head-side entries in newTree. Unchanged paths appear in neither map, so the
+// cost is proportional to the change rather than the repository. An empty
+// baseTreeOID compares against the empty tree. Optional paths restrict the
+// comparison to those literal paths.
+func (s *Service) diffCommittedTrees(ctx context.Context, repo *repository, baseTreeOID, headTreeOID string, paths ...string) (map[string]treeEntry, map[string]treeEntry, int, error) {
+	if baseTreeOID == "" {
+		baseTreeOID = emptyTreeOID(repo)
+	}
+	if !validOID(baseTreeOID) || !validOID(headTreeOID) {
+		return nil, nil, 0, repoUnavailable()
+	}
+	storageBefore, err := validateObjectStoreAuthority(repo)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	args := []string{"diff-tree", "-r", "-z", "--raw", "--no-abbrev", "--no-renames", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", baseTreeOID, headTreeOID}
+	if len(paths) > 0 {
+		args = append(append(args, "--"), paths...)
+	}
+	raw, err := s.runner.run(ctx, repo, nil, 16<<20, args...)
+	if err != nil {
+		return nil, nil, 0, commandFailure(ctx)
+	}
+	storageAfter, err := validateObjectStoreAuthority(repo)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	if storageBefore != storageAfter {
+		return nil, nil, 0, repoUnavailable()
+	}
+	oldTree, newTree, omitted, ok := parseRawTreeDiff(raw)
+	if !ok {
+		return nil, nil, 0, repoUnavailable()
+	}
+	return oldTree, newTree, omitted, nil
+}
+
+// parseRawTreeDiff parses `git diff-tree -r -z --raw --no-renames` output.
+// Each change is a ":oldmode newmode oldoid newoid status" record followed by
+// its path; an all-zero mode marks the absent side of an addition or deletion.
+func parseRawTreeDiff(raw []byte) (map[string]treeEntry, map[string]treeEntry, int, bool) {
+	oldTree := map[string]treeEntry{}
+	newTree := map[string]treeEntry{}
 	omitted := 0
-	objects := 0
-	remainingTreeBytes := 32 << 20
-	var walk func(string, string) error
-	walk = func(treeOID, prefix string) error {
-		objects++
-		if objects > protocol.MaxDiffCandidates*2 {
-			return &Error{Code: LimitExceeded, Message: "committed tree exceeds traversal limit", Details: map[string]string{"limit": "candidate_limit"}}
-		}
-		storageBefore, err := validateObjectStorage(repo, []string{treeOID})
-		if err != nil {
-			return err
-		}
-		raw, err := s.runner.run(ctx, repo, nil, min(16<<20, remainingTreeBytes+1), "cat-file", "tree", treeOID)
-		if err != nil {
-			return commandFailure(ctx)
-		}
-		remainingTreeBytes -= len(raw)
-		if remainingTreeBytes < 0 || !matchesObjectOID("tree", raw, treeOID) {
-			return repoUnavailable()
-		}
-		storageAfter, err := validateObjectStorage(repo, []string{treeOID})
-		if err != nil {
-			return err
-		}
-		if storageBefore != storageAfter {
-			return repoUnavailable()
-		}
-		for len(raw) > 0 {
-			space := bytes.IndexByte(raw, ' ')
-			nul := bytes.IndexByte(raw, 0)
-			if space < 1 || nul <= space+1 {
-				return repoUnavailable()
-			}
-			mode, err := gitMode(string(raw[:space]))
-			if err != nil {
-				return repoUnavailable()
-			}
-			name := string(raw[space+1 : nul])
-			oidBytes := 20
-			if repo.config["extensions.objectformat"] == "sha256" {
-				oidBytes = 32
-			}
-			if len(raw) < nul+1+oidBytes {
-				return repoUnavailable()
-			}
-			childOID := hex.EncodeToString(raw[nul+1 : nul+1+oidBytes])
-			raw = raw[nul+1+oidBytes:]
-			path := name
-			if prefix != "" {
-				path = prefix + "/" + name
-			}
-			if protocol.ValidateWorkspacePath(path, false) != nil {
-				omitted++
-				continue
-			}
-			if mode == 040000 {
-				if err := walk(childOID, path); err != nil {
-					return err
-				}
-				continue
-			}
-			kind := "blob"
-			if mode == 0160000 {
-				kind = "commit"
-			}
-			result[path] = treeEntry{mode: mode, kind: kind, oid: childOID}
-			if len(result) > protocol.MaxDiffCandidates*4 {
-				return &Error{Code: LimitExceeded, Message: "committed tree exceeds candidate traversal limit", Details: map[string]string{"limit": "candidate_limit"}}
-			}
-		}
-		return nil
+	records := splitNUL(raw)
+	if len(records)%2 != 0 {
+		return nil, nil, 0, false
 	}
-	if err := walk(rootTreeOID, ""); err != nil {
-		return nil, 0, err
+	for index := 0; index < len(records); index += 2 {
+		meta, path := records[index], string(records[index+1])
+		if len(meta) == 0 || meta[0] != ':' {
+			return nil, nil, 0, false
+		}
+		fields := strings.Fields(string(meta[1:]))
+		if len(fields) != 5 || len(fields[4]) != 1 || !strings.Contains("ADMT", fields[4]) {
+			return nil, nil, 0, false
+		}
+		if protocol.ValidateWorkspacePath(path, false) != nil {
+			omitted++
+			continue
+		}
+		oldEntry, oldOK, ok := rawTreeDiffSide(fields[0], fields[2])
+		if !ok {
+			return nil, nil, 0, false
+		}
+		newEntry, newOK, ok := rawTreeDiffSide(fields[1], fields[3])
+		if !ok || !oldOK && !newOK {
+			return nil, nil, 0, false
+		}
+		if oldOK {
+			oldTree[path] = oldEntry
+		}
+		if newOK {
+			newTree[path] = newEntry
+		}
 	}
-	return result, omitted, nil
+	return oldTree, newTree, omitted, true
+}
+
+// rawTreeDiffSide converts one side of a raw diff record into a tree entry.
+// It reports present=false for the all-zero mode of an absent side.
+func rawTreeDiffSide(modeText, oid string) (entry treeEntry, present, ok bool) {
+	mode, err := gitMode(modeText)
+	if err != nil || !validOID(oid) {
+		return treeEntry{}, false, false
+	}
+	if mode == 0 {
+		return treeEntry{}, false, strings.Trim(oid, "0") == ""
+	}
+	switch mode {
+	case 040000:
+		return treeEntry{}, false, false
+	case 0160000:
+		return treeEntry{mode: mode, kind: "commit", oid: oid}, true, true
+	default:
+		return treeEntry{mode: mode, kind: "blob", oid: oid}, true, true
+	}
 }
 
 func boundedCommittedPaths(oldTree, newTree map[string]treeEntry) []string {
@@ -377,15 +406,7 @@ func classifyCommitted(oldTree, newTree map[string]treeEntry, blobs map[string]b
 }
 
 func (s *Service) revalidateCommittedFile(ctx context.Context, repo *repository, ref targetReference, commits map[string]commitInfo, file retainedFile) error {
-	oldTree := map[string]treeEntry{}
-	var err error
-	if ref.Base.Kind == "commit" {
-		oldTree, _, err = s.readCommitTree(ctx, repo, commits[ref.Base.OID].tree)
-		if err != nil {
-			return err
-		}
-	}
-	newTree, _, err := s.readCommitTree(ctx, repo, commits[ref.Head.OID].tree)
+	oldTree, newTree, _, err := s.diffCommittedTrees(ctx, repo, committedBaseTree(ref, commits), commits[ref.Head.OID].tree, file.summary.Path)
 	if err != nil {
 		return err
 	}
