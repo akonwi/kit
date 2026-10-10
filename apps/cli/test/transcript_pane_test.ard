@@ -118,6 +118,7 @@ impl cui::Component for Host {
             self.model.selected_tool = key
           },
           outputs: self.model.open_output,
+          servers: [],
           toggle_output: fn(key: Str) {
             self.model.open_output.set(key, not self.model.open_output.get(key).or(false))
           },

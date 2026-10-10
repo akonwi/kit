@@ -41,8 +41,9 @@ fn mark(result: transcript::Message) Mark {
   }
 }
 
-// The call's title and summary.
-fn presentation(call: transcript::ToolCall, result: transcript::Message) toolpresentation::Presentation {
+// The call's title and summary. servers names the session's MCP servers.
+fn presentation(call: transcript::ToolCall, result: transcript::Message, servers: [Str]) toolpresentation::Presentation {
+  let names = mut servers
   toolpresentation::Present(
     toolpresentation::Call{
       Name: call.name,
@@ -54,6 +55,7 @@ fn presentation(call: transcript::ToolCall, result: transcript::Message) toolpre
       Text: result.text,
       Details: result.details,
     },
+    names,
   )
 }
 
@@ -120,6 +122,8 @@ struct Props {
   selected: Bool,
   // Called when the row is clicked.
   on_select: fn(),
+  // The session's MCP servers, whose tools are titled after them.
+  servers: [Str],
 }
 
 fn view(props: Props) cui::View {
@@ -176,7 +180,9 @@ impl cui::Component for Row {
   fn mut render() cui::View {
     let colors = self.props.themes.current()
     let shown = mark(self.props.result)
-    let presented = presentation(self.props.call, self.props.result)
+    let presented = presentation(self.props.call, self.props.result, self.props.servers)
+    // A call with nothing to add to its title shows no chip.
+    let summarized = presented.Summary != ""
     let narrow = self.narrow()
     let summary = match narrow and presented.PathFirst {
       true => {
@@ -232,8 +238,8 @@ impl cui::Component for Row {
         ),
       )
     }
-    let rows = match narrow {
-      true => {
+    let rows = match {
+      narrow and summarized => {
         [
           line([icon, layout::line(" ", ui::text_style()), title]),
           cui::box(
@@ -249,11 +255,12 @@ impl cui::Component for Row {
           ),
         ]
       },
-      false => {
+      summarized => {
         [
           line([icon, layout::line(" ", ui::text_style()), title, layout::line(" ", ui::text_style()), chip]),
         ]
       },
+      _ => [line([icon, layout::line(" ", ui::text_style()), title])],
     }
     let chosen = self.props.on_select
     cui::box(
