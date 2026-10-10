@@ -132,6 +132,8 @@ struct Work {
   servers: [Str],
   // Opens the file a tool row's summary names.
   open_file: fn(toolpresentation::FileTarget)?,
+  // Opens the conversation of a subagent a tool row addresses.
+  open_agent: fn(Str)?,
 }
 
 // The key of a tool row, unique in the session.
@@ -1409,6 +1411,7 @@ fn work_activity(themes: theme::Context, work: Work, run: transcript::Work) cui:
                   servers: work.servers,
                   title_width: title_width,
                   open_file: work.open_file,
+                  open_agent: work.open_agent,
                   on_select: fn() {
                     choose(row)
                     toggle_output(row)

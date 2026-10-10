@@ -28,6 +28,9 @@ type Call struct {
 	Arguments string
 	// ArgumentsTruncated reports that the server omitted the arguments.
 	ArgumentsTruncated bool
+	// ArgumentsUnknown reports that the arguments have not arrived yet, as
+	// for a subagent's live call, so no summary stands in for them.
+	ArgumentsUnknown bool
 }
 
 // Result is what a call's result contributes to its row.
@@ -408,6 +411,9 @@ func fallbackArguments(call Call) string {
 	}
 	raw := strings.Join(strings.Fields(call.Arguments), " ")
 	if raw == "" {
+		if call.ArgumentsUnknown {
+			return ""
+		}
 		if call.ArgumentsTruncated {
 			return "arguments truncated"
 		}

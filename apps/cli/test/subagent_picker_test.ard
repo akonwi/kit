@@ -1,0 +1,208 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/testing as headless
+use kit/tui/subagent_picker
+use kit/tui/subagents
+use kit/tui/theme
+use go:strings
+use go:time
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn press(terminal: headless::TestApp, name: Str, ctrl: Bool) {
+  terminal.key(
+    event::key(
+      name,
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: ctrl,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  terminal.flush()
+}
+
+// Flushes until `done` holds.
+fn wait_until(terminal: headless::TestApp, done: fn() Bool) {
+  mut attempts = 0
+  while attempts < 100 and not done() {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+}
+
+// `count` rows from the first containing `needle`.
+fn from(shown: [Str], needle: Str, count: Int) [Str] {
+  mut start = -1
+  for row, index in shown {
+    if start < 0 and strings::Contains(row, needle) {
+      start = index
+    }
+  }
+  let result = mut List::new<Str>()
+  mut index = start
+  while start >= 0 and index < start + count {
+    result.push(shown.at(index).or(""))
+    index =+ 1
+  }
+  result.@
+}
+
+struct Calls {
+  opened: [Str],
+  removed: [Str],
+  closed: Int,
+}
+
+fn roster() subagents::Roster {
+  subagents::Roster{
+    definitions: [
+      protocol::SubagentDefinition{Name: "designer", Description: "UI/UX expert"},
+      protocol::SubagentDefinition{Name: "code-reviewer", Description: "Reviews changes"},
+    ],
+    conversations: [
+      protocol::SubagentConversation{
+        ID: "subagent_r",
+        AgentName: "code-reviewer",
+        Model: "anthropic/claude-sonnet-4-5",
+        ThinkingLevel: "high",
+        State: "idle",
+        Generation: 4,
+      },
+    ],
+  }
+}
+
+fn mount(terminal: headless::TestApp, calls: mut Calls, confirm: Str) cui::Renderer {
+  cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    subagent_picker::view(
+      subagent_picker::Props{
+        themes: theme::context(theme::store(theme::system())),
+        roster: roster(),
+        session_model: "anthropic/claude-haiku-4-5",
+        session_thinking: "low",
+        confirm: confirm,
+        dismiss: keymap::simple_command("test.subagents.close", "Close", fn() Bool {
+          calls.closed =+ 1
+          true
+        }),
+        open: fn(id: Str) {
+          calls.opened.push(id)
+        },
+        remove: fn(id: Str, generation: Uint64) Void!Error {
+          calls.removed.push("{id}@{generation}")
+          Result::ok(())
+        },
+      },
+    ),
+  )
+}
+
+test fn the_picker_lists_agents_and_opens_a_started_one() Void!Str {
+  let terminal = headless::new(100, 12)
+  defer terminal.destroy()
+  let calls = mut Calls{
+    opened: [],
+    removed: [],
+    closed: 0,
+  }
+  let renderer = mount(terminal, calls, "")
+  defer renderer.destroy()
+  terminal.flush()
+  let shown = rows(terminal)
+  try expect_rows(
+    from(shown, "▌", 2),
+    [
+      "          │▌○ code-reviewer  Reviews changes                   Claude Sonnet 4.5 (high)  │",
+      "          │   designer       UI/UX expert                        Claude Haiku 4.5 (low)  │",
+    ],
+  )
+  press(terminal, "return", false)
+  testing::assert(
+    strings::Join(mut calls.opened, ",") == "subagent_r",
+    "Enter opens the conversation: {strings::Join(mut calls.opened, ",")}",
+  )
+}
+
+test fn ctrl_d_asks_before_dismissing_and_returns_to_the_list() Void!Str {
+  let terminal = headless::new(100, 12)
+  defer terminal.destroy()
+  let calls = mut Calls{
+    opened: [],
+    removed: [],
+    closed: 0,
+  }
+  let renderer = mount(terminal, calls, "")
+  defer renderer.destroy()
+  terminal.flush()
+  press(terminal, "d", true)
+  try testing::assert(
+    strings::Contains(
+      terminal.frame().text(),
+      "Dismiss \"code-reviewer\"? Active and queued work will be",
+    ),
+    "the question names the agent:\n{strings::Join(mut rows(terminal), "|\n")}",
+  )
+  press(terminal, "return", false)
+  wait_until(terminal, fn() Bool {
+    strings::Contains(terminal.frame().text(), "enter open")
+  })
+  try testing::assert(
+    strings::Join(mut calls.removed, ",") == "subagent_r@4",
+    "the conversation is dismissed at its generation: {strings::Join(mut calls.removed, ",")}",
+  )
+  testing::assert(calls.closed == 0, "the picker stays open")
+}
+
+test fn a_tab_asks_alone_and_escape_closes_the_picker() Void!Str {
+  let terminal = headless::new(100, 12)
+  defer terminal.destroy()
+  let calls = mut Calls{
+    opened: [],
+    removed: [],
+    closed: 0,
+  }
+  let renderer = mount(terminal, calls, "subagent_r")
+  defer renderer.destroy()
+  terminal.flush()
+  try testing::assert(
+    strings::Contains(terminal.frame().text(), "Dismiss \"code-reviewer\"?"),
+    "the question shows at once:\n{strings::Join(mut rows(terminal), "|\n")}",
+  )
+  press(terminal, "escape", false)
+  testing::assert(
+    calls.closed == 1 and calls.removed.size() == 0,
+    "Escape closes without dismissing",
+  )
+}

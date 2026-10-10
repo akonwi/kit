@@ -230,3 +230,42 @@ test fn a_read_summary_opens_its_file_at_the_first_line_read() Void!Str {
     "the title still selects the row",
   )
 }
+
+test fn a_subagent_summary_opens_the_agents_conversation() Void!Str {
+  let opened = mut Opened{targets: [], selections: 0}
+  let agents = mut List::new<Str>()
+  let terminal = headless::new(64, 2)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    tool_row::view(
+      tool_row::Props{
+        themes: theme::context(theme::store(theme::system())),
+        call: call("subagent", "{{\"action\":\"start\",\"agent\":\"code-reviewer\",\"message\":\"Review\"}}"),
+        result: result(transcript::ToolState::completed, "started"),
+        selected: false,
+        on_select: fn() {
+          opened.selections =+ 1
+        },
+        servers: [],
+        title_width: tool_row::min_title_width,
+        open_file: Maybe::new(fn(target: toolpresentation::FileTarget) {}),
+        open_agent: Maybe::new(fn(agent: Str) {
+          agents.push(agent)
+        }),
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+  try expect_rows(rows(terminal), ["  Start agent         code-reviewer", ""])
+  terminal.click(25, 0)
+  terminal.flush()
+  try testing::assert(
+    strings::Join(mut agents, ",") == "code-reviewer",
+    "clicking the agent opens its conversation: {strings::Join(mut agents, ",")}",
+  )
+  testing::assert(opened.selections == 0, "the summary's click doesn't select the row")
+}

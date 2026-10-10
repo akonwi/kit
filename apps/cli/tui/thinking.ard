@@ -23,6 +23,35 @@ struct Props {
   dismiss: fn(),
   refreshed: fn(protocol::SessionInfo),
   applied: fn(protocol::SessionInfo),
+  // Chooses a subagent conversation's level instead of the session's.
+  subagent: Subagent?,
+}
+
+// A subagent conversation whose thinking level the picker chooses.
+struct Subagent {
+  // The conversation's model, whose levels are offered, and its level.
+  model: Str,
+  level: Str,
+  // Sets the level. It blocks, so it runs off the UI thread.
+  apply: fn(Str) Void!Error,
+  applied: fn(),
+}
+
+// The model and level the picker starts from.
+private fn current(props: Props) Subagent {
+  match props.subagent {
+    subagent => subagent,
+    _ => {
+      Subagent{
+        model: props.session.Model,
+        level: props.session.ThinkingLevel,
+        apply: fn(level: Str) Void!Error {
+          Result::ok(())
+        },
+        applied: fn() {},
+      }
+    },
+  }
 }
 
 struct Picker {
@@ -46,9 +75,9 @@ fn new(props: mut Props) mut Picker {
     props: props,
     models: [],
     levels: [],
-    resolved_model: props.session.Model,
-    resolved_level: props.session.ThinkingLevel,
-    selection: props.session.ThinkingLevel,
+    resolved_model: current(props.@).model,
+    resolved_level: current(props.@).level,
+    selection: current(props.@).level,
     loading: true,
     pending: false,
     error: "",
@@ -137,7 +166,8 @@ impl Picker {
           match result {
             ok(catalog) => {
               self.models = catalog.Models
-              self.set_levels(self.props.session.Model, self.props.session.ThinkingLevel)
+              let start = current(self.props.@)
+              self.set_levels(start.model, start.level)
             },
             err(failure) => { self.error = failure.error() },
           }
@@ -169,6 +199,25 @@ impl Picker {
   private fn mut apply(selected: Str, ctx: cui::Context) {
     if self.pending or selected == "" {
       ()
+    } else if self.props.subagent.is_some() {
+      let subagent = self.props.subagent.expect("subagent")
+      self.pending = true
+      self.error = ""
+      self.generation =+ 1
+      let generation = self.generation
+      let dispatch = ctx.dispatch
+      async::start(fn() {
+        let result = subagent.apply(selected)
+        let _ = dispatch(fn() {
+          if self.generation == generation {
+            self.pending = false
+            match result {
+              ok(_) => subagent.applied(),
+              err(failure) => { self.error = failure.error() },
+            }
+          }
+        })
+      })
     } else {
       self.pending = true
       self.error = ""
@@ -243,8 +292,10 @@ test fn thinking_catalog_marks_the_current_level_and_pending_rows() Void!Str {
 
 impl cui::Component for Picker {
   fn mut render() cui::View {
-    if not self.loading and not self.pending and (self.resolved_model != self.props.session.Model or self.resolved_level != self.props.session.ThinkingLevel) {
-      self.set_levels(self.props.session.Model, self.props.session.ThinkingLevel)
+    let start = current(self.props.@)
+    let settled = (not self.loading) and not self.pending
+    if settled and (self.resolved_model != start.model or self.resolved_level != start.level) {
+      self.set_levels(start.model, start.level)
     }
     match self.loading {
       true => {
@@ -299,7 +350,7 @@ impl cui::Component for Picker {
               palette::new_picker,
               palette::PickerProps{
                 themes: self.props.themes,
-                catalog: catalog(self.levels, self.props.session.ThinkingLevel, self.pending),
+                catalog: catalog(self.levels, current(self.props.@).level, self.pending),
                 placeholder: "Search effort levels…",
                 initial_selection: self.selection,
                 title: "Thinking level",

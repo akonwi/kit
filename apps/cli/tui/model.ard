@@ -26,6 +26,17 @@ struct Props {
   override_service: cli::ModelOverrideService,
   dismiss: keymap::SimpleCommand,
   applied: fn(protocol::ConfigureSessionResult),
+  // Chooses a subagent conversation's model instead of the session's.
+  subagent: Subagent?,
+}
+
+// A subagent conversation whose model the picker chooses.
+struct Subagent {
+  // The conversation's model.
+  current: Str,
+  // Sets the model. It blocks, so it runs off the UI thread.
+  apply: fn(Str) Void!Error,
+  applied: fn(),
 }
 
 struct Picker {
@@ -189,6 +200,25 @@ impl Picker {
   private fn mut apply(model: Str, ctx: cui::Context) {
     if self.pending {
       ()
+    } else if self.props.subagent.is_some() {
+      let subagent = self.props.subagent.expect("subagent")
+      self.pending = true
+      self.error = ""
+      self.generation =+ 1
+      let generation = self.generation
+      let dispatch = ctx.dispatch
+      async::start(fn() {
+        let result = subagent.apply(model)
+        let _ = dispatch(fn() {
+          if self.generation == generation {
+            self.pending = false
+            match result {
+              ok(_) => subagent.applied(),
+              err(failure) => { self.error = failure.error() },
+            }
+          }
+        })
+      })
     } else {
       self.pending = true
       self.error = ""
@@ -339,7 +369,10 @@ impl cui::Component for Picker {
                     themes: self.props.themes,
                     catalog: catalog(self.models, self.pending),
                     placeholder: "Search models…",
-                    initial_selection: self.props.session.Model,
+                    initial_selection: match self.props.subagent {
+                      subagent => subagent.current,
+                      _ => self.props.session.Model,
+                    },
                     title: "Select model",
                     footer: "ctrl+o overrides",
                     error: "",

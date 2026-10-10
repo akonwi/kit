@@ -1,0 +1,228 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use go:kit/ffi/sessionbridge
+use go:kit/ffi/toolpresentation
+use kit/tui/subagent_pane
+use kit/tui/theme
+use go:strings
+use go:time
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+// Flushes until the frame shows `text`.
+fn wait_for(terminal: headless::TestApp, text: Str) {
+  mut attempts = 0
+  while attempts < 100 and not strings::Contains(terminal.frame().text(), text) {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+  terminal.flush()
+}
+
+fn conversation(state: Str) protocol::SubagentConversation {
+  protocol::SubagentConversation{
+    ID: "subagent_a",
+    AgentName: "code-reviewer",
+    Model: "anthropic/claude-sonnet-4-5",
+    ThinkingLevel: "high",
+    State: state,
+    Generation: 3,
+    UpdatedAt: "2025-01-01T00:00:00Z",
+  }
+}
+
+fn user(id: Str, text: Str) protocol::TranscriptMessage {
+  protocol::TranscriptMessage{
+    ID: id,
+    TurnID: "turn_a",
+    Sequence: 1,
+    Role: "user",
+    Content: [protocol::TextBlock(text)],
+  }
+}
+
+struct Shown {
+  terminal: headless::TestApp,
+  renderer: cui::Renderer,
+}
+
+fn show(
+  width: Int,
+  height: Int,
+  subject: protocol::SubagentConversation,
+  history: [protocol::TranscriptMessage],
+  live: [sessionbridge::Event],
+) Shown {
+  let terminal = headless::new(width, height)
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    subagent_pane::view(
+      subagent_pane::Props{
+        themes: theme::context(theme::store(theme::system())),
+        conversation: subject,
+        shown: true,
+        service: subagent_pane::Service{
+          transcript: fn(before: Str) protocol::SubagentTranscript!Error {
+            Result::ok(protocol::SubagentTranscript{ConversationID: subject.ID, Messages: history})
+          },
+          events: fn(stream: Str, after: Int64) sessionbridge::SubagentPage!Error {
+            let fresh = mut List::new<sessionbridge::Event>()
+            for event in live {
+              if event.Sequence > after {
+                fresh.push(event)
+              }
+            }
+            Result::ok(
+              sessionbridge::SubagentPage{
+                StreamID: "substream_a",
+                LastSequence: Int64::from(live.size()),
+                Events: fresh.@,
+              },
+            )
+          },
+        },
+        servers: [],
+        open_file: Maybe::new<fn(toolpresentation::FileTarget)>(),
+        choose_model: fn() {},
+        choose_thinking: fn() {},
+        cancel: fn() {},
+        dismiss: fn() {},
+      },
+    ),
+  )
+  terminal.flush()
+  Shown{terminal: terminal, renderer: renderer}
+}
+
+fn event(sequence: Int, kind: Str) sessionbridge::Event {
+  sessionbridge::Event{
+    StreamID: "substream_a",
+    Sequence: Int64::from(sequence),
+    TurnID: "turn_a",
+    Kind: kind,
+  }
+}
+
+test fn a_running_conversation_shows_its_history_live_run_and_activity() Void!Str {
+  let thinking = mut event(1, "assistant.thinking.delta")
+  thinking.MessageID = "m1"
+  thinking.Delta = "Read the tokenizer first."
+  let planned = mut event(2, "tool.planned")
+  planned.ToolCallID = "c1"
+  planned.ToolName = "read"
+  let started = mut event(3, "tool.started")
+  started.ToolCallID = "c1"
+  started.ToolName = "read"
+  let subject = mut conversation("running")
+  subject.QueuedTasks = 1
+  subject.ActiveTaskID = "task_a"
+  subject.Tasks = [protocol::SubagentTask{ID: "task_a", State: "running"}]
+  let shown = show(
+    72,
+    12,
+    subject.@,
+    [user("u1", "Review the parser change")],
+    [thinking.@, planned.@, started.@],
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  wait_for(shown.terminal, "Read file")
+  expect_rows(
+    steady(rows(shown.terminal)),
+    [
+      " ⠋ running · 1 queued   Claude Sonnet 4.5 ▾   high ▾   Cancel   Dismiss",
+      "────────────────────────────────────────────────────────────────────────",
+      "",
+      " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄",
+      "   Review the parser change",
+      " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+      "",
+      " ▾ 1 tool call",
+      "   Read the tokenizer first.",
+      "   ⠋ Read file",
+      "",
+      " ⠋ Working…",
+    ],
+  )
+}
+
+test fn a_finished_conversation_offers_no_cancel() Void!Str {
+  let shown = show(72, 3, conversation("idle"), [user("u1", "Review")], [])
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  wait_for(shown.terminal, "completed")
+  expect_rows(
+    [rows(shown.terminal).at(0).or(""), rows(shown.terminal).at(1).or("")],
+    [
+      " ○ completed                     Claude Sonnet 4.5 ▾   high ▾   Dismiss",
+      "────────────────────────────────────────────────────────────────────────",
+    ],
+  )
+}
+
+test fn a_failed_conversation_says_why() Void!Str {
+  let subject = mut conversation("failed")
+  subject.Tasks = [
+    protocol::SubagentTask{
+      ID: "task_a",
+      Sequence: 1,
+      State: "failed",
+      Error: "an older failure",
+    },
+    protocol::SubagentTask{
+      ID: "task_b",
+      Sequence: 2,
+      State: "failed",
+      Error: "provider returned\n529 overloaded",
+    },
+  ]
+  let shown = show(100, 3, subject.@, [user("u1", "Review")], [])
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  wait_for(shown.terminal, "failed")
+  expect_rows(
+    [rows(shown.terminal).at(0).or("")],
+    [
+      " ✗ failed · provider returned 529 overloaded                 Claude Sonnet 4.5 ▾   high ▾   Dismiss",
+    ],
+  )
+}
+
+// The rows with every spinner frame shown as the first, so a frame that
+// advanced while waiting does not matter.
+fn steady(shown: [Str]) [Str] {
+  let result = mut List::new<Str>()
+  for row in shown {
+    mut steadied = row
+    for frame in ["⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] {
+      steadied = strings::ReplaceAll(steadied, frame, "⠋")
+    }
+    result.push(steadied)
+  }
+  result.@
+}

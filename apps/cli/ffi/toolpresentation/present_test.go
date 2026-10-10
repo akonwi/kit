@@ -39,6 +39,7 @@ func TestPresentUsesTypedTitlesAndSummaries(t *testing.T) {
 		{name: "fallback", call: Call{Name: "custom_tool", Arguments: `{"path":"tmp"}`}, want: Presentation{Title: "Custom Tool", Summary: "tmp"}},
 		{name: "fallback non-string arguments", call: Call{Name: "custom_tool", Arguments: `{"limit":20}`}, want: Presentation{Title: "Custom Tool", Summary: `{"limit":20}`}},
 		{name: "fallback without arguments", call: Call{Name: "custom-tool"}, want: Presentation{Title: "Custom Tool", Summary: "no arguments"}},
+		{name: "arguments yet to arrive", call: Call{Name: "read", ArgumentsUnknown: true}, want: Presentation{Title: "Read file"}},
 		{name: "fallback truncated arguments", call: Call{Name: "custom_tool", ArgumentsTruncated: true}, want: Presentation{Title: "Custom Tool", Summary: "arguments truncated"}},
 		{name: "known malformed arguments", call: Call{Name: "read", Arguments: `{`}, want: Presentation{Title: "Read file", Summary: `{`}},
 		{name: "malformed search arguments", call: Call{Name: "grep", Arguments: `{`}, want: Presentation{Title: "Search", Summary: `{`}},
