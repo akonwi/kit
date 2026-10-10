@@ -1810,6 +1810,42 @@ impl Controller {
     }
   }
 
+  // diff_observer lists the working tree's changed files for the Diff pane;
+  // diff_reader reads one file's changes. Like `file_reader`, they block.
+  fn diff_observer() (fn(protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error)? {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            Maybe::new(
+              fn(input: protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error {
+                session.ObserveWorkingTree(lifetime.Context, input)
+              },
+            )
+          },
+          _ => Maybe::new<fn(protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error>(),
+        }
+      },
+      _ => Maybe::new<fn(protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error>(),
+    }
+  }
+
+  fn diff_reader() (fn(protocol::ReadFileDiffInput) protocol::FileDiffPage!Error)? {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            Maybe::new(fn(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
+              session.ReadFileDiff(lifetime.Context, input)
+            })
+          },
+          _ => Maybe::new<fn(protocol::ReadFileDiffInput) protocol::FileDiffPage!Error>(),
+        }
+      },
+      _ => Maybe::new<fn(protocol::ReadFileDiffInput) protocol::FileDiffPage!Error>(),
+    }
+  }
+
   // Asks the server for the working directory's workspace when it isn't
   // known yet.
   fn mut load_workspace() {
