@@ -222,6 +222,25 @@ func TestRunGitKillsDescendantsAtDeadline(t *testing.T) {
 	}
 }
 
+func TestRepositoryIdentityChangesWithLocalRemoteConfiguration(t *testing.T) {
+	repository := t.TempDir()
+	runGitTest(t, repository, "init", "-b", "main")
+	before, err := RepositoryIdentity(t.Context(), repository)
+	if err != nil || before == "" {
+		t.Fatalf("initial identity=%q err=%v", before, err)
+	}
+	runGitTest(t, repository, "remote", "add", "origin", "https://github.com/a/one.git")
+	first, err := RepositoryIdentity(t.Context(), repository)
+	if err != nil || first == before {
+		t.Fatalf("first identity=%q err=%v", first, err)
+	}
+	runGitTest(t, repository, "remote", "set-url", "origin", "https://github.com/a/two.git")
+	second, err := RepositoryIdentity(t.Context(), repository)
+	if err != nil || second == first {
+		t.Fatalf("second identity=%q err=%v", second, err)
+	}
+}
+
 func TestProbeReturnsNilOutsideGitRepository(t *testing.T) {
 	t.Parallel()
 	status, err := Probe(context.Background(), t.TempDir())

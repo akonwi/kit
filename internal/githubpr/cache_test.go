@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/akonwi/kit/internal/pullrequest"
 )
 
 func waitCache(t *testing.T, c *Cache) {
@@ -33,7 +35,7 @@ func TestCachePositiveNegativeExpiryAndDetachedCopies(t *testing.T) {
 		if branch == "missing" {
 			return nil
 		}
-		return &PullRequest{Number: 42, URL: "https://github.com/a/b/pull/42"}
+		return &PullRequest{Number: 42, URL: "https://github.com/a/b/pull/42", Checks: []pullrequest.Check{{Name: "test", State: pullrequest.CheckPending}}, Reviews: []pullrequest.Review{{Author: "reviewer", State: "APPROVED"}}}
 	}
 	for _, branch := range []string{"main", "missing"} {
 		if got := c.Get("/repo", "/repo", branch); got != nil {
@@ -43,10 +45,12 @@ func TestCachePositiveNegativeExpiryAndDetachedCopies(t *testing.T) {
 		for range 3 {
 			got := c.Get("/repo", "/repo", branch)
 			if branch == "main" {
-				if got == nil || got.Number != 42 {
+				if got == nil || got.Number != 42 || got.Checks[0].State != pullrequest.CheckPending || got.Reviews[0].State != "APPROVED" {
 					t.Fatalf("cached PR=%v", got)
 				}
 				got.Number = 99
+				got.Checks[0].State = pullrequest.CheckFailed
+				got.Reviews[0].State = "DISMISSED"
 			} else if got != nil {
 				t.Fatalf("negative result=%v", got)
 			}
@@ -125,7 +129,7 @@ func TestCacheSeparatesCWDRepositoryAndBranch(t *testing.T) {
 	_ = c.Get("/a", "/nested", "new")
 	close(release)
 	waitCache(t, c)
-	for _, key := range []cacheKey{{"/a", "/a", "new"}, {"/b", "/b", "new"}, {"/a", "/nested", "new"}} {
+	for _, key := range []cacheKey{{cwd: "/a", root: "/a", branch: "new"}, {cwd: "/b", root: "/b", branch: "new"}, {cwd: "/a", root: "/nested", branch: "new"}} {
 		if got := c.Get(key.cwd, key.root, key.branch); got == nil || got.Number != 2 {
 			t.Fatalf("stale lookup crossed key: %v", got)
 		}
@@ -135,6 +139,29 @@ func TestCacheSeparatesCWDRepositoryAndBranch(t *testing.T) {
 	c.mu.Unlock()
 	if entries != 4 {
 		t.Fatalf("distinct keys=%d", entries)
+	}
+}
+
+func TestCacheSeparatesRepositoryGenerations(t *testing.T) {
+	c := NewCache(t.Context())
+	defer c.Close()
+	var calls atomic.Int32
+	c.lookup = func(context.Context, string, string) *PullRequest {
+		return &PullRequest{Number: int(calls.Add(1))}
+	}
+	if got := c.GetForRepository("/repo", "/repo", "repository-a", "main"); got != nil {
+		t.Fatal(got)
+	}
+	waitCache(t, c)
+	if got := c.GetForRepository("/repo", "/repo", "repository-a", "main"); got == nil || got.Number != 1 {
+		t.Fatal(got)
+	}
+	if got := c.GetForRepository("/repo", "/repo", "repository-b", "main"); got != nil {
+		t.Fatalf("repository generation reused stale value: %+v", got)
+	}
+	waitCache(t, c)
+	if got := c.GetForRepository("/repo", "/repo", "repository-b", "main"); got == nil || got.Number != 2 {
+		t.Fatal(got)
 	}
 }
 

@@ -48,12 +48,42 @@ func (h *sessionPluginHost) VCS(ctx context.Context) (session.VCSUpdate, error) 
 	value, err := h.vcs.Read(ctx)
 	return projectVCSUpdate(value), err
 }
+func (h *sessionPluginHost) CurrentPullRequestStatus() session.PullRequestStatusUpdate {
+	return projectPullRequestStatusUpdate(h.vcs.Current())
+}
+func (h *sessionPluginHost) SubscribePullRequestStatus() (session.PullRequestStatusSubscription, error) {
+	source, err := h.vcs.SubscribePullRequestStatus()
+	if err != nil {
+		return nil, err
+	}
+	return sessionPullRequestStatusSubscription{source}, nil
+}
+
 func (h *sessionPluginHost) SubscribeVCS() (session.VCSSubscription, error) {
 	source, err := h.vcs.Subscribe()
 	if err != nil {
 		return nil, err
 	}
 	return sessionVCSSubscription{source}, nil
+}
+
+type sessionPullRequestStatusSubscription struct {
+	source *vcs.PullRequestStatusSubscription
+}
+
+func (s sessionPullRequestStatusSubscription) Close() { s.source.Close() }
+func (s sessionPullRequestStatusSubscription) Next(ctx context.Context) (session.PullRequestStatusUpdate, error) {
+	value, err := s.source.Next(ctx)
+	return session.PullRequestStatusUpdate{CWD: value.CWD, Root: value.Root, RepositoryID: value.RepositoryID, Branch: value.Branch, Status: value.Status}, err
+}
+func projectPullRequestStatusUpdate(value vcs.Snapshot) session.PullRequestStatusUpdate {
+	result := session.PullRequestStatusUpdate{CWD: value.CWD, Status: value.PullRequest}
+	if value.Git != nil && value.Git.Head.Kind == vcs.HeadBranch {
+		result.Root = value.Git.Root
+		result.RepositoryID = value.Git.RepositoryID
+		result.Branch = value.Git.Head.Name
+	}
+	return result
 }
 
 type sessionVCSSubscription struct{ source *vcs.Subscription }
