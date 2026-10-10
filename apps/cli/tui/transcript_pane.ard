@@ -591,6 +591,7 @@ private fn entry_view(
             selected: false,
             on_select: fn() {},
             servers: [],
+            title_width: tool_row::min_title_width,
           },
         ),
       )
@@ -1091,6 +1092,18 @@ fn work_view(themes: theme::Context, work: Work, run: transcript::Work) cui::Vie
     true => {
       let rows = mut List::new<cui::View>()
       rows.push(chip)
+      // The chip's rows share a title column wide enough for their titles.
+      let titles = mut List::new<Str>()
+      for step in run.steps {
+        match step.result {
+          result => {
+            let call = step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name))
+            titles.push(tool_row::presentation(call, result, work.servers).Title)
+          },
+          _ => (),
+        }
+      }
+      let title_width = tool_row::title_column(titles.@)
       for step in run.steps {
         // Thinking lines up with the tool rows' titles.
         let content = match step.result {
@@ -1109,6 +1122,7 @@ fn work_view(themes: theme::Context, work: Work, run: transcript::Work) cui::Vie
                   result: result,
                   selected: selected,
                   servers: work.servers,
+                  title_width: title_width,
                   on_select: fn() {
                     choose(row)
                     toggle_output(row)

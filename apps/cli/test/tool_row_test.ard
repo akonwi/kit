@@ -70,6 +70,7 @@ fn show(width: Int, called: transcript::ToolCall, outcome: transcript::Message, 
         selected: false,
         on_select: fn() {},
         servers: servers.or([]),
+        title_width: tool_row::min_title_width,
       },
     ),
   )

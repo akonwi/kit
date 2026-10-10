@@ -2334,3 +2334,65 @@ test fn a_well_without_output_says_so() Void!Str {
     ],
   )
 }
+
+fn titled_run(names: [Str]) [transcript::Message] {
+  let reply = mut transcript::message("t1-reply", "t1", transcript::Role::assistant)
+  let calls = mut List::new<transcript::ToolCall>()
+  let messages = mut List::new<transcript::Message>()
+  for name, index in names {
+    let call = mut transcript::tool_call("c{index}", name)
+    call.arguments = "{{\"path\":\"a.go\"}}"
+    calls.push(call.@)
+  }
+  reply.tool_calls = calls.@
+  messages.push(reply.@)
+  for name, index in names {
+    let result = mut transcript::message("t1-result-{index}", "t1", transcript::Role::tool)
+    result.tool_call_id = "c{index}"
+    result.tool_name = name
+    result.tool_state = transcript::ToolState::completed
+    result.text = "done"
+    messages.push(result.@)
+  }
+  messages.@
+}
+
+test fn a_chips_rows_share_a_title_column_as_wide_as_their_longest_title() Void!Str {
+  let terminal = headless::new(80, 5)
+  defer terminal.destroy()
+  let model = bash_model(titled_run(["read", "kit__inspect_workspace_state"]))
+  model.open_work = ["work:t1:c0": true]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      " ▾ 2 tool calls",
+      "     Read file                a.go:1–1",
+      "     Inspect Workspace State  kit",
+      "",
+    ],
+  )
+}
+
+test fn a_title_column_stops_growing_at_its_widest() Void!Str {
+  let terminal = headless::new(80, 5)
+  defer terminal.destroy()
+  let model = bash_model(titled_run(["read", "kit__reconcile_every_pending_workspace_change"]))
+  model.open_work = ["work:t1:c0": true]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      " ▾ 2 tool calls",
+      "     Read file                         a.go:1–1",
+      "     Reconcile Every Pending Workspac  kit",
+      "",
+    ],
+  )
+}
