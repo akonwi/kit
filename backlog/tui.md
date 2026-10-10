@@ -137,8 +137,10 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   - [x] `find`: Find files · `pattern in path`.
   Session tools:
   - [x] `change_cwd`: Change directory · path.
-  - [ ] `change_cwd`: check the working-directory toast and location
-    refresh.
+  - [x] `change_cwd`: the client follows `session.cwd.changed`, from the
+    tool, `/cd`, or another client: the session's working directory, the
+    footer location, and the file-mention index. As in vaxis, only `/cd`
+    toasts.
   - [x] `read_scratchpad` (new title): Read scratchpad, without a chip.
   - [x] `edit_scratchpad`: Update scratchpad · N edits.
   - [x] `confirm_from_user`, `input_from_user`, `select_from_user`,
