@@ -147,8 +147,12 @@ struct Controller {
   // attachment is then frozen: its transcript and draft stay visible, but it
   // makes no further requests.
   incompatible: Str,
-  // The session's indexed project paths, for file mentions.
+  // The session's indexed project paths, for file mentions and the file
+  // picker.
   files: file_index::Source,
+  // The workspace of the session's working directory; empty until known.
+  // File panes opened in another workspace are stale.
+  workspace_id: Str,
   // The other sessions, for session mentions, and their running load.
   mentionable: session_mentions::Source,
   mentionable_load: contextbridge::Cancellation?,
@@ -300,6 +304,7 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     scratchpad_failure: "",
     incompatible: "",
     files: file_index::source(),
+    workspace_id: "",
     mentionable: session_mentions::source(),
     mentionable_load: Maybe::new<contextbridge::Cancellation>(),
   })
@@ -520,6 +525,9 @@ impl Controller {
   fn mut apply_snapshot(snapshot: protocol::SessionSnapshot) {
     if not self.live.supersedes(snapshot) {
       self.info = Maybe::new(snapshot.Session)
+      if not unsafe::is_nil(snapshot.Workspace) {
+        self.workspace_id = snapshot.Workspace.WorkspaceID
+      }
       self.prompt_commands = snapshot.PromptCommands
       self.plugin_commands = snapshot.PluginCommands
       self.follow_ups = snapshot.FollowUps
@@ -660,6 +668,9 @@ impl Controller {
       }
       if event.Kind == "session.cwd.changed" and event.CWD != "" {
         self.follow_cwd(event.CWD)
+        if event.WorkspaceID != "" {
+          self.workspace_id = event.WorkspaceID
+        }
       }
       // A transcript pinned to its end follows new content on its own.
       let _ = self.live.apply_event(event)
@@ -1775,6 +1786,73 @@ impl Controller {
     if self.active {
       self.scratchpad_record = Maybe::new(record)
       self.scratchpad_failure = ""
+    }
+  }
+
+  // file_reader reads workspace files for File panes. Like
+  // `scratchpad_updater`, it captures only this attachment's session and
+  // cancellation, and blocks, so callers run it off the UI thread.
+  fn file_reader() (fn(protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error)? {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            Maybe::new(
+              fn(input: protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error {
+                session.ReadWorkspaceFile(lifetime.Context, input)
+              },
+            )
+          },
+          _ => Maybe::new<fn(protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error>(),
+        }
+      },
+      _ => Maybe::new<fn(protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error>(),
+    }
+  }
+
+  // Asks the server for the working directory's workspace when it isn't
+  // known yet.
+  fn mut load_workspace() {
+    if self.workspace_id == "" and self.can_submit() {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              let dispatch = self.host.dispatch
+              async::start(fn() {
+                let result = session.Workspace(lifetime.Context)
+                let _ = dispatch(fn() {
+                  match result {
+                    ok(workspace) => {
+                      if self.active and self.workspace_id == "" {
+                        self.workspace_id = workspace.WorkspaceID
+                      }
+                    },
+                    err(_) => (),
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Indexes the working directory again, as the server sees it now.
+  fn mut refresh_files() {
+    if self.can_submit() {
+      match self.info {
+        info => {
+          match self.files.refresh(info.ID, info.CWD) {
+            load => self.request_files(load),
+            _ => (),
+          }
+        },
+        _ => (),
+      }
     }
   }
 

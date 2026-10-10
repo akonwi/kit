@@ -1,0 +1,794 @@
+use ard/async
+use ard/testing
+use ard/unsafe
+
+use go:api/contract as protocol
+use cooper/cui
+use cooper/event
+use cooper/ui
+use go:fmt
+use go:github.com/akonwi/kit/internal/highlight
+use go:github.com/akonwi/vaxis
+use go:kit/ffi/contextbridge
+use kit/tui/after_commit
+use kit/tui/code
+use kit/tui/format
+use kit/tui/layout
+use kit/tui/theme
+use kit/tui/workspace
+use go:strings
+
+// A File tab's body: the file as the session's workspace has it, with line
+// numbers, highlighting, and a cursor line. Lines don't wrap; the wheel
+// scrolls them sideways with Shift or a horizontal swipe, and the line
+// numbers stay put. Clicking a line moves the cursor to it. The pane is
+// mouse-only. The file loads when its tab is first shown and again each time
+// it is shown. A tab opened in a workspace the session has since left is
+// frozen: it keeps what it showed and loads nothing.
+
+// Cells a horizontal wheel step moves the text.
+let column_step = 4
+
+struct Props {
+  themes: theme::Context,
+  tab: workspace::Tab,
+  // Whether the session has left the tab's workspace.
+  stale: Bool,
+  // Whether the tab is selected.
+  shown: Bool,
+  // Reads a workspace file; blocks.
+  read: (fn(protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error)?,
+}
+
+fn view(props: Props) cui::View {
+  cui::child(new, props, key: "file-pane:{props.tab.id}")
+}
+
+// A run of a line's text and its syntax role, or "" for none.
+struct Segment {
+  text: Str,
+  role: Str,
+}
+
+// Why a file shows no content.
+struct Failure {
+  title: Str,
+  detail: Str,
+  // Whether the workspace is gone, which freezes the tab.
+  stale: Bool,
+}
+
+// The lines of highlighted source, split into segments. A final newline
+// ends the last line rather than starting another.
+fn lines(result: highlight::Result) [[Segment]] {
+  let source = result.Source
+  let pieces = mut List::new<Segment>()
+  mut position = 0
+  for capture in result.Spans {
+    if capture.Start > position {
+      pieces.push(Segment{text: source.slice(position, capture.Start).or(""), role: ""})
+    }
+    pieces.push(
+      Segment{text: source.slice(capture.Start, capture.End).or(""), role: capture.Role.to_str()},
+    )
+    position = capture.End
+  }
+  if position < source.size() {
+    pieces.push(Segment{text: source.slice(position, source.size()).or(""), role: ""})
+  }
+  let rows = mut List::new<[Segment]>()
+  mut current = mut List::new<Segment>()
+  for piece in pieces {
+    for part, index in strings::Split(piece.text, "\n") {
+      if index > 0 {
+        rows.push(current.@)
+        current = mut List::new<Segment>()
+      }
+      if part != "" {
+        current.push(Segment{text: part, role: piece.role})
+      }
+    }
+  }
+  if source != "" and not strings::HasSuffix(source, "\n") {
+    rows.push(current.@)
+  }
+  rows.@
+}
+
+// The cells of segments from column `from`, at most `width` of them. A wide
+// character cut by either edge is left out.
+fn visible(segments: [Segment], from: Int, width: Int) [Segment] {
+  let shown = mut List::new<Segment>()
+  mut at = 0
+  for segment in segments {
+    mut text = ""
+    for character in vaxis::Characters(segment.text) {
+      let start = at
+      at =+ character.Width
+      if start >= from and at <= from + width {
+        text = "{text}{character.Grapheme}"
+      }
+    }
+    if text != "" {
+      shown.push(Segment{text: text, role: segment.role})
+    }
+  }
+  shown.@
+}
+
+private fn line_width(segments: [Segment]) Int {
+  mut width = 0
+  for segment in segments {
+    width =+ format::cell_width(segment.text)
+  }
+  width
+}
+
+// The header's right side: the cursor line, line count, and size, losing
+// the size and then the count when the path needs the room. Narrower than
+// `width`, the path keeps at least a third of the row.
+fn status(width: Int, file_path: Str, cursor: Int, count: Int, size: Int) Str {
+  let full = "Ln {cursor} · {count} lines · {size_label(size)}"
+  let shorter = "Ln {cursor} · {count} lines"
+  let shortest = "Ln {cursor}"
+  // A cell either side of the header and two between its sides.
+  let room = width - 4 - format::cell_width(file_path)
+  let least = width / 3
+  match {
+    width <= 0 or format::cell_width(full) <= room => full,
+    width - 4 - format::cell_width(full) >= least => full,
+    format::cell_width(shorter) <= room or width - 4 - format::cell_width(shorter) >= least => shorter,
+    _ => shortest,
+  }
+}
+
+// A file size as vaxis shows it.
+fn size_label(size: Int) Str {
+  match {
+    size < 1024 => "{size} B",
+    size < 1024 * 1024 => fmt::Sprintf("%.1f KiB", Float64::fit(size) / 1024.0),
+    _ => fmt::Sprintf("%.1f MiB", Float64::fit(size) / 1048576.0),
+  }
+}
+
+// What a failed read shows.
+fn failure(error: Error) Failure {
+  let canceled = Failure{
+    title: "Load canceled",
+    detail: "It loads again when this tab is next shown.",
+    stale: false,
+  }
+  match unsafe::cast<mut protocol::WorkspaceError>(error) {
+    workspace_error => {
+      match "{workspace_error.Code}" {
+        "stale_workspace" => {
+          Failure{
+            title: "Stale workspace",
+            detail: "This tab is frozen at its original workspace.",
+            stale: true,
+          }
+        },
+        "binary_file" => {
+          Failure{
+            title: "Binary file",
+            detail: "A text preview is not available.",
+            stale: false,
+          }
+        },
+        "not_found" => {
+          Failure{
+            title: "File not found",
+            detail: "The file may have moved or been removed.",
+            stale: false,
+          }
+        },
+        "not_file" => {
+          Failure{
+            title: "File not found",
+            detail: "The file may have moved or been removed.",
+            stale: false,
+          }
+        },
+        "permission_denied" => unreadable(),
+        "outside_workspace" => unreadable(),
+        "symlink_traversal" => unreadable(),
+        "unavailable" => {
+          Failure{
+            title: "Workspace files unavailable",
+            detail: "Try again when the session workspace is available.",
+            stale: false,
+          }
+        },
+        "capacity_exceeded" => {
+          Failure{
+            title: "Workspace is busy",
+            detail: "It loads again when this tab is next shown.",
+            stale: false,
+          }
+        },
+        "limit_exceeded" => {
+          Failure{
+            title: "Workspace is busy",
+            detail: "It loads again when this tab is next shown.",
+            stale: false,
+          }
+        },
+        _ => {
+          Failure{
+            title: "Could not load file",
+            detail: workspace_error.Message,
+            stale: false,
+          }
+        },
+      }
+    },
+    _ => {
+      match strings::Contains(error.error(), "context canceled") {
+        true => canceled,
+        false => {
+          Failure{
+            title: "Could not load file",
+            detail: error.error(),
+            stale: false,
+          }
+        },
+      }
+    },
+  }
+}
+
+private fn unreadable() Failure {
+  Failure{
+    title: "File is unreadable",
+    detail: "Permission was denied by the workspace host.",
+    stale: false,
+  }
+}
+
+private struct Pane {
+  props: mut Props,
+  context: cui::Context?,
+  list: mut cui::VirtualListRef,
+  frame: mut cui::BoxRef,
+  // The body's width as last laid out; zero until then.
+  width: Int,
+  // The latest read, and its lines as currently highlighted.
+  read: protocol::WorkspaceFileRead?,
+  rows: [[Segment]],
+  widest: Int,
+  loading: Bool,
+  failed: Failure?,
+  frozen: Bool,
+  // Counts loads and highlights, so a superseded one is ignored.
+  generation: Int,
+  highlighting: contextbridge::Cancellation?,
+  cursor: Int,
+  column: Int,
+  // The opening of the tab last acted on; see `workspace::Tab`.
+  opening: Int,
+  // Whether the cursor line should be scrolled into view once lines load.
+  reveal: Bool,
+  was_shown: Bool,
+}
+
+private fn new(props: mut Props) mut Pane {
+  (mut Pane{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    list: cui::virtual_list_ref(),
+    frame: cui::box_ref(),
+    width: 0,
+    read: Maybe::new<protocol::WorkspaceFileRead>(),
+    rows: [],
+    widest: 0,
+    loading: false,
+    failed: Maybe::new<Failure>(),
+    frozen: false,
+    generation: 0,
+    highlighting: Maybe::new<contextbridge::Cancellation>(),
+    cursor: 1,
+    column: 0,
+    opening: 0,
+    reveal: false,
+    was_shown: false,
+  })
+}
+
+impl cui::Lifecycle for Pane {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+    let _ = context.internal_layout(fn() Bool {
+      self.measure()
+    })
+    self.sync()
+  }
+
+  fn mut unmounting(context: cui::Context) {
+    self.generation =+ 1
+    self.stop_highlight()
+    self.context = Maybe::new<cui::Context>()
+  }
+}
+
+impl Pane {
+  private fn mut measure() Bool {
+    match self.frame.current {
+      frame => {
+        let width = frame.layout().local.width
+        let changed = width != self.width
+        self.width = width
+        changed
+      },
+      _ => false,
+    }
+  }
+
+  // Acts on prop changes: a new opening's line, being shown again, and
+  // gaining the keyboard.
+  private fn mut sync() {
+    let tab = self.props.tab
+    if tab.opening != self.opening {
+      self.opening = tab.opening
+      if tab.line > 0 {
+        self.cursor = tab.line
+        self.reveal = true
+        self.reveal_cursor()
+      }
+    }
+    // Rendering precedes mounting; transitions wait for the context.
+    if self.context.is_some() {
+      if self.props.shown and not self.was_shown {
+        self.load()
+      }
+      self.was_shown = self.props.shown
+    }
+  }
+
+  private fn locked() Bool {
+    self.frozen or self.props.stale
+  }
+
+  private fn mut load() {
+    match self.context {
+      context => {
+        match self.props.read {
+          read => {
+            if not self.locked() {
+              self.generation =+ 1
+              let generation = self.generation
+              self.loading = true
+              let input = protocol::ReadWorkspaceFileInput{WorkspaceID: self.props.tab.workspace_id, Path: self.props.tab.path}
+              let dispatch = context.dispatch
+              async::start(fn() {
+                let result = read(input)
+                let _ = dispatch(fn() {
+                  if self.generation == generation {
+                    self.loading = false
+                    match result {
+                      ok(file) => self.loaded(file),
+                      err(error) => self.load_failed(failure(error)),
+                    }
+                  }
+                })
+              })
+            }
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut load_failed(reason: Failure) {
+    self.failed = Maybe::new(reason)
+    if reason.stale {
+      self.frozen = true
+    }
+  }
+
+  private fn mut loaded(file: protocol::WorkspaceFileRead) {
+    self.read = Maybe::new(file)
+    self.failed = Maybe::new<Failure>()
+    let request = code::source_request("", file.Path, file.Content)
+    self.show(code::plain(request))
+    self.stop_highlight()
+    let generation = self.generation
+    match self.context {
+      context => {
+        self.highlighting = code::highlight_later(
+          request,
+          context.dispatch,
+          fn(result: highlight::Result) {
+            if self.generation == generation {
+              self.highlighting = Maybe::new<contextbridge::Cancellation>()
+              self.show(result)
+            }
+          },
+        )
+      },
+      _ => (),
+    }
+    if self.cursor > self.rows.size() {
+      self.cursor = match self.rows.size() > 0 {
+        true => self.rows.size(),
+        false => 1,
+      }
+    }
+    if self.reveal {
+      self.reveal_cursor()
+    }
+  }
+
+  private fn mut show(result: highlight::Result) {
+    self.rows = lines(result)
+    mut widest = 0
+    for row in self.rows {
+      let width = line_width(row)
+      if width > widest {
+        widest = width
+      }
+    }
+    self.widest = widest
+  }
+
+  private fn mut stop_highlight() {
+    match self.highlighting {
+      attempt => attempt.Cancel(),
+      _ => (),
+    }
+    self.highlighting = Maybe::new<contextbridge::Cancellation>()
+  }
+
+  private fn mut reveal_cursor() {
+    match self.context {
+      context => {
+        let list = self.list
+        let key = "{self.cursor}"
+        let _ = after_commit::once(context, fn() {
+          match list.current {
+            current => {
+              if current.scroll_to_key(key, cui::ScrollAlignment::center) {
+                self.reveal = false
+              }
+            },
+            _ => (),
+          }
+        })
+      },
+      _ => (),
+    }
+  }
+
+  private fn digits() Int {
+    let count = "{self.rows.size()}".size()
+    match count < 3 {
+      true => 3,
+      false => count,
+    }
+  }
+
+  // Cells left for text beside the line numbers: a cell before them, one
+  // after, and the list's scrollbar at the end.
+  private fn text_width() Int {
+    let width = self.width - self.digits() - 3
+    match width < 1 {
+      true => 1,
+      false => width,
+    }
+  }
+
+  private fn max_column() Int {
+    let most = self.widest - self.text_width()
+    match most < 0 {
+      true => 0,
+      false => most,
+    }
+  }
+
+  private fn mut scroll_columns(delta: Int) Bool {
+    mut next = self.column + delta
+    if next > self.max_column() {
+      next = self.max_column()
+    }
+    if next < 0 {
+      next = 0
+    }
+    let moved = next != self.column
+    self.column = next
+    moved
+  }
+
+  private fn mut mouse(received: mut event::MouseEvent) {
+    if received.event_type == event::MouseEventType::scroll {
+      mut delta = received.scroll_x
+      if received.modifiers.shift {
+        delta = received.scroll_y
+      }
+      if delta != 0 {
+        let _ = self.scroll_columns(delta * column_step)
+        received.prevent_default()
+      }
+    }
+  }
+
+  private fn mut row(number: Int) cui::View {
+    let colors = self.props.themes.current()
+    let segments = self.rows.at(number - 1).or([])
+    let spans = mut List::new<ui::Span>()
+    for segment in visible(segments, self.column, self.text_width()) {
+      let foreground = match segment.role == "" {
+        true => Maybe::new<ui::Color>(),
+        false => Maybe::new(colors.syntax(segment.role)),
+      }
+      spans.push(ui::span(segment.text, style: ui::span_style(foreground: foreground)))
+    }
+    let label = "{number}"
+    let padding = strings::Repeat(" ", self.digits() - label.size())
+    let current = number == self.cursor
+    cui::box(
+      [
+        cui::text(
+          "{padding}{label}",
+          styles: ui::style(flex_shrink: 0.0),
+          text_style: ui::text_style(
+            foreground: match current {
+              true => colors.foreground,
+              false => colors.muted,
+            },
+          ),
+          selectable: false,
+        ),
+        cui::text(
+          ui::styled_text(spans.@),
+          styles: ui::style(flex_grow: 1.0),
+          text_style: ui::text_style(foreground: colors.foreground),
+          wrap: ui::TextWrap::none,
+          selectable: true,
+          selection_style: theme::selection_style(colors),
+        ),
+      ],
+      styles: ui::style(
+        // The list's scrollbar column ends the row.
+        height: ui::cells(1),
+        flex_direction: ui::FlexDirection::row,
+        gap: ui::cells(1),
+        background: match current {
+          true => Maybe::new(colors.surface_pressed),
+          false => Maybe::new<ui::Color>(),
+        },
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(0),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+      on_mouse: fn(received: mut event::MouseEvent, context: cui::Context) {
+        if received.event_type == event::MouseEventType::down and received.button == event::MouseButton::left {
+          self.cursor = number
+        }
+      },
+    )
+  }
+
+  private fn header() cui::View {
+    let colors = self.props.themes.current()
+    let right = match {
+      self.locked() => "stale · frozen",
+      _ => {
+        match self.read {
+          file => status(self.width, self.props.tab.path, self.cursor, self.rows.size(), Int::fit(file.Size)),
+          _ => "",
+        }
+      },
+    }
+    cui::box(
+      [
+        cui::text(
+          self.props.tab.path,
+          styles: ui::style(flex_grow: 1.0, flex_shrink: 1.0),
+          text_style: ui::text_style(foreground: colors.muted),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+        cui::text(
+          right,
+          styles: ui::style(flex_shrink: 0.0),
+          text_style: ui::text_style(foreground: colors.muted),
+        ),
+      ],
+      styles: ui::style(
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+        gap: ui::cells(2),
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+    )
+  }
+
+  // What the footer reports, or "" for no footer.
+  private fn footer() Str {
+    match {
+      self.locked() => "Frozen at its original workspace",
+      self.loading and self.read.is_some() => "Refreshing…",
+      _ => {
+        match self.failed {
+          reason => {
+            match self.read.is_some() {
+              true => "{reason.title}; showing what loaded before",
+              false => "",
+            }
+          },
+          _ => {
+            match self.read {
+              file => {
+                match file.Truncated {
+                  true => "Preview truncated ({strings::ReplaceAll(file.TruncationReason, "_", " ")})",
+                  false => "",
+                }
+              },
+              _ => "",
+            }
+          },
+        }
+      },
+    }
+  }
+
+  private fn message(title: Str, detail: Str) cui::View {
+    let colors = self.props.themes.current()
+    let children = mut List::new<cui::View>()
+    children.push(cui::text(title, text_style: ui::text_style(foreground: colors.foreground)))
+    if detail != "" {
+      children.push(cui::text(detail, text_style: ui::text_style(foreground: colors.muted)))
+    }
+    cui::box(
+      children.@,
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
+        flex_direction: ui::FlexDirection::column,
+        padding: ui::Edges{
+          top: ui::cells(1),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+    )
+  }
+
+  private fn mut body() cui::View {
+    match self.read {
+      file => {
+        match self.rows.size() == 0 {
+          true => self.message("Empty file", "0 bytes"),
+          false => {
+            let numbers = mut List::new<Int>()
+            for number in 1..self.rows.size() {
+              numbers.push(number)
+            }
+            cui::virtual_list(
+              numbers.@,
+              fn(number: Int) Str {
+                "{number}"
+              },
+              fn(number: Int) cui::View {
+                self.row(number)
+              },
+              estimated_height: 1,
+              row_height: 1,
+              key: "file-lines",
+              styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+              ref: self.list,
+              on_mouse: fn(received: mut event::MouseEvent, context: cui::Context) {
+                self.mouse(received)
+              },
+            )
+          },
+        }
+      },
+      _ => {
+        match self.failed {
+          reason => self.message(reason.title, reason.detail),
+          _ => {
+            match self.locked() {
+              true => self.message("Stale workspace", "This tab is frozen at its original workspace."),
+              false => self.message("Loading file…", ""),
+            }
+          },
+        }
+      },
+    }
+  }
+}
+
+impl cui::Component for Pane {
+  fn mut render() cui::View {
+    self.sync()
+    let colors = self.props.themes.current()
+    let children = mut List::new<cui::View>()
+    children.push(self.header())
+    children.push(layout::divider(colors.border))
+    children.push(
+      cui::box(
+        [self.body()],
+        ref: self.frame,
+        styles: ui::style(
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+          flex_direction: ui::FlexDirection::column,
+          overflow: ui::Overflow::hidden,
+        ),
+      ),
+    )
+    // A footer only reports; without news it is gone.
+    let report = self.footer()
+    if report != "" {
+      children.push(layout::divider(colors.border))
+      children.push(layout::line(report, ui::text_style(foreground: colors.muted)))
+    }
+    cui::box(
+      children.@,
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
+        flex_direction: ui::FlexDirection::column,
+      ),
+    )
+  }
+}
+
+private fn segments(parts: [Str]) [Segment] {
+  let made = mut List::new<Segment>()
+  for part in parts {
+    made.push(Segment{text: part, role: ""})
+  }
+  made.@
+}
+
+private fn texts(row: [Segment]) Str {
+  mut joined = ""
+  for segment in row {
+    joined = "{joined}[{segment.text}]"
+  }
+  joined
+}
+
+test fn source_splits_into_lines_of_segments() Void!Str {
+  let split = lines(code::plain(code::source_request("", "notes.txt", "one\ntwo\n\nfour\n")))
+  try testing::assert(split.size() == 4, "a final newline ends the last line: {split.size()}")
+  try testing::assert(texts(split.at(1).or([])) == "[two]", "each line keeps its text")
+  testing::assert(split.at(2).or([]).size() == 0, "an empty line has no segments")
+}
+
+test fn visible_text_starts_at_the_column_within_the_width() Void!Str {
+  let row = segments(["func ", "main", "() {{"])
+  try testing::assert(texts(visible(row, 0, 7)) == "[func ][ma]", "from the start")
+  try testing::assert(texts(visible(row, 5, 20)) == "[main][() {{]", "scrolled past the first segment")
+  testing::assert(
+    texts(visible(segments(["界界"]), 1, 4)) == "[界]",
+    "a wide character cut by the edge is left out",
+  )
+}
+
+test fn sizes_read_like_vaxis() Void!Str {
+  try testing::assert(size_label(512) == "512 B", "bytes")
+  try testing::assert(size_label(9385) == "9.2 KiB", "kibibytes")
+  testing::assert(size_label(2 * 1048576) == "2.0 MiB", "mebibytes")
+}
+
+test fn the_header_status_gives_way_to_the_path() Void!Str {
+  try testing::assert(
+    status(60, "notes.txt", 2, 3, 17) == "Ln 2 · 3 lines · 17 B",
+    "room for everything",
+  )
+  try testing::assert(status(30, "notes.txt", 2, 3, 17) == "Ln 2 · 3 lines", "the size goes first")
+  testing::assert(status(20, "notes.txt", 2, 3, 17) == "Ln 2", "then the count")
+}

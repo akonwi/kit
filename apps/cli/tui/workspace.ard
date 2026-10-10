@@ -1,5 +1,7 @@
 use ard/testing
 
+use go:path
+
 // The workspace tabs of one attachment. Agent is permanent and first;
 // secondary panes follow in the order they were opened, and the strip shows
 // only once one is open. The tabs are client-local: they reset with the
@@ -13,6 +15,7 @@ let agent = ""
 
 enum Kind {
   scratchpad,
+  file,
 }
 
 struct Tab {
@@ -20,6 +23,13 @@ struct Tab {
   id: Str,
   kind: Kind,
   label: Str,
+  // A File tab's workspace-relative path and the workspace it was opened in.
+  path: Str,
+  workspace_id: Str,
+  // The line a File tab was last asked to show, or 0, and which opening
+  // asked; reopening an open tab asks again.
+  line: Int,
+  opening: Int,
 }
 
 fn scratchpad() Tab {
@@ -27,6 +37,24 @@ fn scratchpad() Tab {
     id: "scratchpad",
     kind: Kind::scratchpad,
     label: "Scratchpad",
+    path: "",
+    workspace_id: "",
+    line: 0,
+    opening: 0,
+  }
+}
+
+// A File tab for path in the workspace, showing line when it is above 0. A
+// path names one tab per workspace, however it is opened.
+fn file(workspace_id: Str, file_path: Str, line: Int) Tab {
+  Tab{
+    id: "file:{workspace_id}:{file_path}",
+    kind: Kind::file,
+    label: path::Base(file_path),
+    path: file_path,
+    workspace_id: workspace_id,
+    line: line,
+    opening: 0,
   }
 }
 
@@ -34,10 +62,16 @@ struct Tabs {
   open: [Tab],
   // The selected tab's id; `agent` for Agent.
   selected: Str,
+  // Counts openings, so each one can be told apart.
+  openings: Int,
 }
 
 fn tabs() mut Tabs {
-  (mut Tabs{open: [], selected: agent})
+  (mut Tabs{
+    open: [],
+    selected: agent,
+    openings: 0,
+  })
 }
 
 impl Tabs {
@@ -80,19 +114,26 @@ impl Tabs {
     found
   }
 
-  // Appends `tab` unless a tab with its id is open. Returns false, changing
-  // nothing, when the tab is new and `limit` tabs are open.
+  // Appends `tab`, or updates the open tab with its id in place. Returns
+  // false, changing nothing, when the tab is new and `limit` tabs are open.
   fn mut add(tab: Tab) Bool {
-    if self.has(tab.id) {
-      true
-    } else if self.open.size() >= limit {
+    let present = self.has(tab.id)
+    if (not present) and self.open.size() >= limit {
       false
     } else {
+      self.openings = self.openings + 1
+      let added = mut tab
+      added.opening = self.openings
       let next = mut List::new<Tab>()
       for existing in self.open {
-        next.push(existing)
+        match existing.id == tab.id {
+          true => next.push(added.@),
+          false => next.push(existing),
+        }
       }
-      next.push(tab)
+      if not present {
+        next.push(added.@)
+      }
       self.open = next.@
       true
     }
@@ -131,6 +172,28 @@ impl Tabs {
     }
   }
 
+  // Each open tab's label: its own, or for File tabs sharing a name, the
+  // path.
+  fn labels() [Str] {
+    let labels = mut List::new<Str>()
+    for tab in self.open {
+      mut shared = false
+      for other in self.open {
+        let both_files = other.kind == Kind::file and tab.kind == Kind::file
+        if other.id != tab.id and both_files and other.label == tab.label {
+          shared = true
+        }
+      }
+      labels.push(
+        match shared {
+          true => tab.path,
+          false => tab.label,
+        },
+      )
+    }
+    labels.@
+  }
+
   // Closes a secondary tab. Closing the selected tab selects the one that
   // took its place, or the one before it when it was last.
   fn mut close(id: Str) Bool {
@@ -160,20 +223,19 @@ impl Tabs {
   }
 }
 
-private fn file(name: Str) Tab {
-  Tab{
-    id: name,
-    kind: Kind::scratchpad,
-    label: name,
-  }
+private fn named(name: Str) Tab {
+  let made = mut scratchpad()
+  made.id = name
+  made.label = name
+  made.@
 }
 
 test fn opening_appends_selects_and_deduplicates() Void!Str {
   let subject = tabs()
   try testing::assert(not subject.shown() and subject.on_agent(), "only Agent at first")
-  try testing::assert(subject.open(file("a")) and subject.open(file("b")), "tabs open")
+  try testing::assert(subject.open(named("a")) and subject.open(named("b")), "tabs open")
   try testing::assert(subject.selected == "b", "the opened tab is selected")
-  try testing::assert(subject.open(file("a")), "reopening succeeds")
+  try testing::assert(subject.open(named("a")), "reopening succeeds")
   try testing::assert(subject.selected == "a", "reopening selects the open tab")
   testing::assert(
     subject.open.size() == 2 and subject.position("b") == 2,
@@ -184,12 +246,12 @@ test fn opening_appends_selects_and_deduplicates() Void!Str {
 test fn opening_stops_at_the_limit() Void!Str {
   let subject = tabs()
   for index in 1..limit {
-    let _ = subject.open(file("{index}"))
+    let _ = subject.open(named("{index}"))
   }
-  try testing::assert(not subject.open(file("over")), "a new tab past the limit is refused")
+  try testing::assert(not subject.open(named("over")), "a new tab past the limit is refused")
   try testing::assert(subject.selected == "{limit}", "a refused tab changes nothing")
   testing::assert(
-    subject.open(file("1")) and subject.selected == "1",
+    subject.open(named("1")) and subject.selected == "1",
     "an open tab is still selectable",
   )
 }
@@ -197,8 +259,8 @@ test fn opening_stops_at_the_limit() Void!Str {
 test fn moving_wraps_through_agent() Void!Str {
   let subject = tabs()
   try testing::assert(subject.beside(1) == agent, "Agent alone stays on Agent")
-  let _ = subject.open(file("a"))
-  let _ = subject.open(file("b"))
+  let _ = subject.open(named("a"))
+  let _ = subject.open(named("b"))
   try testing::assert(subject.beside(1) == agent, "next from the last tab wraps to Agent")
   try testing::assert(subject.beside(-1) == "a", "previous goes back one")
   let _ = subject.select(agent)
@@ -207,16 +269,16 @@ test fn moving_wraps_through_agent() Void!Str {
 
 test fn closing_selects_the_neighbor() Void!Str {
   let subject = tabs()
-  let _ = subject.open(file("a"))
-  let _ = subject.open(file("b"))
-  let _ = subject.open(file("c"))
+  let _ = subject.open(named("a"))
+  let _ = subject.open(named("b"))
+  let _ = subject.open(named("c"))
   let _ = subject.select("b")
   try testing::assert(subject.close("b") and subject.selected == "c", "the next tab takes its place")
   try testing::assert(
     subject.close("c") and subject.selected == "a",
     "closing the last selects the one before",
   )
-  let _ = subject.open(file("d"))
+  let _ = subject.open(named("d"))
   try testing::assert(
     subject.close("a") and subject.selected == "d",
     "closing another tab keeps the selection",
@@ -226,4 +288,28 @@ test fn closing_selects_the_neighbor() Void!Str {
     not subject.close(agent) and not subject.close("gone"),
     "Agent and closed tabs cannot close",
   )
+}
+
+test fn file_tabs_are_one_per_path_and_workspace() Void!Str {
+  let subject = tabs()
+  let _ = subject.open(file("workspace_a", "src/main.go", 0))
+  let _ = subject.open(file("workspace_a", "src/main.go", 12))
+  try testing::assert(subject.open.size() == 1, "reopening a path selects its tab")
+  let reopened = subject.current().expect("the file tab")
+  try testing::assert(reopened.line == 12 and reopened.opening == 2, "reopening asks for its line again")
+  let _ = subject.open(file("workspace_b", "src/main.go", 0))
+  testing::assert(subject.open.size() == 2, "another workspace opens another tab")
+}
+
+test fn file_tabs_sharing_a_name_show_their_paths() Void!Str {
+  let subject = tabs()
+  let _ = subject.open(scratchpad())
+  let _ = subject.open(file("workspace_a", "cmd/kit/main.go", 0))
+  let _ = subject.open(file("workspace_a", "apps/cli/main.go", 0))
+  let _ = subject.open(file("workspace_a", "go.mod", 0))
+  let labels = subject.labels()
+  try testing::assert(labels.at(0).or("") == "Scratchpad", "other tabs keep their labels")
+  try testing::assert(labels.at(1).or("") == "cmd/kit/main.go", "a shared name shows the path")
+  try testing::assert(labels.at(2).or("") == "apps/cli/main.go", "for each tab sharing it")
+  testing::assert(labels.at(3).or("") == "go.mod", "a unique name stays short")
 }

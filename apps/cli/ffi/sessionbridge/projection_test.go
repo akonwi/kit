@@ -25,9 +25,9 @@ func TestEventsProjectsWorkingDirectoryChanges(t *testing.T) {
 		StreamID:  "stream_test",
 		Sequence:  1,
 		SessionID: "session_test",
-		Payload:   protocol.SessionCWDChangedEvent{Workspace: &protocol.WorkspaceRef{SessionID: "session_test", CWD: "/repo/app"}},
+		Payload:   protocol.SessionCWDChangedEvent{Workspace: &protocol.WorkspaceRef{SessionID: "session_test", CWD: "/repo/app", WorkspaceID: "workspace_app"}},
 	}})
-	if len(projected) != 1 || projected[0].Kind != "session.cwd.changed" || projected[0].CWD != "/repo/app" {
+	if len(projected) != 1 || projected[0].Kind != "session.cwd.changed" || projected[0].CWD != "/repo/app" || projected[0].WorkspaceID != "workspace_app" {
 		t.Fatalf("Events() = %+v, want the new working directory", projected)
 	}
 }

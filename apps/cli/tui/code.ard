@@ -2,6 +2,7 @@ use ard/async
 
 use go:context
 use cooper/cui
+use cooper/event
 use cooper/ui
 use go:github.com/akonwi/kit/internal/highlight
 use go:kit/ffi/contextbridge
@@ -40,14 +41,54 @@ fn view(key: Str, props: Props) cui::View {
 }
 
 private fn request(props: Props) highlight::Request {
+  source_request(props.language, props.path, props.source)
+}
+
+// What the highlighter is asked for: source with tabs as two spaces, in
+// language or the language of path.
+fn source_request(language: Str, path: Str, source: Str) highlight::Request {
   highlight::Request{
-    Language: props.language,
-    Path: props.path,
-    Source: strings::ReplaceAll(props.source, "\t", "  "),
+    Language: language,
+    Path: path,
+    Source: strings::ReplaceAll(source, "\t", "  "),
   }
 }
 
-private fn plain(request: highlight::Request) highlight::Result {
+// Highlights request off the UI thread and hands the result to done through
+// dispatch. Source without a language is not highlighted. Otherwise the work
+// waits in the background for a slot in the shared highlighter, which then
+// has room for it, and is skipped if cancelled meanwhile. Returns the
+// attempt, to cancel.
+fn highlight_later(
+  request: highlight::Request,
+  dispatch: fn(fn()) Void!event::DispatchError,
+  done: fn(highlight::Result),
+) contextbridge::Cancellation? {
+  match highlight::DetectLanguage(request.Language, request.Path) == "" {
+    true => Maybe::new<contextbridge::Cancellation>(),
+    false => {
+      let attempt = contextbridge::WithCancel(context::Background())
+      async::start(fn() {
+        highlight_slots.send(())
+        defer highlight_slots.recv()
+        match attempt.Context.Err() {
+          ok(_) => {
+            let result = highlight::Default.Highlight(attempt.Context, request)
+            attempt.Cancel()
+            let _ = dispatch(fn() {
+              done(result)
+            })
+          },
+          err(_) => (),
+        }
+      })
+      Maybe::new(attempt)
+    },
+  }
+}
+
+// The source without highlighting.
+fn plain(request: highlight::Request) highlight::Result {
   highlight::Result{
     Source: highlight::Sanitize(request.Source),
     Language: highlight::DetectLanguage(request.Language, request.Path),
@@ -100,32 +141,13 @@ impl Code {
 
   private fn mut start(ctx: cui::Context) {
     self.cancel()
-    mut acquired = false
-    // Source without a language stays plain.
-    if self.result.Language != "" {
-      select {
-        highlight_slots.send(()) => { acquired = true },
-        _ => (),
+    let generation = self.generation
+    self.attempt = highlight_later(self.request, ctx.dispatch, fn(result: highlight::Result) {
+      if self.generation == generation {
+        self.result = result
+        self.attempt = Maybe::new<contextbridge::Cancellation>()
       }
-    }
-    if acquired {
-      let generation = self.generation
-      let current = self.request
-      let attempt = contextbridge::WithCancel(context::Background())
-      self.attempt = Maybe::new(attempt)
-      let dispatch = ctx.dispatch
-      async::start(fn() {
-        defer highlight_slots.recv()
-        let result = highlight::Default.Highlight(attempt.Context, current)
-        attempt.Cancel()
-        let _ = dispatch(fn() {
-          if self.generation == generation {
-            self.result = result
-            self.attempt = Maybe::new<contextbridge::Cancellation>()
-          }
-        })
-      })
-    }
+    })
   }
 
   private fn mut refresh() {

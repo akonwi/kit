@@ -53,6 +53,8 @@ struct Props {
   on_selection_change: fn(Str),
   on_hover_change: fn(Str),
   on_activate: fn(Item),
+  // Shown when no item matches; "No results" by default.
+  empty: Str?,
 }
 
 // PickerProps configures the stateful, self-contained palette picker used by
@@ -74,6 +76,10 @@ struct PickerProps {
   rename: fn(Str)?,
   // toggle receives the selected key and true for expand, false for collapse.
   toggle: fn(Str, Bool)?,
+  // refresh, on Ctrl+R, asks the feature to reload its catalog.
+  refresh: fn()?,
+  // Shown when no item matches; see Props.
+  empty: Str?,
   // tree is the full hierarchy searched while a query is present; see Props.
   tree: [Branch]?,
   on_query_change: fn(Str),
@@ -517,6 +523,9 @@ struct Columns {
   label: Int,
   hint: Int,
   meta: Int,
+  // Whether any item has more than a label. Labels alone, such as file
+  // paths, fill the row instead of a bounded column.
+  labels_only: Bool,
 }
 
 // Catalog-wide fixed columns keep command arguments, descriptions, and sources
@@ -527,8 +536,12 @@ fn columns(catalog: [Item]) Columns {
     label: 1,
     hint: 0,
     meta: 0,
+    labels_only: true,
   }
   for item in catalog {
+    if item.hint != "" or item.meta != "" or item.description != "" or item.disabled_reason != "" {
+      columns.labels_only = false
+    }
     columns.label = match item.label.size() > columns.label {
       true => item.label.size(),
       false => columns.label,
@@ -618,7 +631,7 @@ fn body(props: Props, viewport: Viewport) cui::View {
     cui::box(
       [
         cui::text(
-          "No results",
+          props.empty.or("No results"),
           styles: ui::style(
             padding: ui::Edges{
               top: ui::cells(1),
@@ -712,6 +725,7 @@ impl Picker {
       query: self.props.query,
       filter_query: "",
       tree: self.source.tree,
+      empty: self.source.empty,
       selection: self.props.selection,
       hovered: self.props.hovered,
       hidden_above: self.hidden_above,
@@ -871,6 +885,17 @@ impl cui::Component for Picker {
       },
       _ => (),
     }
+    match self.source.refresh {
+      callback => {
+        let command = keymap::simple_command("palette.refresh", "Refresh", fn() Bool {
+          callback()
+          true
+        })
+        commands.push(command)
+        bindings.push(keymap::binding(keymap::key("r", ctrl: true), command.with()))
+      },
+      _ => (),
+    }
     match self.override {
       callback => {
         let command = keymap::simple_command("palette.override", "Override", fn() Bool {
@@ -987,6 +1012,19 @@ private fn row(props: Props, item: Item) cui::View {
     false => "⊘ {item.disabled_reason}",
   }
   let columns = columns(props.catalog)
+  // Labels alone take the hint and meta columns' room too.
+  let hint_width = match columns.labels_only {
+    true => 0,
+    false => columns.hint + 2,
+  }
+  let meta_width = match columns.labels_only {
+    true => 0,
+    false => columns.meta + 2,
+  }
+  let meta_padding = match columns.labels_only {
+    true => 0,
+    false => 2,
+  }
   cui::box(
     [
       cui::text(
@@ -1005,7 +1043,21 @@ private fn row(props: Props, item: Item) cui::View {
             overflow: ui::TextOverflow::ellipsis,
           ),
         ],
-        styles: ui::style(width: ui::cells(columns.label + 2), flex_shrink: 0.0),
+        styles: match columns.labels_only {
+          true => {
+            ui::style(
+              flex_grow: 1.0,
+              flex_basis: ui::cells(0),
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(2),
+                bottom: ui::cells(0),
+                left: ui::cells(0),
+              },
+            )
+          },
+          false => ui::style(width: ui::cells(columns.label + 2), flex_shrink: 0.0),
+        },
       ),
       cui::box(
         [
@@ -1016,11 +1068,14 @@ private fn row(props: Props, item: Item) cui::View {
             overflow: ui::TextOverflow::ellipsis,
           ),
         ],
-        styles: ui::style(width: ui::cells(columns.hint + 2), flex_shrink: 0.0),
+        styles: ui::style(width: ui::cells(hint_width), flex_shrink: 0.0),
       ),
       cui::text(
         description,
-        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        styles: match columns.labels_only {
+          true => ui::style(flex_grow: 0.0, flex_basis: ui::cells(0)),
+          false => ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        },
         text_style: ui::text_style(foreground: colors.muted),
         wrap: ui::TextWrap::none,
         overflow: ui::TextOverflow::ellipsis,
@@ -1035,13 +1090,13 @@ private fn row(props: Props, item: Item) cui::View {
           ),
         ],
         styles: ui::style(
-          width: ui::cells(columns.meta + 2),
+          width: ui::cells(meta_width),
           flex_shrink: 0.0,
           flex_direction: ui::FlexDirection::row,
           justify_content: ui::Justify::end,
           padding: ui::Edges{
             top: ui::cells(0),
-            right: ui::cells(2),
+            right: ui::cells(meta_padding),
             bottom: ui::cells(0),
             left: ui::cells(0),
           },

@@ -47,19 +47,23 @@ fn mark(result: transcript::Message) Mark {
 // The call's title and summary. servers names the session's MCP servers.
 fn presentation(call: transcript::ToolCall, result: transcript::Message, servers: [Str]) toolpresentation::Presentation {
   let names = mut servers
-  toolpresentation::Present(
-    toolpresentation::Call{
-      Name: call.name,
-      Arguments: call.arguments,
-      ArgumentsTruncated: call.arguments_truncated,
-    },
-    toolpresentation::Result{
-      Succeeded: result.tool_state == transcript::ToolState::completed,
-      Text: result.text,
-      Details: result.details,
-    },
-    names,
-  )
+  toolpresentation::Present(call_input(call), result_input(result), names)
+}
+
+private fn call_input(call: transcript::ToolCall) toolpresentation::Call {
+  toolpresentation::Call{
+    Name: call.name,
+    Arguments: call.arguments,
+    ArgumentsTruncated: call.arguments_truncated,
+  }
+}
+
+private fn result_input(result: transcript::Message) toolpresentation::Result {
+  toolpresentation::Result{
+    Succeeded: result.tool_state == transcript::ToolState::completed,
+    Text: result.text,
+    Details: result.details,
+  }
 }
 
 // The width of the title column shared by rows with these titles.
@@ -144,6 +148,9 @@ struct Props {
   servers: [Str],
   // The width of the title column of a wide row (see `title_column`).
   title_width: Int,
+  // Opens a file the call names, at a line or 0; see `toolpresentation::OpensFile`.
+  // Without it, the summary is not a link.
+  open_file: fn(toolpresentation::FileTarget)?,
 }
 
 fn view(props: Props) cui::View {
@@ -155,6 +162,8 @@ private struct Row {
   frame: mut cui::BoxRef,
   // The row's width as last laid out; zero until then, when it is wide.
   width: Int,
+  // Whether the pointer is over a summary that opens a file.
+  link_hovered: Bool,
 }
 
 private fn new(props: mut Props) mut Row {
@@ -162,6 +171,7 @@ private fn new(props: mut Props) mut Row {
     props: props,
     frame: cui::box_ref(),
     width: 0,
+    link_hovered: false,
   })
 }
 
@@ -196,6 +206,64 @@ impl Row {
   }
 }
 
+impl Row {
+  // The summary, which opens the file the call names when it names one.
+  private fn mut chip(summary: Str, shown: Mark) cui::View {
+    let colors = self.props.themes.current()
+    let target = match self.props.open_file {
+      open => {
+        let named = toolpresentation::OpensFile(
+          call_input(self.props.call),
+          result_input(self.props.result),
+        )
+        match named.Path == "" {
+          true => Maybe::new<toolpresentation::FileTarget>(),
+          false => Maybe::new(named),
+        }
+      },
+      _ => Maybe::new<toolpresentation::FileTarget>(),
+    }
+    let hovered = self.link_hovered and target.is_some()
+    let text = cui::text(
+      " {summary} ",
+      styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
+      text_style: ui::text_style(
+        foreground: match shown {
+          Mark::skipped => colors.muted,
+          _ => colors.foreground,
+        },
+        background: match hovered {
+          true => colors.surface_hovered,
+          false => colors.surface,
+        },
+      ),
+      wrap: ui::TextWrap::none,
+      overflow: ui::TextOverflow::ellipsis,
+    )
+    match target {
+      file => {
+        let open = self.props.open_file.expect("a file opener")
+        cui::box(
+          [text],
+          styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
+          on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+            if received.event_type == cooper::MouseEventType::over or received.event_type == cooper::MouseEventType::move {
+              self.link_hovered = true
+            } else if received.event_type == cooper::MouseEventType::out {
+              self.link_hovered = false
+            } else if received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+              open(file)
+              received.prevent_default()
+              received.stop_propagation()
+            }
+          },
+        )
+      },
+      _ => text,
+    }
+  }
+}
+
 impl cui::Component for Row {
   fn mut render() cui::View {
     let colors = self.props.themes.current()
@@ -225,19 +293,7 @@ impl cui::Component for Row {
       Mark::failed => layout::line("✗", ui::text_style(foreground: colors.danger_text)),
       Mark::skipped => layout::line("⊘", ui::text_style(foreground: colors.muted)),
     }
-    let chip = cui::text(
-      " {summary} ",
-      styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
-      text_style: ui::text_style(
-        foreground: match shown {
-          Mark::skipped => colors.muted,
-          _ => colors.foreground,
-        },
-        background: colors.surface,
-      ),
-      wrap: ui::TextWrap::none,
-      overflow: ui::TextOverflow::ellipsis,
-    )
+    let chip = self.chip(summary, shown)
     let title = cui::text(
       presented.Title,
       styles: match narrow {

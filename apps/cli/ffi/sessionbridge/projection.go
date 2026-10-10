@@ -32,8 +32,10 @@ type Event struct {
 	ErrorMessage   string
 	Status         string
 	Scratchpad     *protocol.Scratchpad
-	// CWD is the session's new working directory after session.cwd.changed.
+	// CWD is the session's new working directory after session.cwd.changed,
+	// and WorkspaceID identifies the workspace it opened.
 	CWD           string
+	WorkspaceID   string
 	Interaction   *protocol.InteractionRequest
 	InteractionID string
 	// PluginID identifies the plugin that submitted a plugin message.
@@ -113,7 +115,7 @@ func Events(source []protocol.SessionEvent) []Event {
 			projected.Scratchpad = payload.Scratchpad
 		case protocol.SessionCWDChangedEvent:
 			if payload.Workspace != nil {
-				projected.CWD = payload.Workspace.CWD
+				projected.CWD, projected.WorkspaceID = payload.Workspace.CWD, payload.Workspace.WorkspaceID
 			}
 		case protocol.InteractionRequestedEvent:
 			projected.Interaction = payload.Interaction

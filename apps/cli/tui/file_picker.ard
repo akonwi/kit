@@ -1,0 +1,112 @@
+use ard/testing
+
+use cooper/cui
+use cooper/keymap
+use kit/tui/file_index
+use kit/tui/palette
+use kit/tui/theme
+use go:strings
+
+// The `/files` picker: every indexed file of the session's working
+// directory in one searchable list, from the index the composer's file
+// mentions use. Choosing a file opens it in a File tab; Ctrl+R indexes the
+// directory again.
+
+struct Props {
+  themes: theme::Context,
+  index: file_index::Index,
+  dismiss: keymap::SimpleCommand,
+  // Receives the chosen file's path.
+  choose: fn(Str),
+  refresh: fn(),
+}
+
+fn view(props: Props) cui::View {
+  let index = props.index
+  cui::child(
+    palette::new_picker,
+    palette::PickerProps{
+      themes: props.themes,
+      catalog: catalog(index),
+      placeholder: "Search indexed project paths…",
+      initial_selection: "",
+      title: "Open file",
+      footer: footer(index),
+      error: "",
+      dismiss: props.dismiss,
+      refresh: Maybe::new(props.refresh),
+      empty: Maybe::new(empty(index)),
+      on_query_change: fn(query: Str) {},
+      on_selection_change: fn(selected: Str) {},
+      on_activate: fn(item: palette::Item) {
+        (props.choose)(item.key)
+      },
+    },
+  )
+}
+
+// The indexed files; directories, which end in "/", are left out.
+fn catalog(index: file_index::Index) [palette::Item] {
+  let items = mut List::new<palette::Item>()
+  for indexed in index.paths {
+    if not strings::HasSuffix(indexed, "/") {
+      items.push(
+        palette::Item{
+          key: indexed,
+          label: indexed,
+          hint: "",
+          description: "",
+          meta: "",
+          search_terms: [],
+          disabled_reason: "",
+        },
+      )
+    }
+  }
+  items.@
+}
+
+fn footer(index: file_index::Index) Str {
+  let status = file_index::status(index)
+  match {
+    index.loading and index.paths.size() > 0 => "Refreshing indexed files…",
+    status != "" => "{status} · ctrl+r refresh",
+    _ => "ctrl+r refresh",
+  }
+}
+
+fn empty(index: file_index::Index) Str {
+  match {
+    index.paths.size() > 0 => "No matching files",
+    index.loading => "Loading indexed files…",
+    index.failure != "" => "Could not load files: {index.failure}",
+    _ => "No indexed files",
+  }
+}
+
+private fn index(paths: [Str], loading: Bool) file_index::Index {
+  file_index::Index{
+    paths: paths,
+    loading: loading,
+    failure: "",
+    truncated: false,
+    generation: 1,
+  }
+}
+
+test fn the_catalog_lists_files_but_not_directories() Void!Str {
+  let items = catalog(index(["apps/", "apps/cli/main.ard", "go.mod"], false))
+  try testing::assert(items.size() == 2, "two files")
+  try testing::assert(items.at(0).expect("first").label == "apps/cli/main.ard", "files keep index order")
+  testing::assert(items.at(1).expect("second").key == "go.mod", "keyed by path")
+}
+
+test fn the_picker_explains_an_empty_list() Void!Str {
+  try testing::assert(empty(index([], true)) == "Loading indexed files…", "loading")
+  try testing::assert(empty(index([], false)) == "No indexed files", "nothing indexed")
+  try testing::assert(empty(index(["go.mod"], false)) == "No matching files", "no match")
+  testing::assert(
+    footer(index(["go.mod"], true)) == "Refreshing indexed files…",
+    "a refresh keeps the list",
+  )
+}

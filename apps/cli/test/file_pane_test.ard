@@ -1,0 +1,135 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/file_pane
+use kit/tui/theme
+use kit/tui/workspace
+use go:strings
+use go:time
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn same_color(left: ui::Color?, right: ui::Color) Bool {
+  match left {
+    color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+    _ => false,
+  }
+}
+
+struct Shown {
+  terminal: headless::TestApp,
+  renderer: cui::Renderer,
+}
+
+// Mounts a shown File pane for notes.txt, which reads as content, and waits
+// for it to load.
+fn show(width: Int, height: Int, content: Str, line: Int) Shown {
+  let terminal = headless::new(width, height)
+  let tabs = workspace::tabs()
+  let _ = tabs.open(workspace::file("workspace_a", "notes.txt", line))
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    file_pane::view(
+      file_pane::Props{
+        themes: theme::context(theme::store(theme::system())),
+        tab: tabs.current().expect("the file tab"),
+        stale: false,
+        shown: true,
+        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error {
+          Result::ok(
+            protocol::WorkspaceFileRead{
+              Path: input.Path,
+              Content: content,
+              Size: Int64::from(content.size()),
+            },
+          )
+        }),
+      },
+    ),
+  )
+  terminal.flush()
+  mut attempts = 0
+  while attempts < 100 and strings::Contains(terminal.frame().text(), "Loading file") {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+  terminal.flush()
+  Shown{terminal: terminal, renderer: renderer}
+}
+
+test fn a_file_shows_numbered_lines_under_its_path() Void!Str {
+  let shown = show(40, 8, "alpha\nbeta\ngamma\n", 2)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " notes.txt        Ln 2 · 3 lines · 17 B",
+      "────────────────────────────────────────",
+      "   1 alpha",
+      "   2 beta",
+      "   3 gamma",
+      "",
+      "",
+      "",
+    ],
+  )
+  let colors = theme::system()
+  let cursor = shown.terminal.frame().cell(20, 3).expect("cursor line")
+  try testing::assert(
+    same_color(cursor.style.background, colors.surface_pressed),
+    "the cursor line is filled",
+  )
+  shown.terminal.click(8, 4)
+  shown.terminal.flush()
+  let header = rows(shown.terminal).at(0).or("")
+  try testing::assert(
+    header == " notes.txt        Ln 3 · 3 lines · 17 B",
+    "a click moves the cursor: {header}|",
+  )
+  let moved = shown.terminal.frame().cell(20, 4).expect("clicked line")
+  testing::assert(
+    same_color(moved.style.background, colors.surface_pressed),
+    "the clicked line is filled",
+  )
+}
+
+test fn long_lines_scroll_sideways_beside_fixed_numbers() Void!Str {
+  let shown = show(24, 6, "0123456789abcdefghijklmnop\nshort\n", 0)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try testing::assert(
+    rows(shown.terminal).at(2).or("") == "   1 0123456789abcdefgh",
+    "a long line is cut at the edge: {strings::Join(mut rows(shown.terminal), "|\n")}",
+  )
+  shown.terminal.scroll(10, 2, 0, delta_x: 1)
+  shown.terminal.flush()
+  let body = rows(shown.terminal)
+  try testing::assert(body.at(2).or("") == "   1 456789abcdefghijkl", "a sideways swipe scrolls the text")
+  testing::assert(body.at(3).or("") == "   2 t", "every line scrolls together")
+}

@@ -97,6 +97,24 @@ impl Source {
     }
   }
 
+  // Starts a forced load for this session and directory, replacing any
+  // running one.
+  fn mut refresh(session_id: Str, cwd: Str) Load? {
+    if session_id == "" or cwd == "" {
+      Maybe::new<Load>()
+    } else {
+      if self.session_id != session_id {
+        self.index = source().index
+      }
+      self.session_id = session_id
+      self.cwd = cwd
+      self.request = self.request + 1
+      self.index.loading = true
+      self.index.failure = ""
+      Maybe::new(Load{request: self.request, force: true})
+    }
+  }
+
   // Applies a load's result unless a later request replaced it.
   fn mut finish(request: Int, result: protocol::SessionFileIndex!Str, now: Int64) {
     if request == self.request {

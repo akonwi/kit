@@ -170,7 +170,7 @@ private fn available_catalog(
     ),
     command_item("debug", "Show session diagnostics", "details usage", ""),
     command_item("diff", "Review working-tree changes", "changes working tree", "not available yet"),
-    command_item("files", "Open a workspace file", "file open browse", "not available yet"),
+    command_item("files", "Open a workspace file", "file open browse", ""),
     command_item_with_hint(
       "fork",
       "[message]",
@@ -273,6 +273,7 @@ enum ActionKind {
   sessions,
   scratchpad,
   tabs,
+  files,
   change_directory,
   prompt_command,
   plugin_command,
@@ -389,6 +390,7 @@ fn resolve(
       "sessions" => builtin(ActionKind::sessions),
       "scratchpad" => builtin(ActionKind::scratchpad),
       "tabs" => builtin(ActionKind::tabs),
+      "files" => builtin(ActionKind::files),
       "cd" => {
         match trimmed == "" {
           true => Result::err(Notice{title: "Usage: /cd <path>", detail: ""}),

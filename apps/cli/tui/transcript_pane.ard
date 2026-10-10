@@ -121,6 +121,8 @@ struct Work {
   toggle_output: fn(Str),
   // The session's MCP servers, whose tools are titled after them.
   servers: [Str],
+  // Opens the file a tool row's summary names.
+  open_file: fn(toolpresentation::FileTarget)?,
 }
 
 // The key of a tool row, unique in the session.
@@ -1258,6 +1260,7 @@ fn work_activity(themes: theme::Context, work: Work, run: transcript::Work) cui:
                   selected: selected,
                   servers: work.servers,
                   title_width: title_width,
+                  open_file: work.open_file,
                   on_select: fn() {
                     choose(row)
                     toggle_output(row)
