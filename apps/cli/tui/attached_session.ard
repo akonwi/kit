@@ -1830,6 +1830,40 @@ impl Controller {
     }
   }
 
+  // diff_target_lister lists what the Diff pane can compare; diff_target_observer
+  // lists a chosen target's changed files.
+  fn diff_target_lister() (fn(protocol::ListDiffTargetsInput) protocol::DiffTargetCatalog!Error)? {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            Maybe::new(fn(input: protocol::ListDiffTargetsInput) protocol::DiffTargetCatalog!Error {
+              session.ListDiffTargets(lifetime.Context, input)
+            })
+          },
+          _ => Maybe::new<fn(protocol::ListDiffTargetsInput) protocol::DiffTargetCatalog!Error>(),
+        }
+      },
+      _ => Maybe::new<fn(protocol::ListDiffTargetsInput) protocol::DiffTargetCatalog!Error>(),
+    }
+  }
+
+  fn diff_target_observer() (fn(protocol::ObserveDiffInput) protocol::WorkingTreePage!Error)? {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            Maybe::new(fn(input: protocol::ObserveDiffInput) protocol::WorkingTreePage!Error {
+              session.ObserveDiff(lifetime.Context, input)
+            })
+          },
+          _ => Maybe::new<fn(protocol::ObserveDiffInput) protocol::WorkingTreePage!Error>(),
+        }
+      },
+      _ => Maybe::new<fn(protocol::ObserveDiffInput) protocol::WorkingTreePage!Error>(),
+    }
+  }
+
   fn diff_reader() (fn(protocol::ReadFileDiffInput) protocol::FileDiffPage!Error)? {
     match self.lifetime {
       lifetime => {

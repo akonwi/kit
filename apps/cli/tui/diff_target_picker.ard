@@ -1,0 +1,221 @@
+use ard/async
+use ard/testing
+
+use go:api/contract as protocol
+use cooper/cui
+use cooper/keymap
+use kit/tui/diff_pane
+use kit/tui/palette
+use kit/tui/theme
+
+// The Diff pane's target picker: what the server's catalog offers to
+// compare, which is the working tree, the current branch against each base,
+// and recent commits. It lists them each time it opens, showing the pane's
+// last list meanwhile. Server references expire, so a target picked from
+// that list before the fresh one arrives opens once it does.
+
+struct Props {
+  themes: theme::Context,
+  request: diff_pane::TargetRequest,
+  list: (fn(protocol::ListDiffTargetsInput) protocol::DiffTargetCatalog!Error)?,
+  dismiss: keymap::SimpleCommand,
+  // Called after the choice reaches the request.
+  chosen: fn(),
+}
+
+fn view(props: Props) cui::View {
+  cui::child(new, props, key: "diff-target-picker")
+}
+
+private struct Picker {
+  props: mut Props,
+  targets: [protocol::DiffTargetEntry],
+  loading: Bool,
+  failure: Str,
+  // The id of a target picked while the list was refreshing.
+  waiting: Str,
+}
+
+private fn new(props: mut Props) mut Picker {
+  (mut Picker{
+    props: props,
+    targets: props.request.cached,
+    loading: true,
+    failure: "",
+    waiting: "",
+  })
+}
+
+impl cui::Lifecycle for Picker {
+  fn mut mounted(context: cui::Context) {
+    match self.props.list {
+      list => {
+        let input = protocol::ListDiffTargetsInput{WorkspaceID: self.props.request.workspace_id}
+        let dispatch = context.dispatch
+        async::start(fn() {
+          let result = list(input)
+          let _ = dispatch(fn() {
+            self.listed(result)
+          })
+        })
+      },
+      _ => {
+        self.loading = false
+        self.failure = "Diff targets are unavailable"
+      },
+    }
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl Picker {
+  private fn mut listed(result: protocol::DiffTargetCatalog!Error) {
+    self.loading = false
+    match result {
+      ok(catalog) => {
+        self.targets = catalog.Targets
+        self.failure = ""
+        (self.props.request.remember)(catalog.Targets)
+      },
+      err(error) => { self.failure = diff_pane::failure_text(error) },
+    }
+    // A target picked meanwhile opens from the fresh list, or, if listing
+    // failed, from the last one. If it's gone, the picker stays open.
+    if self.waiting != "" {
+      let waiting = self.waiting
+      self.waiting = ""
+      self.choose(waiting)
+    }
+  }
+
+  private fn mut activate(key: Str) {
+    match self.loading {
+      true => { self.waiting = key },
+      false => self.choose(key),
+    }
+  }
+
+  private fn choose(key: Str) {
+    for target in self.targets {
+      if target.TargetID == key {
+        (self.props.request.choose)(target)
+        (self.props.chosen)()
+      }
+    }
+  }
+}
+
+// The footer while targets load: whether the shown list is refreshing, or a
+// pick is waiting for it. A first load shows its own empty state instead.
+fn footer(loading: Bool, cached: Bool, waiting: Bool) Str {
+  match {
+    waiting => "Opening once targets refresh…",
+    loading and cached => "Refreshing targets…",
+    _ => "",
+  }
+}
+
+// The catalog as picker rows, keyed by target id. Each row names its kind,
+// and the current target is marked.
+fn catalog(targets: [protocol::DiffTargetEntry], current: Str) [palette::Item] {
+  let items = mut List::new<palette::Item>()
+  for target in targets {
+    let marker = match target.TargetID == current {
+      true => "__palette_current__",
+      false => "",
+    }
+    items.push(
+      palette::Item{
+        key: target.TargetID,
+        label: diff_pane::target_label(target),
+        hint: "",
+        description: "",
+        meta: match target.Kind {
+          "working_tree" => "uncommitted",
+          "branch" => "branch",
+          "commit" => "commit",
+          _ => "",
+        },
+        search_terms: [
+          target.Metadata.Subject,
+          target.Metadata.RefName,
+          target.Metadata.BaseRefName,
+          target.Metadata.Abbreviated,
+          marker,
+        ],
+        disabled_reason: "",
+      },
+    )
+  }
+  items.@
+}
+
+impl cui::Component for Picker {
+  fn mut render() cui::View {
+    let request = self.props.request
+    cui::child(
+      palette::new_picker,
+      palette::PickerProps{
+        themes: self.props.themes,
+        catalog: catalog(self.targets, request.current),
+        placeholder: "Search targets…",
+        initial_selection: request.current,
+        title: "Compare",
+        footer: footer(self.loading, self.targets.size() > 0, self.waiting != ""),
+        error: self.failure,
+        dismiss: self.props.dismiss,
+        empty: Maybe::new(
+          match self.loading and self.targets.size() == 0 {
+            true => "Loading diff targets…",
+            false => "No matching targets",
+          },
+        ),
+        on_query_change: fn(query: Str) {},
+        on_selection_change: fn(selected: Str) {},
+        on_activate: fn(item: palette::Item) {
+          self.activate(item.key)
+        },
+      },
+    )
+  }
+}
+
+private fn target(kind: Str, id: Str, label: Str) protocol::DiffTargetEntry {
+  protocol::DiffTargetEntry{
+    TargetID: id,
+    Kind: kind,
+    Metadata: protocol::DiffTargetMetadata{Label: label, Subject: "{label} subject"},
+  }
+}
+
+test fn the_catalog_names_each_target_and_marks_the_current_one() Void!Str {
+  let items = catalog(
+    [
+      target("working_tree", "w", "Working tree"),
+      target("branch", "b", "feat/ard-cli vs main"),
+      target("commit", "c", "db99f1d  feat(cli): use ghost buttons"),
+    ],
+    "c",
+  )
+  try testing::assert(items.size() == 3, "every target is listed")
+  let working = items.at(0).expect("working tree")
+  try testing::assert(
+    working.label == "Working tree" and working.meta == "uncommitted",
+    "the working tree",
+  )
+  try testing::assert(items.at(1).expect("branch").meta == "branch", "a branch")
+  let commit = items.at(2).expect("commit")
+  try testing::assert(commit.key == "c" and commit.meta == "commit", "a commit, keyed by target id")
+  testing::assert(
+    commit.search_terms.at(4).or("") == "__palette_current__",
+    "the current target is marked",
+  )
+}
+
+test fn the_footer_says_when_cached_targets_are_refreshing() Void!Str {
+  try testing::assert(footer(true, false, false) == "", "a first load shows its own empty state")
+  try testing::assert(footer(true, true, false) == "Refreshing targets…", "the cache refreshes")
+  try testing::assert(footer(true, true, true) == "Opening once targets refresh…", "a pick waits")
+  testing::assert(footer(false, true, false) == "", "a settled list says nothing")
+}

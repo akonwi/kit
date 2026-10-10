@@ -215,8 +215,14 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     highlighting; hunks are separated by `⋯`, without patch headers. Lines
     scroll sideways like the File pane's. While shown, it checks the working
     tree every 5 seconds and reloads what changed, keeping its place.
-  - [ ] Diff: commit and branch targets from a target picker in the header,
-    split layout where wide enough, and wrapping.
+  - [x] Diff: the header's target button opens a picker of the server's
+    targets (the working tree, the current branch against each base, and
+    recent commits), showing the last list at once while it refreshes; a
+    commit or branch replaces the working tree in the tab
+    and doesn't poll, and a cd returns the tab to the new workspace's working
+    tree. "Wrap off / Wrap on" wraps lines, saved as the diff wrap setting;
+    "Unified / Split", offered from 120 columns, puts old and new lines side
+    by side for the life of the tab.
 - [ ] TUI-COOPER-016 — Annotations on the File and Diff panes
   (TUI-COOPER-008): create, edit, and delete annotations on file and diff
   lines. Pending annotations show as chips above the composer and are sent

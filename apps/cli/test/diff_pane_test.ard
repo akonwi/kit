@@ -84,20 +84,40 @@ fn read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
   )
 }
 
+fn props(
+  observe: (fn(protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error)?,
+  read: (fn(protocol::ReadFileDiffInput) protocol::FileDiffPage!Error)?,
+) diff_pane::Props {
+  diff_pane::Props{
+    themes: theme::context(theme::store(theme::system())),
+    workspace_id: "workspace_a",
+    shown: true,
+    observe: observe,
+    observe_target: Maybe::new<fn(protocol::ObserveDiffInput) protocol::WorkingTreePage!Error>(),
+    read: read,
+    pick_target: fn(request: diff_pane::TargetRequest) {},
+    wrap: false,
+    set_wrap: fn(wrap: Bool) {},
+  }
+}
+
+// Flushes until the frame shows some text.
+fn wait_for(terminal: headless::TestApp, text: Str) {
+  mut attempts = 0
+  while attempts < 200 and not strings::Contains(terminal.frame().text(), text) {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+}
+
 test fn the_working_tree_shows_each_file_and_its_changes() Void!Str {
   let terminal = headless::new(44, 12)
   defer terminal.destroy()
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    diff_pane::view(
-      diff_pane::Props{
-        themes: theme::context(theme::store(theme::system())),
-        workspace_id: "workspace_a",
-        shown: true,
-        observe: Maybe::new(observed),
-        read: Maybe::new(read),
-      },
-    ),
+    diff_pane::view(props(Maybe::new(observed), Maybe::new(read))),
   )
   defer renderer.destroy()
   terminal.flush()
@@ -111,7 +131,7 @@ test fn the_working_tree_shows_each_file_and_its_changes() Void!Str {
   try expect_rows(
     rows(terminal),
     [
-      " Working tree  2 changed files",
+      " Working tree ▾  2 changed files   Wrap off",
       "────────────────────────────────────────────",
       " ▾ main.go",
       "───────────────────────────────────────────",
@@ -144,7 +164,7 @@ test fn the_working_tree_shows_each_file_and_its_changes() Void!Str {
   try expect_rows(
     rows(terminal),
     [
-      " Working tree  2 changed files",
+      " Working tree ▾  2 changed files   Wrap off",
       "────────────────────────────────────────────",
       " ▸ main.go",
       "───────────────────────────────────────────",
@@ -174,15 +194,7 @@ test fn a_scrolled_file_keeps_its_header_pinned() Void!Str {
   defer terminal.destroy()
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    diff_pane::view(
-      diff_pane::Props{
-        themes: theme::context(theme::store(theme::system())),
-        workspace_id: "workspace_a",
-        shown: true,
-        observe: Maybe::new(observed),
-        read: Maybe::new(long_read),
-      },
-    ),
+    diff_pane::view(props(Maybe::new(observed), Maybe::new(long_read))),
   )
   defer renderer.destroy()
   terminal.flush()
@@ -210,13 +222,10 @@ test fn loading_is_centered_in_the_pane() Void!Str {
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     diff_pane::view(
-      diff_pane::Props{
-        themes: theme::context(theme::store(theme::system())),
-        workspace_id: "workspace_a",
-        shown: true,
-        observe: Maybe::new<fn(protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error>(),
-        read: Maybe::new(read),
-      },
+      props(
+        Maybe::new<fn(protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error>(),
+        Maybe::new(read),
+      ),
     ),
   )
   defer renderer.destroy()
@@ -235,5 +244,213 @@ test fn loading_is_centered_in_the_pane() Void!Str {
   testing::assert(
     strings::HasPrefix(text, strings::Repeat(" ", 15) + "⠋") and strings::HasSuffix(text, " Loading diff…"),
     "the middle columns: {text}|",
+  )
+}
+
+fn paired_read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
+  Result::ok(
+    protocol::FileDiffPage{
+      Hunks: [
+        protocol::DiffHunk{
+          Lines: [
+            line("context", 1, 1, "package main"),
+            line("deletion", 2, 0, "var x = 1"),
+            line("deletion", 3, 0, "var z = 0"),
+            line("addition", 0, 2, "var x = 2"),
+            line("context", 4, 3, "func main() {{}}"),
+          ],
+        },
+      ],
+    },
+  )
+}
+
+fn column_of(terminal: headless::TestApp, row: Int, text: Str) Int {
+  let shown = rows(terminal).at(row).or("")
+  // Columns count cells; every character before the label is one cell.
+  let before = strings::SplitN(shown, text, 2).at(0).or("")
+  strings::Split(before, "").size()
+}
+
+test fn a_wide_pane_splits_old_and_new_lines_side_by_side() Void!Str {
+  let terminal = headless::new(124, 9)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(props(Maybe::new(observed), Maybe::new(paired_read))),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  wait_for(terminal, "var z")
+  terminal.click(column_of(terminal, 0, "Unified") + 2, 0)
+  terminal.flush()
+  terminal.flush()
+  expect_rows(
+    rows(terminal),
+    [
+      " Working tree ▾  2 changed files                                                                           Wrap off   Split",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      " ▾ main.go                                                                                                                 ┃",
+      "───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┃",
+      " 1   package main                                            │ 1   package main                                            ┃",
+      " 2 − var x = 1                                               │ 2 + var x = 2                                               ┃",
+      " 3 − var z = 0                                               │                                                             │",
+      " 4   func main() {{}}                                          │ 3   func main() {{}}                                          │",
+      "───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│",
+    ],
+  )
+}
+
+fn long_line_read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
+  Result::ok(
+    protocol::FileDiffPage{
+      Hunks: [
+        protocol::DiffHunk{
+          Lines: [line("addition", 0, 1, "alpha beta gamma delta epsilon zeta"), line("addition", 0, 2, "eta")],
+        },
+      ],
+    },
+  )
+}
+
+test fn wrapped_lines_continue_under_their_text() Void!Str {
+  let terminal = headless::new(26, 9)
+  defer terminal.destroy()
+  let wrapped = mut props(Maybe::new(observed), Maybe::new(long_line_read))
+  wrapped.wrap = true
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(wrapped.@),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  wait_for(terminal, "2 + eta")
+  expect_rows(
+    rows(terminal),
+    [
+      " Working tree ▾   Wrap on",
+      "──────────────────────────",
+      " ▾ main.go               ┃",
+      "─────────────────────────┃",
+      " 1 + alpha beta gamma    ┃",
+      "     delta epsilon zeta  ┃",
+      " 2 + eta                 ┃",
+      "─────────────────────────│",
+      " ▾ logo.png              │",
+    ],
+  )
+}
+
+fn commit_observed(input: protocol::ObserveDiffInput) protocol::WorkingTreePage!Error {
+  match input.TargetReference == "difftargetref_commit" {
+    true => {
+      Result::ok(
+        protocol::WorkingTreePage{
+          Observation: protocol::DiffObservation{
+            Revision: "revision_c",
+            Target: protocol::DiffTarget{ID: "difftarget_c", Kind: "commit"},
+          },
+          Files: [protocol::DiffFileSummary{Path: "chrome.ard", ContentState: "binary"}],
+        },
+      )
+    },
+    false => Result::err(Error::new("unexpected target")),
+  }
+}
+
+test fn a_picked_commit_replaces_the_working_tree() Void!Str {
+  let terminal = headless::new(64, 6)
+  defer terminal.destroy()
+  let requests = mut List::new<diff_pane::TargetRequest>()
+  let picking = mut props(Maybe::new(observed), Maybe::new(read))
+  picking.observe_target = Maybe::new(commit_observed)
+  picking.pick_target = fn(request: diff_pane::TargetRequest) {
+    requests.push(request)
+  }
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(picking.@),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  wait_for(terminal, "var y")
+  terminal.click(4, 0)
+  terminal.flush()
+  try testing::assert(requests.size() == 1, "clicking the target opens the picker")
+  let request = requests.at(0).expect("a target request")
+  try testing::assert(
+    request.workspace_id == "workspace_a" and request.current == "difftarget_1",
+    "for this workspace, with the working tree current",
+  )
+  (request.choose)(
+    protocol::DiffTargetEntry{
+      Reference: "difftargetref_commit",
+      TargetID: "difftarget_c",
+      Kind: "commit",
+      Metadata: protocol::DiffTargetMetadata{Label: "db99f1d  feat(cli): ghost buttons"},
+    },
+  )
+  wait_for(terminal, "chrome.ard")
+  expect_rows(
+    rows(terminal),
+    [
+      " db99f1d  feat(cli): ghost buttons ▾  1 changed file   Wrap off",
+      "────────────────────────────────────────────────────────────────",
+      " ▾ chrome.ard",
+      "───────────────────────────────────────────────────────────────",
+      "  Binary file changed",
+      "",
+    ],
+  )
+}
+
+fn long_pair_read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
+  Result::ok(
+    protocol::FileDiffPage{
+      Hunks: [
+        protocol::DiffHunk{
+          Lines: [
+            line(
+              "deletion",
+              1,
+              0,
+              "the old line is long enough that it wraps onto a second row of the left side",
+            ),
+            line("addition", 0, 1, "short"),
+            line("context", 2, 2, "after"),
+          ],
+        },
+      ],
+    },
+  )
+}
+
+test fn the_split_rule_spans_a_wrapped_row() Void!Str {
+  let terminal = headless::new(124, 8)
+  defer terminal.destroy()
+  let wrapped = mut props(Maybe::new(observed), Maybe::new(long_pair_read))
+  wrapped.wrap = true
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(wrapped.@),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  wait_for(terminal, "after")
+  terminal.click(column_of(terminal, 0, "Unified") + 2, 0)
+  terminal.flush()
+  terminal.flush()
+  expect_rows(
+    rows(terminal),
+    [
+      " Working tree ▾  2 changed files                                                                            Wrap on   Split",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      " ▾ main.go                                                                                                                 ┃",
+      "───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┃",
+      " 1 − the old line is long enough that it wraps onto a second │ 1 + short                                                   ┃",
+      "     row of the left side                                    │                                                             ┃",
+      " 2   after                                                   │ 2   after                                                   │",
+      "───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│",
+    ],
   )
 }
