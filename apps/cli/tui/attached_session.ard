@@ -658,6 +658,9 @@ impl Controller {
       if event.Kind == "interaction.resolved" {
         self.remove_interaction(event.InteractionID)
       }
+      if event.Kind == "session.cwd.changed" and event.CWD != "" {
+        self.follow_cwd(event.CWD)
+      }
       // A transcript pinned to its end follows new content on its own.
       let _ = self.live.apply_event(event)
       if kind == transcript::Event::run_finished and event.TurnID == self.followed_run {
@@ -1118,6 +1121,48 @@ impl Controller {
     self.open_work.set(key, not open)
     self.selected_tool = ""
     self.open_output = [:]
+  }
+
+  // Follows a working directory changed by the model's change_cwd, by this
+  // client's /cd, or by another client. The footer shows the directory at
+  // once and its resolved location when known; file mentions index the new
+  // directory when next opened.
+  fn mut follow_cwd(cwd: Str) {
+    match self.info {
+      info => {
+        if info.CWD != cwd {
+          let moved = mut info
+          moved.CWD = cwd
+          self.info = Maybe::new(moved.@)
+          self.location = cwd
+          self.resolve_location(cwd)
+        }
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut resolve_location(cwd: Str) {
+    match self.lifetime {
+      lifetime => {
+        let ctx = lifetime.Context
+        let resolve = self.options.ResolveLocation
+        let dispatch = self.host.dispatch
+        async::start(fn() {
+          let location = resolve(ctx, cwd)
+          let _ = dispatch(fn() {
+            let current = match self.info {
+              info => info.CWD == cwd,
+              _ => false,
+            }
+            if self.active and current and location != "" {
+              self.location = location
+            }
+          })
+        })
+      },
+      _ => (),
+    }
   }
 
   // The names of the session's MCP servers.
@@ -3143,6 +3188,23 @@ test fn snapshots_project_session_state_and_report_each_mcp_warning_once() Void!
   testing::assert(
     strings::Join(mut effects.toasts, "|") == "MCP configuration warning: missing server",
     "each warning is reported once per attachment: {strings::Join(mut effects.toasts, "|")}",
+  )
+}
+
+test fn a_changed_working_directory_moves_the_session_and_its_location() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1", CWD: "/repo"}},
+  )
+  subject.location = "~/repo (main)"
+  subject.apply_events([sessionbridge::Event{Kind: "session.cwd.changed", CWD: "/repo"}])
+  try testing::assert(subject.location == "~/repo (main)", "the same directory keeps its location")
+  subject.apply_events([sessionbridge::Event{Kind: "session.cwd.changed", CWD: "/repo/app"}])
+  try testing::assert(subject.info.expect("info").CWD == "/repo/app", "the session moved")
+  testing::assert(
+    subject.location == "/repo/app",
+    "the footer shows the new directory: {subject.location}",
   )
 }
 

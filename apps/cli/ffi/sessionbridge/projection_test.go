@@ -20,6 +20,18 @@ func TestEventsProjectsScratchpadChanges(t *testing.T) {
 	}
 }
 
+func TestEventsProjectsWorkingDirectoryChanges(t *testing.T) {
+	projected := Events([]protocol.SessionEvent{{
+		StreamID:  "stream_test",
+		Sequence:  1,
+		SessionID: "session_test",
+		Payload:   protocol.SessionCWDChangedEvent{Workspace: &protocol.WorkspaceRef{SessionID: "session_test", CWD: "/repo/app"}},
+	}})
+	if len(projected) != 1 || projected[0].Kind != "session.cwd.changed" || projected[0].CWD != "/repo/app" {
+		t.Fatalf("Events() = %+v, want the new working directory", projected)
+	}
+}
+
 func TestEventsProjectsInteractionLifecycle(t *testing.T) {
 	request := &protocol.InteractionRequest{ID: "interaction_1", Kind: protocol.InteractionConfirm, Title: "Proceed?"}
 	projected := Events([]protocol.SessionEvent{
