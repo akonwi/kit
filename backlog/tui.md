@@ -79,8 +79,7 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   "Beginning of conversation" row are intentionally not ported.
 - [~] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
   wells, tool-result image previews, and file navigation from tool results.
-  Remaining: opening the File pane from a path (TUI-COOPER-008) and a
-  subagent's conversation tab from its name (TUI-COOPER-009).
+  Remaining: a subagent's conversation tab from its name (TUI-COOPER-009).
   Rows follow the vaxis client (`presentToolCall` in
   `internal/tui/transcript_model.go`) unless marked new. Titles and
   summaries of the tools vaxis knows are ported as `ffi/toolpresentation`;
@@ -134,8 +133,8 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   - [x] `edit`: Edit N sections · path.
   - [x] `edit` output: each edit's old and new text as removed and added
     lines on the theme's diff fills, highlighted in the file's language.
-  - [ ] `read`, `write`, `edit`: clicking the path opens the File pane, at
-    the lines read for `read` (TUI-COOPER-008).
+  - [x] `read`, `write`, `edit`: clicking the summary opens the file in a
+    File tab, at the first line read for `read`.
   - [x] `ls`: List directory · path.
   - [x] `grep`: Search · `pattern in path`.
   - [x] `find`: Find files · `pattern in path`.
@@ -183,8 +182,8 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   project), and plugin commands with argument hints, fuzzy search over names
   and aliases, Tab completion, and feedback for commands unavailable while
   busy or without a compatible server. The theme, model, and thinking pickers
-  and the composer's inline picker are complete. Remaining: the `diff`,
-  `files`, and `tabs` commands (TUI-COOPER-008), the `subagents` command
+  and the composer's inline picker are complete. Remaining: the `diff`
+  command (TUI-COOPER-008), the `subagents` command
   (TUI-COOPER-009), and shortcuts discovered from Cooper keymaps.
 - [x] TUI-COOPER-007 — Interaction dock for pending server-owned requests:
   model confirm, input, select, and guided requests, and plugin confirm,
@@ -201,10 +200,14 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     of every tab (Ctrl+D closes one). Ctrl+] and Ctrl+[ step through the
     tabs, wrapping through Agent. Scratchpad is a tab.
   - [ ] Tab and Shift+Tab move focus between the pane and the composer.
-  - [ ] File: `/files` (Ctrl+O) picks from the file-mention index; the pane
-    shows highlighted text with line numbers, a cursor line, refresh, and
-    loading, binary, unreadable, truncated, changed, and stale states. A
-    tool row's path opens it at its line (TUI-COOPER-005).
+  - [x] File: `/files` (Ctrl+O) picks from the file-mention index (Ctrl+R
+    indexes again). The pane is mouse-only: highlighted text with line
+    numbers and a cursor line moved by clicking, scrolling sideways with
+    Shift+wheel or a horizontal swipe. It loads the current file each time
+    it is shown. It shows
+    loading, empty, binary, missing, unreadable, busy, and truncated states,
+    and freezes once the session leaves its workspace. A tool row's summary
+    opens it (TUI-COOPER-005).
   - [ ] Diff: `/diff` shows the working tree, or a commit or branch, as
     one document with a section per changed file; unified or split, wrap,
     file and hunk navigation, and polling.

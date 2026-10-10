@@ -15,6 +15,7 @@ use go:github.com/akonwi/kit/internal/theme as kittheme
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
+use go:kit/ffi/toolpresentation
 use kit/tui/after_commit
 use kit/tui/attached_session
 use kit/tui/attachments
@@ -24,6 +25,8 @@ use kit/tui/chrome
 use kit/tui/command_palette
 use kit/tui/composer
 use kit/tui/controls
+use kit/tui/file_pane
+use kit/tui/file_picker
 use kit/tui/image_preview
 use kit/tui/interaction_dock
 use kit/tui/layout
@@ -68,6 +71,7 @@ struct ThemePickerModal {}
 struct ThinkingPickerModal {}
 struct SessionsModal {}
 struct TabsModal {}
+struct FilesModal {}
 
 type Modal =
   | NoModal
@@ -81,6 +85,7 @@ type Modal =
   | rename::Request
   | SessionsModal
   | TabsModal
+  | FilesModal
 
 // The detached placeholder never starts work, so its effects are inert.
 private fn inert_attachment_host() attached_session::Host {
@@ -436,6 +441,39 @@ impl Shell {
         ),
       )
     }
+    // File panes stay mounted while hidden, keeping their place in the file.
+    let reader = self.attached.file_reader()
+    for tab in self.workspace.open {
+      if tab.kind == workspace::Kind::file {
+        let shown = tab.id == self.workspace.selected
+        children.push(
+          cui::box(
+            [
+              file_pane::view(
+                file_pane::Props{
+                  themes: self.props.themes,
+                  tab: tab,
+                  stale: tab.workspace_id != self.attached.workspace_id,
+                  shown: shown,
+                  read: reader,
+                },
+              ),
+            ],
+            key: "workspace:{tab.id}",
+            styles: ui::style(
+              flex_grow: 1.0,
+              flex_basis: ui::cells(0),
+              min_height: ui::cells(3),
+              flex_direction: ui::FlexDirection::column,
+              display: match shown {
+                true => ui::Display::flex,
+                false => ui::Display::none,
+              },
+            ),
+          ),
+        )
+      }
+    }
     // Agent activity can change height as streamed follow-ups arrive. Keep it
     // out of Scratchpad so those updates cannot resize the focused editor and
     // force its cursor back into view.
@@ -525,11 +563,13 @@ impl Shell {
         close: Maybe::new<keymap::SimpleCommand>(),
       },
     )
-    for tab in self.workspace.open {
+    let labels = self.workspace.labels()
+    for tab, index in self.workspace.open {
       let id = tab.id
+      let label = labels.at(index).or(tab.label)
       entries.push(
         tab_strip::Entry{
-          label: tab.label,
+          label: label,
           selected: tab.id == self.workspace.selected,
           show: self.command("workspace.show:{id}", "Show {tab.label}", fn() {
             self.show_tab(id)
@@ -549,6 +589,29 @@ impl Shell {
         more: self.command("workspace.tabs", "Show all tabs", fn() {
           self.active_modal = TabsModal{}
         }),
+      },
+    )
+  }
+
+  fn mut files_modal() cui::View {
+    file_picker::view(
+      file_picker::Props{
+        themes: self.props.themes,
+        index: self.attached.files.index,
+        dismiss: keymap::simple_command("files.dismiss", "Close", fn() Bool {
+          self.dismiss_modal()
+        }),
+        choose: fn(path: Str) {
+          self.dispatch(fn() {
+            self.finish_modal()
+            self.open_file(path, 0)
+          })
+        },
+        refresh: fn() {
+          self.dispatch(fn() {
+            self.attached.refresh_files()
+          })
+        },
       },
     )
   }
@@ -639,6 +702,11 @@ impl Shell {
           },
           outputs: self.attached.open_output,
           servers: self.attached.mcp_server_names(),
+          open_file: Maybe::new(fn(target: toolpresentation::FileTarget) {
+            self.dispatch(fn() {
+              self.open_tool_file(target)
+            })
+          }),
           toggle_output: fn(key: Str) {
             self.dispatch(fn() {
               self.attached.toggle_output(key)
@@ -923,6 +991,11 @@ impl cui::Component for Shell {
       })
       commands.push(open_palette)
       bindings.push(keymap::binding(keymap::key("p", ctrl: true), open_palette.with()))
+      let open_files = keymap::simple_command("files.open", "Open a workspace file", fn() Bool {
+        self.open_files()
+      })
+      commands.push(open_files)
+      bindings.push(keymap::binding(keymap::key("o", ctrl: true), open_files.with()))
     }
     // Ctrl+] and Ctrl+[ step through the tabs, wrapping through Agent. They
     // need a terminal that reports Ctrl+[ apart from Escape.
@@ -1034,6 +1107,7 @@ impl cui::Component for Shell {
       rename::Request(request) => layers.push(self.rename_session_modal(request)),
       SessionsModal => layers.push(self.sessions_modal()),
       TabsModal => layers.push(self.tabs_modal()),
+      FilesModal => layers.push(self.files_modal()),
     }
     cui::box(
       layers.@,
@@ -1424,6 +1498,9 @@ impl Shell {
         self.open_tab(workspace::scratchpad())
       },
       command_palette::ActionKind::tabs => { self.active_modal = TabsModal{} },
+      command_palette::ActionKind::files => {
+        let _ = self.open_files()
+      },
       command_palette::ActionKind::change_directory => {
         self.finish_modal()
         self.attached.change_working_directory(action.argument)
@@ -1557,6 +1634,47 @@ impl Shell {
     self.workspace.selected == workspace::scratchpad().id
   }
 
+  // Shows the file picker, loading the index and workspace it needs.
+  fn mut open_files() Bool {
+    self.attached.load_files()
+    self.attached.load_workspace()
+    self.active_modal = FilesModal{}
+    true
+  }
+
+  // Opens a workspace file in its File tab, at line when it is above 0.
+  fn mut open_file(path: Str, line: Int) {
+    match self.attached.workspace_id == "" {
+      true => {
+        self.notify(
+          "Workspace unavailable",
+          "Try again in a moment.",
+          toast::Variant::warning,
+          false,
+        )
+      },
+      false => self.open_tab(workspace::file(self.attached.workspace_id, path, line)),
+    }
+  }
+
+  // Opens the file a tool row names, which must lie in the working
+  // directory.
+  fn mut open_tool_file(target: toolpresentation::FileTarget) {
+    let cwd = self.attached.info.or(protocol::SessionInfo{}).CWD
+    let relative = toolpresentation::WorkspacePath(cwd, target.Path)
+    match relative == "" {
+      true => {
+        self.notify(
+          "File unavailable",
+          "The tool reported a path outside the current workspace.",
+          toast::Variant::warning,
+          false,
+        )
+      },
+      false => self.open_file(relative, target.Line),
+    }
+  }
+
   // Opens `tab`, or selects it if it is already open.
   fn mut open_tab(tab: workspace::Tab) {
     if self.workspace.add(tab) {
@@ -1601,10 +1719,11 @@ impl Shell {
     }
   }
 
+  // File panes are mouse-only and take no focus.
   private fn mut focus_selected() {
     if self.on_scratchpad() {
       let _ = self.scratchpad_control.focus()
-    } else {
+    } else if self.workspace.on_agent() {
       self.focus_composer()
     }
   }

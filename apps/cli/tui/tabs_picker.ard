@@ -71,6 +71,7 @@ private fn id(chosen: Str) Str {
 private fn kind_name(kind: workspace::Kind) Str {
   match kind {
     workspace::Kind::scratchpad => "scratchpad",
+    workspace::Kind::file => "file",
   }
 }
 
@@ -93,8 +94,11 @@ private fn item(key: Str, label: Str, meta: Str, current: Bool) palette::Item {
 fn catalog(tabs: workspace::Tabs) [palette::Item] {
   let items = mut List::new<palette::Item>()
   items.push(item(agent_key, "Agent", "conversation", tabs.on_agent()))
-  for tab in tabs.open {
-    items.push(item(tab.id, tab.label, kind_name(tab.kind), tab.id == tabs.selected))
+  let labels = tabs.labels()
+  for tab, index in tabs.open {
+    items.push(
+      item(tab.id, labels.at(index).or(tab.label), kind_name(tab.kind), tab.id == tabs.selected),
+    )
   }
   items.@
 }

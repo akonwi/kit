@@ -4,6 +4,7 @@ use cooper
 use cooper/cui
 use cooper/testing as headless
 use cooper/ui
+use go:kit/ffi/toolpresentation
 use kit/tui/theme
 use kit/tui/tool_row
 use kit/tui/transcript
@@ -166,4 +167,66 @@ test fn an_mcp_call_is_titled_after_its_server() Void!Str {
   defer shown.terminal.destroy()
   defer shown.renderer.destroy()
   expect_rows(rows(shown.terminal), ["  Search everything   dns records", ""])
+}
+
+struct Opened {
+  targets: [toolpresentation::FileTarget],
+  selections: Int,
+}
+
+test fn a_read_summary_opens_its_file_at_the_first_line_read() Void!Str {
+  let opened = mut Opened{targets: [], selections: 0}
+  let terminal = headless::new(64, 2)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    tool_row::view(
+      tool_row::Props{
+        themes: theme::context(theme::store(theme::system())),
+        call: call("read", "{{\"path\":\"internal/parser/tokenize.go\",\"offset\":40}}"),
+        result: result(transcript::ToolState::completed, "package parser"),
+        selected: false,
+        on_select: fn() {
+          opened.selections =+ 1
+        },
+        servers: [],
+        title_width: tool_row::min_title_width,
+        open_file: Maybe::new(fn(target: toolpresentation::FileTarget) {
+          let next = mut List::new<toolpresentation::FileTarget>()
+          for earlier in opened.targets {
+            next.push(earlier)
+          }
+          next.push(target)
+          opened.targets = next.@
+        }),
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+  let colors = theme::context(theme::store(theme::system())).current()
+  terminal.mouse_move(25, 0)
+  terminal.flush()
+  let chip = terminal.frame().cell(25, 0).expect("chip")
+  try testing::assert(
+    same_color(chip.style.background, colors.surface_hovered),
+    "the summary shows it is a link",
+  )
+  terminal.click(25, 0)
+  terminal.flush()
+  try testing::assert(opened.targets.size() == 1, "clicking the summary opens its file")
+  let target = opened.targets.at(0).expect("the opened file")
+  try testing::assert(
+    target.Path == "internal/parser/tokenize.go" and target.Line == 40,
+    "at the first line read",
+  )
+  try testing::assert(opened.selections == 0, "the summary's click doesn't select the row")
+  terminal.click(4, 0)
+  terminal.flush()
+  testing::assert(
+    opened.targets.size() == 1 and opened.selections == 1,
+    "the title still selects the row",
+  )
 }

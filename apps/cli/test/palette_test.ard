@@ -1041,3 +1041,49 @@ test fn clearing_a_tree_search_selects_the_nearest_visible_ancestor() Void!Str {
   let visible = palette::query_selection(props, "sibling")
   testing::assert(visible == "sibling", "a visible row stays selected: {visible}")
 }
+
+test fn labels_without_other_columns_fill_the_row() Void!Str {
+  let terminal = headless::new(72, 8)
+  defer terminal.destroy()
+  let path = ".agents/skills/build-run-debug/references/SKILL.md"
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    cui::child(
+      palette::new_picker,
+      palette::PickerProps{
+        themes: theme::context(theme::store(theme::system())),
+        catalog: [
+          palette::Item{
+            key: path,
+            label: path,
+            hint: "",
+            description: "",
+            meta: "",
+            search_terms: [],
+            disabled_reason: "",
+          },
+        ],
+        placeholder: "Search files…",
+        initial_selection: "",
+        title: "Open file",
+        footer: "",
+        error: "",
+        dismiss: keymap::simple_command("test.files.dismiss", "Dismiss", fn() Bool {
+          true
+        }),
+        on_query_change: fn(query: Str) {},
+        on_selection_change: fn(selected: Str) {},
+        on_activate: fn(item: palette::Item) {},
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  mut found = false
+  for row in rows(terminal) {
+    if strings::Contains(row, "▌{path}  ") {
+      found = true
+    }
+  }
+  testing::assert(found, "the whole path shows:\n{strings::Join(mut rows(terminal), "|\n")}")
+}
