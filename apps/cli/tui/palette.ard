@@ -3,6 +3,7 @@ use cooper/event
 use cooper/keymap
 use cooper/ui
 use kit/tui/after_commit
+use kit/tui/format
 use kit/tui/modal
 use kit/tui/theme
 use go:strings
@@ -517,57 +518,132 @@ fn selected(items: [Item], key: Str) Item? {
   result
 }
 
-// Rows align across the whole unfiltered catalog so filtering never shifts the
-// description column.
+// Picker rows share one rule for sharing their width. The label matters
+// most: it gets the widest label's room and gives way last. The meta, short
+// by design, keeps its column on the right. The hint gives way first, and the
+// description takes what is left, keeping a third of the row while any row
+// has one, so one long label can't push every description out. Columns are
+// sized from the whole unfiltered catalog, so rows align and filtering never
+// shifts them.
 struct Columns {
+  // The widest label, hint, and meta, in cells; the meta at most 20.
   label: Int,
   hint: Int,
   meta: Int,
-  // Whether any item has more than a label. Labels alone, such as file
-  // paths, fill the row instead of a bounded column.
-  labels_only: Bool,
+  // Whether any row has a description.
+  described: Bool,
 }
 
-// Catalog-wide fixed columns keep command arguments, descriptions, and sources
-// aligned while filtering. Bounds retain a useful description column on narrow
-// terminals.
 fn columns(catalog: [Item]) Columns {
   let columns = mut Columns{
     label: 1,
     hint: 0,
     meta: 0,
-    labels_only: true,
+    described: false,
   }
   for item in catalog {
-    if item.hint != "" or item.meta != "" or item.description != "" or item.disabled_reason != "" {
-      columns.labels_only = false
+    if item.description != "" or item.disabled_reason != "" {
+      columns.described = true
     }
-    columns.label = match item.label.size() > columns.label {
-      true => item.label.size(),
-      false => columns.label,
-    }
-    columns.hint = match item.hint.size() > columns.hint {
-      true => item.hint.size(),
-      false => columns.hint,
-    }
-    columns.meta = match item.meta.size() > columns.meta {
-      true => item.meta.size(),
-      false => columns.meta,
-    }
+    columns.label = widest(columns.label, item.label)
+    columns.hint = widest(columns.hint, item.hint)
+    columns.meta = widest(columns.meta, item.meta)
   }
-  columns.label = match columns.label > 32 {
-    true => 32,
-    false => columns.label,
-  }
-  columns.hint = match columns.hint > 64 {
-    true => 64,
-    false => columns.hint,
-  }
-  columns.meta = match columns.meta > 20 {
-    true => 20,
-    false => columns.meta,
+  if columns.meta > 20 {
+    columns.meta = 20
   }
   columns.@
+}
+
+private fn widest(current: Int, text: Str) Int {
+  let width = format::cell_width(text)
+  match width > current {
+    true => width,
+    false => current,
+  }
+}
+
+// The label column: its widest label and a two-cell gap, giving way only
+// once the hint has.
+fn label_column(columns: Columns) ui::Style {
+  ui::style(
+    flex_basis: ui::cells(columns.label + 2),
+    flex_grow: 0.0,
+    flex_shrink: 1.0,
+    min_width: ui::cells(0),
+    padding: ui::Edges{
+      top: ui::cells(0),
+      right: ui::cells(2),
+      bottom: ui::cells(0),
+      left: ui::cells(0),
+    },
+  )
+}
+
+// The hint column, which gives way first: its shrink weight dwarfs the
+// label's.
+fn hint_column(columns: Columns) ui::Style {
+  let room = match columns.hint > 0 {
+    true => columns.hint + 2,
+    false => 0,
+  }
+  ui::style(
+    flex_basis: ui::cells(room),
+    flex_grow: 0.0,
+    flex_shrink: 1000.0,
+    min_width: ui::cells(0),
+    padding: ui::Edges{
+      top: ui::cells(0),
+      right: ui::cells(
+        match room > 0 {
+          true => 2,
+          false => 0,
+        },
+      ),
+      bottom: ui::cells(0),
+      left: ui::cells(0),
+    },
+  )
+}
+
+// The description column takes the rest, keeping a third of the row while
+// any row has a description. Without one it is empty room that pushes the
+// meta to the right edge.
+fn description_column(columns: Columns) ui::Style {
+  ui::style(
+    flex_basis: ui::cells(0),
+    flex_grow: 1.0,
+    flex_shrink: 0.0,
+    min_width: match columns.described {
+      true => ui::percent(33.0),
+      false => ui::cells(0),
+    },
+  )
+}
+
+// The meta column, right-aligned at the row's end, before `trailing` cells
+// of padding.
+fn meta_column(columns: Columns, trailing: Int) ui::Style {
+  let pad = match columns.meta > 0 {
+    true => trailing,
+    false => 0,
+  }
+  let room = match columns.meta > 0 {
+    true => columns.meta + 2 + pad,
+    false => 0,
+  }
+  ui::style(
+    width: ui::cells(room),
+    flex_shrink: 0.0,
+    flex_direction: ui::FlexDirection::row,
+    justify_content: ui::Justify::end,
+    padding: ui::Edges{
+      top: ui::cells(0),
+      right: ui::cells(pad),
+      bottom: ui::cells(0),
+      left: ui::cells(0),
+    },
+  )
 }
 
 fn header(props: Props, focused: Bool?, input_ref: (mut cui::InputRef)?) [cui::View] {
@@ -650,6 +726,7 @@ fn body(props: Props, viewport: Viewport) cui::View {
     // virtual list at a stable child position so scrolling survives
     // overflow-marker changes.
     let children = mut List::new<cui::View>()
+    let layout = columns(props.catalog)
     children.push(overflow_slot(props, "above", -1, viewport.on_page))
     children.push(
       cui::virtual_list(
@@ -658,7 +735,7 @@ fn body(props: Props, viewport: Viewport) cui::View {
           item.key
         },
         render_item: fn(item: Item) cui::View {
-          row(props, item)
+          row(props, item, layout)
         },
         row_height: 1,
         estimated_height: 1,
@@ -986,7 +1063,7 @@ private fn is_current(item: Item) Bool {
   current
 }
 
-private fn row(props: Props, item: Item) cui::View {
+private fn row(props: Props, item: Item, columns: Columns) cui::View {
   let active = item.key == props.selection
   let hovered = item.key == props.hovered
   let colors = props.themes.current()
@@ -1011,20 +1088,6 @@ private fn row(props: Props, item: Item) cui::View {
     true => item.description,
     false => "⊘ {item.disabled_reason}",
   }
-  let columns = columns(props.catalog)
-  // Labels alone take the hint and meta columns' room too.
-  let hint_width = match columns.labels_only {
-    true => 0,
-    false => columns.hint + 2,
-  }
-  let meta_width = match columns.labels_only {
-    true => 0,
-    false => columns.meta + 2,
-  }
-  let meta_padding = match columns.labels_only {
-    true => 0,
-    false => 2,
-  }
   cui::box(
     [
       cui::text(
@@ -1043,21 +1106,7 @@ private fn row(props: Props, item: Item) cui::View {
             overflow: ui::TextOverflow::ellipsis,
           ),
         ],
-        styles: match columns.labels_only {
-          true => {
-            ui::style(
-              flex_grow: 1.0,
-              flex_basis: ui::cells(0),
-              padding: ui::Edges{
-                top: ui::cells(0),
-                right: ui::cells(2),
-                bottom: ui::cells(0),
-                left: ui::cells(0),
-              },
-            )
-          },
-          false => ui::style(width: ui::cells(columns.label + 2), flex_shrink: 0.0),
-        },
+        styles: label_column(columns),
       ),
       cui::box(
         [
@@ -1068,14 +1117,11 @@ private fn row(props: Props, item: Item) cui::View {
             overflow: ui::TextOverflow::ellipsis,
           ),
         ],
-        styles: ui::style(width: ui::cells(hint_width), flex_shrink: 0.0),
+        styles: hint_column(columns),
       ),
       cui::text(
         description,
-        styles: match columns.labels_only {
-          true => ui::style(flex_grow: 0.0, flex_basis: ui::cells(0)),
-          false => ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
-        },
+        styles: description_column(columns),
         text_style: ui::text_style(foreground: colors.muted),
         wrap: ui::TextWrap::none,
         overflow: ui::TextOverflow::ellipsis,
@@ -1089,18 +1135,7 @@ private fn row(props: Props, item: Item) cui::View {
             overflow: ui::TextOverflow::ellipsis,
           ),
         ],
-        styles: ui::style(
-          width: ui::cells(meta_width),
-          flex_shrink: 0.0,
-          flex_direction: ui::FlexDirection::row,
-          justify_content: ui::Justify::end,
-          padding: ui::Edges{
-            top: ui::cells(0),
-            right: ui::cells(meta_padding),
-            bottom: ui::cells(0),
-            left: ui::cells(0),
-          },
-        ),
+        styles: meta_column(columns, 2),
       ),
     ],
     styles: ui::style(
