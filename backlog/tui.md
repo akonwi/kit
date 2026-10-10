@@ -191,8 +191,23 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   input, and select requests with their labels, default choice, initial
   value, and empty answers. Filterable plugin selections use the plain list,
   as in the vaxis client.
-- [ ] TUI-COOPER-008 — Workspace panes: tabs, File, Diff, image, and
-  scratchpad.
+- [~] TUI-COOPER-008 — Workspace panes: tabs, File, Diff, and scratchpad.
+  Images open in the system viewer rather than a pane. Panes are
+  mouse-first; keyboard navigation inside them is lighter than in vaxis.
+  - [x] Tabs: Agent first, then panes in the order they were opened, and the
+    strip only once one is open. Opening an open pane selects it; at most
+    32 are open. Closing the selected tab selects its neighbor. Tabs that
+    don't fit collapse into `… N more`, which, like `/tabs`, opens a picker
+    of every tab (Ctrl+D closes one). Ctrl+] and Ctrl+[ step through the
+    tabs, wrapping through Agent. Scratchpad is a tab.
+  - [ ] Tab and Shift+Tab move focus between the pane and the composer.
+  - [ ] File: `/files` (Ctrl+O) picks from the file-mention index; the pane
+    shows highlighted text with line numbers, a cursor line, refresh, and
+    loading, binary, unreadable, truncated, changed, and stale states. A
+    tool row's path opens it at its line (TUI-COOPER-005).
+  - [ ] Diff: `/diff` shows the working tree, or a commit or branch, as
+    one document with a section per changed file; unified or split, wrap,
+    file and hunk navigation, and polling.
 - [ ] TUI-COOPER-016 — Annotations on the File and Diff panes
   (TUI-COOPER-008): create, edit, and delete annotations on file and diff
   lines. Pending annotations show as chips above the composer and are sent

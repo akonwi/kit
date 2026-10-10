@@ -1,0 +1,118 @@
+use ard/testing
+
+use cooper/cui
+use cooper/keymap
+use kit/tui/palette
+use kit/tui/theme
+use kit/tui/workspace
+
+// The `/tabs` picker: Agent and every open tab, including those the strip
+// has no room for. Choosing one selects it; Ctrl+D closes the highlighted
+// tab.
+
+// Agent's key in the picker, whose keys must not be empty.
+let agent_key = "agent"
+
+struct Props {
+  themes: theme::Context,
+  tabs: workspace::Tabs,
+  dismiss: keymap::SimpleCommand,
+  // Receives the chosen tab's id.
+  choose: fn(Str),
+  // Receives the id of the tab to close.
+  close: fn(Str),
+}
+
+fn view(props: Props) cui::View {
+  let close = props.close
+  cui::child(
+    palette::new_picker,
+    palette::PickerProps{
+      themes: props.themes,
+      catalog: catalog(props.tabs),
+      placeholder: "Search workspace tabs…",
+      initial_selection: key(props.tabs.selected),
+      title: "Open workspace tab",
+      footer: "ctrl+d close tab",
+      error: "",
+      dismiss: props.dismiss,
+      override: Maybe::new<fn(Str)>(),
+      remove: Maybe::new(fn(chosen: Str) {
+        if chosen != agent_key {
+          close(chosen)
+        }
+      }),
+      rename: Maybe::new<fn(Str)>(),
+      toggle: Maybe::new<fn(Str, Bool)>(),
+      tree: Maybe::new<[palette::Branch]>(),
+      on_query_change: fn(query: Str) {},
+      on_selection_change: fn(selected: Str) {},
+      on_activate: fn(item: palette::Item) {
+        (props.choose)(id(item.key))
+      },
+    },
+  )
+}
+
+private fn key(id: Str) Str {
+  match id == workspace::agent {
+    true => agent_key,
+    false => id,
+  }
+}
+
+private fn id(chosen: Str) Str {
+  match chosen == agent_key {
+    true => workspace::agent,
+    false => chosen,
+  }
+}
+
+private fn kind_name(kind: workspace::Kind) Str {
+  match kind {
+    workspace::Kind::scratchpad => "scratchpad",
+  }
+}
+
+private fn item(key: Str, label: Str, meta: Str, current: Bool) palette::Item {
+  palette::Item{
+    key: key,
+    label: label,
+    hint: "",
+    description: "",
+    meta: meta,
+    search_terms: match current {
+      true => [palette::current_marker],
+      false => [],
+    },
+    disabled_reason: "",
+  }
+}
+
+// Agent, then each open tab in strip order.
+fn catalog(tabs: workspace::Tabs) [palette::Item] {
+  let items = mut List::new<palette::Item>()
+  items.push(item(agent_key, "Agent", "conversation", tabs.on_agent()))
+  for tab in tabs.open {
+    items.push(item(tab.id, tab.label, kind_name(tab.kind), tab.id == tabs.selected))
+  }
+  items.@
+}
+
+test fn the_catalog_lists_agent_then_each_tab() Void!Str {
+  let tabs = workspace::tabs()
+  let _ = tabs.open(workspace::scratchpad())
+  let items = catalog(tabs.@)
+  try testing::assert(items.size() == 2, "Agent and Scratchpad")
+  let first = items.at(0).expect("Agent")
+  let second = items.at(1).expect("Scratchpad")
+  try testing::assert(first.key == agent_key and first.label == "Agent", "Agent leads")
+  try testing::assert(
+    second.label == "Scratchpad" and second.meta == "scratchpad",
+    "then the tab and its kind",
+  )
+  testing::assert(
+    second.search_terms.size() == 1 and first.search_terms.size() == 0,
+    "the selected tab is marked current",
+  )
+}

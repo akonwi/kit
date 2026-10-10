@@ -34,12 +34,15 @@ use kit/tui/rename
 use kit/tui/scratchpad
 use kit/tui/session_debug
 use kit/tui/sessions
+use kit/tui/tab_strip
+use kit/tui/tabs_picker
 use kit/tui/terminal_status
 use kit/tui/theme
 use kit/tui/theme_picker
 use kit/tui/thinking
 use kit/tui/toast
 use kit/tui/transcript_pane
+use kit/tui/workspace
 use go:strings
 use go:time
 
@@ -53,13 +56,6 @@ enum Phase {
   failed,
 }
 
-// WorkspacePane identifies a retained shell workspace surface. Agent remains
-// permanent; secondary panes append here without changing composer ownership.
-enum WorkspacePane {
-  agent,
-  scratchpad,
-}
-
 // The open root dialog. Each member carries what its dialog needs to mount, so
 // opening a dialog and passing its arguments are one transition.
 struct NoModal {}
@@ -71,6 +67,7 @@ struct ModelPickerModal {}
 struct ThemePickerModal {}
 struct ThinkingPickerModal {}
 struct SessionsModal {}
+struct TabsModal {}
 
 type Modal =
   | NoModal
@@ -83,6 +80,7 @@ type Modal =
   | ThinkingPickerModal
   | rename::Request
   | SessionsModal
+  | TabsModal
 
 // The detached placeholder never starts work, so its effects are inert.
 private fn inert_attachment_host() attached_session::Host {
@@ -144,8 +142,7 @@ struct Shell {
   models: mut model_refresh::Refresher,
   // Owns theme selection and preview; Shell only routes picker results.
   theme: mut theme::Owner,
-  workspace: WorkspacePane,
-  scratchpad_open: Bool,
+  workspace: mut workspace::Tabs,
   scratchpad_control: mut scratchpad::PaneRef,
   active_modal: Modal,
   // The notification host owns notifications; Shell only raises them.
@@ -179,8 +176,7 @@ fn new(props: mut Props) mut Shell {
     selection_copy_base: ui::rgb(0, 0, 0),
     models: model_refresh::refresher(props.options.Client, notifications),
     theme: theme::owner(props.themes, props.options.ThemeName, props.options.ThemeDefinition),
-    workspace: WorkspacePane::agent,
-    scratchpad_open: false,
+    workspace: workspace::tabs(),
     scratchpad_control: scratchpad::pane_ref(),
     active_modal: NoModal{},
     notifications: notifications,
@@ -399,7 +395,7 @@ impl Shell {
   fn mut conversation() cui::View {
     let colors = self.props.themes.current()
     let children = mut List::new<cui::View>()
-    if self.scratchpad_open {
+    if self.workspace.shown() {
       children.push(self.workspace_tabs())
       children.push(layout::divider(colors.border))
     }
@@ -414,19 +410,29 @@ impl Shell {
           flex_grow: 1.0,
           flex_basis: ui::cells(0),
           min_height: ui::cells(3),
-          display: match self.workspace == WorkspacePane::agent {
+          display: match self.workspace.on_agent() {
             true => ui::Display::flex,
             false => ui::Display::none,
           },
         ),
       ),
     )
-    if self.scratchpad_open and self.workspace == WorkspacePane::scratchpad {
+    // An open Scratchpad stays mounted while hidden so its autosave keeps
+    // running; it saves before unmounting when its tab closes.
+    if self.workspace.has(workspace::scratchpad().id) {
       children.push(
         cui::box(
           [self.scratchpad_view()],
           key: "scratchpad-workspace",
-          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0), min_height: ui::cells(3)),
+          styles: ui::style(
+            flex_grow: 1.0,
+            flex_basis: ui::cells(0),
+            min_height: ui::cells(3),
+            display: match self.on_scratchpad() {
+              true => ui::Display::flex,
+              false => ui::Display::none,
+            },
+          ),
         ),
       )
     }
@@ -436,7 +442,7 @@ impl Shell {
     // A dock stays presented beneath dialogs; it only stops owning input.
     let request = self.attached.interaction()
     let docked = self.docked()
-    if self.workspace == WorkspacePane::agent and not docked {
+    if self.workspace.on_agent() and not docked {
       children.push(self.pending_row())
     }
     // The dock's frame, or the Bash panel's, separates it from the
@@ -482,7 +488,7 @@ impl Shell {
             record: attached.scratchpad_record,
             loading: attached.scratchpad_loading,
             failure: attached.scratchpad_failure,
-            active: self.modal_closed(),
+            active: self.modal_closed() and self.on_scratchpad(),
             update: update,
             retry_load: fn() Bool {
               attached.request_scratchpad_retry()
@@ -506,70 +512,67 @@ impl Shell {
   }
 
   // The tab strip is host chrome. Pane bodies never repeat their title or
-  // close affordance, so future retained panes can share this layout.
+  // close affordance.
   fn mut workspace_tabs() cui::View {
-    let agent = self.command("workspace.agent", "Show Agent", fn() {
-      self.show_agent_workspace()
-    })
-    let scratchpad_tab = self.command("workspace.scratchpad", "Show Scratchpad", fn() {
-      self.show_scratchpad_workspace()
-    })
-    let close = self.command("workspace.scratchpad.close", "Close Scratchpad", fn() {
-      self.close_scratchpad()
-    })
-    let scratchpad_active = self.workspace == WorkspacePane::scratchpad
-    let scratchpad_variant = match scratchpad_active {
-      true => controls::ButtonVariant::primary,
-      false => controls::ButtonVariant::secondary,
-    }
-    cui::box(
-      [
-        controls::button(
-          self.props.themes,
-          "Agent",
-          agent,
-          variant: match self.workspace == WorkspacePane::agent {
-            true => controls::ButtonVariant::primary,
-            false => controls::ButtonVariant::secondary,
-          },
-          compact: true,
-        ),
-        cui::box(
-          [
-            controls::button(
-              self.props.themes,
-              "Scratchpad",
-              scratchpad_tab,
-              variant: scratchpad_variant,
-              compact: true,
-              trailing_padding: 0,
-            ),
-            controls::button(
-              self.props.themes,
-              match scratchpad_active {
-                true => "×",
-                false => " ",
-              },
-              close,
-              variant: scratchpad_variant,
-              compact: true,
-              hover_label: "×",
-            ),
-          ],
-          styles: ui::style(flex_direction: ui::FlexDirection::row),
-        ),
-      ],
-      styles: ui::style(
-        flex_shrink: 0.0,
-        flex_direction: ui::FlexDirection::row,
-        gap: ui::cells(1),
-        padding: ui::Edges{
-          top: ui::cells(0),
-          right: ui::cells(1),
-          bottom: ui::cells(0),
-          left: ui::cells(1),
+    let entries = mut List::new<tab_strip::Entry>()
+    entries.push(
+      tab_strip::Entry{
+        label: "Agent",
+        selected: self.workspace.on_agent(),
+        show: self.command("workspace.agent", "Show Agent", fn() {
+          self.show_tab(workspace::agent)
+        }),
+        close: Maybe::new<keymap::SimpleCommand>(),
+      },
+    )
+    for tab in self.workspace.open {
+      let id = tab.id
+      entries.push(
+        tab_strip::Entry{
+          label: tab.label,
+          selected: tab.id == self.workspace.selected,
+          show: self.command("workspace.show:{id}", "Show {tab.label}", fn() {
+            self.show_tab(id)
+          }),
+          close: Maybe::new(
+            self.command("workspace.close:{id}", "Close {tab.label}", fn() {
+              self.close_tab(id)
+            }),
+          ),
         },
-      ),
+      )
+    }
+    tab_strip::view(
+      tab_strip::Props{
+        themes: self.props.themes,
+        entries: entries.@,
+        more: self.command("workspace.tabs", "Show all tabs", fn() {
+          self.active_modal = TabsModal{}
+        }),
+      },
+    )
+  }
+
+  fn mut tabs_modal() cui::View {
+    tabs_picker::view(
+      tabs_picker::Props{
+        themes: self.props.themes,
+        tabs: self.workspace.@,
+        dismiss: keymap::simple_command("tabs.dismiss", "Close", fn() Bool {
+          self.dismiss_modal()
+        }),
+        choose: fn(id: Str) {
+          self.dispatch(fn() {
+            self.finish_modal()
+            self.show_tab(id)
+          })
+        },
+        close: fn(id: Str) {
+          self.dispatch(fn() {
+            self.close_tab(id)
+          })
+        },
+      },
     )
   }
 
@@ -701,7 +704,7 @@ impl Shell {
   // Returns focus to the composer once the last pending request settles. A
   // newly shown dock takes focus itself when it mounts.
   private fn mut track_dock(docked: Bool) {
-    if self.dock_shown and (not docked) and self.modal_closed() and self.workspace == WorkspacePane::agent {
+    if self.dock_shown and (not docked) and self.modal_closed() and self.workspace.on_agent() {
       self.focus_composer()
     }
     self.dock_shown = docked
@@ -712,7 +715,7 @@ impl Shell {
       composer::Props{
         themes: self.props.themes,
         enabled: self.modal_closed() and not self.attached.feedback_pending(),
-        focus_eligible: self.modal_closed() and self.workspace == WorkspacePane::agent,
+        focus_eligible: self.modal_closed() and self.workspace.on_agent(),
         control: self.composer_control,
         submit: fn(text: Str) Bool {
           self.request_composer_submit(text)
@@ -921,6 +924,22 @@ impl cui::Component for Shell {
       commands.push(open_palette)
       bindings.push(keymap::binding(keymap::key("p", ctrl: true), open_palette.with()))
     }
+    // Ctrl+] and Ctrl+[ step through the tabs, wrapping through Agent. They
+    // need a terminal that reports Ctrl+[ apart from Escape.
+    if self.phase == Phase::ready and self.modal_closed() and self.workspace.shown() {
+      let next = keymap::simple_command("workspace.next", "Next tab", fn() Bool {
+        self.show_tab(self.workspace.beside(1))
+        true
+      })
+      let previous = keymap::simple_command("workspace.previous", "Previous tab", fn() Bool {
+        self.show_tab(self.workspace.beside(-1))
+        true
+      })
+      commands.push(next)
+      commands.push(previous)
+      bindings.push(keymap::binding(keymap::key("]", ctrl: true), next.with()))
+      bindings.push(keymap::binding(keymap::key("[", ctrl: true), previous.with()))
+    }
     // While a request is pending, the dock's Escape cancels it instead. A
     // running shell command is stopped before the turn.
     if self.phase == Phase::ready and self.modal_closed() and (not self.attached.feedback_pending()) and self.attached.can_interrupt() {
@@ -1014,6 +1033,7 @@ impl cui::Component for Shell {
       ThinkingPickerModal => layers.push(self.thinking_picker_modal()),
       rename::Request(request) => layers.push(self.rename_session_modal(request)),
       SessionsModal => layers.push(self.sessions_modal()),
+      TabsModal => layers.push(self.tabs_modal()),
     }
     cui::box(
       layers.@,
@@ -1152,14 +1172,7 @@ impl Shell {
     } else if self.phase == Phase::ready and self.attached.feedback_pending() {
       let _ = self.dock_control.focus()
     } else if self.phase == Phase::ready {
-      match self.workspace {
-        WorkspacePane::agent => {
-          let _ = self.composer_control.focus()
-        },
-        WorkspacePane::scratchpad => {
-          let _ = self.scratchpad_control.focus()
-        },
-      }
+      self.focus_selected()
     }
   }
 
@@ -1408,8 +1421,9 @@ impl Shell {
       command_palette::ActionKind::sessions => { self.active_modal = SessionsModal{} },
       command_palette::ActionKind::scratchpad => {
         self.finish_modal()
-        self.open_scratchpad()
+        self.open_tab(workspace::scratchpad())
       },
+      command_palette::ActionKind::tabs => { self.active_modal = TabsModal{} },
       command_palette::ActionKind::change_directory => {
         self.finish_modal()
         self.attached.change_working_directory(action.argument)
@@ -1471,7 +1485,7 @@ impl Shell {
 // the UI thread.
 impl Shell {
   fn mut attach(attached: bootstrap::Attached, location: Str) {
-    if self.workspace == WorkspacePane::scratchpad and self.scratchpad_control.close(false) {
+    if self.workspace.has(workspace::scratchpad().id) and self.scratchpad_control.close(false) {
       self.pending_attachment = Maybe::new(attached)
       self.pending_attachment_location = location
     } else {
@@ -1535,34 +1549,62 @@ impl Shell {
     self.composer_bash = false
     let _ = self.composer_control.reset()
     self.notifications.clear()
-    self.workspace = WorkspacePane::agent
-    self.scratchpad_open = false
+    self.workspace = workspace::tabs()
     self.scratchpad_control = scratchpad::pane_ref()
   }
 
-  // Cache the authoritative record in Shell while the active pane owns its
-  // draft, serialized autosave worker, and save-before-unmount handshake.
-  fn mut open_scratchpad() {
-    self.scratchpad_open = true
-    self.show_scratchpad_workspace()
+  private fn on_scratchpad() Bool {
+    self.workspace.selected == workspace::scratchpad().id
   }
 
-  fn mut show_agent_workspace() {
-    if self.workspace != WorkspacePane::scratchpad or not self.scratchpad_control.close(false) {
-      self.workspace = WorkspacePane::agent
+  // Opens `tab`, or selects it if it is already open.
+  fn mut open_tab(tab: workspace::Tab) {
+    if self.workspace.add(tab) {
+      self.show_tab(tab.id)
+    } else {
+      self.notify(
+        "Too many tabs",
+        "Close a tab before opening another.",
+        toast::Variant::warning,
+        false,
+      )
+    }
+  }
+
+  // Selects an open tab.
+  fn mut show_tab(id: Str) {
+    if id == self.workspace.selected {
+      self.focus_selected()
+    } else if self.workspace.select(id) {
+      self.entered_tab()
+    }
+  }
+
+  // Closes a tab. Closing the Scratchpad waits for it to save its draft and
+  // unmount; Shell caches the authoritative record while the pane owns its
+  // draft, autosave worker, and save-before-unmount handshake.
+  fn mut close_tab(id: Str) {
+    let selected = id == self.workspace.selected
+    if id == workspace::scratchpad().id and self.scratchpad_control.close(true) {
+      ()
+    } else if self.workspace.close(id) and selected {
+      self.entered_tab()
+    }
+  }
+
+  // Readies the newly selected tab.
+  private fn mut entered_tab() {
+    if self.on_scratchpad() {
+      self.attached.load_scratchpad()
+    } else if self.workspace.on_agent() {
       self.focus_composer()
     }
   }
 
-  fn mut show_scratchpad_workspace() {
-    self.workspace = WorkspacePane::scratchpad
-    self.attached.load_scratchpad()
-  }
-
-  fn mut close_scratchpad() {
-    if self.workspace != WorkspacePane::scratchpad or not self.scratchpad_control.close(true) {
-      self.workspace = WorkspacePane::agent
-      self.scratchpad_open = false
+  private fn mut focus_selected() {
+    if self.on_scratchpad() {
+      let _ = self.scratchpad_control.focus()
+    } else {
       self.focus_composer()
     }
   }
@@ -1581,11 +1623,10 @@ impl Shell {
               self.attach_now(attached, location)
             },
             _ => {
-              self.workspace = WorkspacePane::agent
-              if close_tab {
-                self.scratchpad_open = false
+              let selected = self.on_scratchpad()
+              if close_tab and self.workspace.close(workspace::scratchpad().id) and selected {
+                self.entered_tab()
               }
-              self.focus_composer()
             },
           }
         })
@@ -1613,8 +1654,7 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
   let first_scope = subject.session_scope_id
   subject.composer_bash = true
   subject.notify("Old session warning", "", toast::Variant::warning, true)
-  subject.workspace = WorkspacePane::scratchpad
-  subject.scratchpad_open = true
+  let _ = subject.workspace.open(workspace::scratchpad())
 
   subject.begin_session_scope()
 
@@ -1623,7 +1663,7 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
   try testing::assert(not subject.composer_bash, "the previous Bash panel closes")
   try testing::assert(subject.notifications.pending_count() == 0, "session notifications reset")
   testing::assert(
-    subject.workspace == WorkspacePane::agent and not subject.scratchpad_open,
+    subject.workspace.on_agent() and not subject.workspace.shown(),
     "workspace state resets",
   )
 }

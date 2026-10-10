@@ -1,0 +1,336 @@
+use ard/testing
+
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use kit/tui/controls
+use kit/tui/format
+use kit/tui/theme
+
+// The workspace tab strip: Agent, then each open pane. When the tabs don't
+// fit, Agent and the selected tab stay, as many others as fit follow in
+// order, and a `… N more` tab stands for the rest.
+
+// The widest a tab gets; a longer label ends in `…`.
+let max_tab_width = 24
+
+// Cells a tab adds around its label: a cell before it, and either a cell
+// after it or a close button.
+let plain_chrome = 2
+let closable_chrome = 4
+
+struct Entry {
+  label: Str,
+  selected: Bool,
+  show: keymap::SimpleCommand,
+  // Closes the tab; Agent has none.
+  close: keymap::SimpleCommand?,
+}
+
+struct Props {
+  themes: theme::Context,
+  entries: [Entry],
+  // Shows every tab, from the `… N more` tab.
+  more: keymap::SimpleCommand,
+}
+
+fn view(props: Props) cui::View {
+  cui::child(new, props, key: "workspace-tabs")
+}
+
+// The tabs to show, from `fit`.
+struct Fit {
+  // Indexes of the shown tabs, in order.
+  shown: [Int],
+  // How many tabs the `… N more` tab stands for; 0 when all are shown.
+  hidden: Int,
+  // The widest the selected tab may be.
+  room: Int,
+}
+
+// Which of the tabs, with these widths, fit in `width` cells with a cell
+// between tabs. `more` gives the width of the `… N more` tab for N hidden
+// tabs. Index 0 is Agent.
+fn fit(widths: [Int], selected: Int, width: Int, more: fn(Int) Int) Fit {
+  let count = widths.size()
+  mut total = 0
+  for tab_width, index in widths {
+    total =+ tab_width
+    if index > 0 {
+      total =+ 1
+    }
+  }
+  if width <= 0 or total <= width {
+    let all = mut List::new<Int>()
+    for _, index in widths {
+      all.push(index)
+    }
+    Fit{
+      shown: all.@,
+      hidden: 0,
+      room: width,
+    }
+  } else {
+    let kept = mut List::new<Bool>()
+    for _, index in widths {
+      kept.push(index == 0 or index == selected)
+    }
+    mut shown = 1
+    mut used = widths.at(0).or(0)
+    if selected > 0 {
+      shown =+ 1
+      used =+ 1 + widths.at(selected).or(0)
+    }
+    for tab_width, index in widths {
+      if not kept.at(index).or(true) {
+        let hidden = count - shown - 1
+        let overflow = match hidden > 0 {
+          true => 1 + more(hidden),
+          false => 0,
+        }
+        if used + 1 + tab_width + overflow <= width {
+          kept.set(index, true)
+          shown =+ 1
+          used =+ 1 + tab_width
+        }
+      }
+    }
+    let hidden = count - shown
+    let indexes = mut List::new<Int>()
+    for keep, index in kept {
+      if keep {
+        indexes.push(index)
+      }
+    }
+    // Whatever Agent and the overflow tab leave.
+    let room = match selected > 0 {
+      true => width - widths.at(0).or(0) - 2 - more(hidden),
+      false => width,
+    }
+    Fit{
+      shown: indexes.@,
+      hidden: hidden,
+      room: room,
+    }
+  }
+}
+
+private fn label_width(entry: Entry) Int {
+  format::cell_width(entry.label)
+}
+
+private fn chrome(entry: Entry) Int {
+  match entry.close {
+    close => closable_chrome,
+    _ => plain_chrome,
+  }
+}
+
+// An entry's width before any truncation for room.
+fn tab_width(entry: Entry) Int {
+  let wanted = label_width(entry) + chrome(entry)
+  match wanted > max_tab_width {
+    true => max_tab_width,
+    false => wanted,
+  }
+}
+
+private fn more_label(hidden: Int) Str {
+  "… {hidden} more"
+}
+
+private fn more_width(hidden: Int) Int {
+  format::cell_width(more_label(hidden)) + plain_chrome
+}
+
+private struct Strip {
+  props: mut Props,
+  frame: mut cui::BoxRef,
+  // The strip's inner width as last laid out; zero until then.
+  width: Int,
+}
+
+private fn new(props: mut Props) mut Strip {
+  (mut Strip{
+    props: props,
+    frame: cui::box_ref(),
+    width: 0,
+  })
+}
+
+impl cui::Lifecycle for Strip {
+  fn mut mounted(context: cui::Context) {
+    let _ = context.internal_layout(fn() Bool {
+      self.measure()
+    })
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl Strip {
+  // Records the strip's width inside its padding. Returns whether it changed.
+  private fn mut measure() Bool {
+    match self.frame.current {
+      frame => {
+        let width = frame.layout().local.width - 2
+        let changed = width != self.width
+        self.width = width
+        changed
+      },
+      _ => false,
+    }
+  }
+
+  private fn tab(entry: Entry, width: Int) cui::View {
+    let themes = self.props.themes
+    let variant = match entry.selected {
+      true => controls::ButtonVariant::primary,
+      false => controls::ButtonVariant::secondary,
+    }
+    let label = format::truncate_cells(entry.label, width - chrome(entry))
+    match entry.close {
+      close => {
+        cui::box(
+          [
+            controls::button(themes, label, entry.show, variant: variant, compact: true, trailing_padding: 0),
+            controls::button(
+              themes,
+              match entry.selected {
+                true => "×",
+                false => " ",
+              },
+              close,
+              variant: variant,
+              compact: true,
+              hover_label: "×",
+            ),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::row, flex_shrink: 0.0),
+        )
+      },
+      _ => {
+        controls::button(
+          themes,
+          label,
+          entry.show,
+          variant: variant,
+          compact: true,
+          styles: ui::style(flex_shrink: 0.0),
+        )
+      },
+    }
+  }
+}
+
+impl cui::Component for Strip {
+  fn mut render() cui::View {
+    let entries = self.props.entries
+    let widths = mut List::new<Int>()
+    mut selected = 0
+    for entry, index in entries {
+      widths.push(tab_width(entry))
+      if entry.selected {
+        selected = index
+      }
+    }
+    let fitted = fit(widths.@, selected, self.width, more_width)
+    let children = mut List::new<cui::View>()
+    for index in fitted.shown {
+      let entry = entries.at(index).expect("a shown tab")
+      let width = widths.at(index).expect("a shown tab")
+      children.push(
+        self.tab(
+          entry,
+          match index == selected and fitted.room < width {
+            true => fitted.room,
+            false => width,
+          },
+        ),
+      )
+    }
+    if fitted.hidden > 0 {
+      children.push(
+        controls::button(
+          self.props.themes,
+          more_label(fitted.hidden),
+          self.props.more,
+          variant: controls::ButtonVariant::secondary,
+          compact: true,
+          styles: ui::style(flex_shrink: 0.0),
+        ),
+      )
+    }
+    cui::box(
+      children.@,
+      ref: self.frame,
+      styles: ui::style(
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+        gap: ui::cells(1),
+        overflow: ui::Overflow::hidden,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+    )
+  }
+}
+
+private fn overflow_width(hidden: Int) Int {
+  // `… N more` plus its padding, for single-digit N.
+  10
+}
+
+test fn every_tab_shows_when_they_fit() Void!Str {
+  let fitted = fit([7, 14, 16], 2, 39, overflow_width)
+  try testing::assert(fitted.shown.size() == 3 and fitted.hidden == 0, "all three tabs fit exactly")
+  testing::assert(fitted.room == 39, "the selected tab is not limited")
+}
+
+test fn overflow_keeps_agent_the_selected_tab_and_what_else_fits() Void!Str {
+  // Agent 7, then five tabs of 14; tab 4 is selected. 7+1+14 for Agent and
+  // the selected tab, 1+10 for the overflow tab, and room for one more.
+  let fitted = fit([7, 14, 14, 14, 14, 14], 4, 48, overflow_width)
+  try testing::assert(fitted.shown.size() == 3, "three tabs show")
+  try testing::assert(fitted.shown.at(0).or(-1) == 0, "Agent stays first")
+  try testing::assert(fitted.shown.at(1).or(-1) == 1, "the first other tab fills the room")
+  try testing::assert(fitted.shown.at(2).or(-1) == 4, "the selected tab stays")
+  testing::assert(fitted.hidden == 3, "the rest are counted")
+}
+
+test fn a_selected_tab_too_wide_for_its_room_is_limited() Void!Str {
+  let fitted = fit([7, 24, 24], 2, 30, overflow_width)
+  try testing::assert(fitted.shown.size() == 2 and fitted.hidden == 1, "Agent and the selected tab show")
+  testing::assert(fitted.room == 11, "the selected tab gets what Agent and the overflow tab leave")
+}
+
+test fn tabs_are_as_wide_as_their_labels_within_the_limit() Void!Str {
+  let none = keymap::simple_command("test.none", "None", fn() Bool {
+    true
+  })
+  let agent = Entry{
+    label: "Agent",
+    selected: false,
+    show: none,
+    close: Maybe::new<keymap::SimpleCommand>(),
+  }
+  let scratchpad = Entry{
+    label: "Scratchpad",
+    selected: true,
+    show: none,
+    close: Maybe::new(none),
+  }
+  let long = Entry{
+    label: "a-very-long-generated-file-name.ard",
+    selected: false,
+    show: none,
+    close: Maybe::new(none),
+  }
+  try testing::assert(tab_width(agent) == 7, "Agent has a cell either side")
+  try testing::assert(tab_width(scratchpad) == 14, "a closable tab adds its close button")
+  testing::assert(tab_width(long) == max_tab_width, "a long label is limited")
+}
