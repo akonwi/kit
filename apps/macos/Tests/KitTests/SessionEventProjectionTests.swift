@@ -255,6 +255,61 @@ struct SessionEventProjectionTests {
         #expect(state.session.messages[0].tools.map(\.output) == ["Done"])
     }
 
+    private func limited(_ limit: Int) throws -> SessionEventProjection {
+        try SessionEventProjection(session: SessionProjection.snapshot(snapshot()), source: [], retainedLiveLimit: limit)
+    }
+
+    @Test func releasedLiveContentDoesNotCountTowardTheLimit() throws {
+        var state = try limited(1024)
+        try state.apply(event("turn.started"))
+        let chunk = String(repeating: "x", count: 800)
+        for index in 0..<8 {
+            let message = "m\(index)", tool = "tool\(index)"
+            try state.apply(event("assistant.started", ["messageId": message]))
+            try state.apply(event("assistant.text.delta", ["messageId": message, "delta": chunk, "contentIndex": 0]))
+            try state.apply(event("assistant.completed", ["messageId": message, "text": "Reply \(index)"]))
+            try state.apply(event("tool.output.delta", ["toolCallId": tool, "toolName": "bash", "content": [["kind": "text", "text": chunk]]]))
+            try state.apply(event("tool.completed", ["toolCallId": tool, "toolName": "bash", "content": [["kind": "text", "text": "done"]]]))
+        }
+        #expect(state.liveContentSuspended == false)
+        #expect(state.session.messages.filter { $0.role == "assistant" }.map(\.text) == (0..<8).map { "Reply \($0)" })
+        #expect(state.session.messages.flatMap(\.tools).map(\.output) == Array(repeating: "done", count: 8))
+        try state.apply(event("assistant.started", ["messageId": "streaming"]))
+        try state.apply(event("assistant.thinking.delta", ["messageId": "streaming", "delta": "Still streaming", "contentIndex": 0]))
+        #expect(state.session.activity == "Still streaming")
+    }
+
+    @Test func liveContentAboveTheLimitIsSuspendedUntilTheNextTurn() throws {
+        var state = try limited(1024)
+        try state.apply(event("turn.started"))
+        let chunk = String(repeating: "x", count: 600)
+        try state.apply(event("assistant.started", ["messageId": "m"]))
+        try state.apply(event("assistant.thinking.delta", ["messageId": "m", "delta": "Planning", "contentIndex": 0]))
+        try state.apply(event("assistant.text.delta", ["messageId": "m", "delta": chunk, "contentIndex": 1]))
+        try state.apply(event("tool.output.delta", ["messageId": "m", "toolCallId": "a", "toolName": "bash", "content": [["kind": "text", "text": chunk]]]))
+        #expect(state.liveContentSuspended)
+        #expect(state.session.activity == "Working…")
+
+        // Suspended deltas neither accumulate nor end the stream.
+        try state.apply(event("tool.output.delta", ["toolCallId": "a", "toolName": "bash", "content": [["kind": "text", "text": chunk]]]))
+        try state.apply(event("assistant.thinking.delta", ["messageId": "m", "delta": " more", "contentIndex": 0]))
+        #expect(state.session.messages.flatMap(\.tools).map(\.output.count) == [600])
+        #expect(state.session.activity == "Working…")
+        try state.apply(event("tool.completed", ["toolCallId": "a", "toolName": "bash", "content": [["kind": "text", "text": "Final"]]]))
+        try state.apply(event("assistant.completed", ["messageId": "m", "text": "Answer"]))
+        #expect(state.session.messages.map(\.role) == ["tools", "assistant"])
+        #expect(state.session.messages.flatMap(\.tools).map(\.status) == ["Completed"])
+        #expect(state.session.messages.flatMap(\.tools).map(\.output) == ["Final"])
+        #expect(state.session.messages.last?.text == "Answer")
+
+        try state.apply(event("turn.completed", ["status": "completed"]))
+        try state.apply(event("turn.started", ["turnId": "t2"]))
+        #expect(state.liveContentSuspended == false)
+        try state.apply(event("assistant.started", ["turnId": "t2", "messageId": "n"]))
+        try state.apply(event("assistant.thinking.delta", ["turnId": "t2", "messageId": "n", "delta": "Next turn", "contentIndex": 0]))
+        #expect(state.session.activity == "Next turn")
+    }
+
     @Test func thinkingStreamsButProseAppearsAtomically() throws {
         var state = try SessionEventProjection(snapshot())
         try state.apply(event("assistant.started", ["messageId": "m"]))
