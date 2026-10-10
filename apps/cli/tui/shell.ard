@@ -629,6 +629,12 @@ impl Shell {
               self.attached.select_tool(key)
             })
           },
+          outputs: self.attached.open_output,
+          toggle_output: fn(key: Str) {
+            self.dispatch(fn() {
+              self.attached.toggle_output(key)
+            })
+          },
         },
         load_older: fn() {
           self.request_older_history()

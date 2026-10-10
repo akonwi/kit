@@ -3,6 +3,7 @@ use ard/testing
 use go:api/contract as protocol
 use go:kit/ffi/sessionbridge
 use kit/tui/transcript
+use go:strings
 
 // Numbers events 1, 2, 3, … in order, as one server stream would.
 fn sequenced(events: [sessionbridge::Event]) [sessionbridge::Event] {
@@ -358,6 +359,63 @@ test fn tools_attach_to_their_turn_and_unrun_plans_settle_at_run_end() Void!Str 
     live.messages.at(2).expect("bash").tool_state == transcript::ToolState::not_run,
     "unrun plan settles",
   )
+}
+
+fn output(text: Str) sessionbridge::Event {
+  sessionbridge::Event{
+    Kind: "tool.output.delta",
+    TurnID: "turn-1",
+    ToolCallID: "call-1",
+    ToolName: "bash",
+    Content: [sessionbridge::Content{Kind: "text", Text: text}],
+  }
+}
+
+test fn a_running_tool_streams_its_output_until_the_result_replaces_it() Void!Str {
+  let live = mut transcript::live()
+  let _ = live.apply(
+    sequenced(
+      [
+        sessionbridge::Event{
+          Kind: "tool.started",
+          TurnID: "turn-1",
+          ToolCallID: "call-1",
+          ToolName: "bash",
+          Arguments: "{{\"command\":\"make\"}}",
+        },
+        output("building\n"),
+        output("linking\n"),
+      ],
+    ),
+  )
+  let running = live.messages.at(1).expect("bash")
+  try testing::assert(running.text == "building\nlinking\n", running.text)
+  try testing::assert(running.tool_state == transcript::ToolState::running, "still running")
+  let _ = live.apply(
+    [
+      sessionbridge::Event{
+        Kind: "tool.completed",
+        Sequence: 4,
+        TurnID: "turn-1",
+        ToolCallID: "call-1",
+        ToolName: "bash",
+        Content: [sessionbridge::Content{Kind: "text", Text: "built"}],
+        ContentTruncated: true,
+        DetailsOmitted: true,
+      },
+    ],
+  )
+  let done = live.messages.at(1).expect("bash")
+  try testing::assert(done.text == "built", done.text)
+  testing::assert(done.output_truncated and done.details_omitted, "the result's cuts are kept")
+}
+
+test fn streamed_output_stops_at_the_live_limit() Void!Str {
+  let live = mut transcript::live()
+  let _ = live.apply(sequenced([output(strings::Repeat("é", 31000)), output("more")]))
+  let running = live.messages.at(1).expect("bash")
+  try testing::assert(running.output_truncated, "the output is marked cut")
+  testing::assert(running.text == strings::Repeat("é", 30720), "kept {running.text.size()} bytes")
 }
 
 test fn projection_skips_empty_messages_and_marks_tool_results() Void!Str {
