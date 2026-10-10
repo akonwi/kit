@@ -1,12 +1,19 @@
 use cooper/cui
 use cooper/ui
+use go:github.com/akonwi/vaxis
+use go:kit/ffi/toolpresentation
+use kit/tui/code
 use kit/tui/theme
+use kit/tui/transcript
 use go:strings
 
-// A tool call's output, shown below its row: wrapped text on the surface fill,
-// at most `max_rows` tall. Taller output scrolls on its own; at the top or
-// bottom edge the wheel scrolls the transcript instead. A footer counts the
-// lines of output that overflows, and notes output or details the server cut.
+// A tool call's output, shown below its row on the surface fill, at most
+// `max_rows` tall. File contents are highlighted in their language, edits and
+// unified diffs show removed and added lines on the diff fills, and a command
+// leads its output. Lines keep their shape: taller or wider output scrolls on
+// its own, and at the top or bottom edge the wheel scrolls the transcript
+// instead. A footer counts the lines of output that overflows, and notes
+// output, details, or content the server did not keep.
 
 // The tallest a well grows before it scrolls.
 let max_rows = 14
@@ -15,44 +22,106 @@ struct Props {
   themes: theme::Context,
   // The tool row's key, which keys the well.
   key: Str,
-  text: Str,
-  // Whether the call is still running: the well follows its end while
-  // output streams in, unless scrolled away from it.
-  running: Bool,
-  // Whether the output was cut short.
-  truncated: Bool,
-  // Whether the result's details were left out.
-  omitted: Bool,
+  call: transcript::ToolCall,
+  result: transcript::Message,
 }
 
 fn view(props: Props) cui::View {
   cui::child(new, props, key: "tool-output:{props.key}")
 }
 
-// The output's text without trailing line breaks.
+// Whether the call is still running: its output streams in plain, and the
+// well follows its end unless scrolled away from it.
+fn running(result: transcript::Message) Bool {
+  result.tool_state == transcript::ToolState::running
+}
+
+// What the well shows for the call.
+fn output(call: transcript::ToolCall, result: transcript::Message) toolpresentation::Output {
+  toolpresentation::ShowOutput(
+    toolpresentation::Call{
+      Name: call.name,
+      Arguments: call.arguments,
+      ArgumentsTruncated: call.arguments_truncated,
+    },
+    toolpresentation::Result{
+      Succeeded: result.tool_state == transcript::ToolState::completed,
+      Text: result.text,
+      Details: result.details,
+    },
+    running(result),
+  )
+}
+
+// Text without trailing line breaks.
 fn trimmed(text: Str) Str {
   strings::TrimRight(text, "\n")
 }
 
-// How many lines the output has, before wrapping.
+// How many lines text has.
 fn line_count(text: Str) Int {
   strings::Split(trimmed(text), "\n").size()
 }
 
+// How many rows the output's blocks take.
+fn row_count(blocks: [toolpresentation::Block]) Int {
+  mut rows = 0
+  for block in blocks {
+    rows =+ match block.Kind == toolpresentation::BlockGap {
+      true => 1,
+      false => line_count(block.Text),
+    }
+  }
+  rows
+}
+
+// How many cells wide text's longest line is, as the code view lays it out.
+fn text_width(text: Str) Int {
+  mut widest = 0
+  for line in strings::Split(strings::ReplaceAll(trimmed(text), "\t", "  "), "\n") {
+    mut width = 0
+    for character in vaxis::Characters(line) {
+      width =+ character.Width
+    }
+    if width > widest {
+      widest = width
+    }
+  }
+  widest
+}
+
+// How many cells wide the output's blocks are, with their insets and
+// markers: lines keep their shape, so wider output scrolls sideways.
+fn content_width(blocks: [toolpresentation::Block]) Int {
+  mut widest = 0
+  for block in blocks {
+    let marker = match block.Marker == "" {
+      true => 0,
+      false => 2,
+    }
+    let lead = match block.Kind == "command" {
+      true => 2,
+      false => 0,
+    }
+    let width = text_width(block.Text) + marker + lead + 2
+    if width > widest {
+      widest = width
+    }
+  }
+  widest
+}
+
 // The footer's note, or empty when there is nothing to note. Output that
-// overflows the well is counted, and marked when wrapping added rows.
-fn footer(lines: Int, rows: Int, truncated: Bool, omitted: Bool) Str {
+// overflows the well is counted.
+fn footer(rows: Int, truncated: Bool, omitted: Bool, note: Str) Str {
   let notes = mut List::new<Str>()
-  if rows > max_rows or lines > max_rows {
+  if rows > max_rows {
     notes.push(
-      match lines == 1 {
+      match rows == 1 {
         true => "1 line",
-        false => "{lines} lines",
+        false => "{rows} lines",
       },
     )
-    if rows > lines {
-      notes.push("wrapped")
-    }
   }
   if truncated {
     notes.push("output truncated")
@@ -60,33 +129,40 @@ fn footer(lines: Int, rows: Int, truncated: Bool, omitted: Bool) Str {
   if omitted {
     notes.push("details omitted")
   }
+  if note != "" {
+    notes.push(note)
+  }
   strings::Join(notes, " · ")
 }
 
 private struct Well {
   props: mut Props,
   scroll: mut cui::ScrollBoxRef,
-  // The output's height in rows once wrapped, as last laid out; until then,
-  // its line count.
+  // The output's height in rows, as last laid out; until then, its line
+  // count.
   rows: Int,
   // The furthest the output could scroll when last laid out. Output scrolled
   // that far is following its end.
   bottom: Int,
+  // Whether the output is wider than the well, as last laid out: a
+  // horizontal scrollbar then takes a row below it.
+  wide: Bool,
 }
 
 private fn new(props: mut Props) mut Well {
   (mut Well{
     props: props,
     scroll: cui::scroll_box_ref(),
-    rows: line_count(props.text),
+    rows: row_count(output(props.call, props.result).Blocks),
     bottom: 0,
+    wide: false,
   })
 }
 
 impl cui::Lifecycle for Well {
   fn mut mounted(context: cui::Context) {
     // Measured after each layout and before painting, so the well fits its
-    // wrapped output before it is seen.
+    // output before it is seen.
     let _ = context.internal_layout(fn() Bool {
       self.measure()
     })
@@ -96,13 +172,29 @@ impl cui::Lifecycle for Well {
 }
 
 impl Well {
-  // Records the output's wrapped height and keeps a running call's output at
-  // its end. Returns whether the height changed.
+  // Records the output's size and keeps a running call's output at its end.
+  // Returns whether the well's height changed.
   private fn mut measure() Bool {
     match self.scroll.current {
       scroll => {
+        // cui leaves the horizontal scrollbar hidden. The well shows it only
+        // while lines are wider than the well, as a shown bar takes a row
+        // even when nothing overflows.
+        let wide = scroll.maximum_scroll_left() > 0
+        let widened = wide != self.wide
+        if widened {
+          scroll.set_horizontal_scrollbar_options(
+            ui::scrollbar_options(
+              visibility: match wide {
+                true => ui::ScrollbarVisibility::always,
+                false => ui::ScrollbarVisibility::hidden,
+              },
+            ),
+          )
+        }
+        self.wide = wide
         let rows = scroll.scroll_height()
-        if self.props.running and scroll.scroll_top() >= self.bottom {
+        if running(self.props.result) and scroll.scroll_top() >= self.bottom {
           let _ = scroll.scroll_to(scroll.maximum_scroll_top())
         }
         self.bottom = scroll.maximum_scroll_top()
@@ -110,9 +202,146 @@ impl Well {
         if changed {
           self.rows = rows
         }
-        changed
+        changed or widened
       },
       _ => false,
+    }
+  }
+
+  private fn block(colors: theme::Theme, block: toolpresentation::Block, index: Int) cui::View {
+    let key = "{self.props.key}:{index}"
+    let base = ui::text_style(foreground: colors.foreground)
+    let source = fn(
+      path: Str,
+      text: Str,
+      style: ui::TextStyle,
+      fill: ui::Color,
+      marker: Str,
+      marker_color: ui::Color?,
+    ) cui::View {
+      code::view(
+        key,
+        code::Props{
+          themes: self.props.themes,
+          language: "",
+          path: path,
+          source: trimmed(text),
+          base: style,
+          semantic: true,
+          wrap: false,
+          marker: marker,
+          marker_color: marker_color,
+          fill: fill,
+          inset: 1,
+        },
+      )
+    }
+    let line = fn(text: Str, style: ui::TextStyle) cui::View {
+      cui::box(
+        [cui::text(text, text_style: style, wrap: ui::TextWrap::none)],
+        key: key,
+        styles: ui::style(
+          height: ui::cells(1),
+          flex_shrink: 0.0,
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(1),
+            bottom: ui::cells(0),
+            left: ui::cells(1),
+          },
+        ),
+      )
+    }
+    // Kinds are toolpresentation's Block* constants.
+    match block.Kind {
+      "gap" => line(" ", base),
+      "separator" => line(block.Text, ui::text_style(foreground: colors.muted)),
+      "header" => {
+        source(
+          "",
+          block.Text,
+          ui::text_style(foreground: colors.foreground, bold: true),
+          colors.surface,
+          "",
+          Maybe::new<ui::Color>(),
+        )
+      },
+      "hunk" => {
+        source(
+          "",
+          block.Text,
+          ui::text_style(foreground: colors.muted),
+          colors.surface,
+          "",
+          Maybe::new<ui::Color>(),
+        )
+      },
+      "removed" => {
+        source(
+          block.Path,
+          block.Text,
+          base,
+          colors.diff_removed,
+          block.Marker,
+          Maybe::new(colors.danger_text),
+        )
+      },
+      "added" => {
+        source(
+          block.Path,
+          block.Text,
+          base,
+          colors.diff_added,
+          block.Marker,
+          Maybe::new(colors.success_text),
+        )
+      },
+      "command" => {
+        cui::box(
+          [
+            cui::text("$", text_style: ui::text_style(foreground: colors.muted), wrap: ui::TextWrap::none),
+            code::view(
+              key,
+              code::Props{
+                themes: self.props.themes,
+                language: "bash",
+                path: "",
+                source: block.Text,
+                base: base,
+                semantic: true,
+                wrap: false,
+                marker: "",
+                marker_color: Maybe::new<ui::Color>(),
+                fill: colors.surface,
+                inset: 1,
+              },
+            ),
+          ],
+          key: "{key}:command",
+          styles: ui::style(
+            flex_direction: ui::FlexDirection::row,
+            flex_shrink: 0.0,
+            padding: ui::Edges{
+              top: ui::cells(0),
+              right: ui::cells(0),
+              bottom: ui::cells(0),
+              left: ui::cells(1),
+            },
+          ),
+        )
+      },
+      _ => {
+        match strings::TrimSpace(block.Text) == "" {
+          true => {
+            let message = match running(self.props.result) {
+              true => "Waiting for output…",
+              false => "No output",
+            }
+            line(message, ui::text_style(foreground: colors.muted))
+          },
+          false => source(block.Path, block.Text, base, colors.surface, block.Marker, Maybe::new<ui::Color>()),
+        }
+      },
     }
   }
 }
@@ -120,42 +349,31 @@ impl Well {
 impl cui::Component for Well {
   fn mut render() cui::View {
     let colors = self.props.themes.current()
-    let text = trimmed(self.props.text)
-    let empty = strings::TrimSpace(text) == ""
-    let body = match {
-      empty and self.props.running => {
-        cui::text("Waiting for output…", text_style: ui::text_style(foreground: colors.muted))
-      },
-      empty => cui::text("No output", text_style: ui::text_style(foreground: colors.muted)),
-      _ => {
-        cui::text(
-          text,
-          styles: ui::style(flex_shrink: 0.0),
-          text_style: ui::text_style(foreground: colors.foreground),
-          wrap: ui::TextWrap::word,
-        )
-      },
+    let shown = output(self.props.call, self.props.result)
+    let blocks = mut List::new<cui::View>()
+    for block, index in shown.Blocks {
+      blocks.push(self.block(colors, block, index))
     }
-    let height = match {
+    let bar = match self.wide {
+      true => 1,
+      false => 0,
+    }
+    let shown_rows = match {
       self.rows < 1 => 1,
       self.rows > max_rows => max_rows,
       _ => self.rows,
     }
+    let height = shown_rows + bar
     let children = mut List::new<cui::View>()
     children.push(
       cui::scroll_box(
         [
           cui::box(
-            [body],
+            blocks.@,
             styles: ui::style(
               flex_direction: ui::FlexDirection::column,
               flex_shrink: 0.0,
-              padding: ui::Edges{
-                top: ui::cells(0),
-                right: ui::cells(1),
-                bottom: ui::cells(0),
-                left: ui::cells(1),
-              },
+              min_width: ui::cells(content_width(shown.Blocks)),
             ),
           ),
         ],
@@ -165,7 +383,12 @@ impl cui::Component for Well {
         focusable: false,
       ),
     )
-    let note = footer(line_count(text), self.rows, self.props.truncated, self.props.omitted)
+    let note = footer(
+      self.rows,
+      self.props.result.output_truncated,
+      self.props.result.details_omitted,
+      shown.Note,
+    )
     if note != "" {
       children.push(
         cui::box(

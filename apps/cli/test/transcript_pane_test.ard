@@ -2139,9 +2139,7 @@ test fn clicking_a_tool_row_selects_it_and_shows_or_hides_its_output() Void!Str 
   try testing::assert(filled(60, 5, colors.surface_pressed), "the row's end is filled")
   try testing::assert(filled(25, 5, colors.surface), "the summary keeps its chip")
   try testing::assert(not filled(5, 4, colors.surface_pressed), "the other row is not")
-  // The output is in the foreground on the surface fill, under the title.
-  let text = terminal.frame().cell(6, 6).expect("output")
-  try testing::assert(same_color(text.style.foreground, colors.foreground), "output is in the foreground")
+  // The output is on the surface fill, under the title.
   try testing::assert(filled(5, 6, colors.surface), "the well starts under the title")
   // Clicking another row moves the selection and shows its output too.
   terminal.click(5, 4)
