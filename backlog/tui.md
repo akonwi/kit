@@ -57,9 +57,9 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 - [~] TUI-COOPER-006 — Command palette and pickers. Remaining: the
   `subagents` command (TUI-COOPER-009), and shortcuts discovered from Cooper
   keymaps.
-- [~] TUI-COOPER-016 — Annotations. Remaining: a diff annotation's chip on
-  a commit or branch the Diff tab isn't comparing only opens the tab; it
-  should compare that target and show the lines.
+- [ ] TUI-COOPER-017 — Opening a diff annotation's chip for a commit or
+  branch the Diff tab isn't comparing compares that target and shows the
+  annotated lines; it currently only opens the tab.
 - [ ] TUI-COOPER-009 — Subagents: activity, picker, conversation tabs, and
   dismissal.
 - [~] TUI-COOPER-010 — Sessions. Remaining: the standalone `kit sessions`
