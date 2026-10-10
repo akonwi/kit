@@ -57,11 +57,11 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 - [~] TUI-COOPER-006 — Command palette and pickers. Remaining: the
   `subagents` command (TUI-COOPER-009), and shortcuts discovered from Cooper
   keymaps.
-- [ ] TUI-COOPER-016 — Annotations on the File and Diff panes: create, edit,
-  and delete annotations on file and diff lines. Pending annotations show as
-  chips above the composer and are sent with the next prompt; queued ones
-  return with restored follow-ups. Activating a chip opens its pane at the
-  annotated lines, and a stale one opens the annotation picker.
+- [~] TUI-COOPER-016 — Annotations. Done: live session annotations, File-pane
+  annotations (gutter `+`, drag ranges, editor card, inline notes), composer
+  chips, and sending with prompts. Remaining: annotating Diff-pane lines (a
+  range keeps to one side and one hunk), opening a diff chip at its lines,
+  and the transcript's `🗨 N annotations` row on sent messages.
 - [ ] TUI-COOPER-009 — Subagents: activity, picker, conversation tabs, and
   dismissal.
 - [~] TUI-COOPER-010 — Sessions. Remaining: the standalone `kit sessions`

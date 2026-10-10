@@ -3,8 +3,11 @@ use ard/testing
 use go:api/contract as protocol
 use cooper
 use cooper/cui
+use cooper/event
 use cooper/testing as headless
 use cooper/ui
+use go:kit/ffi/sessionbridge
+use kit/tui/annotations
 use kit/tui/file_pane
 use kit/tui/theme
 use kit/tui/workspace
@@ -67,6 +70,9 @@ fn show(width: Int, height: Int, content: Str, line: Int) Shown {
             },
           )
         }),
+        annotations: [],
+        remove_annotation: fn(id: Uint64) {},
+        release_focus: fn() {},
       },
     ),
   )
@@ -132,4 +138,399 @@ test fn long_lines_scroll_sideways_beside_fixed_numbers() Void!Str {
   let body = rows(shown.terminal)
   try testing::assert(body.at(2).or("") == "   1 456789abcdefghijkl", "a sideways swipe scrolls the text")
   testing::assert(body.at(3).or("") == "   2 t", "every line scrolls together")
+}
+
+// What an annotated File pane asked of the session.
+struct Calls {
+  saved: [Str],
+  removed: [Uint64],
+  bodies: Int,
+  released: Int,
+}
+
+// Mounts a shown File pane for notes.txt at revision rev-1, with the given
+// annotations and a session that records what it is asked.
+fn annotated(
+  width: Int,
+  height: Int,
+  content: Str,
+  notes: [sessionbridge::Annotation],
+  calls: mut Calls,
+  full_body: Str,
+) Shown {
+  let terminal = headless::new(width, height)
+  let tabs = workspace::tabs()
+  let _ = tabs.open(workspace::file("workspace_a", "notes.txt", 0))
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    file_pane::view(
+      file_pane::Props{
+        themes: theme::context(theme::store(theme::system())),
+        tab: tabs.current().expect("the file tab"),
+        stale: false,
+        shown: true,
+        read: Maybe::new(fn(input: protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error {
+          Result::ok(
+            protocol::WorkspaceFileRead{
+              Workspace: protocol::WorkspaceRef{WorkspaceID: "workspace_a"},
+              Path: input.Path,
+              Revision: "rev-1",
+              Content: content,
+              Size: Int64::from(content.size()),
+            },
+          )
+        }),
+        annotations: notes,
+        annotate: Maybe::new(
+          annotations::Service{
+            create: fn(anchor: protocol::AnnotationAnchor, body: Str) Str {
+              let file = anchor.WorkspaceFile.@
+              calls.saved.push(
+                "create {file.WorkspaceID} {file.Path}@{file.FileRevision} {file.StartLine}-{file.EndLine}: {body}",
+              )
+              ""
+            },
+            update: fn(id: Uint64, body: Str) Str {
+              calls.saved.push("update {id}: {body}")
+              ""
+            },
+            remove: fn(id: Uint64) Str {
+              ""
+            },
+            body: fn(id: Uint64) Str!Str {
+              calls.bodies =+ 1
+              Result::ok(full_body)
+            },
+          },
+        ),
+        remove_annotation: fn(id: Uint64) {
+          calls.removed.push(id)
+        },
+        release_focus: fn() {
+          calls.released =+ 1
+        },
+      },
+    ),
+  )
+  settle(terminal, "Loading file")
+  Shown{terminal: terminal, renderer: renderer}
+}
+
+// Flushes until the frame no longer shows `pending`.
+fn settle(terminal: headless::TestApp, pending: Str) {
+  terminal.flush()
+  mut attempts = 0
+  while attempts < 100 and strings::Contains(terminal.frame().text(), pending) {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+  terminal.flush()
+}
+
+// Flushes until `done` holds.
+fn wait_until(terminal: headless::TestApp, done: fn() Bool) {
+  mut attempts = 0
+  while attempts < 100 and not done() {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+}
+
+fn calls() mut Calls {
+  (mut Calls{
+    saved: [],
+    removed: [],
+    bodies: 0,
+    released: 0,
+  })
+}
+
+fn note(id: Int, start: Int, end: Int, body: Str) sessionbridge::Annotation {
+  sessionbridge::Annotation{
+    ID: Uint64::fit(id),
+    Kind: "file",
+    WorkspaceID: "workspace_a",
+    Path: "notes.txt",
+    FileRevision: "rev-1",
+    StartLine: start,
+    EndLine: end,
+    Body: body,
+  }
+}
+
+fn typed(terminal: headless::TestApp, text: Str) {
+  for character in strings::Split(text, "") {
+    terminal.key(
+      event::key(
+        character,
+        character,
+        event::KeyEventType::press,
+        event::Modifiers{
+          shift: false,
+          ctrl: false,
+          alt: false,
+          super: false,
+        },
+      ),
+    )
+  }
+  terminal.flush()
+}
+
+fn press(terminal: headless::TestApp, name: Str) {
+  terminal.key(
+    event::key(
+      name,
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: false,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  terminal.flush()
+}
+
+test fn the_hovered_line_offers_a_plus_that_annotates_it() Void!Str {
+  let recorded = calls()
+  let shown = annotated(40, 14, "alpha\nbeta\ngamma\n", [], recorded, "")
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  shown.terminal.mouse_move(10, 3)
+  shown.terminal.flush()
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " notes.txt        Ln 2 · 3 lines · 17 B",
+      "────────────────────────────────────────",
+      "   1 alpha",
+      "   + beta",
+      "   3 gamma",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ],
+  )
+  let colors = theme::system()
+  let plus = shown.terminal.frame().cell(3, 3).expect("the +")
+  try testing::assert(same_color(plus.style.background, colors.primary), "the + is filled")
+  shown.terminal.click(3, 3)
+  shown.terminal.flush()
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " notes.txt        Ln 2 · 3 lines · 17 B",
+      "────────────────────────────────────────",
+      "   1 alpha",
+      "   2 beta",
+      "     ┌───────────────────────────────┐",
+      "     │                               │",
+      "     │                               │",
+      "     │                               │",
+      "     │         Cancel      Comment   │",
+      "     └───────────────────────────────┘",
+      "   3 gamma",
+      "",
+      "",
+      "",
+    ],
+  )
+  typed(shown.terminal, "tighten")
+  press(shown.terminal, "return")
+  wait_until(shown.terminal, fn() Bool {
+    recorded.saved.size() > 0
+  })
+  try testing::assert(
+    recorded.saved.at(0).or("") == "create workspace_a notes.txt@rev-1 2-2: tighten",
+    "the note anchors to the line it was opened on: {recorded.saved.at(0).or("")}",
+  )
+  wait_until(shown.terminal, fn() Bool {
+    recorded.released > 0
+  })
+  testing::assert(
+    rows(shown.terminal).at(4).or("") == "   3 gamma",
+    "saving closes the editor: {strings::Join(mut rows(shown.terminal), "|\n")}",
+  )
+}
+
+test fn dragging_down_the_gutter_annotates_a_range() Void!Str {
+  let recorded = calls()
+  let shown = annotated(40, 14, "alpha\nbeta\ngamma\ndelta\n", [], recorded, "")
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  shown.terminal.mouse_move(10, 2)
+  shown.terminal.flush()
+  shown.terminal.mouse_down(3, 2)
+  shown.terminal.mouse(
+    event::mouse(
+      event::MouseEventType::drag,
+      event::MouseButton::left,
+      3,
+      3,
+      event::Modifiers{
+        shift: false,
+        ctrl: false,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  shown.terminal.mouse(
+    event::mouse(
+      event::MouseEventType::drag,
+      event::MouseButton::left,
+      12,
+      4,
+      event::Modifiers{
+        shift: false,
+        ctrl: false,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  shown.terminal.flush()
+  let colors = theme::system()
+  let picked = shown.terminal.frame().cell(20, 3).expect("a picked line")
+  try testing::assert(
+    same_color(picked.style.background, colors.surface_hovered),
+    "the picked lines are filled",
+  )
+  shown.terminal.mouse_up(12, 4)
+  shown.terminal.flush()
+  try testing::assert(
+    rows(shown.terminal).at(5).or("") == "     ┌───────────────────────────────┐",
+    "release opens the editor under the lines: {strings::Join(mut rows(shown.terminal), "|\n")}",
+  )
+  let first = shown.terminal.frame().cell(20, 2).expect("the first line")
+  try testing::assert(same_color(first.style.background, colors.surface_hovered), "the lines stay filled")
+  typed(shown.terminal, "why")
+  shown.terminal.click(30, 9)
+  wait_until(shown.terminal, fn() Bool {
+    recorded.saved.size() > 0
+  })
+  testing::assert(
+    recorded.saved.at(0).or("") == "create workspace_a notes.txt@rev-1 1-3: why",
+    "Comment saves the range: {recorded.saved.at(0).or("")}",
+  )
+}
+
+test fn saved_notes_sit_under_their_lines() Void!Str {
+  let recorded = calls()
+  let shown = annotated(40, 8, "alpha\nbeta\ngamma\n", [note(4, 1, 2, "check this")], recorded, "")
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " notes.txt        Ln 1 · 3 lines · 17 B",
+      "────────────────────────────────────────",
+      "   + alpha",
+      "   2 beta",
+      "   ×  🗨️ check this",
+      "   3 gamma",
+      "",
+      "",
+    ],
+  )
+  let colors = theme::system()
+  let number = shown.terminal.frame().cell(3, 3).expect("an annotated line's number")
+  try testing::assert(
+    same_color(number.style.background, colors.primary) and same_color(number.style.foreground, colors.foreground),
+    "annotated lines' numbers are filled like the +",
+  )
+  let edge = shown.terminal.frame().cell(0, 3).expect("the gutter's first cell")
+  try testing::assert(same_color(edge.style.background, colors.primary), "across the whole gutter")
+  let fill = shown.terminal.frame().cell(30, 4).expect("the note")
+  try testing::assert(same_color(fill.style.background, colors.surface), "the note is on the surface")
+  shown.terminal.click(3, 4)
+  shown.terminal.flush()
+  testing::assert(
+    recorded.removed.size() == 1 and recorded.removed.at(0).or(Uint64::from(0)) == Uint64::from(4),
+    "its × removes it",
+  )
+}
+
+test fn clicking_a_note_edits_it_in_place() Void!Str {
+  let recorded = calls()
+  let shown = annotated(40, 14, "alpha\nbeta\ngamma\n", [note(4, 1, 2, "check this")], recorded, "")
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  shown.terminal.click(12, 4)
+  shown.terminal.flush()
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " notes.txt        Ln 1 · 3 lines · 17 B",
+      "────────────────────────────────────────",
+      "   1 alpha",
+      "   2 beta",
+      "     ┌───────────────────────────────┐",
+      "     │ check this                    │",
+      "     │                               │",
+      "     │                               │",
+      "     │            Cancel      Save   │",
+      "     └───────────────────────────────┘",
+      "   3 gamma",
+      "",
+      "",
+      "",
+    ],
+  )
+  typed(shown.terminal, "!")
+  press(shown.terminal, "return")
+  wait_until(shown.terminal, fn() Bool {
+    recorded.saved.size() > 0
+  })
+  testing::assert(
+    recorded.saved.at(0).or("") == "update 4: check this!",
+    "Enter saves the edit: {recorded.saved.at(0).or("")}",
+  )
+}
+
+test fn escape_cancels_a_note() Void!Str {
+  let recorded = calls()
+  let shown = annotated(40, 14, "alpha\nbeta\n", [], recorded, "")
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  shown.terminal.mouse_move(10, 2)
+  shown.terminal.flush()
+  shown.terminal.click(3, 2)
+  shown.terminal.flush()
+  typed(shown.terminal, "draft")
+  press(shown.terminal, "escape")
+  try testing::assert(rows(shown.terminal).at(3).or("") == "   2 beta", "the editor closes")
+  testing::assert(
+    recorded.saved.size() == 0 and recorded.released == 1,
+    "nothing is saved and the keyboard goes back",
+  )
+}
+
+test fn editing_a_long_note_loads_its_whole_body() Void!Str {
+  let recorded = calls()
+  let preview = strings::Repeat("a", 256)
+  let shown = annotated(40, 20, "alpha\n", [note(4, 1, 1, preview)], recorded, "the whole note")
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  shown.terminal.click(12, 3)
+  wait_until(shown.terminal, fn() Bool {
+    recorded.bodies > 0 and strings::Contains(shown.terminal.frame().text(), "the whole note")
+  })
+  testing::assert(
+    strings::Contains(shown.terminal.frame().text(), "│ the whole note"),
+    "the editor holds the whole body: {strings::Join(mut rows(shown.terminal), "|\n")}",
+  )
 }

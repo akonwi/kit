@@ -15,6 +15,7 @@ use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/promptcommand
 use go:kit/ffi/sessionbridge
+use kit/tui/annotations
 use kit/tui/attachments
 use kit/tui/bootstrap
 use kit/tui/file_index
@@ -80,6 +81,10 @@ struct Controller {
   // Files staged for the next prompt, and the last staged row's token.
   attachments: [attachments::Staged],
   attachment_token: Int,
+  // The session's live annotations in ID order, and those whose prompt is
+  // being sent, which leave the composer meanwhile.
+  annotations: [sessionbridge::Annotation],
+  sending_annotations: [Uint64],
   // The attachment ID of the image whose preview is expanded, if any, and
   // the most recently expanded previews, newest last.
   expanded_image: Str,
@@ -257,6 +262,8 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     follow_ups_changing: false,
     attachments: [],
     attachment_token: 0,
+    annotations: [],
+    sending_annotations: [],
     expanded_image: "",
     previews: [:],
     preview_order: [],
@@ -531,6 +538,7 @@ impl Controller {
       self.prompt_commands = snapshot.PromptCommands
       self.plugin_commands = snapshot.PluginCommands
       self.follow_ups = snapshot.FollowUps
+      self.annotations = sessionbridge::Summaries(mut snapshot.Annotations)
       self.context_tokens = snapshot.ContextTokens
       self.context_window = snapshot.ContextWindow
       self.usage = snapshot.Usage
@@ -659,6 +667,15 @@ impl Controller {
       }
       if kind == transcript::Event::run_started {
         self.claim_run(event.TurnID)
+      }
+      if (event.Kind == "annotation.created" or event.Kind == "annotation.updated") and not unsafe::is_nil(event.Annotation) {
+        self.annotations = annotations::upsert(self.annotations, event.Annotation.@)
+      }
+      if event.Kind == "annotation.deleted" {
+        self.annotations = annotations::without(self.annotations, [event.AnnotationID])
+      }
+      if event.Kind == "annotation.submitted" {
+        self.annotations = annotations::without(self.annotations, event.AnnotationIDs)
       }
       if event.Kind == "interaction.requested" and not unsafe::is_nil(event.Interaction) {
         self.add_interaction(event.Interaction.@)
@@ -2819,14 +2836,19 @@ impl Controller {
     }
   }
 
-  // Submits a prompt, queuing it when another turn is active.
-  // Submits the composer's text with its staged attachments. Without
-  // either, Enter sends queued follow-ups to the running turn.
+  // Submits the composer's text with its staged attachments and pending
+  // annotations, queuing it when another turn is active. Without any of
+  // them, Enter sends queued follow-ups to the running turn.
   fn mut submit(text: Str) {
     if self.can_submit() {
       let ids = attachments::prompt_ids(self.attachments)
+      let notes = mut List::new<Uint64>()
+      for annotation in self.pending_annotations() {
+        notes.push(annotation.ID)
+      }
+      let annotation_ids = notes.@
       let bash = parse_bash(text)
-      if text == "" and ids.size() == 0 {
+      if text == "" and ids.size() == 0 and annotation_ids.size() == 0 {
         self.promote_follow_ups()
       } else if bash.is_some() {
         self.start_bash(bash.expect("bash command"))
@@ -2840,6 +2862,7 @@ impl Controller {
               session => {
                 let staged = self.attachments
                 self.attachments = []
+                self.sending_annotations = annotation_ids
                 let optimistic = self.begin_submission(text, staged)
                 self.expand_sent_image(staged)
                 let ctx = lifetime.Context
@@ -2847,12 +2870,32 @@ impl Controller {
                 async::start(fn() {
                   let result = session.SubmitPromptInput(
                     ctx,
-                    protocol::PromptInput{Text: text, AttachmentIDs: ids},
+                    protocol::PromptInput{
+                      Text: text,
+                      AttachmentIDs: ids,
+                      AnnotationIDs: annotation_ids,
+                    },
                   )
                   let _ = dispatch(fn() {
                     if self.active {
+                      self.sending_annotations = []
                       match result {
-                        ok(submission) => self.accept_submission(submission, optimistic, "Prompt did not start a turn"),
+                        ok(submission) => {
+                          // A started prompt consumed its annotations; a
+                          // queued one keeps them until it is sent or
+                          // restored.
+                          if not submission.Queued {
+                            self.annotations = annotations::without(
+                              self.annotations,
+                              annotation_ids,
+                            )
+                          }
+                          self.accept_submission(
+                            submission,
+                            optimistic,
+                            "Prompt did not start a turn",
+                          )
+                        },
                         err(failure) => {
                           (self.host.restore_draft)(text)
                           if self.attachments.size() == 0 {
@@ -2884,7 +2927,14 @@ impl Controller {
       failed = failed or item.failure != "" and (not item.preserve_id)
       image = image or item.is_image()
     }
+    let pending = self.pending_annotations()
+    mut stale = false
+    for annotation in pending {
+      stale = stale or annotation.Stale
+    }
+    let command = self.prompt_invocation(text).is_some()
     match {
+      // Bash commands leave annotations for the next prompt.
       uploading => {
         Maybe::new(
           Blocker{
@@ -2912,11 +2962,29 @@ impl Controller {
           },
         )
       },
-      self.attachments.size() > 0 and self.prompt_invocation(text).is_some() => {
+      self.attachments.size() > 0 and command => {
         Maybe::new(
           Blocker{
             title: "Prompt commands do not accept attachments",
             detail: "",
+            variant: toast::Variant::warning,
+          },
+        )
+      },
+      pending.size() > 0 and command => {
+        Maybe::new(
+          Blocker{
+            title: "Prompt commands do not accept annotations",
+            detail: "",
+            variant: toast::Variant::warning,
+          },
+        )
+      },
+      stale and not parse_bash(text).is_some() => {
+        Maybe::new(
+          Blocker{
+            title: "Remove stale annotations before sending",
+            detail: "Their files changed. Open one to annotate the current file.",
             variant: toast::Variant::warning,
           },
         )
@@ -3074,6 +3142,112 @@ impl Controller {
       }
     }
     self.attachments = kept.@
+  }
+
+  // The annotations waiting for the next prompt: those not queued with a
+  // follow-up or being sent.
+  fn pending_annotations() [sessionbridge::Annotation] {
+    let pending = mut List::new<sessionbridge::Annotation>()
+    for annotation in self.annotations {
+      if not annotations::includes(self.follow_ups.AnnotationIDs, annotation.ID) or annotations::includes(self.sending_annotations, annotation.ID) {
+        pending.push(annotation)
+      }
+    }
+    pending.@
+  }
+
+  fn mut apply_annotation(annotation: sessionbridge::Annotation) {
+    self.annotations = annotations::upsert(self.annotations, annotation)
+  }
+
+  // Runs annotation operations for File and Diff tabs; each blocks.
+  fn mut annotation_service() annotations::Service? {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            let ctx = lifetime.Context
+            let dispatch = self.host.dispatch
+            Maybe::new(
+              annotations::Service{
+                create: fn(anchor: protocol::AnnotationAnchor, body: Str) Str {
+                  match session.CreateAnnotation(ctx, protocol::CreateAnnotationInput{Anchor: anchor, Body: body}) {
+                    ok(created) => {
+                      let _ = dispatch(fn() {
+                        if self.active {
+                          self.apply_annotation(sessionbridge::Record(created))
+                        }
+                      })
+                      ""
+                    },
+                    err(failure) => failure.error(),
+                  }
+                },
+                update: fn(id: Uint64, body: Str) Str {
+                  match session.UpdateAnnotation(ctx, protocol::UpdateAnnotationInput{AnnotationID: id, Body: body}) {
+                    ok(updated) => {
+                      let _ = dispatch(fn() {
+                        if self.active {
+                          self.apply_annotation(sessionbridge::Record(updated))
+                        }
+                      })
+                      ""
+                    },
+                    err(failure) => failure.error(),
+                  }
+                },
+                remove: fn(id: Uint64) Str {
+                  match session.DeleteAnnotation(ctx, protocol::DeleteAnnotationInput{AnnotationID: id}) {
+                    ok(_) => {
+                      let _ = dispatch(fn() {
+                        if self.active {
+                          self.annotations = annotations::without(self.annotations, [id])
+                        }
+                      })
+                      ""
+                    },
+                    err(failure) => failure.error(),
+                  }
+                },
+                body: fn(id: Uint64) Str!Str {
+                  match sessionbridge::AnnotationBody(ctx, session, id) {
+                    ok(body) => Result::ok(body),
+                    err(failure) => Result::err(failure.error()),
+                  }
+                },
+              },
+            )
+          },
+          _ => Maybe::new<annotations::Service>(),
+        }
+      },
+      _ => Maybe::new<annotations::Service>(),
+    }
+  }
+
+  // Deletes an annotation, reporting a failure.
+  fn mut remove_annotation(id: Uint64) {
+    match self.annotation_service() {
+      service => {
+        let dispatch = self.host.dispatch
+        async::start(fn() {
+          let failure = service.remove(id)
+          if failure != "" {
+            let _ = dispatch(fn() {
+              if self.active {
+                (self.host.toast)(
+                  "Could not remove annotation",
+                  failure,
+                  toast::Variant::error,
+                  false,
+                )
+              }
+            })
+          }
+        })
+      },
+      _ => (),
+    }
   }
 
   // Removes every staged attachment. Returns whether there were any.
@@ -4747,4 +4921,113 @@ test fn another_turn_being_followed_is_not_replaced_by_a_lagging_snapshot() Void
     protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}, ActiveTurnID: "turn-1"},
   )
   testing::assert(subject.followed_run == "turn-2", "the newer turn stays followed")
+}
+
+private fn file_annotation(id: Int, line: Int) sessionbridge::Annotation {
+  sessionbridge::Annotation{
+    ID: Uint64::fit(id),
+    Kind: "file",
+    WorkspaceID: "workspace-1",
+    Path: "notes.txt",
+    FileRevision: "rev-1",
+    StartLine: line,
+    EndLine: line,
+    Body: "note {id}",
+  }
+}
+
+private fn annotation_ids(annotations: [sessionbridge::Annotation]) Str {
+  mut joined = ""
+  for annotation in annotations {
+    joined = "{joined}[{annotation.ID}]"
+  }
+  joined
+}
+
+test fn annotations_follow_snapshots_and_events() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Annotations: [
+        protocol::AnnotationSummary{
+          ID: Uint64::from(2),
+          Anchor: sessionbridge::FileAnchor("workspace-1", "notes.txt", "rev-1", 3, 4),
+          BodyPreview: "tighten",
+        },
+      ],
+    },
+  )
+  try testing::assert(annotation_ids(subject.annotations) == "[2]", "a snapshot carries them")
+  let created = mut file_annotation(5, 1)
+  let updated = mut file_annotation(2, 3)
+  updated.Body = "tighten more"
+  subject.apply_events(
+    [
+      sessionbridge::Event{Kind: "annotation.created", Annotation: created},
+      sessionbridge::Event{Kind: "annotation.updated", Annotation: updated},
+    ],
+  )
+  try testing::assert(
+    annotation_ids(subject.annotations) == "[2][5]",
+    annotation_ids(subject.annotations),
+  )
+  try testing::assert(
+    subject.annotations.at(0).expect("updated").Body == "tighten more",
+    "an update replaces",
+  )
+  subject.apply_events(
+    [sessionbridge::Event{Kind: "annotation.deleted", AnnotationID: Uint64::from(5)}],
+  )
+  try testing::assert(annotation_ids(subject.annotations) == "[2]", "a deletion removes it")
+  subject.apply_events(
+    [sessionbridge::Event{Kind: "annotation.submitted", AnnotationIDs: [Uint64::from(2)]}],
+  )
+  testing::assert(subject.annotations.size() == 0, "a sent prompt takes them")
+}
+
+test fn queued_annotations_leave_the_composer() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.annotations = [file_annotation(1, 1), file_annotation(2, 2), file_annotation(3, 3)]
+  subject.follow_ups = protocol::FollowUpQueue{
+    Count: 1,
+    Previews: ["later"],
+    AnnotationIDs: [Uint64::from(1)],
+  }
+  subject.sending_annotations = [Uint64::from(3)]
+  testing::assert(
+    annotation_ids(subject.pending_annotations()) == "[2]",
+    annotation_ids(subject.pending_annotations()),
+  )
+}
+
+test fn stale_annotations_block_sending() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.prompt_commands = [
+    protocol::PromptCommand{Name: "review", Source: protocol::PromptCommandSourceProject},
+  ]
+  let blocked = fn(subject: mut Controller, text: Str) Str {
+    match subject.send_blocker(text) {
+      blocker => blocker.title,
+      _ => "",
+    }
+  }
+  subject.annotations = [file_annotation(1, 1)]
+  try testing::assert(blocked(subject, "") == "", "a current one can be sent alone")
+  try testing::assert(
+    blocked(subject, "/review") == "Prompt commands do not accept annotations",
+    blocked(subject, "/review"),
+  )
+  let stale = mut file_annotation(2, 2)
+  stale.Stale = true
+  stale.StaleReason = "file_changed"
+  subject.annotations = [file_annotation(1, 1), stale.@]
+  try testing::assert(
+    blocked(subject, "go") == "Remove stale annotations before sending",
+    blocked(subject, "go"),
+  )
+  testing::assert(blocked(subject, "!ls") == "", "a command leaves them waiting")
 }

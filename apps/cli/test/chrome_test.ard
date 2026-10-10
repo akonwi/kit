@@ -6,6 +6,7 @@ use cooper/cui
 use cooper/keymap
 use cooper/testing as headless
 use cooper/ui
+use go:kit/ffi/sessionbridge
 use kit/tui/attachments
 use kit/tui/chrome
 use kit/tui/theme
@@ -210,6 +211,7 @@ test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
       chrome::pending_row(
         themes,
         chrome::Pending{
+          status: true,
           notice: "",
           activity: "",
           follow_ups: protocol::FollowUpQueue{
@@ -218,8 +220,11 @@ test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
             AnnotationIDs: [],
           },
           attachments: [],
+          annotations: [],
           rejecting_model: "",
           remove_attachment: fn(index: Int) {},
+          open_annotation: fn(annotation: sessionbridge::Annotation) {},
+          remove_annotation: fn(id: Uint64) {},
         },
       ),
     ),
@@ -232,6 +237,7 @@ test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
       chrome::pending_row(
         themes,
         chrome::Pending{
+          status: true,
           notice: "Prompt did not start a turn",
           activity: "Thinking",
           follow_ups: protocol::FollowUpQueue{
@@ -240,8 +246,11 @@ test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
             AnnotationIDs: [],
           },
           attachments: [],
+          annotations: [],
           rejecting_model: "",
           remove_attachment: fn(index: Int) {},
+          open_annotation: fn(annotation: sessionbridge::Annotation) {},
+          remove_annotation: fn(id: Uint64) {},
         },
       ),
     ),
@@ -267,9 +276,11 @@ fn staged(rejecting_model: Str, removed: mut [Int]) chrome::Pending {
   failed.uploading = false
   failed.failure = "too large"
   chrome::Pending{
+    status: true,
     notice: "",
     activity: "",
     follow_ups: protocol::FollowUpQueue{Count: 0},
+    annotations: [],
     attachments: [
       attachments::uploaded(
         protocol::AttachmentInfo{
@@ -285,6 +296,8 @@ fn staged(rejecting_model: Str, removed: mut [Int]) chrome::Pending {
     remove_attachment: fn(index: Int) {
       removed.push(index)
     },
+    open_annotation: fn(annotation: sessionbridge::Annotation) {},
+    remove_annotation: fn(id: Uint64) {},
   }
 }
 
@@ -344,5 +357,75 @@ test fn a_staged_image_the_model_cannot_receive_is_a_warning() Void!Str {
   testing::assert(
     same(image, colors.warning_text) and same(text, colors.muted),
     "only the image is a warning",
+  )
+}
+
+private fn annotation(id: Int, path: Str, start: Int, end: Int) sessionbridge::Annotation {
+  sessionbridge::Annotation{
+    ID: Uint64::fit(id),
+    Kind: "file",
+    WorkspaceID: "workspace-a",
+    Path: path,
+    FileRevision: "rev-1",
+    StartLine: start,
+    EndLine: end,
+  }
+}
+
+test fn annotations_are_chips_that_open_and_remove() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let opened = mut List::new<Int>()
+  let removed = mut List::new<Uint64>()
+  let stale = mut annotation(4, "tui/shell.ard", 120, 120)
+  stale.Stale = true
+  let diff = mut annotation(5, "tui/diff_pane.ard", 941, 941)
+  diff.Kind = "diff"
+  diff.Side = "old"
+  let terminal = headless::new(60, 3)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    chrome::pending_row(
+      themes,
+      chrome::Pending{
+        status: false,
+        notice: "",
+        activity: "",
+        follow_ups: protocol::FollowUpQueue{Count: 0},
+        attachments: [],
+        annotations: [annotation(3, "tui/diff_pane.ard", 939, 941), diff.@, stale.@],
+        rejecting_model: "",
+        remove_attachment: fn(index: Int) {},
+        open_annotation: fn(opened_annotation: sessionbridge::Annotation) {
+          opened.push(opened_annotation.StartLine)
+        },
+        remove_annotation: fn(id: Uint64) {
+          removed.push(id)
+        },
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "  🗨️ diff_pane.ard:939–941 ×   🗨️ diff_pane.ard −941 ×",
+      "  🗨️ shell.ard:120 · stale ×",
+      "",
+    ],
+  )
+  let colors = themes.current()
+  try testing::assert(same(color_at(terminal, 6, 1), colors.warning_text), "a stale one is a warning")
+  try testing::assert(same(color_at(terminal, 6, 0), colors.foreground), "a current one is not")
+  terminal.click(6, 0)
+  terminal.flush()
+  try testing::assert(opened.size() == 1 and opened.at(0).or(0) == 939, "a click opens its lines")
+  terminal.click(27, 0)
+  terminal.flush()
+  testing::assert(
+    removed.size() == 1 and removed.at(0).or(Uint64::from(0)) == Uint64::from(3),
+    "its × removes it",
   )
 }

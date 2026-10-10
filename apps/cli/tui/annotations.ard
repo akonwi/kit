@@ -1,0 +1,295 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use go:kit/ffi/sessionbridge
+use kit/tui/controls
+use kit/tui/theme
+use go:path/filepath
+
+// Annotations are notes on lines of a workspace file or a side of a diff.
+// The session owns them: they wait above the composer as chips, show inline
+// in File and Diff tabs, and go out with the next prompt. Every attached
+// client sees the same set.
+
+// Marks an annotation, in chips and notes.
+// The emoji presentation selector makes it two cells wide everywhere;
+// without it, terminals that draw it as an emoji overlap the next cell.
+let glyph = "🗨️"
+
+// The most lines one annotation may cover.
+let max_lines = 200
+
+// Below this many bytes a snapshot's body preview is the whole body; at or
+// above it the body may have been cut, so editing loads it in full.
+let preview_bound = 252
+
+// Blocking annotation operations, run off the UI thread. A failure returns
+// its message; success also updates the attachment's annotations.
+struct Service {
+  create: fn(protocol::AnnotationAnchor, Str) Str,
+  update: fn(Uint64, Str) Str,
+  remove: fn(Uint64) Str,
+  // The full body of an annotation, which snapshots bound.
+  body: fn(Uint64) Str!Str,
+}
+
+// The annotations with `annotation` added, or replacing the one it updates,
+// in ID order.
+fn upsert(existing: [sessionbridge::Annotation], annotation: sessionbridge::Annotation) [sessionbridge::Annotation] {
+  let merged = mut List::new<sessionbridge::Annotation>()
+  mut placed = false
+  for current in existing {
+    if (not placed) and annotation.ID < current.ID {
+      merged.push(annotation)
+      placed = true
+    }
+    if current.ID == annotation.ID {
+      merged.push(annotation)
+      placed = true
+    } else {
+      merged.push(current)
+    }
+  }
+  if not placed {
+    merged.push(annotation)
+  }
+  merged.@
+}
+
+// The annotations except those with the given IDs.
+fn without(existing: [sessionbridge::Annotation], ids: [Uint64]) [sessionbridge::Annotation] {
+  let kept = mut List::new<sessionbridge::Annotation>()
+  for current in existing {
+    if not includes(ids, current.ID) {
+      kept.push(current)
+    }
+  }
+  kept.@
+}
+
+fn includes(ids: [Uint64], id: Uint64) Bool {
+  mut found = false
+  for candidate in ids {
+    found = found or candidate == id
+  }
+  found
+}
+
+// The annotations a file's tab shows inline: current ones on the revision
+// it shows.
+fn on_file(existing: [sessionbridge::Annotation], workspace_id: Str, file_path: Str, revision: Str) [sessionbridge::Annotation] {
+  let shown = mut List::new<sessionbridge::Annotation>()
+  for current in existing {
+    if current.Kind == "file" and (not current.Stale) and current.WorkspaceID == workspace_id and current.Path == file_path and current.FileRevision == revision {
+      shown.push(current)
+    }
+  }
+  shown.@
+}
+
+// Lines as a chip names them: one line, or the first and last.
+fn range(start: Int, end: Int) Str {
+  match start == end {
+    true => "{start}",
+    false => "{start}–{end}",
+  }
+}
+
+// An annotation's chip label: the file's name and lines, with a diff side
+// marked − for old and + for new.
+fn label(annotation: sessionbridge::Annotation) Str {
+  let name = filepath::Base(annotation.Path)
+  let lines = range(annotation.StartLine, annotation.EndLine)
+  match {
+    annotation.Kind != "diff" => "{name}:{lines}",
+    annotation.Side == "old" => "{name} −{lines}",
+    _ => "{name} +{lines}",
+  }
+}
+
+// Whether a body preview may have been cut short of the body.
+fn may_be_cut(body: Str) Bool {
+  body.size() >= preview_bound
+}
+
+// The note editor: a bordered card under the lines it annotates, which
+// stay highlighted, holding the text and Cancel and Comment (Save when
+// editing) buttons. Enter saves, Shift+Enter starts a line, and Escape
+// cancels.
+struct EditorProps {
+  themes: theme::Context,
+  draft: Str,
+  // Whether it edits a saved annotation.
+  editing: Bool,
+  // Whether a save or the full body is pending; saving waits for it.
+  busy: Bool,
+  failure: Str,
+  // Cells before the card, reaching the code column.
+  indent: Int,
+  input: fn(Str),
+  save: fn(),
+  cancel: fn(),
+}
+
+fn editor(props: EditorProps) cui::View {
+  let colors = props.themes.current()
+  let save = keymap::simple_command("annotation.save", "Save annotation", fn() Bool {
+    if not props.busy {
+      props.save()
+    }
+    true
+  })
+  let cancel = keymap::simple_command("annotation.cancel", "Cancel annotation", fn() Bool {
+    props.cancel()
+    true
+  })
+  let editing = keymap::rebind(
+    ui::default_text_area_bindings(),
+    ui::TextAreaAction::insert_newline,
+    [keymap::key("return", shift: true)],
+  )
+  let children = mut List::new<cui::View>()
+  children.push(
+    cui::text_area(
+      props.draft,
+      key: "annotation.editor.text",
+      styles: ui::style(flex_shrink: 0.0, min_height: ui::cells(3), max_height: ui::cells(8)),
+      text_style: ui::text_style(foreground: colors.foreground),
+      selection_style: theme::selection_style(colors),
+      autofocus: true,
+      on_input: fn(value: Str, context: cui::Context) {
+        props.input(value)
+      },
+      key_bindings: editing,
+      commands: [save, cancel, controls::keep_interrupt],
+      bindings: [
+        keymap::binding(keymap::key("return"), save.with()),
+        keymap::binding(keymap::key("escape"), cancel.with()),
+        controls::keep_interrupt_binding(),
+      ],
+    ),
+  )
+  if props.failure != "" {
+    children.push(
+      cui::text(props.failure, text_style: ui::text_style(foreground: colors.danger_text)),
+    )
+  }
+  children.push(
+    cui::box(
+      [
+        controls::button(
+          props.themes,
+          "Cancel",
+          cancel,
+          variant: controls::ButtonVariant::secondary,
+          focusable: false,
+        ),
+        controls::button(
+          props.themes,
+          match props.editing {
+            true => "Save",
+            false => "Comment",
+          },
+          save,
+          focusable: false,
+        ),
+      ],
+      styles: ui::style(
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+        justify_content: ui::Justify::end,
+        gap: ui::cells(2),
+      ),
+    ),
+  )
+  cui::box(
+    [
+      cui::box(
+        children.@,
+        styles: ui::style(
+          flex_grow: 1.0,
+          flex_direction: ui::FlexDirection::column,
+          background: colors.background,
+          border: ui::Border::single,
+          border_color: colors.border,
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(1),
+            bottom: ui::cells(0),
+            left: ui::cells(1),
+          },
+        ),
+      ),
+    ],
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::row,
+      background: colors.surface,
+      padding: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(1),
+        bottom: ui::cells(0),
+        left: ui::cells(props.indent),
+      },
+    ),
+  )
+}
+
+private fn note(id: Int, start: Int, end: Int) sessionbridge::Annotation {
+  sessionbridge::Annotation{
+    ID: Uint64::fit(id),
+    Kind: "file",
+    WorkspaceID: "workspace-a",
+    Path: "apps/cli/main.ard",
+    FileRevision: "rev-1",
+    StartLine: start,
+    EndLine: end,
+  }
+}
+
+private fn ids(annotations: [sessionbridge::Annotation]) Str {
+  mut joined = ""
+  for annotation in annotations {
+    joined = "{joined}[{annotation.ID}]"
+  }
+  joined
+}
+
+test fn upsert_keeps_id_order_and_replaces_by_id() Void!Str {
+  let base = [note(2, 1, 1), note(5, 1, 1)]
+  try testing::assert(ids(upsert(base, note(3, 1, 1))) == "[2][3][5]", "a new one takes its place")
+  try testing::assert(ids(upsert(base, note(9, 1, 1))) == "[2][5][9]", "a newer one goes last")
+  let replaced = upsert(base, note(5, 4, 4))
+  try testing::assert(ids(replaced) == "[2][5]", "an update replaces")
+  try testing::assert(replaced.at(1).or(note(0, 0, 0)).StartLine == 4, "with the new record")
+  testing::assert(ids(without(base, [Uint64::from(2)])) == "[5]", "deleted ones go")
+}
+
+test fn chips_name_the_file_and_lines() Void!Str {
+  try testing::assert(label(note(1, 939, 941)) == "main.ard:939–941", "a file range")
+  try testing::assert(label(note(1, 12, 12)) == "main.ard:12", "one line")
+  let removed = mut note(1, 941, 941)
+  removed.Kind = "diff"
+  removed.Side = "old"
+  try testing::assert(label(removed.@) == "main.ard −941", "a removed line")
+  removed.Side = "new"
+  testing::assert(label(removed.@) == "main.ard +941", "an added line")
+}
+
+test fn files_show_their_current_annotations() Void!Str {
+  let stale = mut note(2, 1, 1)
+  stale.Stale = true
+  let other = mut note(3, 1, 1)
+  other.Path = "other.ard"
+  let older = mut note(4, 1, 1)
+  older.FileRevision = "rev-0"
+  let shown = on_file(
+    [note(1, 1, 1), stale.@, other.@, older.@],
+    "workspace-a",
+    "apps/cli/main.ard",
+    "rev-1",
+  )
+  testing::assert(ids(shown) == "[1]", "only current ones on this file's revision: {ids(shown)}")
+}

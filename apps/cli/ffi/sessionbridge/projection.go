@@ -40,6 +40,11 @@ type Event struct {
 	InteractionID string
 	// PluginID identifies the plugin that submitted a plugin message.
 	PluginID string
+	// Annotation is the created or updated annotation; AnnotationID names a
+	// deleted one, and AnnotationIDs the annotations a message sent.
+	Annotation    *Annotation
+	AnnotationID  uint64
+	AnnotationIDs []uint64
 }
 
 // Content is the client-owned flat projection of transcript content.
@@ -124,6 +129,22 @@ func Events(source []protocol.SessionEvent) []Event {
 			}
 		case protocol.InteractionResolvedEvent:
 			projected.InteractionID = payload.InteractionID
+		case protocol.AnnotationCreatedEvent:
+			projected.AnnotationID = payload.AnnotationID
+			if payload.Annotation != nil {
+				annotation := Record(*payload.Annotation)
+				projected.Annotation = &annotation
+			}
+		case protocol.AnnotationUpdatedEvent:
+			projected.AnnotationID = payload.AnnotationID
+			if payload.Annotation != nil {
+				annotation := Record(*payload.Annotation)
+				projected.Annotation = &annotation
+			}
+		case protocol.AnnotationDeletedEvent:
+			projected.AnnotationID = payload.AnnotationID
+		case protocol.AnnotationSubmittedEvent:
+			projected.AnnotationIDs = payload.AnnotationIDs
 		case protocol.TurnCompletedEvent:
 			projected.Status, projected.ErrorMessage = string(payload.Status), payload.ErrorMessage
 		}

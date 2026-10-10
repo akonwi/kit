@@ -2,6 +2,8 @@ use go:api/contract as protocol
 use cooper/cui
 use cooper/keymap
 use cooper/ui
+use go:kit/ffi/sessionbridge
+use kit/tui/annotations
 use kit/tui/attachments
 use kit/tui/controls
 use kit/tui/format
@@ -171,22 +173,67 @@ fn footer(themes: theme::Context, connection: Str, status: Str, location: Str) c
 }
 
 // Pending projects the attachment's status line, queued follow-ups, and the
-// files staged for the next prompt. A notice takes precedence over activity.
+// files and annotations waiting for the next prompt. A notice takes
+// precedence over activity.
 struct Pending {
+  // Whether the status line and follow-ups are shown, as on the Agent tab,
+  // or only the chips.
+  status: Bool,
   notice: Str,
   activity: Str,
   follow_ups: protocol::FollowUpQueue,
   attachments: [attachments::Staged],
+  annotations: [sessionbridge::Annotation],
   // The session's model name when it cannot receive images.
   rejecting_model: Str,
   // Removes the staged file at an index.
   remove_attachment: fn(Int),
+  // Opens an annotation's lines, and deletes one.
+  open_annotation: fn(sessionbridge::Annotation),
+  remove_annotation: fn(Uint64),
+}
+
+// Whether the row shows anything without its status line.
+fn has_chips(spec: Pending) Bool {
+  spec.attachments.size() > 0 or spec.annotations.size() > 0
 }
 
 // pending_row shows the status line followed by up to three follow-up
 // previews (when more are queued, two previews and a remainder line), then
-// the staged files as chips that wrap onto further rows.
+// the staged files and annotations as chips that wrap onto further rows.
 fn pending_row(themes: theme::Context, spec: Pending) cui::View {
+  let rows = mut List::new<cui::View>()
+  if spec.status {
+    for row in status_rows(themes, spec) {
+      rows.push(row)
+    }
+  }
+  if has_chips(spec) {
+    let chips = mut List::new<cui::View>()
+    for item, index in spec.attachments {
+      chips.push(attachment_chip(themes, item, index, spec.rejecting_model, spec.remove_attachment))
+    }
+    for annotation in spec.annotations {
+      chips.push(annotation_chip(themes, annotation, spec.open_annotation, spec.remove_annotation))
+    }
+    rows.push(
+      cui::box(
+        chips.@,
+        styles: ui::style(flex_direction: ui::FlexDirection::row, flex_wrap: ui::FlexWrap::wrap),
+      ),
+    )
+  }
+  cui::box(
+    rows.@,
+    styles: ui::style(
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::column,
+      padding: layout::inset(),
+    ),
+  )
+}
+
+private fn status_rows(themes: theme::Context, spec: Pending) [cui::View] {
   let colors = themes.current()
   let content = match spec.notice != "" {
     true => layout::line(spec.notice, ui::text_style(foreground: colors.danger_text)),
@@ -220,24 +267,67 @@ fn pending_row(themes: theme::Context, spec: Pending) cui::View {
       ),
     )
   }
-  if spec.attachments.size() > 0 {
-    let chips = mut List::new<cui::View>()
-    for item, index in spec.attachments {
-      chips.push(attachment_chip(themes, item, index, spec.rejecting_model, spec.remove_attachment))
-    }
-    rows.push(
-      cui::box(
-        chips.@,
-        styles: ui::style(flex_direction: ui::FlexDirection::row, flex_wrap: ui::FlexWrap::wrap),
-      ),
-    )
+  rows.@
+}
+
+// One annotation as a chip: the glyph, file and lines, which open them, and
+// a × that deletes it. A stale one, whose file has changed, is a warning.
+private fn annotation_chip(
+  themes: theme::Context,
+  annotation: sessionbridge::Annotation,
+  open: fn(sessionbridge::Annotation),
+  remove: fn(Uint64),
+) cui::View {
+  let colors = themes.current()
+  let id = annotation.ID
+  let label = match annotation.Stale {
+    true => "{annotations::glyph} {annotations::label(annotation)} · stale",
+    false => "{annotations::glyph} {annotations::label(annotation)}",
   }
+  let show = keymap::simple_command("annotation.open", "Open annotation", fn() Bool {
+    open(annotation)
+    true
+  })
+  let close = keymap::simple_command("annotation.remove", "Remove annotation", fn() Bool {
+    remove(id)
+    true
+  })
   cui::box(
-    rows.@,
+    [
+      controls::button(
+        themes,
+        label,
+        show,
+        variant: controls::ButtonVariant::secondary,
+        compact: true,
+        focusable: false,
+        trailing_padding: 0,
+        foreground: match annotation.Stale {
+          true => colors.warning_text,
+          false => colors.foreground,
+        },
+      ),
+      controls::button(
+        themes,
+        "×",
+        close,
+        variant: controls::ButtonVariant::secondary,
+        compact: true,
+        focusable: false,
+        foreground: colors.muted,
+      ),
+    ],
+    key: "annotation-{id}",
     styles: ui::style(
+      flex_direction: ui::FlexDirection::row,
       flex_shrink: 0.0,
-      flex_direction: ui::FlexDirection::column,
-      padding: layout::inset(),
+      height: ui::cells(1),
+      margin: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(1),
+        bottom: ui::cells(0),
+        left: ui::cells(0),
+      },
     ),
   )
 }
