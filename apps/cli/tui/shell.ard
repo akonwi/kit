@@ -599,6 +599,11 @@ impl Shell {
               self.attached.open_image(id)
             })
           },
+          request: fn(id: Str) {
+            self.dispatch(fn() {
+              self.attached.request_image(id)
+            })
+          },
         },
         bash: transcript_pane::Bash{
           folded: self.attached.folded_bash,

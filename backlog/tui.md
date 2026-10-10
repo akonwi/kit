@@ -156,8 +156,10 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   - [ ] `subagent`: the agent name opens its conversation tab
     (TUI-COOPER-009).
   - [x] `show_image` (new title): Show image · path, or caption without one.
-  - [ ] `show_image`: the image previewed below the group (with
-    tool-result image previews).
+  - [x] `show_image`: the image below its chip, open or closed, in 12
+    reserved rows with its caption beneath; clicking opens it. It is the
+    only tool-result image the server keeps an attachment for, so it covers
+    tool-result image previews.
   - [x] `inspect_image` (new title): Inspect image · path. The image goes to
     the model only.
   Subagent tools, shown in subagent conversation tabs (TUI-COOPER-009):
