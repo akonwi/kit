@@ -4,15 +4,17 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/akonwi/kit/internal/pullrequest"
 )
 
 const (
-	cacheTTL             = time.Minute
+	cacheTTL             = 20 * time.Second
 	maxCacheEntries      = 128
 	maxConcurrentLookups = 4
 )
 
-type cacheKey struct{ cwd, root, branch string }
+type cacheKey struct{ cwd, root, repository, branch string }
 type cacheEntry struct {
 	value             *PullRequest
 	updated, accessed time.Time
@@ -40,15 +42,22 @@ func NewCache(parent context.Context) *Cache {
 	return &Cache{changed: make(chan struct{}), ctx: ctx, cancel: cancel, entries: make(map[cacheKey]*cacheEntry), lookup: Lookup, now: time.Now}
 }
 
-// Get returns the cached metadata and schedules a refresh when needed. The caller
-// must supply a currently observed named branch, never a detached or unborn head.
+// Get returns cached metadata for callers without repository-generation data.
 func (c *Cache) Get(cwd, root, branch string) *PullRequest {
+	return c.GetForRepository(cwd, root, "", branch)
+}
+
+// GetForRepository returns the cached metadata and schedules a refresh when
+// needed. Repository is an opaque local generation that prevents results from
+// crossing remote/default-repository changes. The caller must supply a currently
+// observed named branch, never a detached or unborn head.
+func (c *Cache) GetForRepository(cwd, root, repository, branch string) *PullRequest {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed || c.ctx.Err() != nil || branch == "" {
 		return nil
 	}
-	key := cacheKey{cwd, root, branch}
+	key := cacheKey{cwd: cwd, root: root, repository: repository, branch: branch}
 	now := c.now()
 	entry := c.entries[key]
 	if entry == nil {
@@ -79,11 +88,7 @@ func (c *Cache) Get(cwd, root, branch string) *PullRequest {
 	return clone(entry.value)
 }
 func clone(value *PullRequest) *PullRequest {
-	if value == nil {
-		return nil
-	}
-	result := *value
-	return &result
+	return pullrequest.Clone(value)
 }
 func (c *Cache) refresh(key cacheKey, entry *cacheEntry) {
 	defer c.workers.Done()

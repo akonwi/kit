@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/githubpr"
+	"github.com/akonwi/kit/internal/pullrequest"
 )
 
 func testObserver(t *testing.T, cache *githubpr.Cache) *Observer {
@@ -132,6 +133,71 @@ printf '%s' '{"number":47,"url":"https://github.com/a/b/pull/47","headRefName":"
 		t.Fatalf("cwd retained PR=%+v", cleared)
 	}
 }
+func TestObserverSeparatesRichPullRequestTransitionsFromFooterUpdates(t *testing.T) {
+	o := testObserver(t, nil)
+	footer, err := o.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer footer.Close()
+	rich, err := o.SubscribePullRequestStatus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rich.Close()
+	_ = nextObserved(t, footer)
+	if _, err := rich.Next(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	git := &Status{Root: "/repo", Head: Head{Kind: HeadBranch, Name: "main"}}
+	initial := &pullrequest.Status{Number: 42, URL: "https://github.com/a/b/pull/42", HeadRefName: "main", Checks: []pullrequest.Check{{Name: "test", State: pullrequest.CheckPending}}}
+	o.mu.Lock()
+	o.publishLocked(Snapshot{CWD: "/repo", Git: git, PullRequest: initial})
+	o.mu.Unlock()
+	if value := nextObserved(t, footer); value.PullRequest == nil || value.PullRequest.Number != 42 {
+		t.Fatalf("footer=%+v", value)
+	}
+	if value, err := rich.Next(t.Context()); err != nil || value.Status == nil || value.Status.Checks[0].State != pullrequest.CheckPending {
+		t.Fatalf("rich=%+v err=%v", value, err)
+	}
+	passed := pullrequest.Clone(initial)
+	passed.Checks[0].State = pullrequest.CheckPassed
+	o.mu.Lock()
+	o.publishLocked(Snapshot{CWD: "/repo", Git: git, PullRequest: passed})
+	o.mu.Unlock()
+	if value, err := rich.Next(t.Context()); err != nil || value.Status.Checks[0].State != pullrequest.CheckPassed {
+		t.Fatalf("rich transition=%+v err=%v", value, err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := footer.Next(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("rich transition leaked into footer: %v", err)
+	}
+}
+
+func TestPullRequestStatusSubscriptionFailsExplicitlyOnOverflow(t *testing.T) {
+	o := testObserver(t, nil)
+	source, err := o.SubscribePullRequestStatus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	git := &Status{Root: "/repo", Head: Head{Kind: HeadBranch, Name: "main"}}
+	for number := 1; number <= maxPullRequestTransitions; number++ {
+		o.mu.Lock()
+		o.publishLocked(Snapshot{CWD: "/repo", Git: git, PullRequest: &pullrequest.Status{Number: number, URL: "https://github.com/a/b/pull/1"}})
+		o.mu.Unlock()
+	}
+	for range maxPullRequestTransitions {
+		if _, err := source.Next(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := source.Next(t.Context()); !errors.Is(err, ErrPullRequestTransitionOverflow) {
+		t.Fatalf("overflow error=%v", err)
+	}
+}
+
 func TestObserverCWDRevokesStaleProbeAndCloseJoins(t *testing.T) {
 	o := testObserver(t, nil)
 	started, ended := make(chan struct{}), make(chan struct{})

@@ -29,8 +29,11 @@ session or workspace that is no longer attached.
 VCS status is transient and is not persisted. Git subprocesses run without a
 shell, discard inherited `GIT_*` repository/configuration overrides, disable
 repository fsmonitor hooks and optional Git locks, have bounded output, and use
-a bounded process-group lifetime. Missing Git, non-repository directories,
-malformed output, and probe failures degrade silently to unavailable status.
+a bounded process-group lifetime. The probe retains only an opaque digest of
+repository-local configuration so remote and default-repository changes fence
+in-flight GitHub work without exposing remote URLs or credentials. Missing Git,
+non-repository directories, malformed output, and probe failures degrade
+silently to unavailable status.
 
 ## Live observation and subscriptions
 
@@ -83,25 +86,60 @@ Activation opens the URL
 on the client machine, never on the daemon. Plugin claims
 that hide `kit.footer.location` also hide its PR text and click target.
 
-The server runs `gh pr view --json number,url,headRefName -- <branch>` from the
-captured repository root. Lookups use an explicit named branch; detached and
-unborn heads do not query GitHub. Missing `gh`, absent authentication, missing PRs,
-and malformed/failed results silently omit the PR while preserving local status.
-No credentials are copied into Kit's provider-auth store.
+The server runs a bounded `gh pr view` from the captured repository root for
+PR identity, head revision, checks, review decision, and GitHub merge state. It
+also runs `gh pr checks --required` for the required-check projection; its
+pending and failed exit statuses still carry validated JSON results. Lookups use
+an explicit named branch or the PR number discovered for that branch; detached
+and unborn heads do not query GitHub. Missing `gh`, absent authentication,
+missing PRs, and malformed or failed results silently omit the PR while
+preserving local status. No credentials are copied into Kit's provider-auth
+store.
 
 Requests never wait for GitHub. A cold cache returns local status immediately and
-schedules background work. Completion wakes the observer immediately and pushes
-the updated PR even when local Git state has not changed. Positive
-and negative results expire after 60 seconds, keyed by cwd, repository root, and
-branch. Refreshes coalesce per key; stale same-key metadata remains visible during
-refresh and a failed refresh clears it. There are at most 128 entries and four
+schedules background work. Completion wakes the observer immediately; PR
+identity changes update the footer stream, while rich-only transitions use the
+separate model-context stream. Positive and negative results expire after 20
+seconds, keyed by cwd, repository root, opaque repository generation, and
+branch. Refreshes coalesce per key; stale same-key metadata remains visible
+during refresh and a failed refresh clears it. There are at most 128 entries and four
 in-flight lookups. Expiry is revisited on the next ten-second observation tick.
 Loaded runtimes continue observing while clients are detached; unloading the
 runtime stops that work.
-Each command has a 2.5-second deadline and 64 KiB stdout limit, runs without a
-shell or interactive prompts, and is canceled/joined on daemon shutdown. URLs are
+Each lookup sequence has a five-second deadline; each command has a 64 KiB
+stdout limit, runs without a shell or interactive prompts, and is canceled and
+joined on daemon shutdown. URLs are
 bounded to 4096 UTF-8 bytes and restricted to absolute HTTP(S) without credentials,
-whitespace, backslashes, or control/format text.
+whitespace, backslashes, or control/format text. Check and reviewer identifiers
+are bounded and reject control or format text; check and review collections are
+bounded and sorted into canonical order.
+
+## Model context
+
+Rich pull-request status is a renderer-neutral observation separate from the
+footer projection. It records PR and head identity, canonical check states,
+required-check satisfaction, GitHub's review decision, required-approval
+satisfaction, mergeability, and conservative ready, blocked, or unknown merge
+readiness. The type is not Droid-specific so future clients or plugins can gain
+an explicit projection without scraping model-facing text.
+
+A loaded session subscribes to distinct rich-status transitions. Equal
+consecutive canonical states are deduplicated; a later return to an earlier
+state remains a new transition. Each transition is delivered through
+`Droid.Inform` as a provenance-labeled `pull_request_status` boundary from
+`github`, with structured details and a concise check/review/readiness summary.
+Workspace, repository, branch, PR number, and head-revision identity are
+revalidated immediately before delivery so queued stale results cannot cross a
+workspace or revision change. Delivery retries reuse the transition's boundary
+ID, while separate transitions receive separate IDs.
+
+Information boundaries never start an idle turn. During active work they become
+available at the next safe model boundary; while idle they remain pending until
+a later user turn or an explicit harness reaction. Rich-only changes do not
+produce duplicate native VCS records or `kit/events/git.changed` events. The
+observer and Droid both impose hard bounds; a rich-status subscription that
+cannot retain every transition terminates explicitly instead of silently
+coalescing or replacing an observed state.
 
 Subprocess plugin initialization and `kit/events/git.changed` now include an
 optional nullable `git.pullRequest` with the same number and URL. Native v2 sends

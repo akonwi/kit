@@ -24,6 +24,10 @@ func TestGitHubFooterLookupIsNonblockingCachedAndBranchScoped(t *testing.T) {
 	t.Setenv("KIT_GH_FIXTURE", fixture)
 	t.Setenv("PATH", fixture+string(os.PathListSeparator)+os.Getenv("PATH"))
 	script := `#!/bin/sh
+if [ "$2" = checks ]; then
+    printf '%s' '[]'
+    exit
+fi
 printf '%s\n' "$6" >> "$KIT_GH_FIXTURE/calls"
 if [ "$6" = main ]; then
     touch "$KIT_GH_FIXTURE/started"
@@ -113,10 +117,10 @@ fi
 		status, err := client.transport.GetSessionVCSStatus(t.Context(), created.ID)
 		return err == nil && status.Status != nil && status.Status.PullRequest != nil && status.Status.PullRequest.Number == 42
 	})
-	calls, err = os.ReadFile(filepath.Join(fixture, "calls"))
-	if err != nil || strings.Count(string(calls), "\n") != 2 {
-		t.Fatalf("cache return=%q %v", calls, err)
-	}
+	eventually(t, func() bool {
+		calls, err = os.ReadFile(filepath.Join(fixture, "calls"))
+		return err == nil && strings.Count(string(calls), "\n") == 3 && strings.HasSuffix(string(calls), "main\n")
+	})
 }
 
 func eventuallyObservedVCS(t *testing.T, condition func() bool) {

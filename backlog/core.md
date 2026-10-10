@@ -215,7 +215,7 @@ Process ownership and plugin UI routing follow
   Kit-native locations, with first-definition-wins precedence.
 - [ ] CORE-CLI-001 — Add shell completion and noninteractive session list,
   rename, and delete commands.
-- [ ] CORE-GH-002 — Use the daemon-owned GitHub observer that supplies built-in
+- [x] CORE-GH-002 — Use the daemon-owned GitHub observer that supplies built-in
   footer status to keep the model informed as the current pull request's CI
   checks, review decision, required approvals, and overall merge readiness
   change, without requiring the user or model to explicitly fetch them. Deliver
@@ -228,7 +228,14 @@ Process ownership and plugin UI routing follow
   merge-readiness changes; reconnect; and stale-update behavior. Treat review
   comments as separate future work because their actionable content requires
   comment identity, thread, update, and resolution semantics beyond status
-  observation.
+  observation. The daemon now observes a canonical renderer-neutral PR status
+  with check, required-check, review, approval, and conservative merge-readiness
+  projections on a 20-second cache; repository configuration generations fence
+  remote changes. A separate bounded transition stream deduplicates only equal
+  consecutive states and informs the owning Droid with structured, attributed
+  boundaries without waking idle work or duplicating footer/plugin VCS events.
+  Runtime delivery revalidates workspace, repository, branch, PR, URL, and head
+  identity, retries idempotently, and joins before Droid shutdown.
 - [ ] CORE-GH-003 — Add a Kit-owned reaction policy for actionable pull-request
   status boundaries observed by `CORE-GH-002`, with inform-only, ask, and
   auto-react modes. Initially ask through the shared client interaction surface

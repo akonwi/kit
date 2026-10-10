@@ -4,6 +4,7 @@ package vcs
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"os"
@@ -16,10 +17,11 @@ import (
 )
 
 const (
-	probeTimeout       = 2 * time.Second
-	gitWaitDelay       = 250 * time.Millisecond
-	maxRootOutputBytes = 16 << 10
-	maxStatusBytes     = 1 << 20
+	probeTimeout             = 2 * time.Second
+	gitWaitDelay             = 250 * time.Millisecond
+	maxRootOutputBytes       = 16 << 10
+	maxRepositoryConfigBytes = 64 << 10
+	maxStatusBytes           = 1 << 20
 )
 
 // HeadKind identifies the checked-out Git head shape.
@@ -43,9 +45,10 @@ type Head struct {
 
 // Status is a point-in-time Git status for one workspace.
 type Status struct {
-	Root  string
-	Head  Head
-	Dirty bool
+	Root         string
+	RepositoryID string
+	Head         Head
+	Dirty        bool
 }
 
 // Probe returns Git status for cwd. A nil status with a nil error means cwd is
@@ -81,6 +84,14 @@ func Probe(ctx context.Context, cwd string) (*Status, error) {
 	if !ok {
 		return nil, nil
 	}
+	repositoryID, identityErr := RepositoryIdentity(probeContext, root)
+	if identityErr != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, nil
+	}
+	status.RepositoryID = repositoryID
 	if status.Head.Kind == HeadDetached {
 		symbolicOutput, _, overflow, symbolicErr := runGit(probeContext, cwd, maxRootOutputBytes, "symbolic-ref", "--quiet", "--short", "HEAD")
 		switch {
@@ -99,6 +110,21 @@ func Probe(ctx context.Context, cwd string) (*Status, error) {
 		}
 	}
 	return &status, nil
+}
+
+// RepositoryIdentity returns an opaque digest of repository-local Git
+// configuration. It fences GitHub work across remote/default-repository changes
+// without retaining or exposing remote URLs or credentials.
+func RepositoryIdentity(ctx context.Context, root string) (string, error) {
+	output, _, overflow, err := runGit(ctx, root, maxRepositoryConfigBytes, "config", "--local", "--null", "--list")
+	if err != nil {
+		return "", err
+	}
+	if overflow || !utf8.ValidString(output) {
+		return "", errors.New("repository configuration is unavailable")
+	}
+	digest := sha256.Sum256([]byte(output))
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func runGit(ctx context.Context, cwd string, limit int, arguments ...string) (string, string, bool, error) {

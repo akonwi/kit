@@ -220,6 +220,9 @@ type runtime struct {
 	plugins                    PluginHost
 	closePluginSubagentCatalog func()
 	pluginNotifications        pluginNotificationHub
+	pullRequestInformerCancel  context.CancelFunc
+	pullRequestInformerSource  PullRequestStatusSubscription
+	pullRequestInformerDone    chan struct{}
 	droid                      *droids.Droid
 	model                      droids.Model
 	store                      droids.Store
@@ -2684,6 +2687,12 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 				return m.submitPluginMessage(ctx, loaded, record.ID, input, current)
 			})
 		}
+		if host, ok := loaded.plugins.(PullRequestStatusHost); ok {
+			if err := startPullRequestInformer(loaded, host); err != nil {
+				_ = loaded.close(context.Background(), "unavailable")
+				return nil, fmt.Errorf("subscribe to pull request status: %w", err)
+			}
+		}
 	}
 	if m.pluginSubagents != nil && loaded.plugins != nil {
 		cleanup, err := m.pluginSubagents.RegisterPluginCatalogProvider(record.ID, loaded.appliedPluginSubagentCatalog)
@@ -2851,6 +2860,15 @@ func (r *runtime) finishClose(interactionReason string) {
 		}
 	}()
 	var cleanupErr error
+	if r.pullRequestInformerCancel != nil {
+		r.pullRequestInformerCancel()
+	}
+	if r.pullRequestInformerSource != nil {
+		r.pullRequestInformerSource.Close()
+	}
+	if r.pullRequestInformerDone != nil {
+		<-r.pullRequestInformerDone
+	}
 	if r.turnEvents != nil {
 		cleanupErr = r.turnEvents.close(context.Background())
 	}

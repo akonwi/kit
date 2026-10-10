@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/githubpr"
+	"github.com/akonwi/kit/internal/pullrequest"
 )
 
 // Snapshot is one session workspace's volatile combined local/remote VCS state.
@@ -21,34 +22,40 @@ type Snapshot struct {
 // ErrSubscriberLimit bounds live observers within one session.
 var ErrSubscriberLimit = errors.New("VCS subscriber limit exceeded")
 
+// ErrPullRequestTransitionOverflow means a consumer could not retain every
+// distinct rich-status transition within the hard subscription bound.
+var ErrPullRequestTransitionOverflow = errors.New("pull request status transition buffer exceeded")
+
 const observeInterval = 10 * time.Second
 const maxSubscribers = 32
+const maxPullRequestTransitions = 64
 
 // Observer owns a loaded session's Git polling and PR observation independently
 // of client attachments. It publishes latest-only snapshots without blocking readers.
 type Observer struct {
-	mu              sync.Mutex
-	ctx             context.Context
-	cancel          context.CancelFunc
-	done            chan struct{}
-	wake            chan struct{}
-	updates         chan struct{}
-	started, closed bool
-	snapshot        Snapshot
-	epoch           uint64
-	ready           chan struct{}
-	initialized     bool
-	probeCancel     context.CancelFunc
-	subscribers     map[chan Snapshot]struct{}
-	pullRequests    *githubpr.Cache
-	probe           func(context.Context, string) (*Status, error)
-	interval        time.Duration
+	mu                     sync.Mutex
+	ctx                    context.Context
+	cancel                 context.CancelFunc
+	done                   chan struct{}
+	wake                   chan struct{}
+	updates                chan struct{}
+	started, closed        bool
+	snapshot               Snapshot
+	epoch                  uint64
+	ready                  chan struct{}
+	initialized            bool
+	probeCancel            context.CancelFunc
+	subscribers            map[chan Snapshot]struct{}
+	pullRequestSubscribers map[*PullRequestStatusSubscription]struct{}
+	pullRequests           *githubpr.Cache
+	probe                  func(context.Context, string) (*Status, error)
+	interval               time.Duration
 }
 
 // NewObserver constructs an unstarted session-owned observer.
 func NewObserver(ctx context.Context, cwd string, cache *githubpr.Cache) *Observer {
 	ctx, cancel := context.WithCancel(ctx)
-	return &Observer{ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), updates: make(chan struct{}, 1), snapshot: Snapshot{CWD: cwd}, ready: make(chan struct{}), subscribers: make(map[chan Snapshot]struct{}), pullRequests: cache, probe: Probe, interval: observeInterval}
+	return &Observer{ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), updates: make(chan struct{}, 1), snapshot: Snapshot{CWD: cwd}, ready: make(chan struct{}), subscribers: make(map[chan Snapshot]struct{}), pullRequestSubscribers: make(map[*PullRequestStatusSubscription]struct{}), pullRequests: cache, probe: Probe, interval: observeInterval}
 }
 
 // Start begins background observation without waiting for Git or GitHub.
@@ -133,6 +140,11 @@ func (o *Observer) Close(ctx context.Context) error {
 			delete(o.subscribers, c)
 			close(c)
 		}
+		for subscription := range o.pullRequestSubscribers {
+			delete(o.pullRequestSubscribers, subscription)
+			subscription.setError(context.Canceled)
+			close(subscription.values)
+		}
 		if !o.started {
 			close(o.done)
 		}
@@ -168,6 +180,92 @@ func (o *Observer) Subscribe() (*Subscription, error) {
 	return &Subscription{o, c}, nil
 }
 
+// PullRequestStatusUpdate is one canonical pull-request observation tied to
+// the complete workspace identity that produced it. A nil Status clears the
+// previous observation after a workspace, branch, or pull-request change.
+type PullRequestStatusUpdate struct {
+	CWD          string
+	Root         string
+	RepositoryID string
+	Branch       string
+	Status       *pullrequest.Status
+}
+
+// PullRequestStatusSubscription preserves distinct transitions up to a bounded
+// queue, beginning with the observer's current state.
+type PullRequestStatusSubscription struct {
+	observer *Observer
+	values   chan PullRequestStatusUpdate
+	errMu    sync.Mutex
+	err      error
+}
+
+// SubscribePullRequestStatus observes rich PR state separately from the native
+// footer stream. A reader that exceeds the bounded transition history fails
+// explicitly rather than silently losing or replacing a state.
+func (o *Observer) SubscribePullRequestStatus() (*PullRequestStatusSubscription, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.closed {
+		return nil, context.Canceled
+	}
+	if len(o.pullRequestSubscribers) >= maxSubscribers {
+		return nil, ErrSubscriberLimit
+	}
+	subscription := &PullRequestStatusSubscription{observer: o, values: make(chan PullRequestStatusUpdate, maxPullRequestTransitions)}
+	subscription.values <- pullRequestStatusUpdate(o.snapshot)
+	o.pullRequestSubscribers[subscription] = struct{}{}
+	return subscription, nil
+}
+
+// Next waits for one current state or the caller's cancellation.
+func (s *PullRequestStatusSubscription) Next(ctx context.Context) (PullRequestStatusUpdate, error) {
+	select {
+	case <-ctx.Done():
+		return PullRequestStatusUpdate{}, ctx.Err()
+	case value, ok := <-s.values:
+		if !ok {
+			s.errMu.Lock()
+			err := s.err
+			s.errMu.Unlock()
+			if err == nil {
+				err = context.Canceled
+			}
+			return PullRequestStatusUpdate{}, err
+		}
+		value.Status = pullrequest.Clone(value.Status)
+		return value, nil
+	}
+}
+
+// Close releases the subscription and is safe to call repeatedly.
+func (s *PullRequestStatusSubscription) Close() {
+	o := s.observer
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if _, ok := o.pullRequestSubscribers[s]; ok {
+		delete(o.pullRequestSubscribers, s)
+		s.setError(context.Canceled)
+		close(s.values)
+	}
+}
+
+func (s *PullRequestStatusSubscription) setError(err error) {
+	s.errMu.Lock()
+	s.err = err
+	s.errMu.Unlock()
+}
+
+func pullRequestStatusUpdate(value Snapshot) PullRequestStatusUpdate {
+	result := PullRequestStatusUpdate{CWD: value.CWD, Status: pullrequest.Clone(value.PullRequest)}
+	if value.Git != nil && value.Git.Head.Kind == HeadBranch {
+		result.Root = value.Git.Root
+		result.RepositoryID = value.Git.RepositoryID
+		result.Branch = value.Git.Head.Name
+	}
+	return result
+}
+
 // Next waits for one current state or the caller's cancellation.
 func (s *Subscription) Next(ctx context.Context) (Snapshot, error) {
 	select {
@@ -198,17 +296,31 @@ func cloneSnapshot(value Snapshot) Snapshot {
 		git := *value.Git
 		result.Git = &git
 	}
-	if value.PullRequest != nil {
-		pr := *value.PullRequest
-		result.PullRequest = &pr
-	}
+	result.PullRequest = pullrequest.Clone(value.PullRequest)
 	return result
 }
 func (o *Observer) publishLocked(value Snapshot) {
 	if reflect.DeepEqual(o.snapshot, value) {
 		return
 	}
+	previous := o.snapshot
 	o.snapshot = cloneSnapshot(value)
+	pullRequestChanged := !reflect.DeepEqual(previous.PullRequest, value.PullRequest) || previous.CWD != value.CWD || !sameGitIdentity(previous.Git, value.Git)
+	if pullRequestChanged {
+		update := pullRequestStatusUpdate(value)
+		for subscription := range o.pullRequestSubscribers {
+			select {
+			case subscription.values <- update:
+			default:
+				subscription.setError(ErrPullRequestTransitionOverflow)
+				delete(o.pullRequestSubscribers, subscription)
+				close(subscription.values)
+			}
+		}
+	}
+	if sameVisibleSnapshot(previous, value) {
+		return
+	}
 	for c := range o.subscribers {
 		select {
 		case <-c:
@@ -220,6 +332,30 @@ func (o *Observer) publishLocked(value Snapshot) {
 	case o.updates <- struct{}{}:
 	default:
 	}
+}
+
+func sameGitIdentity(left, right *Status) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Root == right.Root && left.RepositoryID == right.RepositoryID && left.Head == right.Head
+}
+
+func sameVisibleSnapshot(left, right Snapshot) bool {
+	if left.CWD != right.CWD || !sameVisibleGit(left.Git, right.Git) {
+		return false
+	}
+	if left.PullRequest == nil || right.PullRequest == nil {
+		return left.PullRequest == nil && right.PullRequest == nil
+	}
+	return left.PullRequest.Number == right.PullRequest.Number && left.PullRequest.URL == right.PullRequest.URL
+}
+
+func sameVisibleGit(left, right *Status) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Root == right.Root && left.Head == right.Head && left.Dirty == right.Dirty
 }
 func (o *Observer) run() {
 	defer close(o.done)
@@ -267,7 +403,7 @@ func (o *Observer) refreshGit() {
 		git = nil
 	}
 	value := Snapshot{CWD: cwd, Git: git}
-	if git != nil && o.snapshot.Git != nil && git.Root == o.snapshot.Git.Root && git.Head == o.snapshot.Git.Head {
+	if git != nil && o.snapshot.Git != nil && git.Root == o.snapshot.Git.Root && git.RepositoryID == o.snapshot.Git.RepositoryID && git.Head == o.snapshot.Git.Head {
 		value.PullRequest = o.snapshot.PullRequest
 	}
 	o.publishLocked(value)
@@ -290,7 +426,22 @@ func (o *Observer) refreshPR() {
 	if value.Git == nil || value.Git.Head.Kind != HeadBranch {
 		return
 	}
-	pr := o.pullRequests.Get(value.CWD, value.Git.Root, value.Git.Head.Name)
+	if value.Git.RepositoryID != "" {
+		identityContext, cancel := context.WithTimeout(o.ctx, probeTimeout)
+		repositoryID, err := RepositoryIdentity(identityContext, value.Git.Root)
+		cancel()
+		if err != nil {
+			return
+		}
+		if repositoryID != value.Git.RepositoryID {
+			select {
+			case o.wake <- struct{}{}:
+			default:
+			}
+			return
+		}
+	}
+	pr := o.pullRequests.GetForRepository(value.CWD, value.Git.Root, value.Git.RepositoryID, value.Git.Head.Name)
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.closed || o.epoch != epoch || !reflect.DeepEqual(o.snapshot.Git, value.Git) {
