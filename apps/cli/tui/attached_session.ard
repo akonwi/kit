@@ -1113,10 +1113,17 @@ impl Controller {
 
   // Opens the work chip with key, closing every other one, or closes it when
   // it is open. Either way, the chip with the selected row closes, and every
-  // output with it.
+  // output with it. Every other chip is closed by name, so one a running run
+  // opened on its own closes too.
   fn mut toggle_work(key: Str, open: Bool) {
     for other in self.open_work.keys() {
       self.open_work.set(other, false)
+    }
+    for row in transcript::rows(self.transcript_messages()) {
+      match row.work {
+        work => self.open_work.set(work.key, false),
+        _ => (),
+      }
     }
     self.open_work.set(key, not open)
     self.selected_tool = ""
@@ -3211,6 +3218,31 @@ test fn a_changed_working_directory_moves_the_session_and_its_location() Void!St
   testing::assert(
     subject.location == "/repo/app",
     "the footer shows the new directory: {subject.location}",
+  )
+}
+
+test fn opening_a_chip_closes_one_that_opened_on_its_own() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  let run = fn(turn: Str, state: transcript::ToolState) [transcript::Message] {
+    let reply = mut transcript::message("{turn}-reply", turn, transcript::Role::assistant)
+    reply.tool_calls = [transcript::tool_call("{turn}-call", "read")]
+    let result = mut transcript::message("{turn}-result", turn, transcript::Role::tool)
+    result.tool_call_id = "{turn}-call"
+    result.tool_name = "read"
+    result.tool_state = state
+    [reply.@, result.@]
+  }
+  let messages = mut run("t1", transcript::ToolState::completed)
+  for message in run("t2", transcript::ToolState::running) {
+    messages.push(message)
+  }
+  subject.messages = messages.@
+  subject.toggle_work("work:t1:t1-call", false)
+  try testing::assert(subject.open_work.get("work:t1:t1-call").or(false), "the clicked chip opens")
+  testing::assert(
+    subject.open_work.get("work:t2:t2-call") == Maybe::new(false),
+    "the running chip that opened on its own closes",
   )
 }
 

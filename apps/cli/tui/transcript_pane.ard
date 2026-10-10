@@ -544,7 +544,10 @@ private fn renders(message: transcript::Message) Bool {
     // Buffer streamed prose in the model, but reveal it only after the
     // assistant message settles so incomplete Markdown never reaches layout.
     transcript::Role::user => message.text != "" or message.attachments.size() > 0,
-    transcript::Role::assistant => message.text != "" and not message.pending,
+    transcript::Role::assistant => {
+      let settled = message.text != "" and not message.pending
+      settled or transcript::only_thinks(message)
+    },
     transcript::Role::tool => true,
     transcript::Role::bash => message.bash.is_some(),
     transcript::Role::plugin => message.text != "",
@@ -569,9 +572,20 @@ private fn entry_view(
         message.is_error => colors.danger_text,
         _ => colors.foreground,
       }
-      match message.text == "" {
-        true => Maybe::new<cui::View>(),
-        false => {
+      match {
+        transcript::only_thinks(message) => {
+          // Thinking no run took in reads as it does in an activity list.
+          Maybe::new(
+            markdown::view(
+              themes,
+              key,
+              message.thinking,
+              base: ui::text_style(foreground: colors.muted, italic: true),
+            ),
+          )
+        },
+        message.text == "" => Maybe::new<cui::View>(),
+        _ => {
           Maybe::new(
             markdown::view(
               themes,

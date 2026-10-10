@@ -782,3 +782,38 @@ test fn calls_without_results_are_planned_or_not_run_after_an_abort() Void!Str {
     describe_steps(aborted.at(0).expect("run").work.expect("work")),
   )
 }
+
+fn thought(id: Str, turn_id: Str, thinking: Str) transcript::Message {
+  let built = mut reply(id, turn_id, "", [])
+  built.thinking = thinking
+  built.@
+}
+
+test fn thinking_before_a_run_leads_it_and_otherwise_shows_on_its_own() Void!Str {
+  let leading = transcript::rows(
+    [
+      thought("a0", "t1", "Check the parser."),
+      reply("a1", "t1", "", ["c1"]),
+      result("c1", "t1", transcript::ToolState::completed),
+    ],
+  )
+  try testing::assert(describe_rows(leading) == "work:t1:c1 1/0", describe_rows(leading))
+  try testing::assert(
+    describe_steps(leading.at(0).expect("run").work.expect("work")) == "thinking:Check the parser. | c1:completed",
+    describe_steps(leading.at(0).expect("run").work.expect("work")),
+  )
+  let alone = transcript::rows(
+    [prompt("p1", "t1"), thought("a0", "t1", "Nothing to do."), prompt("p2", "t2")],
+  )
+  try testing::assert(describe_rows(alone) == "p1 | a0 | p2", describe_rows(alone))
+  // Another turn's run does not take it.
+  let separate = transcript::rows([thought("a0", "t1", "Done."), reply("a1", "t2", "", ["c1"])])
+  try testing::assert(describe_rows(separate) == "a0 | work:t2:c1 1/0", describe_rows(separate))
+  let streaming = mut thought("a0", "t1", "Still thinking")
+  streaming.pending = true
+  let live = transcript::rows([prompt("p1", "t1"), streaming.@])
+  testing::assert(
+    describe_rows(live) == "p1",
+    "streaming thinking is the turn's activity: {describe_rows(live)}",
+  )
+}

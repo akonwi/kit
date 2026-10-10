@@ -506,10 +506,22 @@ fn rows(messages: [Message]) [Row] {
   let result = mut List::new<Row>()
   mut current = batch("")
   mut open = false
+  // A finished reply that only thinks, kept for the run it may start.
+  mut held = Maybe::new<Message>()
   for message in messages {
     let calls_tools = message.role == Role::assistant and message.tool_calls.size() > 0
     let joins = message.role == Role::tool or calls_tools
     let ends = message.role != Role::assistant and message.role != Role::tool or shows_prose(message)
+    match held {
+      thought => {
+        // Thinking that no run of its turn follows shows on its own.
+        if not joins and message.turn_id == thought.turn_id {
+          result.push(Row{message: thought, work: Maybe::new<Work>()})
+          held = Maybe::new<Message>()
+        }
+      },
+      _ => (),
+    }
     // An aborted reply stops the run it follows.
     if open and message.role == Role::assistant and message.aborted and message.turn_id == current.turn_id {
       current.aborted = true
@@ -525,6 +537,11 @@ fn rows(messages: [Message]) [Row] {
       if not open {
         current = batch(message.turn_id)
         open = true
+        match held {
+          thought => current.think(thought),
+          _ => (),
+        }
+        held = Maybe::new<Message>()
       }
       if message.aborted {
         current.aborted = true
@@ -540,12 +557,25 @@ fn rows(messages: [Message]) [Row] {
     } else if open and message.role == Role::assistant and message.turn_id == current.turn_id and (not ends) {
       // Thinking between calls stays in its run.
       current.think(message)
+    } else if (not open) and only_thinks(message) {
+      held = Maybe::new(message)
     }
   }
   if open {
     result.push(Row{message: message_for(current.@), work: Maybe::new(current.work())})
   }
+  match held {
+    thought => result.push(Row{message: thought, work: Maybe::new<Work>()}),
+    _ => (),
+  }
   result.@
+}
+
+// Whether a finished reply has thinking and nothing else. A streaming one's
+// thinking shows as the turn's activity instead.
+fn only_thinks(message: Message) Bool {
+  let thinks = strings::TrimSpace(message.thinking) != ""
+  message.role == Role::assistant and thinks and message.text == "" and message.tool_calls.size() == 0 and (not message.pending)
 }
 
 // The message a work row stands in for, which identifies its turn.

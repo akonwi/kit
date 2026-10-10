@@ -2487,3 +2487,21 @@ test fn a_loaded_shown_image_paints_and_opens_when_clicked() Void!Str {
     "clicking the image opens it",
   )
 }
+
+test fn thinking_no_run_takes_in_shows_muted_and_italic() Void!Str {
+  let terminal = headless::new(40, 4)
+  defer terminal.destroy()
+  let thought = mut transcript::message("a0", "t1", transcript::Role::assistant)
+  thought.thinking = "Nothing *left* to change."
+  let model = bash_model([thought.@])
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", "", " Nothing left to change.", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  let cell = terminal.frame().cell(1, 2).expect("thinking")
+  testing::assert(
+    same_color(cell.style.foreground, colors.muted) and cell.style.italic,
+    "thinking is muted italic",
+  )
+}
