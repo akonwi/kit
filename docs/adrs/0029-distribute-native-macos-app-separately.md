@@ -68,6 +68,3 @@ The existing Go release workflow remains independent.
 - The CLI formula and macOS Cask have distinct installation and upgrade paths.
 - Bundled daemon management, in-app updates, and Intel coverage remain separate
   work; none blocks describing this external-server app as a regular release.
-
-Outstanding verification and distribution work is tracked in
-[`backlog/macos.md`](../../backlog/macos.md).

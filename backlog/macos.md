@@ -37,36 +37,6 @@ in this branch. Items marked **Server-ready** do not require new server function
   requests target the selected server. Depends on `MAC-REMOTE-001` and
   `CORE-REMOTE-003`.
 
-## Packaging and distribution
-
-The first desktop distribution is an Apple Silicon, macOS 15+ app release per
-[ADR 0029](../docs/adrs/0029-distribute-native-macos-app-separately.md).
-It requires a separately installed compatible Kit server. Discovery must
-validate registry/health identity and readiness and follow the Go protocol and
-stable-release compatibility contract without prescribing an exact CLI version.
-The app version is independent of its Kit client release identity: app `0.1.0`
-uses protocol 40 with identity `0.37.0`; apps `0.1.1` and `0.1.2` use protocol
-41 with identity `0.38.0`; app `0.1.3` uses protocol 45 with identity `0.42.0`.
-
-- [~] MAC-DIST-004 — Publish a Developer ID signed, notarized, stapled app
-  ZIP with versioned metadata and SHA-256 on a regular GitHub Release. A
-  fail-closed arm64 packaging script, discovery negotiation, and Release staging
-  CI are in place. Signing, notarization, fresh draft-download verification on a
-  clean machine, and a compatible server test in an isolated Kit home remain;
-  disclose the external-server requirement.
-- [ ] MAC-DIST-005 — Install and manually upgrade the same verified app
-  through a separate Homebrew Cask without replacing the CLI formula. Verify
-  settings, drafts, and window restoration across replacement and document
-  incompatible-server recovery. Depends on `MAC-DIST-004`.
-- [ ] MAC-DIST-001 — Produce a signed self-contained app bundle with deliberate
-  entitlements and verify launch on a clean machine outside the development
-  checkout. Depends on `MAC-DAEMON-001`.
-- [ ] MAC-DIST-002 — Notarize and staple the self-contained distribution artifact
-  and verify Gatekeeper acceptance after download. Depends on `MAC-DIST-001`.
-- [ ] MAC-DIST-003 — Provide an update path that preserves settings, drafts,
-  and window restoration while keeping the app and daemon protocol-compatible;
-  surface update failure and recovery. Depends on `MAC-DIST-002`.
-
 ## Verification
 
 - [ ] MAC-TEST-001 — Stabilize the attachment-cache read-count test under

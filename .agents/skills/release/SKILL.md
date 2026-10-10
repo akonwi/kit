@@ -122,9 +122,8 @@ formula. The `v*` tag workflow builds **only** CLI artifacts.
 ## Native macOS app release (`macos-vX.Y.Z`)
 
 The app is a regular Apple Silicon, macOS 15+ release with a separate external
-Kit server. Follow [ADR 0029](../../../docs/adrs/0029-distribute-native-macos-app-separately.md),
-[`apps/macos/README.md`](../../../apps/macos/README.md), and
-[`backlog/macos.md`](../../../backlog/macos.md). The app release is **manual**:
+Kit server. Follow [ADR 0029](../../../docs/adrs/0029-distribute-native-macos-app-separately.md)
+and [`apps/macos/README.md`](../../../apps/macos/README.md). The app release is **manual**:
 `.github/workflows/macos.yml` builds a non-distributable PR staging app; it
 does not sign, notarize, tag, or publish an app.
 
