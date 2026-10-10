@@ -20,13 +20,15 @@ use kit/tui/theme
 use go:strings
 use go:time
 
-// The Diff tab's body: the working tree's changes as one document, a section
-// per changed file. A file's header shows its path and counts, stays pinned
-// while its lines scroll by, and collapses or expands the file when clicked.
-// A section loads its changes when it scrolls into view. Lines don't wrap;
-// Shift+wheel or a horizontal swipe scrolls them sideways. While shown, the
-// pane checks the working tree every few seconds and reloads what changed,
-// keeping its place.
+// The Diff tab's body: a target's changes as one document, a section per
+// changed file. The target is the working tree unless a commit or branch is
+// picked from the header; a new workspace returns to its working tree. A
+// file's header shows its path, stays pinned while its lines scroll by, and
+// collapses or expands the file when clicked. A section loads its changes
+// when it scrolls into view. Lines are unified, or split side by side where
+// wide enough, and either wrap or scroll sideways with Shift+wheel or a
+// horizontal swipe. While the working tree is shown, the pane checks it
+// every few seconds and reloads what changed, keeping its place.
 
 // How often a shown pane checks the working tree.
 let poll_interval = 5000
@@ -37,6 +39,13 @@ let max_reads = 4
 // Cells a horizontal wheel step moves the text.
 let column_step = 4
 
+// The narrowest pane that offers the split layout.
+let split_width = 120
+
+// Taller than any wrapped row; the rule between split sides is clipped to
+// its row.
+let split_glyphs = strings::TrimSuffix(strings::Repeat("│\n", 256), "\n")
+
 struct Props {
   themes: theme::Context,
   // The session's current workspace; a new one starts over.
@@ -44,7 +53,36 @@ struct Props {
   // Whether the tab is selected.
   shown: Bool,
   observe: (fn(protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error)?,
+  observe_target: (fn(protocol::ObserveDiffInput) protocol::WorkingTreePage!Error)?,
   read: (fn(protocol::ReadFileDiffInput) protocol::FileDiffPage!Error)?,
+  // Opens the target picker.
+  pick_target: fn(TargetRequest),
+  // Whether lines wrap, a saved preference the caller owns.
+  wrap: Bool,
+  set_wrap: fn(Bool),
+}
+
+// What the target picker needs: the workspace whose targets to list, the
+// current target's id, the targets last listed, which show while the list
+// refreshes, where a fresh list is kept, and where the choice goes.
+struct TargetRequest {
+  workspace_id: Str,
+  current: Str,
+  cached: [protocol::DiffTargetEntry],
+  remember: fn([protocol::DiffTargetEntry]),
+  choose: fn(protocol::DiffTargetEntry),
+}
+
+// How a target is named in the header and the picker.
+fn target_label(target: protocol::DiffTargetEntry) Str {
+  match {
+    target.Metadata.Label != "" => target.Metadata.Label,
+    target.Kind == "working_tree" => "Working tree",
+    target.Metadata.Abbreviated != "" => {
+      strings::TrimSpace("{target.Metadata.Abbreviated}  {target.Metadata.Subject}")
+    },
+    _ => "Diff",
+  }
 }
 
 fn view(props: Props) cui::View {
@@ -96,8 +134,11 @@ private fn section(revision: Str) Section {
 // under a file's header. The first file has no border, as the pane's own rule
 // is there, and a collapsed file has no rule.
 enum RowKind {
+  // A split row: an old line beside a new one, either of which may be
+  // missing.
   header,
   line,
+  pair,
   gap,
   note,
   more,
@@ -105,14 +146,17 @@ enum RowKind {
   rule,
 }
 
-// A row of the document. `line` rows point at their hunk line and its place
-// on each side; other rows carry their text.
+// A row of the document. `line` rows point at their hunk line, and `pair`
+// rows at the old and new lines beside each other, with each line's place
+// on its side; other rows carry their text.
 struct Row {
   key: Str,
   kind: RowKind,
   file: Int,
   hunk: Int,
   line: Int,
+  old_line: Int,
+  new_line: Int,
   old_index: Int,
   new_index: Int,
   text: Str,
@@ -125,6 +169,8 @@ private fn row(key: Str, kind: RowKind, file: Int, text: Str) Row {
     file: file,
     hunk: -1,
     line: -1,
+    old_line: -1,
+    new_line: -1,
     old_index: -1,
     new_index: -1,
     text: text,
@@ -154,8 +200,14 @@ fn changed_files(count: Int) Str {
 }
 
 // The document's rows: each file's header between rules, then, unless
-// collapsed, its changes as they load, with a gap between hunks.
-fn rows(files: [protocol::DiffFileSummary], sections: [Str: Section], collapsed: [Str: Bool]) [Row] {
+// collapsed, its changes as they load, with a gap between hunks. Split rows
+// pair each run of removed lines with the added lines after it.
+fn rows(
+  files: [protocol::DiffFileSummary],
+  sections: [Str: Section],
+  collapsed: [Str: Bool],
+  split: Bool,
+) [Row] {
   let built = mut List::new<Row>()
   for file, index in files {
     let path = file.Path
@@ -188,24 +240,39 @@ fn rows(files: [protocol::DiffFileSummary], sections: [Str: Section], collapsed:
                   if hunk_index > 0 {
                     built.push(row("g:{path}:{hunk_index}", RowKind::gap, index, "⋯"))
                   }
-                  for line, line_index in hunk.Lines {
-                    let made = mut row(
-                      "l:{path}:{hunk_index}:{line_index}",
-                      RowKind::line,
-                      index,
-                      "",
-                    )
-                    made.hunk = hunk_index
-                    made.line = line_index
-                    if line.Kind != "addition" {
-                      made.old_index = old_index
-                      old_index =+ 1
+                  if split {
+                    let paired = pairs(path, index, hunk_index, hunk, old_index, new_index)
+                    for made in paired {
+                      built.push(made)
                     }
-                    if line.Kind != "deletion" {
-                      made.new_index = new_index
-                      new_index =+ 1
+                    for line in hunk.Lines {
+                      if line.Kind != "addition" {
+                        old_index =+ 1
+                      }
+                      if line.Kind != "deletion" {
+                        new_index =+ 1
+                      }
                     }
-                    built.push(made.@)
+                  } else {
+                    for line, line_index in hunk.Lines {
+                      let made = mut row(
+                        "l:{path}:{hunk_index}:{line_index}",
+                        RowKind::line,
+                        index,
+                        "",
+                      )
+                      made.hunk = hunk_index
+                      made.line = line_index
+                      if line.Kind != "addition" {
+                        made.old_index = old_index
+                        old_index =+ 1
+                      }
+                      if line.Kind != "deletion" {
+                        made.new_index = new_index
+                        new_index =+ 1
+                      }
+                      built.push(made.@)
+                    }
                   }
                 }
                 if loaded.next != "" {
@@ -222,6 +289,78 @@ fn rows(files: [protocol::DiffFileSummary], sections: [Str: Section], collapsed:
         },
       }
     }
+  }
+  built.@
+}
+
+// A hunk's split rows. A context line sits beside itself; a run of changes
+// pairs its removed lines, in order, with its added ones, leaving a blank
+// opposite any line without a partner. `old_index` and `new_index` are the
+// hunk's first places on each side.
+fn pairs(
+  path: Str,
+  file: Int,
+  hunk_index: Int,
+  hunk: protocol::DiffHunk,
+  old_index: Int,
+  new_index: Int,
+) [Row] {
+  let built = mut List::new<Row>()
+  mut old_at = old_index
+  mut new_at = new_index
+  mut removed = mut List::new<Int>()
+  mut added = mut List::new<Int>()
+  let lines = hunk.Lines
+  mut at = 0
+  while at <= lines.size() {
+    let kind = match lines.at(at) {
+      line => line.Kind,
+      _ => "end",
+    }
+    if kind == "deletion" {
+      removed.push(at)
+    } else if kind == "addition" {
+      added.push(at)
+    } else {
+      // A context line or the hunk's end closes the run of changes.
+      mut paired = 0
+      while paired < removed.size() or paired < added.size() {
+        let made = mut row("p:{path}:{hunk_index}:{built.size()}", RowKind::pair, file, "")
+        made.hunk = hunk_index
+        match removed.at(paired) {
+          line => {
+            made.old_line = line
+            made.old_index = old_at
+            old_at =+ 1
+          },
+          _ => (),
+        }
+        match added.at(paired) {
+          line => {
+            made.new_line = line
+            made.new_index = new_at
+            new_at =+ 1
+          },
+          _ => (),
+        }
+        built.push(made.@)
+        paired =+ 1
+      }
+      removed = mut List::new<Int>()
+      added = mut List::new<Int>()
+      if kind != "end" {
+        let made = mut row("p:{path}:{hunk_index}:{built.size()}", RowKind::pair, file, "")
+        made.hunk = hunk_index
+        made.old_line = at
+        made.new_line = at
+        made.old_index = old_at
+        made.new_index = new_at
+        old_at =+ 1
+        new_at =+ 1
+        built.push(made.@)
+      }
+    }
+    at =+ 1
   }
   built.@
 }
@@ -306,6 +445,12 @@ private struct Pane {
   column: Int,
   polling: contextbridge::Cancellation?,
   was_shown: Bool,
+  // The picked commit or branch, or none for the working tree.
+  target: protocol::DiffTargetEntry?,
+  // Whether the split layout is chosen; it shows only where wide enough.
+  split: Bool,
+  // The workspace's targets as last listed, for the picker to show at once.
+  targets: [protocol::DiffTargetEntry],
 }
 
 private fn new(props: mut Props) mut Pane {
@@ -329,6 +474,9 @@ private fn new(props: mut Props) mut Pane {
     column: 0,
     polling: Maybe::new<contextbridge::Cancellation>(),
     was_shown: false,
+    target: Maybe::new<protocol::DiffTargetEntry>(),
+    split: false,
+    targets: [],
   })
 }
 
@@ -361,12 +509,14 @@ impl Pane {
     }
   }
 
-  // Acts on prop changes: a new workspace starts over, and being shown again
-  // observes the working tree and resumes polling.
+  // Acts on prop changes: a new workspace starts over on its working tree,
+  // and being shown again observes the target and resumes polling.
   private fn mut sync() {
     if self.context.is_some() {
       if self.props.workspace_id != self.workspace_id {
         self.workspace_id = self.props.workspace_id
+        self.target = Maybe::new<protocol::DiffTargetEntry>()
+        self.targets = []
         self.reset()
         if self.props.shown {
           self.observe()
@@ -408,7 +558,8 @@ impl Pane {
             match attempt.Context.Err() {
               ok(_) => {
                 let _ = dispatch(fn() {
-                  if self.props.shown {
+                  // A commit or branch doesn't change.
+                  if self.props.shown and self.target.is_none() {
                     self.observe()
                   }
                 })
@@ -430,21 +581,54 @@ impl Pane {
     self.polling = Maybe::new<contextbridge::Cancellation>()
   }
 
+  // Lists one page of the target's changed files, from a cursor.
+  private fn fetcher() (fn(Str) protocol::WorkingTreePage!Error)? {
+    let workspace_id = self.workspace_id
+    match self.target {
+      target => {
+        match self.props.observe_target {
+          observe => {
+            Maybe::new(fn(cursor: Str) protocol::WorkingTreePage!Error {
+              observe(
+                protocol::ObserveDiffInput{
+                  WorkspaceID: workspace_id,
+                  TargetReference: target.Reference,
+                  ExpectedTargetID: target.TargetID,
+                  Cursor: cursor,
+                },
+              )
+            })
+          },
+          _ => Maybe::new<fn(Str) protocol::WorkingTreePage!Error>(),
+        }
+      },
+      _ => {
+        match self.props.observe {
+          observe => {
+            Maybe::new(fn(cursor: Str) protocol::WorkingTreePage!Error {
+              observe(protocol::ObserveWorkingTreeInput{WorkspaceID: workspace_id, Cursor: cursor})
+            })
+          },
+          _ => Maybe::new<fn(Str) protocol::WorkingTreePage!Error>(),
+        }
+      },
+    }
+  }
+
   // Lists the changed files, every page of them, unless a listing is
   // running. A new revision replaces the files, keeping the loaded changes
   // of files that are unchanged.
   private fn mut observe() {
     match self.context {
       context => {
-        match self.props.observe {
-          observe => {
+        match self.fetcher() {
+          fetch => {
             if not self.observing and self.workspace_id != "" {
               self.observing = true
               let generation = self.generation
-              let workspace_id = self.workspace_id
               let dispatch = context.dispatch
               async::start(fn() {
-                let result = observe_all(observe, workspace_id)
+                let result = observe_all(fetch)
                 let _ = dispatch(fn() {
                   if self.generation == generation {
                     self.observing = false
@@ -599,7 +783,8 @@ impl Pane {
             self.show_lines(path)
           },
           err(error) => {
-            if outdated(error) {
+            // Only the working tree moves on; a commit or branch is fixed.
+            if outdated(error) and self.target.is_none() {
               self.sections.delete(path)
               self.observe()
             } else {
@@ -703,20 +888,91 @@ impl Pane {
     self.collapsed.set(path, not self.collapsed.get(path).or(false))
   }
 
+  // Compares a picked target; the working tree's entry returns to it.
+  private fn mut choose(target: protocol::DiffTargetEntry) {
+    let current = self.current_target()
+    if target.TargetID != current or current == "" {
+      self.target = match target.Kind == "working_tree" {
+        true => Maybe::new<protocol::DiffTargetEntry>(),
+        false => Maybe::new(target),
+      }
+      self.reset()
+      self.observe()
+    }
+  }
+
+  private fn current_target() Str {
+    match self.target {
+      target => target.TargetID,
+      _ => {
+        match self.observation {
+          observation => observation.Target.ID,
+          _ => "",
+        }
+      },
+    }
+  }
+
+  private fn mut pick_target() {
+    match self.context {
+      context => {
+        let dispatch = context.dispatch
+        let workspace_id = self.workspace_id
+        (self.props.pick_target)(
+          TargetRequest{
+            workspace_id: workspace_id,
+            current: self.current_target(),
+            cached: self.targets,
+            remember: fn(targets: [protocol::DiffTargetEntry]) {
+              let _ = dispatch(fn() {
+                // A list from a workspace the pane has left is dropped.
+                if self.workspace_id == workspace_id {
+                  self.targets = targets
+                }
+              })
+            },
+            choose: fn(target: protocol::DiffTargetEntry) {
+              let _ = dispatch(fn() {
+                self.choose(target)
+              })
+            },
+          },
+        )
+      },
+      _ => (),
+    }
+  }
+
+  // Whether rows are split: chosen, and the pane is wide enough.
+  private fn split_shown() Bool {
+    self.split and self.width >= split_width
+  }
+
   // The cells left for a section's text after its padding, gutter and gap.
   private fn text_width(current: Section) Int {
-    let width = self.width - gutter(current, "", "", " ").size() - 2
-    match width < 1 {
-      true => 1,
-      false => width,
-    }
+    at_least_one(self.width - gutter(current, "", "", " ").size() - 2)
+  }
+
+  // The cells left for a split side's text after its padding, number,
+  // marker and gap.
+  private fn side_width(digits: Int) Int {
+    at_least_one((self.width - 1) / 2 - digits - 4)
   }
 
   private fn mut scroll_columns(delta: Int) {
     mut most = 0
     for path in self.sections.keys() {
       let current = self.sections.get(path).expect("a section")
-      let overflow = current.widest - self.text_width(current)
+      let room = match self.split_shown() {
+        true => {
+          match current.old_digits > current.new_digits {
+            true => self.side_width(current.old_digits),
+            false => self.side_width(current.new_digits),
+          }
+        },
+        false => self.text_width(current),
+      }
+      let overflow = current.widest - room
       if overflow > most {
         most = overflow
       }
@@ -731,8 +987,10 @@ impl Pane {
     self.column = next
   }
 
+  // Shift+wheel or a horizontal swipe scrolls lines sideways, unless they
+  // wrap.
   private fn mut mouse(received: mut event::MouseEvent) {
-    if received.event_type == event::MouseEventType::scroll {
+    if received.event_type == event::MouseEventType::scroll and not self.props.wrap {
       mut delta = received.scroll_x
       if received.modifiers.shift {
         delta = received.scroll_y
@@ -783,64 +1041,57 @@ impl Pane {
     )
   }
 
-  private fn line_view(item: Row, line: protocol::DiffLine, current: Section) cui::View {
+  // A line's text, highlighted: clipped to its room and scrolled sideways,
+  // or wrapped.
+  private fn content(segments: [file_pane::Segment], room: Int) cui::View {
     let colors = self.props.themes.current()
-    let added = line.Kind == "addition"
-    let removed = line.Kind == "deletion"
-    let fill = match {
-      added => Maybe::new(colors.diff_added),
-      removed => Maybe::new(colors.diff_removed),
-      _ => Maybe::new<ui::Color>(),
-    }
-    let old_number = match unsafe::is_nil(line.OldLine) {
-      true => "",
-      false => "{line.OldLine.@}",
-    }
-    let new_number = match unsafe::is_nil(line.NewLine) {
-      true => "",
-      false => "{line.NewLine.@}",
-    }
-    let marker = match {
-      added => "+",
-      removed => "−",
-      _ => " ",
-    }
-    let segments = match removed {
-      true => current.old_lines.at(item.old_index).or([]),
-      false => current.new_lines.at(item.new_index).or([]),
+    let shown = match self.props.wrap {
+      true => segments,
+      false => file_pane::visible(segments, self.column, room),
     }
     let spans = mut List::new<ui::Span>()
-    for segment in file_pane::visible(segments, self.column, self.text_width(current)) {
+    for segment in shown {
       let foreground = match segment.role == "" {
         true => Maybe::new<ui::Color>(),
         false => Maybe::new(colors.syntax(segment.role)),
       }
       spans.push(ui::span(segment.text, style: ui::span_style(foreground: foreground)))
     }
+    cui::text(
+      ui::styled_text(spans.@),
+      styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+      text_style: ui::text_style(foreground: colors.foreground),
+      wrap: match self.props.wrap {
+        true => ui::TextWrap::word,
+        false => ui::TextWrap::none,
+      },
+      selectable: true,
+      selection_style: theme::selection_style(colors),
+    )
+  }
+
+  // A gutter, then a line's text, on its diff fill. A wrapped line continues
+  // under its text, beside a blank gutter.
+  private fn numbered(gutter_text: Str, changed: Bool, fill: ui::Color?, text: cui::View) cui::View {
+    let colors = self.props.themes.current()
     cui::box(
       [
         cui::text(
-          gutter(current, old_number, new_number, marker),
+          gutter_text,
           styles: ui::style(flex_shrink: 0.0),
           text_style: ui::text_style(
-            foreground: match added or removed {
+            foreground: match changed {
               true => colors.foreground,
               false => colors.muted,
             },
           ),
           selectable: false,
         ),
-        cui::text(
-          ui::styled_text(spans.@),
-          styles: ui::style(flex_grow: 1.0),
-          text_style: ui::text_style(foreground: colors.foreground),
-          wrap: ui::TextWrap::none,
-          selectable: true,
-          selection_style: theme::selection_style(colors),
-        ),
+        text,
       ],
       styles: ui::style(
-        height: ui::cells(1),
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
         flex_direction: ui::FlexDirection::row,
         gap: ui::cells(1),
         background: fill,
@@ -854,6 +1105,93 @@ impl Pane {
     )
   }
 
+  private fn line_view(item: Row, line: protocol::DiffLine, current: Section) cui::View {
+    let removed = line.Kind == "deletion"
+    let segments = match removed {
+      true => current.old_lines.at(item.old_index).or([]),
+      false => current.new_lines.at(item.new_index).or([]),
+    }
+    self.numbered(
+      gutter(current, number(line.OldLine), number(line.NewLine), marker(line)),
+      line.Kind != "context",
+      self.fill(line),
+      self.content(segments, self.text_width(current)),
+    )
+  }
+
+  // A split row: the old line on the left and the new one on the right,
+  // each with its own number, or a blank where a side has no line.
+  private fn pair_view(item: Row, current: Section) cui::View {
+    let lines = current.hunks.at(item.hunk).expect("a hunk").Lines
+    let sides = mut List::new<cui::View>()
+    match lines.at(item.old_line) {
+      line => {
+        sides.push(
+          self.numbered(
+            "{pad(number(line.OldLine), current.old_digits)} {marker(line)}",
+            line.Kind != "context",
+            self.fill(line),
+            self.content(
+              current.old_lines.at(item.old_index).or([]),
+              self.side_width(current.old_digits),
+            ),
+          ),
+        )
+      },
+      _ => sides.push(blank_side()),
+    }
+    sides.push(self.split_rule())
+    match lines.at(item.new_line) {
+      line => {
+        sides.push(
+          self.numbered(
+            "{pad(number(line.NewLine), current.new_digits)} {marker(line)}",
+            line.Kind != "context",
+            self.fill(line),
+            self.content(
+              current.new_lines.at(item.new_index).or([]),
+              self.side_width(current.new_digits),
+            ),
+          ),
+        )
+      },
+      _ => sides.push(blank_side()),
+    }
+    cui::box(sides.@, styles: ui::style(flex_direction: ui::FlexDirection::row))
+  }
+
+  // The rule between split sides. It fills a wrapped row's height: its
+  // column of glyphs is clipped to the row, and being absolute, it doesn't
+  // make the row taller.
+  private fn split_rule() cui::View {
+    let colors = self.props.themes.current()
+    cui::box(
+      [
+        cui::text(
+          split_glyphs,
+          styles: ui::style(position: ui::Position::absolute, top: ui::cells(0), left: ui::cells(0)),
+          text_style: ui::text_style(foreground: colors.border),
+          selectable: false,
+        ),
+      ],
+      styles: ui::style(
+        width: ui::cells(1),
+        flex_shrink: 0.0,
+        position: ui::Position::relative,
+        overflow: ui::Overflow::hidden,
+      ),
+    )
+  }
+
+  private fn fill(line: protocol::DiffLine) ui::Color? {
+    let colors = self.props.themes.current()
+    match line.Kind {
+      "addition" => Maybe::new(colors.diff_added),
+      "deletion" => Maybe::new(colors.diff_removed),
+      _ => Maybe::new<ui::Color>(),
+    }
+  }
+
   private fn mut row_view(item: Row) cui::View {
     let colors = self.props.themes.current()
     let file = self.files.at(item.file).expect("a changed file")
@@ -864,21 +1202,44 @@ impl Pane {
         let line = current.hunks.at(item.hunk).expect("a hunk").Lines.at(item.line).expect("a line")
         self.line_view(item, line, current)
       },
+      RowKind::pair => self.pair_view(item, self.sections.get(file.Path).expect("a loaded section")),
       RowKind::gap => {
         let current = self.sections.get(file.Path).expect("a loaded section")
-        let mark = match current.new_digits > 0 {
-          true => gutter(current, "", "⋯", " "),
-          false => gutter(current, "⋯", "", " "),
+        let style = ui::text_style(foreground: colors.muted)
+        match self.split_shown() {
+          true => {
+            cui::box(
+              [
+                cui::box(
+                  [layout::line(" {pad("⋯", current.old_digits)}", style)],
+                  styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+                ),
+                self.split_rule(),
+                cui::box(
+                  [layout::line(" {pad("⋯", current.new_digits)}", style)],
+                  styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+                ),
+              ],
+              styles: ui::style(flex_direction: ui::FlexDirection::row),
+            )
+          },
+          false => {
+            let mark = match current.new_digits > 0 {
+              true => gutter(current, "", "⋯", " "),
+              false => gutter(current, "⋯", "", " "),
+            }
+            layout::line(" {mark}", style)
+          },
         }
-        layout::line(" {mark}", ui::text_style(foreground: colors.muted))
       },
       RowKind::more => {
         self.later_want(file.Path)
         let current = self.sections.get(file.Path).expect("a loaded section")
-        layout::line(
-          " {gutter(current, "", "", " ")} {item.text}",
-          ui::text_style(foreground: colors.muted),
-        )
+        let room = match self.split_shown() {
+          true => "{pad("", current.old_digits)}  ",
+          false => gutter(current, "", "", " "),
+        }
+        layout::line(" {room} {item.text}", ui::text_style(foreground: colors.muted))
       },
       RowKind::note => {
         if item.text == "Loading…" {
@@ -953,12 +1314,21 @@ impl Pane {
     match self.observation {
       observation => {
         match self.files.size() == 0 {
-          true => message("No changes in the working tree", colors.muted),
+          true => {
+            message(
+              match self.target.is_none() {
+                true => "No changes in the working tree",
+                false => "No changes",
+              },
+              colors.muted,
+            )
+          },
           false => {
-            let built = rows(self.files, self.sections, self.collapsed)
+            let built = rows(self.files, self.sections, self.collapsed, self.split_shown())
             let children = mut List::new<cui::View>()
             children.push(
               cui::virtual_list(
+                // Wrapped rows are measured.
                 built,
                 fn(item: Row) Str {
                   item.key
@@ -967,7 +1337,10 @@ impl Pane {
                   self.row_view(item)
                 },
                 estimated_height: 1,
-                row_height: 1,
+                row_height: match self.props.wrap {
+                  true => Maybe::new<Int>(),
+                  false => Maybe::new(1),
+                },
                 key: "diff-rows",
                 styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
                 ref: self.list,
@@ -1003,6 +1376,46 @@ impl Pane {
       },
     }
   }
+}
+
+private fn number(value: mut Int) Str {
+  match unsafe::is_nil(value) {
+    true => "",
+    false => "{value.@}",
+  }
+}
+
+private fn marker(line: protocol::DiffLine) Str {
+  match line.Kind {
+    "addition" => "+",
+    "deletion" => "−",
+    _ => " ",
+  }
+}
+
+private fn at_least_one(cells: Int) Int {
+  match cells < 1 {
+    true => 1,
+    false => cells,
+  }
+}
+
+// A split side without a line. It's padded like a side with one, so both
+// halves share the row evenly.
+private fn blank_side() cui::View {
+  cui::box(
+    [],
+    styles: ui::style(
+      flex_grow: 1.0,
+      flex_basis: ui::cells(0),
+      padding: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(0),
+        bottom: ui::cells(0),
+        left: ui::cells(1),
+      },
+    ),
+  )
 }
 
 // A line's gutter: its old and new numbers, each right-aligned to its side's
@@ -1053,19 +1466,16 @@ private fn loading(colors: theme::Theme) cui::View {
   )
 }
 
-// Lists every page of the working tree's changed files.
-private fn observe_all(
-  observe: fn(protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error,
-  workspace_id: Str,
-) Observed!Error {
-  let first = try observe(protocol::ObserveWorkingTreeInput{WorkspaceID: workspace_id})
+// Lists every page of a target's changed files.
+private fn observe_all(fetch: fn(Str) protocol::WorkingTreePage!Error) Observed!Error {
+  let first = try fetch("")
   let files = mut List::new<protocol::DiffFileSummary>()
   for file in first.Files {
     files.push(file)
   }
   mut cursor = first.NextCursor
   while cursor != "" {
-    let page = try observe(protocol::ObserveWorkingTreeInput{WorkspaceID: workspace_id, Cursor: cursor})
+    let page = try fetch(cursor)
     for file in page.Files {
       files.push(file)
     }
@@ -1074,29 +1484,101 @@ private fn observe_all(
   Result::ok(Observed{observation: first.Observation, files: files.@})
 }
 
+impl Pane {
+  // The pane's header: the target, a button that opens the picker, and the
+  // file count; then the wrap toggle and, where wide enough, the layout
+  // toggle. Each toggle names its current state.
+  private fn mut header_row() cui::View {
+    let colors = self.props.themes.current()
+    let label = match self.target {
+      target => target_label(target),
+      _ => "Working tree",
+    }
+    let wrap = self.props.wrap
+    let set_wrap = self.props.set_wrap
+    let right = mut List::new<cui::View>()
+    right.push(
+      controls::button(
+        self.props.themes,
+        match wrap {
+          true => "Wrap on",
+          false => "Wrap off",
+        },
+        keymap::simple_command("diff.wrap", "Wrap lines", fn() Bool {
+          set_wrap(not wrap)
+          true
+        }),
+        variant: controls::ButtonVariant::ghost,
+        compact: true,
+        focusable: false,
+      ),
+    )
+    if self.width >= split_width {
+      right.push(
+        controls::button(
+          self.props.themes,
+          match self.split {
+            true => "Split",
+            false => "Unified",
+          },
+          keymap::simple_command("diff.layout", "Change layout", fn() Bool {
+            self.split = not self.split
+            self.column = 0
+            true
+          }),
+          variant: controls::ButtonVariant::ghost,
+          compact: true,
+          focusable: false,
+        ),
+      )
+    }
+    cui::box(
+      [
+        cui::box(
+          [
+            controls::button(
+              self.props.themes,
+              "{label} ▾",
+              keymap::simple_command("diff.target", "Choose what to compare", fn() Bool {
+                self.pick_target()
+                true
+              }),
+              variant: controls::ButtonVariant::ghost,
+              compact: true,
+              focusable: false,
+              styles: ui::style(flex_shrink: 0.0),
+            ),
+            layout::line(self.summary(), ui::text_style(foreground: colors.muted)),
+          ],
+          styles: ui::style(
+            flex_grow: 1.0,
+            flex_basis: ui::cells(0),
+            flex_direction: ui::FlexDirection::row,
+            gap: ui::cells(1),
+            overflow: ui::Overflow::hidden,
+          ),
+        ),
+        cui::box(
+          right.@,
+          styles: ui::style(flex_shrink: 0.0, flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
+        ),
+      ],
+      styles: ui::style(
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+      ),
+    )
+  }
+}
+
 impl cui::Component for Pane {
   fn mut render() cui::View {
     self.sync()
     let colors = self.props.themes.current()
     cui::box(
       [
-        cui::box(
-          [
-            cui::text("Working tree", text_style: ui::text_style(foreground: colors.foreground)),
-            cui::text(self.summary(), text_style: ui::text_style(foreground: colors.muted)),
-          ],
-          styles: ui::style(
-            flex_shrink: 0.0,
-            flex_direction: ui::FlexDirection::row,
-            gap: ui::cells(2),
-            padding: ui::Edges{
-              top: ui::cells(0),
-              right: ui::cells(1),
-              bottom: ui::cells(0),
-              left: ui::cells(1),
-            },
-          ),
-        ),
+        self.header_row(),
         layout::divider(colors.border),
         cui::box(
           [self.body()],
@@ -1132,6 +1614,7 @@ private fn kinds(built: [Row]) Str {
     let kind = match item.kind {
       RowKind::header => "h",
       RowKind::line => "l",
+      RowKind::pair => "p",
       RowKind::gap => "g",
       RowKind::note => "n",
       RowKind::more => "m",
@@ -1163,7 +1646,7 @@ test fn rows_follow_each_file_and_its_hunks() Void!Str {
   loaded.hunks = [hunk(["context", "deletion", "addition"]), hunk(["addition"])]
   let sections: [Str: Section] = ["a.go": loaded.@]
   let collapsed: [Str: Bool] = ["c.go": true]
-  let built = rows(files, sections, collapsed)
+  let built = rows(files, sections, collapsed, false)
   try testing::assert(kinds(built) == "hrlllglbhrnbhbhrn", kinds(built))
   let removed = built.at(3).expect("the deletion")
   let added = built.at(4).expect("the addition")
@@ -1199,4 +1682,38 @@ test fn the_gutter_fits_each_side_and_drops_an_empty_one() Void!Str {
   let deleted = mut section("rev")
   deleted.old_digits = 1
   testing::assert(gutter(deleted.@, "7", "", "−") == "7 −", "a deleted file has no new column")
+}
+
+// Each split row as "old/new" hunk line indexes, "-" for a blank side.
+private fn sides_of(built: [Row]) Str {
+  let shown = mut List::new<Str>()
+  for item in built {
+    if item.kind == RowKind::pair {
+      let old = match item.old_line < 0 {
+        true => "-",
+        false => "{item.old_line}",
+      }
+      let new = match item.new_line < 0 {
+        true => "-",
+        false => "{item.new_line}",
+      }
+      shown.push("{old}/{new}")
+    }
+  }
+  strings::Join(shown, " ")
+}
+
+test fn split_rows_pair_removed_lines_with_added_ones() Void!Str {
+  let loaded = mut section("rev")
+  loaded.loaded = true
+  loaded.hunks = [
+    hunk(["context", "deletion", "deletion", "addition", "context", "addition", "deletion"]),
+  ]
+  let sections: [Str: Section] = ["a.go": loaded.@]
+  let collapsed: [Str: Bool] = [:]
+  let built = rows([summary("a.go", "text")], sections, collapsed, true)
+  try testing::assert(kinds(built) == "hrppppp", kinds(built))
+  try testing::assert(sides_of(built) == "0/0 1/3 2/- 4/4 6/5", sides_of(built))
+  let second = built.at(3).expect("the first changed pair")
+  testing::assert(second.old_index == 1 and second.new_index == 1, "each side counts its own lines")
 }

@@ -1,5 +1,6 @@
 use ard/async
 use ard/testing
+use ard/unsafe
 
 use go:api
 use go:api/contract as protocol
@@ -26,6 +27,7 @@ use kit/tui/command_palette
 use kit/tui/composer
 use kit/tui/controls
 use kit/tui/diff_pane
+use kit/tui/diff_target_picker
 use kit/tui/file_pane
 use kit/tui/file_picker
 use kit/tui/image_preview
@@ -87,6 +89,7 @@ type Modal =
   | SessionsModal
   | TabsModal
   | FilesModal
+  | diff_pane::TargetRequest
 
 // The detached placeholder never starts work, so its effects are inert.
 private fn inert_attachment_host() attached_session::Host {
@@ -150,6 +153,8 @@ struct Shell {
   theme: mut theme::Owner,
   workspace: mut workspace::Tabs,
   scratchpad_control: mut scratchpad::PaneRef,
+  // Whether Diff lines wrap, a saved preference.
+  diff_wrap: Bool,
   active_modal: Modal,
   // The notification host owns notifications; Shell only raises them.
   notifications: mut toast::Control,
@@ -184,6 +189,7 @@ fn new(props: mut Props) mut Shell {
     theme: theme::owner(props.themes, props.options.ThemeName, props.options.ThemeDefinition),
     workspace: workspace::tabs(),
     scratchpad_control: scratchpad::pane_ref(),
+    diff_wrap: props.options.DiffWrapLines,
     active_modal: NoModal{},
     notifications: notifications,
     connect_button: cui::box_ref(),
@@ -454,7 +460,19 @@ impl Shell {
                 workspace_id: self.attached.workspace_id,
                 shown: shown,
                 observe: self.attached.diff_observer(),
+                observe_target: self.attached.diff_target_observer(),
                 read: self.attached.diff_reader(),
+                pick_target: fn(request: diff_pane::TargetRequest) {
+                  self.dispatch(fn() {
+                    self.active_modal = request
+                  })
+                },
+                wrap: self.diff_wrap,
+                set_wrap: fn(wrap: Bool) {
+                  self.dispatch(fn() {
+                    self.set_diff_wrap(wrap)
+                  })
+                },
               },
             ),
           ],
@@ -645,6 +663,47 @@ impl Shell {
         },
       },
     )
+  }
+
+  fn mut diff_target_modal(request: diff_pane::TargetRequest) cui::View {
+    diff_target_picker::view(
+      diff_target_picker::Props{
+        themes: self.props.themes,
+        request: request,
+        list: self.attached.diff_target_lister(),
+        dismiss: keymap::simple_command("diff.target.dismiss", "Close", fn() Bool {
+          self.dismiss_modal()
+        }),
+        chosen: fn() {
+          self.dispatch(fn() {
+            self.finish_modal()
+          })
+        },
+      },
+    )
+  }
+
+  // Wraps Diff lines or stops, and saves the choice.
+  private fn mut set_diff_wrap(wrap: Bool) {
+    self.diff_wrap = wrap
+    let service = self.props.options.DiffPreferenceService
+    if not unsafe::is_nil(service) {
+      async::start(fn() {
+        match service.SetWrapLines(wrap) {
+          ok(_) => (),
+          err(error) => {
+            self.dispatch(fn() {
+              self.notify(
+                "Could not save the wrap setting",
+                error.error(),
+                toast::Variant::warning,
+                false,
+              )
+            })
+          },
+        }
+      })
+    }
   }
 
   fn mut tabs_modal() cui::View {
@@ -1139,6 +1198,7 @@ impl cui::Component for Shell {
       SessionsModal => layers.push(self.sessions_modal()),
       TabsModal => layers.push(self.tabs_modal()),
       FilesModal => layers.push(self.files_modal()),
+      diff_pane::TargetRequest(request) => layers.push(self.diff_target_modal(request)),
     }
     cui::box(
       layers.@,
