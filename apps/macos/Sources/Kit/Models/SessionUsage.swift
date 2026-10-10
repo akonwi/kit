@@ -1,7 +1,7 @@
 import Foundation
 
 /// Cumulative server totals, independent of the loaded transcript page.
-struct SessionUsage: Decodable, Sendable {
+struct SessionUsage: Decodable, Sendable, Equatable {
     let input: Int
     let output: Int
     let cacheRead: Int

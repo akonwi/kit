@@ -1,6 +1,6 @@
 import Foundation
 
-struct FollowUpState: Decodable, Sendable {
+struct FollowUpState: Decodable, Sendable, Equatable {
     let count: Int
     let previews: [String]
     init(_ wire: WireFollowUpQueue) throws {

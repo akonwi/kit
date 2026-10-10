@@ -399,10 +399,17 @@ final class SessionStore {
         replica.loadHistory(beforePrepend: beforePrepend)
     }
     var selectedID: String { replica.selectedID }
-    var selected: SessionExcerpt? { replica.snapshot }
+    /// Selected session metadata. Its `messages` and `activity` are always
+    /// empty; read ``messages`` and ``activity`` so streaming updates
+    /// invalidate only the views that present them.
+    var selected: SessionExcerpt? { replica.metadata }
+    /// The complete selected session, including transcript rows. Views should
+    /// prefer ``selected`` and ``messages``; this observes every replica change.
+    var selectedSnapshot: SessionExcerpt? { replica.snapshot }
     var messages: [TranscriptMessage] {
-        bashOperation.merge(into: demo?.messages ?? selected?.messages ?? [])
+        bashOperation.merge(into: demo?.messages ?? replica.messages)
     }
+    var activity: String? { replica.activity }
     var model: String { demo?.model ?? selected?.model ?? "" }
     /// The active model's label when its session inputs are known to exclude images.
     var imageRejectingModel: String? {
@@ -442,7 +449,7 @@ final class SessionStore {
         if let sessionID, !sessionID.isEmpty { replica.select(sessionID) }
         ui = SessionUIState(demo: client.isDemo)
         demo = client.isDemo ? DemoSessionState() : nil
-        demo?.select(replica.snapshot)
+        demo?.select(selectedSnapshot)
         operationsBySession[replica.selectedID] = SessionOperations()
         configurations[replica.selectedID] = ComposerConfiguration()
         if let cwd = replica.snapshot?.cwd { knownDirectories[replica.selectedID] = cwd }
@@ -478,7 +485,7 @@ final class SessionStore {
         if operationsBySession[id] == nil { operationsBySession[id] = SessionOperations() }
         if configurations[id] == nil { configurations[id] = ComposerConfiguration() }
         replica.select(id)
-        demo?.select(selected)
+        demo?.select(selectedSnapshot)
         applyAcknowledgedDraft()
         attach()
     }

@@ -17,7 +17,7 @@ struct SessionView: View {
     private var transcript: some View {
         NativeTranscript(messages: state.messages,
                          hasHistory: state.hasEarlierHistory, historyLoading: state.historyLoading,
-                         historyError: state.historyError, active: state.selected?.activity != nil,
+                         historyError: state.historyError, active: state.activity != nil,
                          presentation: state.ui.transcript, workspace: state.ui.workspace,
                          resumeRequest: resumeRequest, latestOutOfView: $latestOutOfView,
                          loadHistory: { state.loadHistory() }, theme: theme, attachmentClient: state.attachmentClient, attachmentSession: state.selectedID, reading: reading)
@@ -38,7 +38,7 @@ struct SessionComposerRegion: View {
     var body: some View {
         VStack(spacing: 0) {
             if state.interactions.isEmpty {
-                PendingActivityView(activity: state.unavailable ? nil : state.selected?.activity)
+                PendingActivityView(activity: state.unavailable ? nil : state.activity)
                     .frame(maxWidth: 780).padding(.horizontal, 32)
                     .frame(maxWidth: .infinity)
             }

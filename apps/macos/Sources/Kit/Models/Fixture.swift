@@ -6,7 +6,7 @@ struct Fixture: Decodable, Sendable {
 
 }
 
-struct SessionExcerpt: Decodable, Identifiable, Sendable {
+struct SessionExcerpt: Decodable, Identifiable, Sendable, Equatable {
     let id: String
     var isTemporary: Bool? = nil
     var title: String
@@ -125,7 +125,7 @@ struct TranscriptAttachment: Decodable, Sendable, Equatable, Hashable {
     let isImage: Bool
 }
 
-struct CompactionOutcome: Decodable, Sendable {
+struct CompactionOutcome: Decodable, Sendable, Equatable {
     let id: String
     let failed: Bool
     let detail: String
