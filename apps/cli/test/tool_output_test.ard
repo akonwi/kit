@@ -1,0 +1,226 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use cooper/ui
+use go:github.com/akonwi/kit/internal/theme as kittheme
+use kit/tui/theme
+use kit/tui/tool_output
+use kit/tui/transcript
+use go:strings
+use go:time
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn same_color(left: ui::Color?, right: ui::Color) Bool {
+  match left {
+    color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+    _ => false,
+  }
+}
+
+fn colors() theme::Theme {
+  theme::context(theme::store(theme::system())).current()
+}
+
+fn foreground(terminal: headless::TestApp, x: Int, y: Int) ui::Color? {
+  terminal.frame().cell(x, y).expect("cell").style.foreground
+}
+
+fn background(terminal: headless::TestApp, x: Int, y: Int) ui::Color? {
+  terminal.frame().cell(x, y).expect("cell").style.background
+}
+
+// Flushes until the cell at x, y is in expected, as the highlighter finishes
+// in the background.
+fn wait_for_color(terminal: headless::TestApp, x: Int, y: Int, expected: ui::Color) Bool {
+  mut matched = false
+  mut attempts = 0
+  while not matched and attempts < 100 {
+    terminal.flush()
+    matched = same_color(foreground(terminal, x, y), expected)
+    if not matched {
+      time::Sleep(time::Millisecond * 5)
+    }
+    attempts =+ 1
+  }
+  matched
+}
+
+fn call(name: Str, arguments: Str) transcript::ToolCall {
+  let made = mut transcript::tool_call("c1", name)
+  made.arguments = arguments
+  made.@
+}
+
+fn result(text: Str, details: Str) transcript::Message {
+  let made = mut transcript::message("r1", "t1", transcript::Role::tool)
+  made.tool_call_id = "c1"
+  made.tool_state = transcript::ToolState::completed
+  made.text = text
+  made.details = details
+  made.@
+}
+
+struct Shown {
+  terminal: headless::TestApp,
+  renderer: cui::Renderer,
+}
+
+fn show(width: Int, height: Int, called: transcript::ToolCall, outcome: transcript::Message) Shown {
+  let terminal = headless::new(width, height)
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    tool_output::view(
+      tool_output::Props{
+        themes: theme::context(theme::store(theme::system())),
+        key: "t1:c1",
+        call: called,
+        result: outcome,
+      },
+    ),
+  )
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+  Shown{terminal: terminal, renderer: renderer}
+}
+
+test fn read_output_is_highlighted_in_its_files_language() Void!Str {
+  let shown = show(
+    30,
+    2,
+    call("read", "{{\"path\":\"main.go\"}}"),
+    result("func main() {{}}\n", "{{\"path\":\"/repo/main.go\",\"lines\":1}}"),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(rows(shown.terminal), [" func main() {{}}", ""])
+  let keyword = colors().syntax(kittheme::SyntaxKeyword)
+  try testing::assert(wait_for_color(shown.terminal, 1, 0, keyword), "func is a keyword")
+  testing::assert(
+    same_color(background(shown.terminal, 1, 0), colors().surface),
+    "on the surface fill",
+  )
+}
+
+test fn an_edit_shows_removed_and_added_lines_on_the_diff_fills() Void!Str {
+  let shown = show(
+    30,
+    5,
+    call(
+      "edit",
+      "{{\"path\":\"a.txt\",\"edits\":[{{\"oldText\":\"one\",\"newText\":\"two\"}},{{\"oldText\":\"\",\"newText\":\"three\"}}]}}",
+    ),
+    result("Edited a.txt", ""),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(rows(shown.terminal), [" - one", " + two", " ⋯", " + three", ""])
+  let theme = colors()
+  try testing::assert(same_color(foreground(shown.terminal, 1, 0), theme.danger_text), "the - is red")
+  try testing::assert(same_color(foreground(shown.terminal, 1, 1), theme.success_text), "the + is green")
+  try testing::assert(same_color(background(shown.terminal, 3, 0), theme.diff_removed), "removed fill")
+  try testing::assert(same_color(background(shown.terminal, 3, 1), theme.diff_added), "added fill")
+  // The fills span the well.
+  try testing::assert(
+    same_color(background(shown.terminal, 28, 0), theme.diff_removed),
+    "removed fill spans",
+  )
+  testing::assert(
+    same_color(background(shown.terminal, 28, 3), theme.diff_added),
+    "added fill spans",
+  )
+}
+
+test fn a_command_leads_its_output() Void!Str {
+  let shown = show(
+    30,
+    4,
+    call("bash", "{{\"command\":\"go test ./...\"}}"),
+    result("ok  kit 0.1s", ""),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(rows(shown.terminal), [" $ go test ./...", "", " ok  kit 0.1s", ""])
+  testing::assert(
+    same_color(foreground(shown.terminal, 1, 0), colors().muted),
+    "the prompt is muted",
+  )
+}
+
+test fn a_unified_diff_from_a_command_shows_its_changes() Void!Str {
+  let shown = show(
+    34,
+    8,
+    call("bash", "{{\"command\":\"git diff\"}}"),
+    result("diff --git a/x b/x\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n", ""),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(
+    rows(shown.terminal),
+    [" $ git diff", "", " diff --git a/x b/x", " @@ -1,2 +1,2 @@", "   keep", " - old", " + new", ""],
+  )
+  let theme = colors()
+  try testing::assert(shown.terminal.frame().cell(1, 2).expect("header").style.bold, "the header is bold")
+  try testing::assert(same_color(foreground(shown.terminal, 1, 3), theme.muted), "the hunk is muted")
+  try testing::assert(same_color(background(shown.terminal, 3, 5), theme.diff_removed), "removed fill")
+  testing::assert(same_color(background(shown.terminal, 3, 6), theme.diff_added), "added fill")
+}
+
+test fn a_write_whose_content_was_cut_shows_its_result() Void!Str {
+  let truncated = mut transcript::tool_call("c1", "write")
+  truncated.arguments_truncated = true
+  let shown = show(40, 3, truncated.@, result("Wrote 4210 lines to huge.md", ""))
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(
+    rows(shown.terminal),
+    [" Wrote 4210 lines to huge.md", "                  content not available", ""],
+  )
+}
+
+test fn long_lines_keep_their_shape_and_scroll_sideways() Void!Str {
+  let shown = show(
+    20,
+    3,
+    call("read", "{{\"path\":\"notes.txt\"}}"),
+    result("short\nthe quick brown fox jumps over", ""),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  // A horizontal scrollbar takes a row while a line is wider than the well.
+  try expect_rows(
+    rows(shown.terminal),
+    [" short", " the quick brown fo", "━━━━━━━━━━━────────"],
+  )
+  shown.terminal.scroll(5, 1, 0, delta_x: 3)
+  shown.terminal.flush()
+  shown.terminal.flush()
+  expect_rows(
+    rows(shown.terminal),
+    ["ort", "e quick brown fox j", "──━━━━━━━━━━━──────"],
+  )
+}

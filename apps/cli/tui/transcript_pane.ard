@@ -1120,10 +1120,8 @@ fn work_view(themes: theme::Context, work: Work, run: transcript::Work) cui::Vie
                       tool_output::Props{
                         themes: themes,
                         key: row,
-                        text: result.text,
-                        running: result.tool_state == transcript::ToolState::running,
-                        truncated: result.output_truncated,
-                        omitted: result.details_omitted,
+                        call: step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name)),
+                        result: result,
                       },
                     ),
                   ],

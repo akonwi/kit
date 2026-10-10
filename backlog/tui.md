@@ -112,16 +112,22 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     the transcript at its edges. A running call's output streams in and the well follows its end.
     A footer counts overflowing lines and notes truncated output or omitted
     details. Several wells may be open; opening or closing chips closes
-    them.
+    them. Lines keep their shape: wider output scrolls sideways, with a
+    horizontal scrollbar while it overflows.
   Coding tools:
   - [x] `bash`: Run command · the command (multi-line commands summarized).
-  - [x] `bash` output: the command's output.
+  - [x] `bash` output: the full command, highlighted as bash, then its
+    output: highlighted in a file's language when the command only prints
+    that file (`cat`, `head`, `tail`, `sed -n`), in diff colors when it is a
+    unified diff, and plain otherwise or while running.
   - [x] `read`: Read file · `path:start–end`, `· empty`, `· truncated`.
-  - [ ] `read` output: the lines read, highlighted, with line numbers.
+  - [x] `read` output: the lines read, highlighted in the file's language.
   - [x] `write`: Write N lines · path.
-  - [ ] `write` output: the written content, highlighted.
+  - [x] `write` output: the written content, highlighted, or the result
+    when the server cut the arguments.
   - [x] `edit`: Edit N sections · path.
-  - [ ] `edit` output: a diff of each edit.
+  - [x] `edit` output: each edit's old and new text as removed and added
+    lines on the theme's diff fills, highlighted in the file's language.
   - [ ] `read`, `write`, `edit`: clicking the path opens the File pane, at
     the lines read for `read` (TUI-COOPER-008).
   - [x] `ls`: List directory · path.
