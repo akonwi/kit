@@ -71,6 +71,38 @@ fn format_session_updated(raw: Str, now: time::Time) Str {
   }
 }
 
+// The number of terminal cells value occupies.
+fn cell_width(value: Str) Int {
+  mut width = 0
+  for character in vaxis::Characters(value) {
+    width =+ character.Width
+  }
+  width
+}
+
+// value cut to its first cells within maximum, ending in `…`. A value that
+// fits is unchanged.
+fn truncate_cells(value: Str, maximum: Int) Str {
+  if maximum <= 0 {
+    ""
+  } else if cell_width(value) <= maximum {
+    value
+  } else {
+    mut kept = ""
+    mut used = 0
+    mut fitting = true
+    for character in vaxis::Characters(value) {
+      if fitting and used + character.Width <= maximum - 1 {
+        kept = "{kept}{character.Grapheme}"
+        used =+ character.Width
+      } else {
+        fitting = false
+      }
+    }
+    "{kept}…"
+  }
+}
+
 private fn truncate_start_cells(value: Str, maximum: Int) Str {
   if maximum <= 0 {
     ""

@@ -202,7 +202,7 @@ private fn available_catalog(
       "agents delegates children",
       "not available yet",
     ),
-    command_item("tabs", "Open a workspace tab", "panes workspace", "not available yet"),
+    command_item("tabs", "Open a workspace tab", "panes workspace", ""),
     command_item("theme", "Choose UI colors", "appearance colors", ""),
     command_item("thinking", "Change reasoning effort", "reasoning effort", ""),
   ]
@@ -272,6 +272,7 @@ enum ActionKind {
   reload,
   sessions,
   scratchpad,
+  tabs,
   change_directory,
   prompt_command,
   plugin_command,
@@ -387,6 +388,7 @@ fn resolve(
       "reload" => builtin(ActionKind::reload),
       "sessions" => builtin(ActionKind::sessions),
       "scratchpad" => builtin(ActionKind::scratchpad),
+      "tabs" => builtin(ActionKind::tabs),
       "cd" => {
         match trimmed == "" {
           true => Result::err(Notice{title: "Usage: /cd <path>", detail: ""}),

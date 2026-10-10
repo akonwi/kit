@@ -1,0 +1,229 @@
+use ard/testing
+
+// The workspace tabs of one attachment. Agent is permanent and first;
+// secondary panes follow in the order they were opened, and the strip shows
+// only once one is open. The tabs are client-local: they reset with the
+// attachment and are never persisted.
+
+// The most secondary tabs open at once.
+let limit = 32
+
+// The identity of Agent, the permanent first tab.
+let agent = ""
+
+enum Kind {
+  scratchpad,
+}
+
+struct Tab {
+  // Identifies the pane: opening a tab with an open tab's id selects it.
+  id: Str,
+  kind: Kind,
+  label: Str,
+}
+
+fn scratchpad() Tab {
+  Tab{
+    id: "scratchpad",
+    kind: Kind::scratchpad,
+    label: "Scratchpad",
+  }
+}
+
+struct Tabs {
+  open: [Tab],
+  // The selected tab's id; `agent` for Agent.
+  selected: Str,
+}
+
+fn tabs() mut Tabs {
+  (mut Tabs{open: [], selected: agent})
+}
+
+impl Tabs {
+  // Whether a secondary tab is open, which shows the strip.
+  fn shown() Bool {
+    self.open.size() > 0
+  }
+
+  fn on_agent() Bool {
+    self.selected == agent
+  }
+
+  fn has(id: Str) Bool {
+    self.position(id) >= 0
+  }
+
+  // The selected secondary tab, if any.
+  fn current() Tab? {
+    mut found = Maybe::new<Tab>()
+    for tab in self.open {
+      if tab.id == self.selected {
+        found = Maybe::new(tab)
+      }
+    }
+    found
+  }
+
+  // A tab's place in the strip: 0 for Agent, then 1 onward; -1 if it is not
+  // open.
+  fn position(id: Str) Int {
+    mut found = match id == agent {
+      true => 0,
+      false => -1,
+    }
+    for tab, index in self.open {
+      if tab.id == id {
+        found = index + 1
+      }
+    }
+    found
+  }
+
+  // Appends `tab` unless a tab with its id is open. Returns false, changing
+  // nothing, when the tab is new and `limit` tabs are open.
+  fn mut add(tab: Tab) Bool {
+    if self.has(tab.id) {
+      true
+    } else if self.open.size() >= limit {
+      false
+    } else {
+      let next = mut List::new<Tab>()
+      for existing in self.open {
+        next.push(existing)
+      }
+      next.push(tab)
+      self.open = next.@
+      true
+    }
+  }
+
+  // Adds `tab` as `add` does and selects it.
+  fn mut open(tab: Tab) Bool {
+    match self.add(tab) {
+      true => self.select(tab.id),
+      false => false,
+    }
+  }
+
+  fn mut select(id: Str) Bool {
+    match self.has(id) {
+      true => {
+        self.selected = id
+        true
+      },
+      false => false,
+    }
+  }
+
+  // The id of the tab `delta` places from the selected one, wrapping through
+  // Agent.
+  fn beside(delta: Int) Str {
+    let count = self.open.size() + 1
+    let shifted = (self.position(self.selected) + delta) % count
+    let step = match shifted < 0 {
+      true => shifted + count,
+      false => shifted,
+    }
+    match step == 0 {
+      true => agent,
+      false => self.open.at(step - 1).expect("an open tab").id,
+    }
+  }
+
+  // Closes a secondary tab. Closing the selected tab selects the one that
+  // took its place, or the one before it when it was last.
+  fn mut close(id: Str) Bool {
+    let place = self.position(id)
+    if place < 1 {
+      false
+    } else {
+      let next = mut List::new<Tab>()
+      for tab in self.open {
+        if tab.id != id {
+          next.push(tab)
+        }
+      }
+      self.open = next.@
+      if self.selected == id {
+        let neighbor = match place > self.open.size() {
+          true => self.open.size(),
+          false => place,
+        }
+        self.selected = match neighbor == 0 {
+          true => agent,
+          false => self.open.at(neighbor - 1).expect("an open tab").id,
+        }
+      }
+      true
+    }
+  }
+}
+
+private fn file(name: Str) Tab {
+  Tab{
+    id: name,
+    kind: Kind::scratchpad,
+    label: name,
+  }
+}
+
+test fn opening_appends_selects_and_deduplicates() Void!Str {
+  let subject = tabs()
+  try testing::assert(not subject.shown() and subject.on_agent(), "only Agent at first")
+  try testing::assert(subject.open(file("a")) and subject.open(file("b")), "tabs open")
+  try testing::assert(subject.selected == "b", "the opened tab is selected")
+  try testing::assert(subject.open(file("a")), "reopening succeeds")
+  try testing::assert(subject.selected == "a", "reopening selects the open tab")
+  testing::assert(
+    subject.open.size() == 2 and subject.position("b") == 2,
+    "reopening appends nothing",
+  )
+}
+
+test fn opening_stops_at_the_limit() Void!Str {
+  let subject = tabs()
+  for index in 1..limit {
+    let _ = subject.open(file("{index}"))
+  }
+  try testing::assert(not subject.open(file("over")), "a new tab past the limit is refused")
+  try testing::assert(subject.selected == "{limit}", "a refused tab changes nothing")
+  testing::assert(
+    subject.open(file("1")) and subject.selected == "1",
+    "an open tab is still selectable",
+  )
+}
+
+test fn moving_wraps_through_agent() Void!Str {
+  let subject = tabs()
+  try testing::assert(subject.beside(1) == agent, "Agent alone stays on Agent")
+  let _ = subject.open(file("a"))
+  let _ = subject.open(file("b"))
+  try testing::assert(subject.beside(1) == agent, "next from the last tab wraps to Agent")
+  try testing::assert(subject.beside(-1) == "a", "previous goes back one")
+  let _ = subject.select(agent)
+  testing::assert(subject.beside(-1) == "b" and subject.beside(1) == "a", "Agent wraps both ways")
+}
+
+test fn closing_selects_the_neighbor() Void!Str {
+  let subject = tabs()
+  let _ = subject.open(file("a"))
+  let _ = subject.open(file("b"))
+  let _ = subject.open(file("c"))
+  let _ = subject.select("b")
+  try testing::assert(subject.close("b") and subject.selected == "c", "the next tab takes its place")
+  try testing::assert(
+    subject.close("c") and subject.selected == "a",
+    "closing the last selects the one before",
+  )
+  let _ = subject.open(file("d"))
+  try testing::assert(
+    subject.close("a") and subject.selected == "d",
+    "closing another tab keeps the selection",
+  )
+  try testing::assert(subject.close("d") and subject.on_agent(), "closing the only tab selects Agent")
+  testing::assert(
+    not subject.close(agent) and not subject.close("gone"),
+    "Agent and closed tabs cannot close",
+  )
+}

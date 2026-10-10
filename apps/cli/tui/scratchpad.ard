@@ -103,7 +103,8 @@ struct Editor {
   remotes: Chan<protocol::Scratchpad>,
 }
 
-// pane materializes the stateful editor only while Shell shows Scratchpad.
+// pane materializes the stateful editor while the Scratchpad tab is open,
+// hidden or not, so autosave continues while another tab is shown.
 fn pane(props: Props, scope_id: Int) cui::View {
   let colors = props.themes.current()
   if props.loading {
