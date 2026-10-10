@@ -77,8 +77,10 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   the top, including when the first page does not fill the view, keeping
   loaded pages across later snapshots. The vaxis reading-section strip and
   "Beginning of conversation" row are intentionally not ported.
-- [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
+- [~] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
   wells, tool-result image previews, and file navigation from tool results.
+  Remaining: opening the File pane from a path (TUI-COOPER-008) and a
+  subagent's conversation tab from its name (TUI-COOPER-009).
   Rows follow the vaxis client (`presentToolCall` in
   `internal/tui/transcript_model.go`) unless marked new. Titles and
   summaries of the tools vaxis knows are ported as `ffi/toolpresentation`;
@@ -86,7 +88,7 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   Shared:
   - [x] Work chip: one row per run of tool calls (`▸ 3 tool calls · 1
     failed`), a spinner while running and closed, and a click to open it,
-    closing any other. A running run of up to five calls opens on its own
+    closing any other, including one that opened on its own. A running run of up to five calls opens on its own
     until clicked. Runs are keyed by turn and first call, so a live run
     keeps its state when persisted. While open it lists the plain tool rows
     until the activity list replaces them. (vaxis's `N steps` label is not
@@ -96,7 +98,9 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     a row per tool call. Rows come from the calls, so a call without a result
     reads planned, or not run after an abort. Prose ends a run and stays
     outside it, as in vaxis; unlike vaxis, a message with only thinking
-    stays in its run and its thinking is listed.
+    stays in its run and its thinking is listed. A finished reply that only
+    thinks leads the run that follows in its turn, or else shows on its own
+    in the same muted italic.
   - [x] Tool row: a state icon (spinner, blank when done, `✗` failed, `⊘`
     not run), the title in the accent color (danger when failed, muted when
     aborted), and a summary chip. A chip's rows share a title column as wide
