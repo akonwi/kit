@@ -182,9 +182,8 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   project), and plugin commands with argument hints, fuzzy search over names
   and aliases, Tab completion, and feedback for commands unavailable while
   busy or without a compatible server. The theme, model, and thinking pickers
-  and the composer's inline picker are complete. Remaining: the `diff`
-  command (TUI-COOPER-008), the `subagents` command
-  (TUI-COOPER-009), and shortcuts discovered from Cooper keymaps.
+  and the composer's inline picker are complete. Remaining: the `subagents`
+  command (TUI-COOPER-009), and shortcuts discovered from Cooper keymaps.
 - [x] TUI-COOPER-007 — Interaction dock for pending server-owned requests:
   model confirm, input, select, and guided requests, and plugin confirm,
   input, and select requests with their labels, default choice, initial
@@ -208,9 +207,16 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     loading, empty, binary, missing, unreadable, busy, and truncated states,
     and freezes once the session leaves its workspace. A tool row's summary
     opens it (TUI-COOPER-005).
-  - [ ] Diff: `/diff` shows the working tree, or a commit or branch, as
-    one document with a section per changed file; unified or split, wrap,
-    file and hunk navigation, and polling.
+  - [x] Diff: `/diff` opens the Diff tab, which shows the working tree of
+    the session's current workspace as one document: a section per changed
+    file between rules, whose header (a ghost button with its path) stays
+    pinned while its lines scroll and collapses the file when clicked. A section loads when it
+    scrolls into view, with old and new line numbers, diff fills, and
+    highlighting; hunks are separated by `⋯`, without patch headers. Lines
+    scroll sideways like the File pane's. While shown, it checks the working
+    tree every 5 seconds and reloads what changed, keeping its place.
+  - [ ] Diff: commit and branch targets from a target picker in the header,
+    split layout where wide enough, and wrapping.
 - [ ] TUI-COOPER-016 — Annotations on the File and Diff panes
   (TUI-COOPER-008): create, edit, and delete annotations on file and diff
   lines. Pending annotations show as chips above the composer and are sent

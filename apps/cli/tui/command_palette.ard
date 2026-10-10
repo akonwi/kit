@@ -169,7 +169,7 @@ private fn available_catalog(
       },
     ),
     command_item("debug", "Show session diagnostics", "details usage", ""),
-    command_item("diff", "Review working-tree changes", "changes working tree", "not available yet"),
+    command_item("diff", "Review working-tree changes", "changes working tree", ""),
     command_item("files", "Open a workspace file", "file open browse", ""),
     command_item_with_hint(
       "fork",
@@ -274,6 +274,7 @@ enum ActionKind {
   scratchpad,
   tabs,
   files,
+  diff,
   change_directory,
   prompt_command,
   plugin_command,
@@ -391,6 +392,7 @@ fn resolve(
       "scratchpad" => builtin(ActionKind::scratchpad),
       "tabs" => builtin(ActionKind::tabs),
       "files" => builtin(ActionKind::files),
+      "diff" => builtin(ActionKind::diff),
       "cd" => {
         match trimmed == "" {
           true => Result::err(Notice{title: "Usage: /cd <path>", detail: ""}),

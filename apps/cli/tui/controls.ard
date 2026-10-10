@@ -21,9 +21,11 @@ fn keep_interrupt_binding() keymap::Binding {
 // ButtonVariant selects a semantic presentation while retaining the same
 // pointer and keyboard interaction contract.
 enum ButtonVariant {
+  // Transparent at rest; only hover and press fill it.
   primary,
   secondary,
   danger,
+  ghost,
 }
 
 struct ButtonProps {
@@ -38,6 +40,8 @@ struct ButtonProps {
   styles: ui::Style?,
   foreground: ui::Color?,
   hover_label: Str?,
+  // Whether the button's fill spans its whole width.
+  stretch: Bool,
   control: mut cui::BoxRef,
 }
 
@@ -63,6 +67,7 @@ fn button(
   styles: ui::Style?,
   foreground: ui::Color?,
   hover_label: Str?,
+  stretch: Bool?,
   ref: (mut cui::BoxRef)?,
 ) cui::View {
   cui::child(
@@ -79,6 +84,7 @@ fn button(
       styles: styles,
       foreground: foreground,
       hover_label: hover_label,
+      stretch: stretch.or(false),
       control: ref.or(cui::box_ref()),
     },
   )
@@ -117,22 +123,29 @@ impl cui::Lifecycle for Button {
 }
 
 impl Button {
-  private fn fill() ui::Color {
+  private fn fill() ui::Color? {
     let colors = self.props.themes.current()
     match self.props.variant {
-      ButtonVariant::primary => {
+      ButtonVariant::ghost => {
         match {
-          self.pressed => colors.primary_pressed,
-          self.hovered or self.focused => colors.primary_hovered,
-          _ => colors.primary,
+          self.pressed => Maybe::new(colors.surface_pressed),
+          self.hovered or self.focused => Maybe::new(colors.surface_hovered),
+          _ => Maybe::new<ui::Color>(),
         }
       },
-      ButtonVariant::danger => colors.danger,
+      ButtonVariant::primary => {
+        match {
+          self.pressed => Maybe::new(colors.primary_pressed),
+          self.hovered or self.focused => Maybe::new(colors.primary_hovered),
+          _ => Maybe::new(colors.primary),
+        }
+      },
+      ButtonVariant::danger => Maybe::new(colors.danger),
       ButtonVariant::secondary => {
         match {
-          self.pressed => colors.surface_pressed,
-          self.hovered or self.focused => colors.surface_hovered,
-          _ => colors.surface,
+          self.pressed => Maybe::new(colors.surface_pressed),
+          self.hovered or self.focused => Maybe::new(colors.surface_hovered),
+          _ => Maybe::new(colors.surface),
         }
       },
     }
@@ -198,6 +211,10 @@ impl cui::Component for Button {
         cui::box(
           [cui::text(label, text_style: ui::text_style(foreground: self.foreground()))],
           styles: ui::style(
+            flex_grow: match self.props.stretch {
+              true => 1.0,
+              false => 0.0,
+            },
             background: self.fill(),
             padding: ui::Edges{
               top: ui::cells(0),

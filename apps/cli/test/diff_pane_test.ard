@@ -1,0 +1,239 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/diff_pane
+use kit/tui/theme
+use go:strings
+use go:time
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn same_color(left: ui::Color?, right: ui::Color) Bool {
+  match left {
+    color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+    _ => false,
+  }
+}
+
+fn line(kind: Str, old: Int, new: Int, content: Str) protocol::DiffLine {
+  let made = mut protocol::DiffLine{Kind: kind, Content: content}
+  if old > 0 {
+    let number = old
+    made.OldLine = mut number
+  }
+  if new > 0 {
+    let number = new
+    made.NewLine = mut number
+  }
+  made.@
+}
+
+fn observed(input: protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error {
+  Result::ok(
+    protocol::WorkingTreePage{
+      Observation: protocol::DiffObservation{Revision: "revision_1", Target: protocol::DiffTarget{ID: "difftarget_1"}},
+      Files: [
+        protocol::DiffFileSummary{
+          Path: "main.go",
+          ContentState: "text",
+          FileRevision: "file_1",
+        },
+        protocol::DiffFileSummary{Path: "logo.png", ContentState: "binary"},
+      ],
+    },
+  )
+}
+
+fn read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
+  Result::ok(
+    protocol::FileDiffPage{
+      Hunks: [
+        protocol::DiffHunk{
+          Lines: [
+            line("context", 1, 1, "package main"),
+            line("deletion", 2, 0, "var x = 1"),
+            line("addition", 0, 2, "var x = 2"),
+            line("addition", 0, 3, "var y = 3"),
+          ],
+        },
+      ],
+    },
+  )
+}
+
+test fn the_working_tree_shows_each_file_and_its_changes() Void!Str {
+  let terminal = headless::new(44, 12)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(
+      diff_pane::Props{
+        themes: theme::context(theme::store(theme::system())),
+        workspace_id: "workspace_a",
+        shown: true,
+        observe: Maybe::new(observed),
+        read: Maybe::new(read),
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  mut attempts = 0
+  while attempts < 200 and not strings::Contains(terminal.frame().text(), "var y") {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      " Working tree  2 changed files",
+      "────────────────────────────────────────────",
+      " ▾ main.go",
+      "───────────────────────────────────────────",
+      " 1 1   package main",
+      " 2   − var x = 1",
+      "   2 + var x = 2",
+      "   3 + var y = 3",
+      "───────────────────────────────────────────",
+      " ▾ logo.png",
+      "───────────────────────────────────────────",
+      "  Binary file changed",
+    ],
+  )
+  let colors = theme::system()
+  let resting = terminal.frame().cell(20, 2).expect("file header").style.background
+  try testing::assert(resting.is_none(), "a file's header is a ghost button")
+  terminal.mouse_move(20, 2)
+  terminal.flush()
+  let hovered = terminal.frame().cell(20, 2).expect("hovered header")
+  try testing::assert(same_color(hovered.style.background, colors.surface_hovered), "hovering fills it")
+  let removed = terminal.frame().cell(30, 5).expect("removed line")
+  try testing::assert(
+    same_color(removed.style.background, colors.diff_removed),
+    "a removed line is filled",
+  )
+  let added = terminal.frame().cell(30, 6).expect("added line")
+  try testing::assert(same_color(added.style.background, colors.diff_added), "an added line is filled")
+  terminal.click(4, 2)
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      " Working tree  2 changed files",
+      "────────────────────────────────────────────",
+      " ▸ main.go",
+      "───────────────────────────────────────────",
+      " ▾ logo.png",
+      "───────────────────────────────────────────",
+      "  Binary file changed",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ],
+  )
+  testing::pass()
+}
+
+fn long_read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
+  let lines = mut List::new<protocol::DiffLine>()
+  for number in 1..12 {
+    lines.push(line("addition", 0, number, "line {number}"))
+  }
+  Result::ok(protocol::FileDiffPage{Hunks: [protocol::DiffHunk{Lines: lines.@}]})
+}
+
+test fn a_scrolled_file_keeps_its_header_pinned() Void!Str {
+  let terminal = headless::new(44, 8)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(
+      diff_pane::Props{
+        themes: theme::context(theme::store(theme::system())),
+        workspace_id: "workspace_a",
+        shown: true,
+        observe: Maybe::new(observed),
+        read: Maybe::new(long_read),
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  mut attempts = 0
+  while attempts < 200 and not strings::Contains(terminal.frame().text(), "line 1") {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.scroll(10, 4, 3)
+  terminal.flush()
+  terminal.flush()
+  let shown = rows(terminal)
+  try testing::assert(
+    strings::HasPrefix(shown.at(2).or(""), " ▾ main.go  "),
+    "the header stays on top:\n{strings::Join(mut shown, "|\n")}",
+  )
+  try testing::assert(strings::HasPrefix(shown.at(3).or(""), "───"), "with its rule")
+  testing::assert(strings::Contains(shown.at(4).or(""), "line "), "its lines scroll beneath it")
+}
+
+test fn loading_is_centered_in_the_pane() Void!Str {
+  let terminal = headless::new(44, 12)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(
+      diff_pane::Props{
+        themes: theme::context(theme::store(theme::system())),
+        workspace_id: "workspace_a",
+        shown: true,
+        observe: Maybe::new<fn(protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error>(),
+        read: Maybe::new(read),
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let shown = rows(terminal)
+  mut found = -1
+  for row, index in shown {
+    if strings::Contains(row, "Loading diff…") {
+      found = index
+    }
+  }
+  let text = shown.at(found).or("")
+  // The body has ten rows under the header; the spinner and label take 15
+  // of 44 columns.
+  try testing::assert(found == 7, "the middle row of the body:\n{strings::Join(mut shown, "|\n")}")
+  testing::assert(
+    strings::HasPrefix(text, strings::Repeat(" ", 15) + "⠋") and strings::HasSuffix(text, " Loading diff…"),
+    "the middle columns: {text}|",
+  )
+}

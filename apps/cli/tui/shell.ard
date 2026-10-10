@@ -25,6 +25,7 @@ use kit/tui/chrome
 use kit/tui/command_palette
 use kit/tui/composer
 use kit/tui/controls
+use kit/tui/diff_pane
 use kit/tui/file_pane
 use kit/tui/file_picker
 use kit/tui/image_preview
@@ -434,6 +435,36 @@ impl Shell {
             flex_basis: ui::cells(0),
             min_height: ui::cells(3),
             display: match self.on_scratchpad() {
+              true => ui::Display::flex,
+              false => ui::Display::none,
+            },
+          ),
+        ),
+      )
+    }
+    // The Diff pane stays mounted while hidden, keeping its place.
+    if self.workspace.has(workspace::diff().id) {
+      let shown = self.workspace.selected == workspace::diff().id
+      children.push(
+        cui::box(
+          [
+            diff_pane::view(
+              diff_pane::Props{
+                themes: self.props.themes,
+                workspace_id: self.attached.workspace_id,
+                shown: shown,
+                observe: self.attached.diff_observer(),
+                read: self.attached.diff_reader(),
+              },
+            ),
+          ],
+          key: "workspace:diff",
+          styles: ui::style(
+            flex_grow: 1.0,
+            flex_basis: ui::cells(0),
+            min_height: ui::cells(3),
+            flex_direction: ui::FlexDirection::column,
+            display: match shown {
               true => ui::Display::flex,
               false => ui::Display::none,
             },
@@ -1500,6 +1531,11 @@ impl Shell {
       command_palette::ActionKind::tabs => { self.active_modal = TabsModal{} },
       command_palette::ActionKind::files => {
         let _ = self.open_files()
+      },
+      command_palette::ActionKind::diff => {
+        self.finish_modal()
+        self.attached.load_workspace()
+        self.open_tab(workspace::diff())
       },
       command_palette::ActionKind::change_directory => {
         self.finish_modal()

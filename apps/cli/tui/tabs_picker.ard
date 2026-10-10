@@ -72,6 +72,7 @@ private fn kind_name(kind: workspace::Kind) Str {
   match kind {
     workspace::Kind::scratchpad => "scratchpad",
     workspace::Kind::file => "file",
+    workspace::Kind::diff => "diff",
   }
 }
 

@@ -16,6 +16,7 @@ let agent = ""
 enum Kind {
   scratchpad,
   file,
+  diff,
 }
 
 struct Tab {
@@ -54,6 +55,20 @@ fn file(workspace_id: Str, file_path: Str, line: Int) Tab {
     path: file_path,
     workspace_id: workspace_id,
     line: line,
+    opening: 0,
+  }
+}
+
+// The Diff tab. There is one: it shows the working tree of the session's
+// current workspace, following it when the working directory changes.
+fn diff() Tab {
+  Tab{
+    id: "diff",
+    kind: Kind::diff,
+    label: "Diff",
+    path: "",
+    workspace_id: "",
+    line: 0,
     opening: 0,
   }
 }
