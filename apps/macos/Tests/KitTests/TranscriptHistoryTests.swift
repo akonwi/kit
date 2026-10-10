@@ -26,6 +26,26 @@ private actor HistoryClient: TranscriptPagingClient {
     func fail(_ error: ClientError = .disconnected) { pending?.resume(throwing: error); pending = nil }
 }
 
+/// Serves transcript pages only from the complete-turn transcript endpoint.
+private final class TranscriptPageResponse: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let url = request.url!
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let served = url.path == "/v1/sessions/s/transcript" && query.map(\.name) == ["before"]
+            && query.first?.value == "20"
+        let body = served
+            ? #"{"sessionId":"s","hasMoreMessages":true,"previousMessageCursor":"10","messages":[{"id":"m10","turnId":"t","sequence":10,"role":"user","createdAt":"","content":[{"kind":"text","text":"Older"}]}]}"#
+            : #"{"error":{"code":"not_found","message":"not found"}}"#
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: served ? 200 : 404, httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 @MainActor struct TranscriptHistoryTests {
     private func snapshot(_ range: Range<Int>) -> SessionExcerpt {
         SessionExcerpt(id: "s", title: "History", sourceTitle: "", model: "m", thinking: "high",
@@ -99,6 +119,17 @@ private actor HistoryClient: TranscriptPagingClient {
         #expect(state.selected?.historyCursor == "100")
         #expect(state.ui.draft == "Keep this")
         #expect(state.historyError == nil)
+    }
+
+    @Test func historyPagesComeFromTheTranscriptEndpoint() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [TranscriptPageResponse.self]
+        let client = try HTTPClient(endpoint: URL(string: "http://127.0.0.1:19301")!, token: "test", instance: "test",
+                                    serverID: "test", configuration: config)
+        let page = try await client.history("s", before: "20")
+        #expect(page.sessionID == "s")
+        #expect(page.messages.map(\.text) == ["Older"])
+        #expect(page.previousCursor == "10")
     }
 
     @Test func validatesExclusiveCursorAndPageIdentity() throws {

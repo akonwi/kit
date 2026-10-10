@@ -968,8 +968,8 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
 
     func history(_ id: String, before: String) async throws -> TranscriptHistoryPage {
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
-              let cursor = UInt64(before), cursor > 0, let beforeCursor = Int(exactly: cursor) else { throw ClientError.invalidPayload }
-        let output = try await generatedOperation { try await api.getMessagePage(path: .init(sessionID: id), query: .init(before: beforeCursor), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._45)) }
+              let cursor = UInt64(before), cursor > 0 else { throw ClientError.invalidPayload }
+        let output = try await generatedOperation { try await api.getTranscriptPage(path: .init(sessionID: id), query: .init(before: String(cursor)), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._45)) }
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let page: WireTranscriptPage = try generated(try response.body.json, as: WireTranscriptPage.self)
         return try TranscriptHistoryPage(page, sessionID: id, before: before)
