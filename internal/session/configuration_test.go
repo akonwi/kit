@@ -703,7 +703,17 @@ func TestCompactSessionCreatesCheckpointPreservesHistoryAndReopens(t *testing.T)
 	t.Cleanup(func() { _ = store.Close() })
 	providers := &configurationProviders{}
 	providers.setSmallContextWindow(128_000)
-	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")))
+	manager, err := session.NewManager(
+		store, providers, staticRuntimeBundleBuilder("system"),
+		session.WithDroidStoreDirectory(filepath.Join(base, "droids")),
+		session.WithModelContextWindow(func(selector string) int {
+			if selector == "test/large" {
+				return 64_000
+			}
+			return 0
+		}),
+		session.WithCompactionModel(func() string { return "test/large" }),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -728,6 +738,10 @@ func TestCompactSessionCreatesCheckpointPreservesHistoryAndReopens(t *testing.T)
 	}
 	if !result.Compacted || result.CheckpointID == "" || result.EventStreamID == before.EventStreamID {
 		t.Fatalf("CompactSession() = %+v", result)
+	}
+	compactionCall := providers.lastCall()
+	if !compactionCall.compaction || compactionCall.model != "large" || compactionCall.contextWindow != 64_000 {
+		t.Fatalf("compaction call = %+v, want overridden test/large model", compactionCall)
 	}
 	after, err := manager.Snapshot(t.Context(), record.ID)
 	if err != nil {
@@ -962,9 +976,10 @@ func TestRuntimeRestoresAndPersistsMissingOrUnsupportedThinking(t *testing.T) {
 }
 
 type configurationProviderCall struct {
-	model      string
-	reasoning  string
-	compaction bool
+	model         string
+	reasoning     string
+	contextWindow int
+	compaction    bool
 }
 
 type configurationProviders struct {
@@ -998,7 +1013,7 @@ func (*configurationProviders) RefreshModels(context.Context) error { return nil
 func (p *configurationProviders) Stream(ctx context.Context, model droids.Model, request droids.Request) droids.Stream {
 	compaction := strings.HasPrefix(request.SystemPrompt, "Summarize the supplied conversation")
 	p.mu.Lock()
-	p.calls = append(p.calls, configurationProviderCall{model: model.ID, reasoning: request.Reasoning, compaction: compaction})
+	p.calls = append(p.calls, configurationProviderCall{model: model.ID, reasoning: request.Reasoning, contextWindow: model.ContextWindow, compaction: compaction})
 	if compaction {
 		p.compactions++
 	}

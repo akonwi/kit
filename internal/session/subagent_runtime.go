@@ -31,11 +31,27 @@ type ChildRuntimeFactory struct {
 	bundleBuilder      RuntimeBundleBuilder
 	directory          string
 	modelContextWindow func(string) int
+	compactionModel    func() string
+}
+
+// ChildRuntimeFactoryOption configures child runtime creation.
+type ChildRuntimeFactoryOption func(*ChildRuntimeFactory) error
+
+// WithChildCompactionModel supplies the optional exact model selector used to
+// summarize compacted child context. An empty selector preserves the child's model.
+func WithChildCompactionModel(resolve func() string) ChildRuntimeFactoryOption {
+	return func(factory *ChildRuntimeFactory) error {
+		if resolve == nil {
+			return errors.New("child compaction model resolver is required")
+		}
+		factory.compactionModel = resolve
+		return nil
+	}
 }
 
 // NewChildRuntimeFactory constructs the child runtime boundary. bundleBuilder
 // must omit the parent-facing subagent tool to prohibit nested delegation.
-func NewChildRuntimeFactory(providers droids.Providers, bundleBuilder RuntimeBundleBuilder, droidDirectory string, modelContextWindow func(string) int) (*ChildRuntimeFactory, error) {
+func NewChildRuntimeFactory(providers droids.Providers, bundleBuilder RuntimeBundleBuilder, droidDirectory string, modelContextWindow func(string) int, options ...ChildRuntimeFactoryOption) (*ChildRuntimeFactory, error) {
 	if providers == nil {
 		return nil, errors.New("child runtime providers are required")
 	}
@@ -52,7 +68,16 @@ func NewChildRuntimeFactory(providers droids.Providers, bundleBuilder RuntimeBun
 	if err := securefs.MakePrivateDir(absolute); err != nil {
 		return nil, fmt.Errorf("create child droid directory: %w", err)
 	}
-	return &ChildRuntimeFactory{providers: providers, bundleBuilder: bundleBuilder, directory: absolute, modelContextWindow: modelContextWindow}, nil
+	factory := &ChildRuntimeFactory{providers: providers, bundleBuilder: bundleBuilder, directory: absolute, modelContextWindow: modelContextWindow}
+	for _, option := range options {
+		if option == nil {
+			return nil, errors.New("child runtime option is required")
+		}
+		if err := option(factory); err != nil {
+			return nil, err
+		}
+	}
+	return factory, nil
 }
 
 // Delete removes a closed child conversation store and SQLite sidecars.
@@ -150,6 +175,26 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 	config := droids.Config{
 		Store: store, Model: model,
 		Reasoning: conversation.ThinkingLevel, SystemPrompt: systemPrompt, Tools: tools,
+	}
+	if f.compactionModel != nil {
+		selector := f.compactionModel()
+		if selector != "" {
+			compactionModel, resolveErr := f.providers.Resolve(selector)
+			if resolveErr != nil {
+				_ = store.Close()
+				return nil, fmt.Errorf("resolve child compaction model %q: %w", selector, resolveErr)
+			}
+			if compactionModel.Provider+"/"+compactionModel.ID != selector || compactionModel.Provider == "" || compactionModel.ID == "" {
+				_ = store.Close()
+				return nil, fmt.Errorf("resolve child compaction model %q: exact provider/model id is required", selector)
+			}
+			if f.modelContextWindow != nil {
+				if contextWindow := f.modelContextWindow(selector); contextWindow > 0 {
+					compactionModel = compactionModel.WithContextWindow(contextWindow)
+				}
+			}
+			config.Compaction.Model = compactionModel
+		}
 	}
 	if interception != nil {
 		config.BeforeToolCall = interception.before

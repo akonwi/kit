@@ -20,10 +20,11 @@ import (
 // Settings contains the settings currently consumed by the native application.
 // Unrecognized JSON fields are retained internally when settings are updated.
 type Settings struct {
-	Theme          string
-	DefaultModel   string
-	DiffWrapLines  bool
-	ModelOverrides map[string]ModelOverride
+	Theme           string
+	DefaultModel    string
+	CompactionModel string
+	DiffWrapLines   bool
+	ModelOverrides  map[string]ModelOverride
 	// PromptCacheRetention is "short" (the default) or "long".
 	PromptCacheRetention string
 	// ReadClaudeConfigs enables discovery of Claude Code configuration, which is
@@ -227,6 +228,14 @@ func (s *Store) load() (Settings, []Warning, error) {
 			result.DefaultModel = selector
 		}
 	}
+	if raw, ok := fields["compactionModel"]; ok {
+		var selector string
+		if err := json.Unmarshal(raw, &selector); err != nil || !validModelSelector(selector) {
+			warnings = append(warnings, Warning{Field: "compactionModel", Err: errors.New("must be an exact provider/model selector; ignoring")})
+		} else {
+			result.CompactionModel = selector
+		}
+	}
 	if raw, ok := fields["promptCacheRetention"]; ok {
 		var retention string
 		if err := json.Unmarshal(raw, &retention); err != nil || (retention != PromptCacheShort && retention != PromptCacheLong) {
@@ -303,7 +312,7 @@ func defaultSettings() Settings {
 }
 
 func cloneSettings(source Settings) Settings {
-	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, DiffWrapLines: source.DiffWrapLines,
+	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, CompactionModel: source.CompactionModel, DiffWrapLines: source.DiffWrapLines,
 		PromptCacheRetention: source.PromptCacheRetention, ReadClaudeConfigs: source.ReadClaudeConfigs, fields: make(map[string]json.RawMessage, len(source.fields))}
 	if source.ModelOverrides != nil {
 		result.ModelOverrides = make(map[string]ModelOverride, len(source.ModelOverrides))

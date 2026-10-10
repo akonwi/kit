@@ -269,6 +269,36 @@ func TestLoadDefaultModel(t *testing.T) {
 	}
 }
 
+func TestLoadCompactionModel(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"compactionModel":"anthropic/claude-sonnet-4-6"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, warnings, err := newTestStore(t, path).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 || loaded.CompactionModel != "anthropic/claude-sonnet-4-6" {
+		t.Fatalf("settings = %+v, warnings = %+v", loaded, warnings)
+	}
+}
+
+func TestInvalidCompactionModelFallsBack(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"compactionModel":"claude-sonnet"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, warnings, err := newTestStore(t, path).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.CompactionModel != "" || len(warnings) != 1 || warnings[0].Field != "compactionModel" {
+		t.Fatalf("settings = %+v, warnings = %+v", loaded, warnings)
+	}
+}
+
 func TestLoadModelOverrides(t *testing.T) {
 	t.Parallel()
 

@@ -131,6 +131,7 @@ type Manager struct {
 	pluginContext         context.Context
 	cancelPlugins         context.CancelFunc
 	modelContextWindow    func(string) int
+	compactionModel       func() string
 	autoName              bool
 	attachments           attachment.Store
 	annotations           *kitannotation.Service
@@ -346,6 +347,7 @@ type managerOptions struct {
 	attachments        attachment.Store
 	annotations        *kitannotation.Service
 	modelContextWindow func(string) int
+	compactionModel    func() string
 	autoName           bool
 }
 
@@ -377,6 +379,18 @@ func WithModelContextWindow(resolve func(string) int) ManagerOption {
 			return fmt.Errorf("model context window resolver is required")
 		}
 		options.modelContextWindow = resolve
+		return nil
+	}
+}
+
+// WithCompactionModel supplies the optional exact model selector used to summarize compacted context.
+// An empty selector preserves the active session model.
+func WithCompactionModel(resolve func() string) ManagerOption {
+	return func(options *managerOptions) error {
+		if resolve == nil {
+			return fmt.Errorf("compaction model resolver is required")
+		}
+		options.compactionModel = resolve
 		return nil
 	}
 }
@@ -455,7 +469,7 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 	mailboxContext, cancelMailbox := context.WithCancel(context.Background())
 	pluginContext, cancelPlugins := context.WithCancel(context.Background())
 	manager := &Manager{
-		store: store, providers: providers, bundleBuilder: bundleBuilder, modelContextWindow: options.modelContextWindow, attachments: options.attachments, annotations: options.annotations, autoName: options.autoName,
+		store: store, providers: providers, bundleBuilder: bundleBuilder, modelContextWindow: options.modelContextWindow, compactionModel: options.compactionModel, attachments: options.attachments, annotations: options.annotations, autoName: options.autoName,
 		droidDirectory: options.droidDirectory, temporaryDroids: temporary,
 		pluginFactory: options.pluginFactory, pluginSubagents: options.pluginSubagents, pluginContext: pluginContext, cancelPlugins: cancelPlugins,
 		bashContext: bashContext, cancelBash: cancelBash,
@@ -2719,6 +2733,16 @@ func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store dro
 		Store: store, Model: model,
 		Reasoning: record.ThinkingLevel, SystemPrompt: bundle.Prompt.Prompt,
 		Tools: bundle.Tools,
+	}
+	if m.compactionModel != nil {
+		compactionSelector := m.compactionModel()
+		if compactionSelector != "" {
+			compactionModel, err := m.resolveExactModel(compactionSelector)
+			if err != nil {
+				return nil, droids.Snapshot{}, droids.Model{}, fmt.Errorf("resolve compaction model: %w", err)
+			}
+			config.Compaction.Model = m.applyModelContextWindow(compactionSelector, compactionModel)
+		}
 	}
 	if turnEvents != nil {
 		config.TurnStarted = turnEvents.started

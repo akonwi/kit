@@ -184,6 +184,14 @@ func Run(ctx context.Context, options RunOptions) error {
 		}
 		return current.ModelOverrides[selector].ContextWindow
 	}
+	compactionModel := func() string {
+		current, _, loadErr := settingsStore.Load()
+		if loadErr != nil {
+			logger.Warn("load compaction model", "error", loadErr)
+			return ""
+		}
+		return current.CompactionModel
+	}
 	childBundleBuilder, err := kitsession.NewRuntimeBundleBuilder(kitsession.RuntimeBundleOptions{
 		Core: systemPrompt, SkillLoader: skillLoader, PromptCommandLoader: promptCommandLoader,
 		Context: &systemprompt.ContextBuilderOptions{Paths: paths},
@@ -191,7 +199,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return fmt.Errorf("create child runtime bundle builder: %w", err)
 	}
-	childFactory, err := kitsession.NewChildRuntimeFactory(providers, childBundleBuilder, filepath.Join(paths.Droids, "subagents"), modelContextWindow)
+	childFactory, err := kitsession.NewChildRuntimeFactory(providers, childBundleBuilder, filepath.Join(paths.Droids, "subagents"), modelContextWindow, kitsession.WithChildCompactionModel(compactionModel))
 	if err != nil {
 		return fmt.Errorf("create child runtime factory: %w", err)
 	}
@@ -254,6 +262,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		kitsession.WithAttachmentStore(attachmentStore),
 		kitsession.WithAnnotationService(annotationService),
 		kitsession.WithModelContextWindow(modelContextWindow),
+		kitsession.WithCompactionModel(compactionModel),
 		kitsession.WithPluginHostFactory(pluginHostFactory(paths, pullRequests, logger)),
 		kitsession.WithPluginSubagentCatalogRegistry(subagentTools),
 		kitsession.WithAutomaticNaming(),
