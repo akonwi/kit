@@ -88,6 +88,37 @@ test fn header_shows_session_identity_configuration_and_context_usage() Void!Str
   )
 }
 
+// The header's buttons are ghost buttons: unfilled until hovered.
+test fn header_buttons_fill_only_when_hovered() Void!Str {
+  let session = protocol::SessionInfo{
+    ID: "session-1",
+    Name: "Release notes",
+    Model: "openai-codex/gpt-5.6-sol",
+    ThinkingLevel: "high",
+  }
+  let terminal = headless::new(60, 1)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, header_for(Maybe::new(session), 110000, 272000))
+  defer renderer.destroy()
+  terminal.flush()
+  for column in [3, 32, 46, 57] {
+    let resting = terminal.frame().cell(column, 0).expect("header button").style.background
+    try testing::assert(resting.is_none(), "the button at column {column} is unfilled at rest")
+  }
+  terminal.mouse_move(32, 0)
+  terminal.flush()
+  let hovered = terminal.frame().cell(32, 0).expect("hovered model").style.background
+  let fill = theme::system().surface_hovered
+  testing::assert(
+    match hovered {
+      color => color.red == fill.red and color.green == fill.green and color.blue == fill.blue,
+      _ => false,
+    },
+    "hovering the model fills it",
+  )
+}
+
 test fn header_without_a_session_shows_the_product_name() Void!Str {
   expect_rows(render(40, 1, header_for(Maybe::new<protocol::SessionInfo>(), 0, 0)), [" kit"])
 }
