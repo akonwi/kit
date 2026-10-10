@@ -2,6 +2,7 @@ package kit
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -457,16 +458,41 @@ func (c *Session) ReadFileDiff(ctx context.Context, input protocol.ReadFileDiffI
 		return c.transport.ReadFileDiff(operation, c.id, input)
 	})
 }
+
+// projectDiffError projects a diff operation failure. Diff error codes become
+// *protocol.DiffError values carrying their decoded details. The generic codes
+// diff operations also declare, such as internal or invalid_request, are
+// projected like any other server error; the transport has already rejected
+// codes the operation does not declare.
 func projectDiffError(err error) error {
 	var apiError *clienttransport.APIError
-	if !errors.As(err, &apiError) || apiError.Code == "" {
+	if !errors.As(err, &apiError) || !protocol.DiffErrorCode(apiError.Code).Valid() {
 		return projectError(err)
 	}
-	projected := &protocol.DiffError{Code: protocol.DiffErrorCode(apiError.Code), Message: apiError.Message, Details: apiError.Details}
-	if projected.Validate() != nil {
+	details, ok := diffErrorDetails(apiError)
+	projected := &protocol.DiffError{Code: protocol.DiffErrorCode(apiError.Code), Message: apiError.Message, Details: details}
+	if !ok || projected.Validate() != nil {
 		return fmt.Errorf("daemon returned malformed diff error")
 	}
 	return projected
+}
+
+// diffErrorDetails flattens the details of a diff error into the string map
+// carried by protocol.DiffError. The transport decodes declared details into
+// typed records, so those are re-encoded through their JSON field names.
+func diffErrorDetails(apiError *clienttransport.APIError) (map[string]string, bool) {
+	if apiError.TypedDetails == nil {
+		return apiError.Details, true
+	}
+	encoded, err := json.Marshal(apiError.TypedDetails)
+	if err != nil {
+		return nil, false
+	}
+	var details map[string]string
+	if err := json.Unmarshal(encoded, &details); err != nil {
+		return nil, false
+	}
+	return details, true
 }
 
 func (c *Session) ListAnnotations(ctx context.Context, input protocol.ListAnnotationsInput) (protocol.AnnotationPage, error) {
