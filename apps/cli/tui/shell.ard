@@ -1806,20 +1806,21 @@ impl Shell {
     }
   }
 
-  // Readies the newly selected tab.
+  // Readies the newly selected tab. The Scratchpad focuses its editor once
+  // loaded; every other tab focuses the composer, as File and Diff panes are
+  // mouse-only and take no focus.
   private fn mut entered_tab() {
     if self.on_scratchpad() {
       self.attached.load_scratchpad()
-    } else if self.workspace.on_agent() {
+    } else {
       self.focus_composer()
     }
   }
 
-  // File panes are mouse-only and take no focus.
   private fn mut focus_selected() {
     if self.on_scratchpad() {
       let _ = self.scratchpad_control.focus()
-    } else if self.workspace.on_agent() {
+    } else {
       self.focus_composer()
     }
   }
