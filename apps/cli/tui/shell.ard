@@ -492,6 +492,7 @@ impl Shell {
     }
     // File panes stay mounted while hidden, keeping their place in the file.
     let reader = self.attached.file_reader()
+    let annotate = self.attached.annotation_service()
     for tab in self.workspace.open {
       if tab.kind == workspace::Kind::file {
         let shown = tab.id == self.workspace.selected
@@ -505,6 +506,18 @@ impl Shell {
                   stale: tab.workspace_id != self.attached.workspace_id,
                   shown: shown,
                   read: reader,
+                  annotations: self.attached.annotations,
+                  annotate: annotate,
+                  remove_annotation: fn(id: Uint64) {
+                    self.dispatch(fn() {
+                      self.attached.remove_annotation(id)
+                    })
+                  },
+                  release_focus: fn() {
+                    self.dispatch(fn() {
+                      self.focus_composer()
+                    })
+                  },
                 },
               ),
             ],
@@ -529,8 +542,13 @@ impl Shell {
     // A dock stays presented beneath dialogs; it only stops owning input.
     let request = self.attached.interaction()
     let docked = self.docked()
-    if self.workspace.on_agent() and not docked {
-      children.push(self.pending_row())
+    // Elsewhere only the chips show, so the status line's changes don't
+    // resize the pane.
+    if not docked {
+      let pending = self.pending()
+      if pending.status or chrome::has_chips(pending) {
+        children.push(chrome::pending_row(self.props.themes, pending))
+      }
     }
     // The dock's frame, or the Bash panel's, separates it from the
     // workspace and footer.
@@ -811,22 +829,41 @@ impl Shell {
     )
   }
 
-  fn pending_row() cui::View {
-    chrome::pending_row(
-      self.props.themes,
-      chrome::Pending{
-        notice: self.attached.notice,
-        activity: self.attached.activity(),
-        follow_ups: self.attached.follow_ups,
-        attachments: self.attached.attachments,
-        rejecting_model: self.attached.rejecting_model(),
-        remove_attachment: fn(index: Int) {
-          self.dispatch(fn() {
-            self.attached.remove_attachment(index)
-          })
-        },
+  fn mut pending() chrome::Pending {
+    chrome::Pending{
+      status: self.workspace.on_agent(),
+      notice: self.attached.notice,
+      activity: self.attached.activity(),
+      follow_ups: self.attached.follow_ups,
+      attachments: self.attached.attachments,
+      annotations: self.attached.pending_annotations(),
+      rejecting_model: self.attached.rejecting_model(),
+      remove_attachment: fn(index: Int) {
+        self.dispatch(fn() {
+          self.attached.remove_attachment(index)
+        })
       },
-    )
+      open_annotation: fn(annotation: sessionbridge::Annotation) {
+        self.dispatch(fn() {
+          self.open_annotation(annotation)
+        })
+      },
+      remove_annotation: fn(id: Uint64) {
+        self.dispatch(fn() {
+          self.attached.remove_annotation(id)
+        })
+      },
+    }
+  }
+
+  // Opens an annotation's lines: a file's in its File tab, in the current
+  // workspace even when the file has since changed, and a diff's in the
+  // Diff tab.
+  fn mut open_annotation(annotation: sessionbridge::Annotation) {
+    match annotation.Kind == "diff" {
+      true => self.open_tab(workspace::diff()),
+      false => self.open_file(annotation.Path, annotation.StartLine),
+    }
   }
 
   fn mut dock_view(request: protocol::InteractionRequest) cui::View {
