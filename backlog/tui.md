@@ -106,13 +106,16 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   - [x] Unknown tools: the humanized name (`my_tool` → "My Tool") with the
     `command`, `path`, or `agent` argument, else compact arguments, "no
     arguments", or "arguments truncated".
-  - [ ] Output (new; vaxis has unused output wells and previews): expanding
-    a row shows its result in a bounded, scrollable well that hands
-    scrolling back to the transcript at its edges, with truncated-output
-    and omitted-details notices.
+  - [x] Output (new; vaxis has unused output wells and previews): the
+    click that selects a row also shows or hides its result below it, in a
+    well of at most 14 rows that scrolls on its own and hands the wheel to
+    the transcript at its edges. A running call's output streams in and the well follows its end.
+    A footer counts overflowing lines and notes truncated output or omitted
+    details. Several wells may be open; opening or closing chips closes
+    them.
   Coding tools:
   - [x] `bash`: Run command · the command (multi-line commands summarized).
-  - [ ] `bash` output: the command's output.
+  - [x] `bash` output: the command's output.
   - [x] `read`: Read file · `path:start–end`, `· empty`, `· truncated`.
   - [ ] `read` output: the lines read, highlighted, with line numbers.
   - [x] `write`: Write N lines · path.

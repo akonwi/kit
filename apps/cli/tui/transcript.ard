@@ -1,6 +1,7 @@
 use ard/unsafe
 
 use go:api/contract as protocol
+use go:github.com/akonwi/vaxis
 use go:kit/ffi/sessionbridge
 use go:strings
 
@@ -44,6 +45,9 @@ fn tool_call(id: Str, name: Str) ToolCall {
   }
 }
 
+// The most streamed output kept for a running tool, in bytes, as in vaxis.
+let live_output_limit = 61440
+
 struct Message {
   id: Str,
   turn_id: Str,
@@ -68,6 +72,10 @@ struct Message {
   plugin_id: Str,
   // A tool result's raw JSON details.
   details: Str,
+  // Whether a tool result's output was cut short, live or by the server.
+  output_truncated: Bool,
+  // Whether the server left out a tool result's details.
+  details_omitted: Bool,
 }
 
 // A file attached to a user message, shown by name. Images can be previewed.
@@ -153,6 +161,8 @@ fn message(id: Str, turn_id: Str, role: Role) Message {
     bash: Maybe::new<sessionbridge::Bash>(),
     plugin_id: "",
     details: "",
+    output_truncated: false,
+    details_omitted: false,
   }
 }
 
@@ -992,8 +1002,18 @@ impl Live {
         self.activity = "Working…"
         self.ensure_tool_call(event)
         let index = self.ensure_tool(event.TurnID, event.ToolCallID, event.ToolName)
+        let delta = content_text(event.Content)
         self.edit(index, fn(current: mut Message) {
           current.is_error = event.IsError
+          if not current.output_truncated {
+            let room = live_output_limit - current.text.size()
+            if delta.size() <= room {
+              current.text = current.text + delta
+            } else {
+              current.text = current.text + utf8_prefix(delta, room)
+              current.output_truncated = true
+            }
+          }
         })
         false
       },
@@ -1002,15 +1022,11 @@ impl Live {
         self.activity = "Working…"
         self.ensure_tool_call(event)
         let index = self.ensure_tool(event.TurnID, event.ToolCallID, event.ToolName)
-        mut text = content_text(event.Content)
-        if event.ContentTruncated {
-          text = notice(text, "… live output truncated")
-        }
-        if event.DetailsOmitted {
-          text = notice(text, "… tool details omitted")
-        }
+        let text = content_text(event.Content)
         self.edit(index, fn(current: mut Message) {
           current.text = text
+          current.output_truncated = event.ContentTruncated
+          current.details_omitted = event.DetailsOmitted
           current.details = event.Details
           current.is_error = event.IsError
           current.pending = false
@@ -1105,9 +1121,18 @@ impl Live {
   }
 }
 
-private fn notice(text: Str, line: Str) Str {
-  match text == "" {
-    true => line,
-    false => "{text}\n{line}",
+// The longest prefix of value within limit bytes that ends on a character.
+private fn utf8_prefix(value: Str, limit: Int) Str {
+  mut kept = ""
+  mut done = false
+  for character in vaxis::Characters(value) {
+    if not done {
+      if kept.size() + character.Grapheme.size() <= limit {
+        kept = kept + character.Grapheme
+      } else {
+        done = true
+      }
+    }
   }
+  kept
 }

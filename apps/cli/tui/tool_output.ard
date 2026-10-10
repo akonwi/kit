@@ -1,0 +1,205 @@
+use cooper/cui
+use cooper/ui
+use kit/tui/theme
+use go:strings
+
+// A tool call's output, shown below its row: wrapped text on the surface fill,
+// at most `max_rows` tall. Taller output scrolls on its own; at the top or
+// bottom edge the wheel scrolls the transcript instead. A footer counts the
+// lines of output that overflows, and notes output or details the server cut.
+
+// The tallest a well grows before it scrolls.
+let max_rows = 14
+
+struct Props {
+  themes: theme::Context,
+  // The tool row's key, which keys the well.
+  key: Str,
+  text: Str,
+  // Whether the call is still running: the well follows its end while
+  // output streams in, unless scrolled away from it.
+  running: Bool,
+  // Whether the output was cut short.
+  truncated: Bool,
+  // Whether the result's details were left out.
+  omitted: Bool,
+}
+
+fn view(props: Props) cui::View {
+  cui::child(new, props, key: "tool-output:{props.key}")
+}
+
+// The output's text without trailing line breaks.
+fn trimmed(text: Str) Str {
+  strings::TrimRight(text, "\n")
+}
+
+// How many lines the output has, before wrapping.
+fn line_count(text: Str) Int {
+  strings::Split(trimmed(text), "\n").size()
+}
+
+// The footer's note, or empty when there is nothing to note. Output that
+// overflows the well is counted, and marked when wrapping added rows.
+fn footer(lines: Int, rows: Int, truncated: Bool, omitted: Bool) Str {
+  let notes = mut List::new<Str>()
+  if rows > max_rows or lines > max_rows {
+    notes.push(
+      match lines == 1 {
+        true => "1 line",
+        false => "{lines} lines",
+      },
+    )
+    if rows > lines {
+      notes.push("wrapped")
+    }
+  }
+  if truncated {
+    notes.push("output truncated")
+  }
+  if omitted {
+    notes.push("details omitted")
+  }
+  strings::Join(notes, " · ")
+}
+
+private struct Well {
+  props: mut Props,
+  scroll: mut cui::ScrollBoxRef,
+  // The output's height in rows once wrapped, as last laid out; until then,
+  // its line count.
+  rows: Int,
+  // The furthest the output could scroll when last laid out. Output scrolled
+  // that far is following its end.
+  bottom: Int,
+}
+
+private fn new(props: mut Props) mut Well {
+  (mut Well{
+    props: props,
+    scroll: cui::scroll_box_ref(),
+    rows: line_count(props.text),
+    bottom: 0,
+  })
+}
+
+impl cui::Lifecycle for Well {
+  fn mut mounted(context: cui::Context) {
+    // Measured after each layout and before painting, so the well fits its
+    // wrapped output before it is seen.
+    let _ = context.internal_layout(fn() Bool {
+      self.measure()
+    })
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl Well {
+  // Records the output's wrapped height and keeps a running call's output at
+  // its end. Returns whether the height changed.
+  private fn mut measure() Bool {
+    match self.scroll.current {
+      scroll => {
+        let rows = scroll.scroll_height()
+        if self.props.running and scroll.scroll_top() >= self.bottom {
+          let _ = scroll.scroll_to(scroll.maximum_scroll_top())
+        }
+        self.bottom = scroll.maximum_scroll_top()
+        let changed = rows > 0 and rows != self.rows
+        if changed {
+          self.rows = rows
+        }
+        changed
+      },
+      _ => false,
+    }
+  }
+}
+
+impl cui::Component for Well {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let text = trimmed(self.props.text)
+    let empty = strings::TrimSpace(text) == ""
+    let body = match {
+      empty and self.props.running => {
+        cui::text("Waiting for output…", text_style: ui::text_style(foreground: colors.muted))
+      },
+      empty => cui::text("No output", text_style: ui::text_style(foreground: colors.muted)),
+      _ => {
+        cui::text(
+          text,
+          styles: ui::style(flex_shrink: 0.0),
+          text_style: ui::text_style(foreground: colors.foreground),
+          wrap: ui::TextWrap::word,
+        )
+      },
+    }
+    let height = match {
+      self.rows < 1 => 1,
+      self.rows > max_rows => max_rows,
+      _ => self.rows,
+    }
+    let children = mut List::new<cui::View>()
+    children.push(
+      cui::scroll_box(
+        [
+          cui::box(
+            [body],
+            styles: ui::style(
+              flex_direction: ui::FlexDirection::column,
+              flex_shrink: 0.0,
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(1),
+                bottom: ui::cells(0),
+                left: ui::cells(1),
+              },
+            ),
+          ),
+        ],
+        key: "scroll",
+        ref: self.scroll,
+        styles: ui::style(height: ui::cells(height), flex_shrink: 0.0),
+        focusable: false,
+      ),
+    )
+    let note = footer(line_count(text), self.rows, self.props.truncated, self.props.omitted)
+    if note != "" {
+      children.push(
+        cui::box(
+          [
+            cui::text(
+              note,
+              text_style: ui::text_style(foreground: colors.muted),
+              wrap: ui::TextWrap::none,
+              overflow: ui::TextOverflow::ellipsis,
+            ),
+          ],
+          key: "footer",
+          styles: ui::style(
+            height: ui::cells(1),
+            flex_direction: ui::FlexDirection::row,
+            flex_shrink: 0.0,
+            justify_content: ui::Justify::end,
+            padding: ui::Edges{
+              top: ui::cells(0),
+              right: ui::cells(1),
+              bottom: ui::cells(0),
+              left: ui::cells(1),
+            },
+          ),
+        ),
+      )
+    }
+    cui::box(
+      children.@,
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::column,
+        flex_shrink: 0.0,
+        background: colors.surface,
+      ),
+    )
+  }
+}

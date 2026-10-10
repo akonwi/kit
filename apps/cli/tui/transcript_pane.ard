@@ -12,6 +12,7 @@ use kit/tui/layout
 use kit/tui/markdown
 use kit/tui/spinner
 use kit/tui/theme
+use kit/tui/tool_output
 use kit/tui/tool_row
 use kit/tui/transcript
 use go:strings
@@ -111,6 +112,10 @@ struct Work {
   selected: Str,
   // Selects the tool row with the key.
   select_tool: fn(Str),
+  // Tool rows whose output is shown, by key.
+  outputs: [Str: Bool],
+  // Shows or hides the output of the tool row with the key.
+  toggle_output: fn(Str),
 }
 
 // The key of a tool row, unique in the session.
@@ -1088,18 +1093,54 @@ fn work_view(themes: theme::Context, work: Work, run: transcript::Work) cui::Vie
         let content = match step.result {
           result => {
             let row = tool_key(run.turn_id, result.tool_call_id)
+            let selected = work.selected == row
             let choose = work.select_tool
-            tool_row::view(
-              tool_row::Props{
-                themes: themes,
-                call: step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name)),
-                result: result,
-                selected: work.selected == row,
-                on_select: fn() {
-                  choose(row)
+            let toggle_output = work.toggle_output
+            let views = mut List::new<cui::View>()
+            // A click selects a row and shows or hides its output.
+            views.push(
+              tool_row::view(
+                tool_row::Props{
+                  themes: themes,
+                  call: step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name)),
+                  result: result,
+                  selected: selected,
+                  on_select: fn() {
+                    choose(row)
+                    toggle_output(row)
+                  },
                 },
-              },
+              ),
             )
+            if work.outputs.get(row).or(false) {
+              views.push(
+                cui::box(
+                  [
+                    tool_output::view(
+                      tool_output::Props{
+                        themes: themes,
+                        key: row,
+                        text: result.text,
+                        running: result.tool_state == transcript::ToolState::running,
+                        truncated: result.output_truncated,
+                        omitted: result.details_omitted,
+                      },
+                    ),
+                  ],
+                  key: "output",
+                  styles: ui::style(
+                    flex_direction: ui::FlexDirection::column,
+                    padding: ui::Edges{
+                      top: ui::cells(0),
+                      right: ui::cells(0),
+                      bottom: ui::cells(0),
+                      left: ui::cells(2),
+                    },
+                  ),
+                ),
+              )
+            }
+            cui::box(views.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
           },
           _ => {
             markdown::view(
