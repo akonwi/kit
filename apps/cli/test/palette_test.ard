@@ -7,6 +7,7 @@ use cooper/keymap
 use cooper/testing as headless
 use cooper/ui
 use kit/tui/palette
+use kit/tui/status
 use kit/tui/theme
 use go:strings
 
@@ -1209,4 +1210,130 @@ test fn descriptions_keep_a_third_of_the_row_from_long_labels() Void!Str {
     strings::Contains(shown, "…  ~/Developer/kit") and strings::Contains(shown, "2h ago"),
     "the label gives way to the description: {shown}|",
   )
+}
+
+// A stateful picker over `catalog` that records activated keys.
+fn status_picker(catalog: [palette::Item], activated: mut [Str]) cui::View {
+  cui::child(
+    palette::new_picker,
+    palette::PickerProps{
+      themes: theme::context(theme::store(theme::system())),
+      catalog: catalog,
+      placeholder: "Search subagents…",
+      initial_selection: "",
+      title: "Subagents",
+      footer: "",
+      error: "",
+      dismiss: keymap::simple_command("test.status.dismiss", "Dismiss", fn() Bool {
+        true
+      }),
+      on_query_change: fn(query: Str) {},
+      on_selection_change: fn(selected: Str) {},
+      on_activate: fn(item: palette::Item) {
+        activated.push(item.key)
+      },
+    },
+  )
+}
+
+// A subagent row: not started rows have no status and are disabled.
+fn agent(key: Str, description: Str, model: Str, state: status::Status?) palette::Item {
+  palette::Item{
+    key: key,
+    label: key,
+    hint: "",
+    description: description,
+    meta: model,
+    search_terms: [],
+    disabled_reason: "",
+    status: state,
+    disabled: Maybe::new(state.is_none()),
+  }
+}
+
+fn agents() [palette::Item] {
+  [
+    agent("designer", "UI/UX expert", "Sonnet 4.5 (high)", Maybe::new<status::Status>()),
+    agent("code-reviewer", "Reviews changes", "Sonnet 4.5 (high)", Maybe::new(status::Status::working)),
+    agent("librarian", "Searches docs", "Haiku 4.5 (low)", Maybe::new(status::Status::failed)),
+  ]
+}
+
+test fn status_icons_take_a_column_before_every_label() Void!Str {
+  let terminal = headless::new(80, 11)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    status_picker(agents(), mut List::new<Str>()),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let shown = rows(terminal)
+  // A disabled row without a reason keeps its description, and the first
+  // enabled row is selected.
+  try expect_rows(
+    [shown.at(8).or(""), shown.at(9).or(""), shown.at(10).or("")],
+    [
+      "        │   designer       UI/UX expert             Sonnet 4.5 (high)  │",
+      "        │▌⠋ code-reviewer  Reviews changes          Sonnet 4.5 (high)  │",
+      "        │ ✗ librarian      Searches docs              Haiku 4.5 (low)  │",
+    ],
+  )
+  let colors = theme::system()
+  let failed = terminal.frame().cell(
+    10,
+    10,
+  ).expect("failed icon").style.foreground.expect("icon tone")
+  let label = terminal.frame().cell(
+    12,
+    8,
+  ).expect("disabled label").style.foreground.expect("label tone")
+  try testing::assert(
+    failed.red == colors.danger_text.red and failed.green == colors.danger_text.green and failed.blue == colors.danger_text.blue,
+    "a failed status is drawn in the danger tone",
+  )
+  testing::assert(
+    label.red == colors.disabled.red and label.green == colors.disabled.green and label.blue == colors.disabled.blue,
+    "a disabled row's label is drawn in the disabled tone",
+  )
+}
+
+test fn clicking_a_disabled_row_selects_it_without_activating() Void!Str {
+  let terminal = headless::new(80, 11)
+  defer terminal.destroy()
+  let activated = mut List::new<Str>()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    status_picker(agents(), activated),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.mouse_move(14, 8)
+  terminal.mouse_down(14, 8)
+  terminal.mouse_up(14, 8)
+  terminal.flush()
+  try expect_rows(
+    [rows(terminal).at(8).or("")],
+    ["        │▌  designer       UI/UX expert             Sonnet 4.5 (high)  │"],
+  )
+  try testing::assert(activated.size() == 0, "a disabled row does not activate")
+  terminal.mouse_move(14, 9)
+  terminal.mouse_down(14, 9)
+  terminal.mouse_up(14, 9)
+  terminal.flush()
+  let keys = strings::Join(mut activated, ",")
+  testing::assert(keys == "code-reviewer", "an enabled row activates: {keys}")
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
 }
