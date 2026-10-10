@@ -5,6 +5,7 @@ use cooper/keymap
 use cooper/ui
 use kit/tui/controls
 use kit/tui/format
+use kit/tui/status
 use kit/tui/theme
 
 // The workspace tab strip: Agent, then each open pane. When the tabs don't
@@ -25,6 +26,8 @@ struct Entry {
   show: keymap::SimpleCommand,
   // Closes the tab; Agent has none.
   close: keymap::SimpleCommand?,
+  // The state of the tab's work, shown before its label.
+  status: status::Status?,
 }
 
 struct Props {
@@ -120,9 +123,13 @@ private fn label_width(entry: Entry) Int {
 }
 
 private fn chrome(entry: Entry) Int {
+  let marked = match entry.status {
+    shown => 2,
+    _ => 0,
+  }
   match entry.close {
-    close => closable_chrome,
-    _ => plain_chrome,
+    close => closable_chrome + marked,
+    _ => plain_chrome + marked,
   }
 }
 
@@ -191,21 +198,51 @@ impl Strip {
     let label = format::truncate_cells(entry.label, width - chrome(entry))
     match entry.close {
       close => {
+        let parts = mut List::new<cui::View>()
+        match entry.status {
+          shown => {
+            let colors = themes.current()
+            parts.push(
+              cui::box(
+                [cui::text(" "), status::icon(themes, shown)],
+                styles: ui::style(
+                  flex_shrink: 0.0,
+                  flex_direction: ui::FlexDirection::row,
+                  background: match entry.selected {
+                    true => colors.primary,
+                    false => colors.surface,
+                  },
+                ),
+              ),
+            )
+          },
+          _ => (),
+        }
+        parts.push(
+          controls::button(
+            themes,
+            label,
+            entry.show,
+            variant: variant,
+            compact: true,
+            trailing_padding: 0,
+          ),
+        )
+        parts.push(
+          controls::button(
+            themes,
+            match entry.selected {
+              true => "×",
+              false => " ",
+            },
+            close,
+            variant: variant,
+            compact: true,
+            hover_label: "×",
+          ),
+        )
         cui::box(
-          [
-            controls::button(themes, label, entry.show, variant: variant, compact: true, trailing_padding: 0),
-            controls::button(
-              themes,
-              match entry.selected {
-                true => "×",
-                false => " ",
-              },
-              close,
-              variant: variant,
-              compact: true,
-              hover_label: "×",
-            ),
-          ],
+          parts.@,
           styles: ui::style(flex_direction: ui::FlexDirection::row, flex_shrink: 0.0),
         )
       },

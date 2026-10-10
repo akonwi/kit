@@ -73,6 +73,7 @@ private fn kind_name(kind: workspace::Kind) Str {
     workspace::Kind::scratchpad => "scratchpad",
     workspace::Kind::file => "file",
     workspace::Kind::diff => "diff",
+    workspace::Kind::subagent => "subagent",
   }
 }
 

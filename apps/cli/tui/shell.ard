@@ -40,6 +40,10 @@ use kit/tui/rename
 use kit/tui/scratchpad
 use kit/tui/session_debug
 use kit/tui/sessions
+use kit/tui/status
+use kit/tui/subagent_pane
+use kit/tui/subagent_picker
+use kit/tui/subagents
 use kit/tui/tab_strip
 use kit/tui/tabs_picker
 use kit/tui/terminal_status
@@ -75,6 +79,17 @@ struct ThinkingPickerModal {}
 struct SessionsModal {}
 struct TabsModal {}
 struct FilesModal {}
+// The subagents picker, or, given a conversation, its dismissal question.
+struct SubagentsModal {
+  confirm: Str,
+}
+// The model and thinking pickers for a subagent conversation.
+struct SubagentModelModal {
+  conversation: Str,
+}
+struct SubagentThinkingModal {
+  conversation: Str,
+}
 
 type Modal =
   | NoModal
@@ -89,6 +104,9 @@ type Modal =
   | SessionsModal
   | TabsModal
   | FilesModal
+  | SubagentsModal
+  | SubagentModelModal
+  | SubagentThinkingModal
   | diff_pane::TargetRequest
 
 // The detached placeholder never starts work, so its effects are inert.
@@ -552,6 +570,11 @@ impl Shell {
         )
       }
     }
+    for tab in self.workspace.open {
+      if tab.kind == workspace::Kind::subagent {
+        children.push(self.subagent_view(tab))
+      }
+    }
     // Agent activity can change height as streamed follow-ups arrive. Keep it
     // out of Scratchpad so those updates cannot resize the focused editor and
     // force its cursor back into view.
@@ -650,9 +673,19 @@ impl Shell {
     for tab, index in self.workspace.open {
       let id = tab.id
       let label = labels.at(index).or(tab.label)
+      let marker = match tab.kind == workspace::Kind::subagent {
+        true => {
+          match subagents::conversation(self.attached.subagents, tab.conversation_id.or("")) {
+            conversation => subagents::tab_status(conversation.State),
+            _ => Maybe::new<status::Status>(),
+          }
+        },
+        false => Maybe::new<status::Status>(),
+      }
       entries.push(
         tab_strip::Entry{
           label: label,
+          status: marker,
           selected: tab.id == self.workspace.selected,
           show: self.command("workspace.show:{id}", "Show {tab.label}", fn() {
             self.show_tab(id)
@@ -672,6 +705,207 @@ impl Shell {
         more: self.command("workspace.tabs", "Show all tabs", fn() {
           self.active_modal = TabsModal{}
         }),
+      },
+    )
+  }
+
+  // A subagent conversation's tab. A conversation the server no longer
+  // retains closes its tab.
+  fn mut subagent_view(tab: workspace::Tab) cui::View {
+    let id = tab.conversation_id.or("")
+    let shown = tab.id == self.workspace.selected
+    match subagents::conversation(self.attached.subagents, id) {
+      conversation => {
+        match self.attached.subagent_service(id) {
+          service => {
+            cui::box(
+              [
+                subagent_pane::view(
+                  subagent_pane::Props{
+                    themes: self.props.themes,
+                    conversation: conversation,
+                    shown: shown,
+                    service: service,
+                    servers: self.attached.mcp_server_names(),
+                    open_file: Maybe::new(fn(target: toolpresentation::FileTarget) {
+                      self.dispatch(fn() {
+                        self.open_tool_file(target)
+                      })
+                    }),
+                    choose_model: fn() {
+                      self.dispatch(fn() {
+                        self.active_modal = SubagentModelModal{conversation: id}
+                      })
+                    },
+                    choose_thinking: fn() {
+                      self.dispatch(fn() {
+                        self.active_modal = SubagentThinkingModal{conversation: id}
+                      })
+                    },
+                    cancel: fn() {
+                      self.dispatch(fn() {
+                        self.attached.cancel_subagent(id)
+                      })
+                    },
+                    dismiss: fn() {
+                      self.dispatch(fn() {
+                        self.active_modal = SubagentsModal{confirm: id}
+                      })
+                    },
+                  },
+                ),
+              ],
+              key: "workspace:{tab.id}",
+              styles: ui::style(
+                flex_grow: 1.0,
+                flex_basis: ui::cells(0),
+                min_height: ui::cells(3),
+                flex_direction: ui::FlexDirection::column,
+                display: match shown {
+                  true => ui::Display::flex,
+                  false => ui::Display::none,
+                },
+              ),
+            )
+          },
+          _ => cui::box([], key: "workspace:{tab.id}"),
+        }
+      },
+      _ => {
+        let closing = tab.id
+        self.dispatch(fn() {
+          self.close_tab(closing)
+        })
+        cui::box([], key: "workspace:{tab.id}")
+      },
+    }
+  }
+
+  // Opens the conversation of the agent a tool row addresses. The roster may
+  // not list a conversation the model just started, so it is reloaded first.
+  fn mut open_tool_agent(agent: Str) {
+    self.attached.reload_subagents_then(fn() {
+      self.dispatch(fn() {
+        let id = subagents::conversation_of(self.attached.subagents, agent)
+        match id == "" {
+          true => {
+            self.notify(
+              "Subagent conversation unavailable",
+              "No active conversation for \"{agent}\".",
+              toast::Variant::warning,
+              false,
+            )
+          },
+          false => self.open_subagent(id),
+        }
+      })
+    })
+  }
+
+  // Opens a subagent conversation in its tab.
+  fn mut open_subagent(conversation_id: Str) {
+    match subagents::conversation(self.attached.subagents, conversation_id) {
+      conversation => self.open_tab(workspace::subagent(conversation.ID, conversation.AgentName)),
+      _ => (),
+    }
+  }
+
+  fn mut subagents_modal(confirm: Str) cui::View {
+    let info = self.attached.info.or(protocol::SessionInfo{})
+    subagent_picker::view(
+      subagent_picker::Props{
+        themes: self.props.themes,
+        roster: self.attached.subagents,
+        session_model: info.Model,
+        session_thinking: info.ThinkingLevel,
+        confirm: confirm,
+        dismiss: keymap::simple_command("subagents.close", "Close", fn() Bool {
+          self.dismiss_modal()
+        }),
+        open: fn(id: Str) {
+          self.dispatch(fn() {
+            self.finish_modal()
+            self.open_subagent(id)
+          })
+        },
+        remove: self.attached.subagent_dismisser().or(fn(id: Str, generation: Uint64) Void!Error {
+          Result::ok(())
+        }),
+      },
+    )
+  }
+
+  fn mut subagent_model_modal(id: Str) cui::View {
+    let conversation = subagents::conversation(
+      self.attached.subagents,
+      id,
+    ).or(protocol::SubagentConversation{})
+    let configure = self.attached.subagent_configurer(id)
+    cui::child(
+      model::new,
+      model::Props{
+        themes: self.props.themes,
+        client: self.props.options.Client,
+        lifetime: self.lifetime.expect("mounted model picker"),
+        bound: self.attached.session.expect("attached model picker"),
+        session: self.attached.info.or(protocol::SessionInfo{}),
+        override_service: self.props.options.ModelOverrideService,
+        dismiss: keymap::simple_command("subagent.model.dismiss", "Close", fn() Bool {
+          self.dismiss_modal()
+        }),
+        applied: fn(applied: protocol::ConfigureSessionResult) {},
+        subagent: Maybe::new(
+          model::Subagent{
+            current: conversation.Model,
+            apply: fn(model: Str) Void!Error {
+              match configure {
+                set => set(model, ""),
+                _ => Result::ok(()),
+              }
+            },
+            applied: fn() {
+              let _ = self.dismiss_modal()
+            },
+          },
+        ),
+      },
+    )
+  }
+
+  fn mut subagent_thinking_modal(id: Str) cui::View {
+    let conversation = subagents::conversation(
+      self.attached.subagents,
+      id,
+    ).or(protocol::SubagentConversation{})
+    let configure = self.attached.subagent_configurer(id)
+    cui::child(
+      thinking::new,
+      thinking::Props{
+        themes: self.props.themes,
+        client: self.props.options.Client,
+        lifetime: self.lifetime.expect("mounted thinking picker"),
+        session_client: self.attached.session.expect("attached thinking picker"),
+        session: self.attached.info.or(protocol::SessionInfo{}),
+        dismiss: fn() {
+          let _ = self.dismiss_modal()
+        },
+        refreshed: fn(session: protocol::SessionInfo) {},
+        applied: fn(session: protocol::SessionInfo) {},
+        subagent: Maybe::new(
+          thinking::Subagent{
+            model: conversation.Model,
+            level: conversation.ThinkingLevel,
+            apply: fn(level: Str) Void!Error {
+              match configure {
+                set => set("", level),
+                _ => Result::ok(()),
+              }
+            },
+            applied: fn() {
+              let _ = self.dismiss_modal()
+            },
+          },
+        ),
       },
     )
   }
@@ -837,6 +1071,11 @@ impl Shell {
           open_file: Maybe::new(fn(target: toolpresentation::FileTarget) {
             self.dispatch(fn() {
               self.open_tool_file(target)
+            })
+          }),
+          open_agent: Maybe::new(fn(agent: Str) {
+            self.dispatch(fn() {
+              self.open_tool_agent(agent)
             })
           }),
           toggle_output: fn(key: Str) {
@@ -1269,6 +1508,9 @@ impl cui::Component for Shell {
       SessionsModal => layers.push(self.sessions_modal()),
       TabsModal => layers.push(self.tabs_modal()),
       FilesModal => layers.push(self.files_modal()),
+      SubagentsModal(request) => layers.push(self.subagents_modal(request.confirm)),
+      SubagentModelModal(request) => layers.push(self.subagent_model_modal(request.conversation)),
+      SubagentThinkingModal(request) => layers.push(self.subagent_thinking_modal(request.conversation)),
       diff_pane::TargetRequest(request) => layers.push(self.diff_target_modal(request)),
     }
     cui::box(
@@ -1658,6 +1900,10 @@ impl Shell {
       command_palette::ActionKind::scratchpad => {
         self.finish_modal()
         self.open_tab(workspace::scratchpad())
+      },
+      command_palette::ActionKind::subagents => {
+        self.attached.reload_subagents()
+        self.active_modal = SubagentsModal{confirm: ""}
       },
       command_palette::ActionKind::tabs => { self.active_modal = TabsModal{} },
       command_palette::ActionKind::files => {

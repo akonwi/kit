@@ -33,6 +33,9 @@ struct ToolCall {
   // The call's JSON arguments, unless the server omitted them.
   arguments: Str,
   arguments_truncated: Bool,
+  // Whether the arguments have not arrived yet, as for a subagent's live
+  // call.
+  arguments_unknown: Bool?,
 }
 
 // A tool call whose arguments are not known.

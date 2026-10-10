@@ -52,16 +52,16 @@ vaxis client's tests. Until then, `cmd/kit` ships the vaxis client. Known,
 accepted differences: centered odd-width content can sit one cell right,
 because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 
-- [~] TUI-COOPER-005 — Tool activity. Remaining: a `subagent` tool row's
-  agent name opens that agent's conversation tab (TUI-COOPER-009).
-- [~] TUI-COOPER-006 — Command palette and pickers. Remaining: the
-  `subagents` command (TUI-COOPER-009), and shortcuts discovered from Cooper
-  keymaps.
+- [~] TUI-COOPER-006 — Command palette and pickers. Remaining: shortcuts
+  discovered from Cooper keymaps.
 - [ ] TUI-COOPER-017 — Opening a diff annotation's chip for a commit or
   branch the Diff tab isn't comparing compares that target and shows the
   annotated lines; it currently only opens the tab.
-- [ ] TUI-COOPER-009 — Subagents: activity, picker, conversation tabs, and
-  dismissal.
+- [~] TUI-COOPER-009 — Subagents: activity, picker, conversation tabs, and
+  dismissal. Implemented; remaining: confirm against a live server that
+  delegates work, including live streaming, cancelling, dismissing, and model
+  and thinking changes. A live tool row shows no summary until its message is
+  in history, because live subagent events carry no arguments.
 - [~] TUI-COOPER-010 — Sessions. Remaining: the standalone `kit sessions`
   picker, which still reports that it is unavailable (`pick_session` in
   `tui.ard`).

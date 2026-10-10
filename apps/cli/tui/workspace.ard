@@ -17,6 +17,7 @@ enum Kind {
   scratchpad,
   file,
   diff,
+  subagent,
 }
 
 struct Tab {
@@ -31,6 +32,8 @@ struct Tab {
   // asked; reopening an open tab asks again.
   line: Int,
   opening: Int,
+  // A Subagent tab's conversation.
+  conversation_id: Str?,
 }
 
 fn scratchpad() Tab {
@@ -70,6 +73,20 @@ fn diff() Tab {
     workspace_id: "",
     line: 0,
     opening: 0,
+  }
+}
+
+// A Subagent tab showing a conversation, labelled with its agent's name.
+fn subagent(conversation_id: Str, agent: Str) Tab {
+  Tab{
+    id: "subagent:{conversation_id}",
+    kind: Kind::subagent,
+    label: agent,
+    path: "",
+    workspace_id: "",
+    line: 0,
+    opening: 0,
+    conversation_id: Maybe::new(conversation_id),
   }
 }
 

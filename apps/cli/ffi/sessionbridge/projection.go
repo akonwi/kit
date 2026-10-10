@@ -45,6 +45,9 @@ type Event struct {
 	Annotation    *Annotation
 	AnnotationID  uint64
 	AnnotationIDs []uint64
+	// SubagentConversationID names the conversation a subagent.changed
+	// event reports.
+	SubagentConversationID string
 }
 
 // Content is the client-owned flat projection of transcript content.
@@ -149,6 +152,8 @@ func Events(source []protocol.SessionEvent) []Event {
 			projected.AnnotationIDs = payload.AnnotationIDs
 		case protocol.TurnCompletedEvent:
 			projected.Status, projected.ErrorMessage = string(payload.Status), payload.ErrorMessage
+		case protocol.SubagentChangedEvent:
+			projected.SubagentConversationID = payload.SubagentConversationID
 		}
 		result = append(result, projected)
 	}

@@ -539,8 +539,13 @@ fn selected(items: [Item], key: Str) Item? {
 // has one, so one long label can't push every description out. Columns are
 // sized from the whole unfiltered catalog, so rows align and filtering never
 // shifts them.
+// The widest the meta column gets, which fits a model and thinking level
+// such as "Claude Sonnet 4.5 (high)".
+let meta_limit = 24
+
 struct Columns {
-  // The widest label, hint, and meta, in cells; the meta at most 20.
+  // The widest label, hint, and meta, in cells; the meta at most
+  // `meta_limit`.
   label: Int,
   hint: Int,
   meta: Int,
@@ -569,8 +574,8 @@ fn columns(catalog: [Item]) Columns {
     columns.hint = widest(columns.hint, item.hint)
     columns.meta = widest(columns.meta, item.meta)
   }
-  if columns.meta > 20 {
-    columns.meta = 20
+  if columns.meta > meta_limit {
+    columns.meta = meta_limit
   }
   columns.@
 }

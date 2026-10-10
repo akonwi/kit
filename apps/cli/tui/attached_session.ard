@@ -22,6 +22,8 @@ use kit/tui/file_index
 use kit/tui/format
 use kit/tui/image_preview
 use kit/tui/session_mentions
+use kit/tui/subagent_pane
+use kit/tui/subagents
 use kit/tui/toast
 use kit/tui/transcript
 use kit/tui/turn_follower
@@ -171,6 +173,21 @@ struct Controller {
   settled_interactions: [Str],
   // The request whose response is being submitted, if any.
   interaction_responding: Str,
+  // The session's subagents. A change reloads the list; one that arrives
+  // while a reload is in flight asks for another.
+  subagents: subagents::Roster,
+  subagents_loading: Bool,
+  subagents_stale: Bool,
+  // Called once the roster in flight, or the next, has loaded.
+  subagents_waiting: [fn()],
+  // Advances when a snapshot brings the roster, so a list requested before
+  // it does not replace it.
+  subagents_epoch: Int,
+  // Conversations whose cancellation is in flight, until the roster shows
+  // its outcome.
+  subagents_cancelling: [Str],
+  // Definition problems already reported, so each is reported once.
+  shown_subagent_diagnostics: [Str],
 }
 
 // A direct shell command typed in the composer: `!command` adds its result to
@@ -317,6 +334,13 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     workspace_id: "",
     mentionable: session_mentions::source(),
     mentionable_load: Maybe::new<contextbridge::Cancellation>(),
+    subagents: subagents::roster(),
+    subagents_loading: false,
+    subagents_stale: false,
+    subagents_waiting: [],
+    subagents_epoch: 0,
+    subagents_cancelling: [],
+    shown_subagent_diagnostics: [],
   })
 }
 
@@ -568,6 +592,12 @@ impl Controller {
       for request in snapshot.PendingInteractions {
         self.add_interaction(request)
       }
+      self.subagents_epoch =+ 1
+      self.adopt_subagents(
+        snapshot.SubagentDefinitions,
+        snapshot.SubagentConversations,
+        snapshot.SubagentDiagnostics,
+      )
       self.mcp_servers = snapshot.MCPServers
       self.mcp_warnings = snapshot.MCPWarnings
       for warning in snapshot.MCPWarnings {
@@ -685,6 +715,9 @@ impl Controller {
       }
       if event.Kind == "interaction.resolved" {
         self.remove_interaction(event.InteractionID)
+      }
+      if event.Kind == "subagent.changed" {
+        self.reload_subagents()
       }
       if event.Kind == "session.cwd.changed" and event.CWD != "" {
         self.follow_cwd(event.CWD)
@@ -1834,6 +1867,184 @@ impl Controller {
     }
   }
 
+  // subagent_service reads one subagent conversation for its tab. Like
+  // `file_reader`, its calls block.
+  fn subagent_service(conversation_id: Str) subagent_pane::Service? {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            Maybe::new(
+              subagent_pane::Service{
+                transcript: fn(before: Str) protocol::SubagentTranscript!Error {
+                  session.SubagentTranscript(lifetime.Context, conversation_id, before)
+                },
+                events: fn(stream: Str, after: Int64) sessionbridge::SubagentPage!Error {
+                  sessionbridge::SubagentEvents(lifetime.Context, session, conversation_id, stream, after)
+                },
+              },
+            )
+          },
+          _ => Maybe::new<subagent_pane::Service>(),
+        }
+      },
+      _ => Maybe::new<subagent_pane::Service>(),
+    }
+  }
+
+  // subagent_dismisser dismisses a conversation at a generation, then reloads
+  // the roster. It blocks.
+  fn mut subagent_dismisser() (fn(Str, Uint64) Void!Error)? {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            let dispatch = self.host.dispatch
+            Maybe::new(fn(id: Str, generation: Uint64) Void!Error {
+              let _ = try session.Subagent(
+                lifetime.Context,
+                protocol::SubagentOperationInput{
+                  Action: protocol::SubagentDismiss,
+                  ConversationID: id,
+                  Generation: generation,
+                },
+              )
+              let _ = dispatch(fn() {
+                if self.active {
+                  self.reload_subagents()
+                }
+              })
+              Result::ok(())
+            })
+          },
+          _ => Maybe::new<fn(Str, Uint64) Void!Error>(),
+        }
+      },
+      _ => Maybe::new<fn(Str, Uint64) Void!Error>(),
+    }
+  }
+
+  // subagent_configurer sets a conversation's model or thinking level, an
+  // empty one staying as it is, then reloads the roster. It blocks.
+  fn mut subagent_configurer(conversation_id: Str) (fn(Str, Str) Void!Error)? {
+    let generation = match subagents::conversation(self.subagents, conversation_id) {
+      conversation => conversation.Generation,
+      _ => Uint64::from(0),
+    }
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            let dispatch = self.host.dispatch
+            Maybe::new(fn(model: Str, thinking: Str) Void!Error {
+              let _ = try sessionbridge::ConfigureSubagent(
+                lifetime.Context,
+                session,
+                conversation_id,
+                generation,
+                model,
+                thinking,
+              )
+              let _ = dispatch(fn() {
+                if self.active {
+                  self.reload_subagents()
+                }
+              })
+              Result::ok(())
+            })
+          },
+          _ => Maybe::new<fn(Str, Str) Void!Error>(),
+        }
+      },
+      _ => Maybe::new<fn(Str, Str) Void!Error>(),
+    }
+  }
+
+  // Asks the server to cancel the conversation's running or queued task.
+  // Asking again before the roster shows the outcome does nothing.
+  fn mut cancel_subagent(conversation_id: Str) {
+    mut cancelling = false
+    for id in self.subagents_cancelling {
+      if id == conversation_id {
+        cancelling = true
+      }
+    }
+    let found = match cancelling {
+      true => Maybe::new<protocol::SubagentConversation>(),
+      false => subagents::conversation(self.subagents, conversation_id),
+    }
+    match found {
+      conversation => {
+        match subagents::cancellable(conversation) {
+          task => {
+            match self.lifetime {
+              lifetime => {
+                match self.session {
+                  session => {
+                    let dispatch = self.host.dispatch
+                    self.subagents_cancelling.push(conversation_id)
+                    async::start(fn() {
+                      let result = session.Subagent(
+                        lifetime.Context,
+                        protocol::SubagentOperationInput{
+                          Action: protocol::SubagentCancel,
+                          TaskID: task.ID,
+                          Generation: task.CancellationGeneration,
+                        },
+                      )
+                      let _ = dispatch(fn() {
+                        if self.active {
+                          match result {
+                            ok(_) => {
+                              (self.host.toast)(
+                                "Subagent task cancellation requested",
+                                "",
+                                toast::Variant::info,
+                                false,
+                              )
+                              self.reload_subagents_then(fn() {
+                                self.settle_cancel(conversation_id)
+                              })
+                            },
+                            err(failure) => {
+                              self.settle_cancel(conversation_id)
+                              if not self.absorbs(failure) {
+                                (self.host.toast)(
+                                  "Could not cancel subagent task",
+                                  failure.error(),
+                                  toast::Variant::error,
+                                  false,
+                                )
+                              }
+                            },
+                          }
+                        }
+                      })
+                    })
+                  },
+                  _ => (),
+                }
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut settle_cancel(conversation_id: Str) {
+    let kept = mut List::new<Str>()
+    for id in self.subagents_cancelling {
+      if id != conversation_id {
+        kept.push(id)
+      }
+    }
+    self.subagents_cancelling = kept.@
+  }
+
   // diff_observer lists the working tree's changed files for the Diff pane;
   // diff_reader reads one file's changes. Like `file_reader`, they block.
   fn diff_observer() (fn(protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error)? {
@@ -2036,6 +2247,101 @@ impl Controller {
                           )
                         }
                       },
+                    }
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Adopts the subagent roster and reports each new definition problem once.
+  private fn mut adopt_subagents(
+    definitions: [protocol::SubagentDefinition],
+    conversations: [protocol::SubagentConversation],
+    diagnostics: [protocol::SubagentDiagnostic],
+  ) {
+    self.subagents = subagents::Roster{definitions: definitions, conversations: conversations}
+    for diagnostic in diagnostics {
+      let key = "{diagnostic.Severity}|{diagnostic.Code}|{diagnostic.Message}|{diagnostic.Source.Path}"
+      mut shown = false
+      for prior in self.shown_subagent_diagnostics {
+        if prior == key {
+          shown = true
+        }
+      }
+      if not shown {
+        self.shown_subagent_diagnostics.push(key)
+        let detail = match diagnostic.Source.Path == "" {
+          true => diagnostic.Message,
+          false => "{diagnostic.Message} · {diagnostic.Source.Path}",
+        }
+        (self.host.toast)("Subagent definition warning", detail, toast::Variant::warning, true)
+      }
+    }
+  }
+
+  // Reloads the subagent roster, then calls `done`. Without a session, it
+  // calls `done` at once.
+  fn mut reload_subagents_then(done: fn()) {
+    match self.session.is_some() and self.lifetime.is_some() and self.connected() {
+      true => {
+        self.subagents_waiting.push(done)
+        self.reload_subagents()
+      },
+      false => done(),
+    }
+  }
+
+  // Reloads the subagent roster. Changes that arrive meanwhile reload it
+  // once more when this one lands.
+  fn mut reload_subagents() {
+    if self.subagents_loading {
+      self.subagents_stale = true
+    } else {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              self.subagents_loading = true
+              self.subagents_stale = false
+              let epoch = self.subagents_epoch
+              let dispatch = self.host.dispatch
+              async::start(fn() {
+                let result = session.Subagent(
+                  lifetime.Context,
+                  protocol::SubagentOperationInput{Action: protocol::SubagentListAgents},
+                )
+                let _ = dispatch(fn() {
+                  if self.active {
+                    self.subagents_loading = false
+                    match result {
+                      ok(listed) => {
+                        if epoch == self.subagents_epoch {
+                          self.adopt_subagents(
+                            listed.Definitions,
+                            listed.Conversations,
+                            listed.Diagnostics,
+                          )
+                        }
+                      },
+                      err(failure) => {
+                        let _ = self.absorbs(failure)
+                      },
+                    }
+                    if self.subagents_stale and self.connected() {
+                      self.reload_subagents()
+                    } else {
+                      let waiting = self.subagents_waiting
+                      self.subagents_waiting = []
+                      for done in waiting {
+                        done()
+                      }
                     }
                   }
                 })

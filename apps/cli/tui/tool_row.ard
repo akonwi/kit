@@ -55,6 +55,7 @@ private fn call_input(call: transcript::ToolCall) toolpresentation::Call {
     Name: call.name,
     Arguments: call.arguments,
     ArgumentsTruncated: call.arguments_truncated,
+    ArgumentsUnknown: call.arguments_unknown.or(false),
   }
 }
 
@@ -151,6 +152,9 @@ struct Props {
   // Opens a file the call names, at a line or 0; see `toolpresentation::OpensFile`.
   // Without it, the summary is not a link.
   open_file: fn(toolpresentation::FileTarget)?,
+  // Opens the conversation of a subagent the call addresses; see
+  // `toolpresentation::OpensAgent`.
+  open_agent: fn(Str)?,
 }
 
 fn view(props: Props) cui::View {
@@ -162,7 +166,7 @@ private struct Row {
   frame: mut cui::BoxRef,
   // The row's width as last laid out; zero until then, when it is wide.
   width: Int,
-  // Whether the pointer is over a summary that opens a file.
+  // Whether the pointer is over a summary that opens something.
   link_hovered: Bool,
 }
 
@@ -207,22 +211,39 @@ impl Row {
 }
 
 impl Row {
-  // The summary, which opens the file the call names when it names one.
+  // What clicking the summary opens: the file the call names, or the
+  // conversation of the subagent it addresses.
+  private fn opens() fn()? {
+    let call = call_input(self.props.call)
+    let file = match self.props.open_file {
+      open => toolpresentation::OpensFile(call, result_input(self.props.result)),
+      _ => toolpresentation::FileTarget{},
+    }
+    let agent = match self.props.open_agent {
+      open => toolpresentation::OpensAgent(call),
+      _ => "",
+    }
+    match {
+      file.Path != "" => {
+        let open = self.props.open_file.expect("a file opener")
+        Maybe::new(fn() {
+          open(file)
+        })
+      },
+      agent != "" => {
+        let open = self.props.open_agent.expect("an agent opener")
+        Maybe::new(fn() {
+          open(agent)
+        })
+      },
+      _ => Maybe::new<fn()>(),
+    }
+  }
+
+  // The summary, which is a link when it opens something.
   private fn mut chip(summary: Str, shown: Mark) cui::View {
     let colors = self.props.themes.current()
-    let target = match self.props.open_file {
-      open => {
-        let named = toolpresentation::OpensFile(
-          call_input(self.props.call),
-          result_input(self.props.result),
-        )
-        match named.Path == "" {
-          true => Maybe::new<toolpresentation::FileTarget>(),
-          false => Maybe::new(named),
-        }
-      },
-      _ => Maybe::new<toolpresentation::FileTarget>(),
-    }
+    let target = self.opens()
     let hovered = self.link_hovered and target.is_some()
     let text = cui::text(
       " {summary} ",
@@ -241,8 +262,7 @@ impl Row {
       overflow: ui::TextOverflow::ellipsis,
     )
     match target {
-      file => {
-        let open = self.props.open_file.expect("a file opener")
+      open => {
         cui::box(
           [text],
           styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
@@ -252,7 +272,7 @@ impl Row {
             } else if received.event_type == cooper::MouseEventType::out {
               self.link_hovered = false
             } else if received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
-              open(file)
+              open()
               received.prevent_default()
               received.stop_propagation()
             }
