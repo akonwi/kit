@@ -20,7 +20,9 @@ struct SessionView: View {
                          historyError: state.historyError, active: state.activity != nil,
                          presentation: state.ui.transcript, workspace: state.ui.workspace,
                          resumeRequest: resumeRequest, latestOutOfView: $latestOutOfView,
-                         loadHistory: { state.loadHistory() }, theme: theme, attachmentClient: state.attachmentClient, attachmentSession: state.selectedID, reading: reading)
+                         loadHistory: { state.loadHistory() }, theme: theme, attachmentClient: state.attachmentClient, attachmentSession: state.selectedID, reading: reading,
+                         hasLoadedHistory: state.hasLoadedHistory, releaseHistory: { state.releaseLoadedHistory() },
+                         historyReleaseDelay: state.historyReleaseDelay)
             .id(state.selectedID)
             .onChange(of: state.selectedID) { latestOutOfView = false }
             .overlay(alignment: .bottomTrailing) {

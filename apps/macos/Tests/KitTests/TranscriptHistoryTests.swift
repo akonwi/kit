@@ -184,4 +184,102 @@ private final class TranscriptPageResponse: URLProtocol, @unchecked Sendable {
         let expected = beforeOffset + document.frame.height - beforeHeight
         #expect(abs(scroll.contentView.bounds.minY - expected) < 2)
     }
+
+    private func render(_ state: SessionStore) async throws -> (NSWindow, NSScrollView)? {
+        let host = NSHostingView(rootView: SessionView(state: state))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        try await Task.sleep(for: .milliseconds(250))
+        func scrollViews(_ view: NSView) -> [NSScrollView] {
+            (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
+        }
+        guard let scroll = scrollViews(host).max(by: { $0.frame.height < $1.frame.height }) else { window.close(); return nil }
+        return (window, scroll)
+    }
+
+    @Test func releasingLoadedHistoryRestoresTheRecentWindowAndItsCursor() async throws {
+        let (state, client) = try await setup()
+        defer { state.detach() }
+        state.loadHistory()
+        try await wait { await client.waiting() }
+        await client.finish(TranscriptHistoryPage(sessionID: "s", messages: snapshot(5..<20).messages, previousCursor: "5"))
+        try await wait { !state.historyLoading }
+        #expect(state.messages.map(\.id) == (5..<40).map { "m\($0)" })
+        #expect(state.hasLoadedHistory)
+        state.ui.transcript.drawer(for: "m5").expanded = true
+        state.ui.transcript.drawer(for: "m30").expanded = true
+
+        state.releaseLoadedHistory()
+        #expect(state.messages.map(\.id) == (20..<40).map { "m\($0)" })
+        #expect(state.hasLoadedHistory == false)
+        #expect(state.selected?.historyCursor == "20")
+        #expect(state.ui.transcript.drawer(for: "m5").expanded == nil)
+        #expect(state.ui.transcript.drawer(for: "m30").expanded == true)
+
+        // Released pages load again from the recent window's cursor.
+        state.loadHistory()
+        try await wait { await client.waiting() }
+        #expect(await client.requests == ["20", "20"])
+        await client.finish(TranscriptHistoryPage(sessionID: "s", messages: snapshot(5..<20).messages, previousCursor: "5"))
+        try await wait { !state.historyLoading }
+        #expect(state.messages.map(\.id) == (5..<40).map { "m\($0)" })
+    }
+
+    @Test func releaseCancelsAnOlderPageStillLoading() async throws {
+        let (state, client) = try await setup()
+        defer { state.detach() }
+        state.loadHistory()
+        try await wait { await client.waiting() }
+        await client.finish(TranscriptHistoryPage(sessionID: "s", messages: snapshot(5..<20).messages, previousCursor: "5"))
+        try await wait { !state.historyLoading }
+        state.loadHistory()
+        try await wait { await client.waiting() }
+        state.releaseLoadedHistory()
+        #expect(state.historyLoading == false)
+        await client.finish(TranscriptHistoryPage(sessionID: "s", messages: snapshot(1..<5).messages, previousCursor: nil))
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(state.messages.map(\.id) == (20..<40).map { "m\($0)" })
+        #expect(state.selected?.historyCursor == "20")
+    }
+
+    @Test func historyIsReleasedAfterTheReaderStaysAtTheLatestMessages() async throws {
+        let (state, client) = try await setup()
+        defer { state.detach() }
+        state.historyReleaseDelay = .milliseconds(100)
+        let (window, _) = try #require(try await render(state))
+        defer { window.close() }
+        state.loadHistory()
+        try await wait { await client.waiting() }
+        await client.finish(TranscriptHistoryPage(sessionID: "s", messages: snapshot(1..<20).messages, previousCursor: nil))
+        try await wait { state.messages.count == 39 }
+        try await wait { !state.hasLoadedHistory }
+        #expect(state.messages.map(\.id) == (20..<40).map { "m\($0)" })
+        #expect(state.selected?.historyCursor == "20")
+    }
+
+    @Test func historyIsRetainedWhileTheReaderIsAwayFromTheLatestMessages() async throws {
+        let (state, client) = try await setup()
+        defer { state.detach() }
+        state.historyReleaseDelay = .milliseconds(100)
+        let (window, scroll) = try #require(try await render(state))
+        defer { window.close() }
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 140))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        for phase: Int64 in [1, 2, 4] {
+            let wheel = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+                                             wheelCount: 1, wheel1: 1, wheel2: 0, wheel3: 0))
+            wheel.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+            scroll.scrollWheel(with: try #require(NSEvent(cgEvent: wheel)))
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        try await wait { await client.waiting() }
+        await client.finish(TranscriptHistoryPage(sessionID: "s", messages: snapshot(1..<20).messages, previousCursor: nil))
+        try await wait { state.messages.count == 39 }
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(state.hasLoadedHistory)
+        #expect(state.messages.map(\.id) == (1..<40).map { "m\($0)" })
+    }
 }

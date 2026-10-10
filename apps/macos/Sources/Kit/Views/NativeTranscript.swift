@@ -18,6 +18,11 @@ struct NativeTranscript: NSViewRepresentable {
     var attachmentClient: (any AttachmentClient)? = nil
     var attachmentSession = ""
     var reading: TranscriptReadingState? = nil
+    /// Whether pages loaded before the recent window can be released.
+    var hasLoadedHistory = false
+    var releaseHistory: () -> Void = {}
+    /// How long the reader stays at the live bottom before loaded pages are released.
+    var historyReleaseDelay: Duration = .seconds(30)
     @AppStorage("interfaceFont") private var interfaceFont = ""
     @AppStorage("monoFont") private var monoFont = ""
     @AppStorage("interfaceFontSize") private var interfaceSize = 0.0
@@ -57,6 +62,7 @@ struct NativeTranscript: NSViewRepresentable {
     /// Source messages behind the current rows. Unchanged leading messages
     /// keep their rows, so live updates do work proportional to the changed tail.
     private var source: [TranscriptMessage] = []
+    private var historyRelease: Task<Void, Never>?
 
     init(_ input: NativeTranscript) {
         self.input = input
@@ -334,6 +340,7 @@ struct NativeTranscript: NSViewRepresentable {
         if input.attachmentSession != next.attachmentSession || input.attachmentClient?.serverID != next.attachmentClient?.serverID {
             attachments = next.attachmentClient.map { TranscriptAttachmentStore(client: $0, session: next.attachmentSession) }
         }
+        let turnFinished = input.active && !next.active
         let oldLiveGroups = liveGroups
         liveGroups = Set(ToolGroupActivity.liveGroups(in: next.messages, active: next.active).map { "message:" + $0 })
         let activityChanged = oldLiveGroups.symmetricDifference(liveGroups)
@@ -350,11 +357,18 @@ struct NativeTranscript: NSViewRepresentable {
         // Rows before `base` are unchanged in identity, position, and value.
         let diff = messages[base...].map(\.id).difference(from: old[min(base, old.count)...].map(\.id))
         var removals = IndexSet(), insertions = IndexSet()
+        var removedIDs = Set<String>()
         for change in diff {
             switch change {
-            case .remove(let offset, _, _): removals.insert(base + offset)
+            case .remove(let offset, let id, _): removals.insert(base + offset); removedIDs.insert(id)
             case .insert(let offset, _, _): insertions.insert(base + offset)
             }
+        }
+        // Measurements of rows that left the transcript are not reused.
+        let gone = removedIDs.filter { indices[$0] == nil }
+        if !gone.isEmpty {
+            for id in gone { heights.removeValue(forKey: id) }
+            heightOrder.removeAll { gone.contains($0) }
         }
         if old.isEmpty { table.reloadData() }
         else if !diff.isEmpty {
@@ -384,6 +398,28 @@ struct NativeTranscript: NSViewRepresentable {
         if follow.followsBottom { positionAtBottom() }
         else if !diff.isEmpty, let saved { restore(saved) }
         publishVisibility()
+        updateHistoryRelease(turnFinished: turnFinished)
+    }
+
+    /// Loaded history is released once the reader has stayed at the live
+    /// bottom for the release delay, or when a turn finishes while they are there.
+    private func updateHistoryRelease(turnFinished: Bool = false) {
+        guard !stopped, follow.followsBottom, input.hasLoadedHistory, !input.historyLoading else {
+            historyRelease?.cancel(); historyRelease = nil
+            return
+        }
+        if turnFinished { historyRelease?.cancel(); historyRelease = nil }
+        guard historyRelease == nil else { return }
+        let delay = turnFinished ? Duration.zero : input.historyReleaseDelay
+        // Released asynchronously: the transcript must not mutate session
+        // state while SwiftUI is updating this view.
+        historyRelease = Task { @MainActor [weak self] in
+            if delay > .zero { do { try await Task.sleep(for: delay) } catch { return } }
+            guard !Task.isCancelled, let self, !self.stopped, self.follow.followsBottom,
+                  self.input.hasLoadedHistory, !self.input.historyLoading else { return }
+            self.historyRelease = nil
+            self.input.releaseHistory()
+        }
     }
 
     /// Replaces `messages` and `indices` for `next`, reusing rows for its
@@ -453,6 +489,7 @@ struct NativeTranscript: NSViewRepresentable {
            input.hasHistory, !input.historyLoading, input.historyError == nil {
             input.loadHistory()
         }
+        updateHistoryRelease()
     }
 
     private func publishVisibility() {
@@ -512,6 +549,7 @@ struct NativeTranscript: NSViewRepresentable {
 
     func stop() {
         stopped = true
+        historyRelease?.cancel(); historyRelease = nil
         pendingMeasurements.removeAll()
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
         scrollObserver = nil

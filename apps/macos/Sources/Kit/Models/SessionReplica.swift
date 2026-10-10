@@ -35,6 +35,11 @@ final class SessionReplica {
     private(set) var historyLoading = false
     private(set) var historyError: String?
     private var historyPrefix: [TranscriptMessage] = []
+    /// History cursor of the latest delivered snapshot window, restored when
+    /// loaded pages are released.
+    @ObservationIgnored private var windowCursor: String?
+    /// Whether pages loaded before the snapshot window are retained.
+    var hasLoadedHistory: Bool { !historyPrefix.isEmpty }
     private var historyBoundary: Int64?
     private var historyCursor: String?
     private var resetHistoryOnReceive = false
@@ -82,6 +87,7 @@ final class SessionReplica {
         historyPrefix = []
         historyBoundary = nil
         historyCursor = current?.historyCursor
+        windowCursor = historyCursor
         historyError = nil
     }
 
@@ -263,6 +269,20 @@ final class SessionReplica {
         }
     }
 
+    /// Drops pages loaded before the snapshot window. They are fetched again
+    /// through the restored cursor when the reader asks for them.
+    func releaseLoadedHistory() {
+        guard !historyPrefix.isEmpty, var value = current,
+              value.messages.count >= historyPrefix.count else { return }
+        cancelHistory()
+        value.messages.removeFirst(historyPrefix.count)
+        historyPrefix = []
+        historyCursor = windowCursor
+        historyError = nil
+        value.historyCursor = historyCursor
+        current = value
+    }
+
     private func cancelHistory() {
         historyGeneration = UUID()
         historyTask?.cancel(); historyTask = nil
@@ -389,6 +409,7 @@ final class SessionReplica {
             sessions[index] = snapshot
         }
         lastReceived = snapshot
+        windowCursor = snapshot.historyCursor
         let refreshVCS = vcsTask == nil || self.current?.cwd != snapshot.cwd
         var merged = snapshot
         if self.current?.cwd == snapshot.cwd {

@@ -68,6 +68,12 @@ final class SessionUIState {
         drawers[messageID] = state
         return state
     }
+
+    /// Forgets interaction state for rows no longer in the transcript.
+    func retainDrawers(for messages: [TranscriptMessage]) {
+        let keys = Set(messages.map(\.id) + messages.compactMap { $0.plugin.map { "plugin:" + $0.turnID } })
+        drawers = drawers.filter { keys.contains($0.key) }
+    }
 }
 
 @MainActor @Observable final class ToolDrawerState {

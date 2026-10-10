@@ -78,6 +78,26 @@ import Testing
         #expect(adapter.messages.map(\.text).dropFirst() == ["Older", "Replayed", "Third, revised"])
     }
 
+    @Test func finishingATurnAtTheLatestMessagesReleasesHistoryWithoutWaiting() async throws {
+        final class Releases { var count = 0 }
+        let releases = Releases()
+        func input(active: Bool) -> NativeTranscript {
+            NativeTranscript(messages: [TranscriptMessage(id: "a", role: "assistant", text: "Answer", tools: [])],
+                hasHistory: true, historyLoading: false, historyError: nil, active: active,
+                presentation: TranscriptPresentationState(), workspace: WorkspaceState(demo: false),
+                resumeRequest: 0, latestOutOfView: .constant(false), loadHistory: {}, theme: MicaTheme(dark: false),
+                hasLoadedHistory: true, releaseHistory: { releases.count += 1 }, historyReleaseDelay: .seconds(60))
+        }
+        let adapter = NativeTranscriptCoordinator(input(active: true))
+        defer { adapter.stop() }
+        adapter.receive(input(active: true))
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(releases.count == 0)
+        adapter.receive(input(active: false))
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(releases.count == 1)
+    }
+
     @Test func transcriptColumnRemainsCenteredAcrossResizes() async throws {
         let input = NativeTranscript(messages: [
             TranscriptMessage(id: "message", role: "user", text: "Identical transcript content", tools: [])

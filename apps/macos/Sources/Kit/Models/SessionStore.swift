@@ -419,8 +419,18 @@ final class SessionStore {
     var historyLoading: Bool { replica.historyLoading }
     var historyError: String? { replica.historyError }
     var hasEarlierHistory: Bool { selected?.historyCursor != nil }
+    var hasLoadedHistory: Bool { replica.hasLoadedHistory }
+    /// How long the reader stays at the live bottom before loaded history is released.
+    @ObservationIgnored var historyReleaseDelay: Duration = .seconds(30)
     func loadHistory(beforePrepend: @escaping @MainActor () -> Void = {}) {
         replica.loadHistory(beforePrepend: beforePrepend)
+    }
+    /// Releases pages loaded before the recent snapshot window, along with
+    /// the row interaction state that belonged to them.
+    func releaseLoadedHistory() {
+        guard replica.hasLoadedHistory else { return }
+        replica.releaseLoadedHistory()
+        ui.transcript.retainDrawers(for: replica.messages)
     }
     var selectedID: String { replica.selectedID }
     /// Selected session metadata. Its `messages` and `activity` are always
