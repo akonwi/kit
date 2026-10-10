@@ -2964,6 +2964,12 @@ impl Controller {
     }
   }
 
+  // Loads the preview of an image shown in the transcript, such as by
+  // show_image, unless it is loaded.
+  fn mut request_image(attachment_id: Str) {
+    self.request_preview(attachment_id)
+  }
+
   private fn mut request_preview(attachment_id: Str) {
     self.remember_preview(attachment_id)
     if self.previews.get(attachment_id).is_none() {

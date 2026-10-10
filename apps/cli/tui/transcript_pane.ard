@@ -5,6 +5,7 @@ use cooper/ui
 use go:github.com/akonwi/vaxis
 use go:kit/ffi/pluginmessage
 use go:kit/ffi/sessionbridge
+use go:kit/ffi/toolpresentation
 use kit/tui/attachments
 use kit/tui/controls
 use kit/tui/image_preview
@@ -82,6 +83,8 @@ struct Images {
   toggle: fn(Str),
   // Opens an image in the system's default application.
   open: fn(Str),
+  // Loads an image's preview for showing, such as one shown by show_image.
+  request: fn(Str),
 }
 
 // Direct shell runs. A finished run's header folds and unfolds its output.
@@ -518,7 +521,7 @@ private fn transcript_row(
     false => 0,
   }
   let view = match entry.work {
-    run => work_view(themes, work, run),
+    run => work_view(themes, images, work, run),
     _ => entry_view(themes, images, bash, plugins, entry.key, entry.message).or(layout::blank()),
   }
   cui::box(
@@ -1050,7 +1053,125 @@ private fn bash_outcome(colors: theme::Theme, run: sessionbridge::Bash) Outcome 
 // A run of tool calls: a chip counting its calls and failures, followed
 // while open by its activity: each message's thinking, then its tool rows.
 // While closed, a spinner shows the run working.
-fn work_view(themes: theme::Context, work: Work, run: transcript::Work) cui::View {
+// A run of tool calls: its chip or activity, then the images its show_image
+// calls presented, which show whether or not the chip is open.
+fn work_view(themes: theme::Context, images: Images, work: Work, run: transcript::Work) cui::View {
+  let shown = shown_images(run)
+  match shown.size() == 0 {
+    true => work_activity(themes, work, run),
+    false => {
+      let views = mut List::new<cui::View>()
+      views.push(work_activity(themes, work, run))
+      for image in shown {
+        views.push(
+          cui::child(
+            new_shown_image,
+            ShownImageProps{
+              themes: themes,
+              images: images,
+              image: image,
+            },
+            key: "shown-image:{image.AttachmentID}",
+          ),
+        )
+      }
+      cui::box(views.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
+    },
+  }
+}
+
+// The images a run's show_image calls presented, in call order.
+fn shown_images(run: transcript::Work) [toolpresentation::ShownImage] {
+  let shown = mut List::new<toolpresentation::ShownImage>()
+  for step in run.steps {
+    match step.result {
+      result => {
+        let call = step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name))
+        let image = toolpresentation::ShowsImage(
+          toolpresentation::Call{
+            Name: call.name,
+            Arguments: call.arguments,
+            ArgumentsTruncated: call.arguments_truncated,
+          },
+          toolpresentation::Result{
+            Succeeded: result.tool_state == transcript::ToolState::completed,
+            Text: result.text,
+            Details: result.details,
+          },
+        )
+        if image.AttachmentID != "" {
+          shown.push(image)
+        }
+      },
+      _ => (),
+    }
+  }
+  shown.@
+}
+
+private struct ShownImageProps {
+  themes: theme::Context,
+  images: Images,
+  image: toolpresentation::ShownImage,
+}
+
+// An image shown by show_image: a blank row, the preview in rows reserved
+// before it loads, and its caption. It loads when first shown.
+private struct ShownImage {
+  props: mut ShownImageProps,
+}
+
+private fn new_shown_image(props: mut ShownImageProps) mut ShownImage {
+  (mut ShownImage{props: props})
+}
+
+impl cui::Lifecycle for ShownImage {
+  fn mut mounted(context: cui::Context) {
+    (self.props.images.request)(self.props.image.AttachmentID)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl cui::Component for ShownImage {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let id = self.props.image.AttachmentID
+    let preview = (self.props.images.preview)(id).or(image_preview::loading())
+    let open = self.props.images.open
+    let views = mut List::new<cui::View>()
+    views.push(layout::blank())
+    views.push(
+      image_preview::view(
+        self.props.themes,
+        id,
+        preview,
+        fn() {
+          open(id)
+        },
+        fill: colors.background,
+      ),
+    )
+    if self.props.image.Caption != "" {
+      views.push(layout::line(self.props.image.Caption, ui::text_style(foreground: colors.muted)))
+    }
+    cui::box(
+      views.@,
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::column,
+        flex_shrink: 0.0,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(0),
+          bottom: ui::cells(0),
+          left: ui::cells(2),
+        },
+      ),
+    )
+  }
+}
+
+fn work_activity(themes: theme::Context, work: Work, run: transcript::Work) cui::View {
   let colors = themes.current()
   let open = work_is_open(work, run)
   let muted = ui::text_style(foreground: colors.muted)

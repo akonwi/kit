@@ -104,20 +104,22 @@ fn columns(image: ui::ImageData, available: Int) Int {
 }
 
 // The preview area for one attachment; clicking a ready image calls `open`.
-// In a narrower container the image shrinks, keeping its proportions.
-fn view(themes: theme::Context, attachment_id: Str, preview: Preview, open: fn()) cui::View {
+// In a narrower container the image shrinks, keeping its proportions. Its
+// status text sits on fill, a user message's wash unless given.
+fn view(themes: theme::Context, attachment_id: Str, preview: Preview, open: fn(), fill: ui::Color?) cui::View {
   let colors = themes.current()
+  let background = fill.or(colors.user_fill)
   let content = match preview.stage {
     Stage::loading => {
       layout::line(
         "loading preview…",
-        ui::text_style(foreground: colors.muted, background: colors.user_fill),
+        ui::text_style(foreground: colors.muted, background: background),
       )
     },
     Stage::failed => {
       layout::line(
         "preview unavailable",
-        ui::text_style(foreground: colors.danger_text, background: colors.user_fill),
+        ui::text_style(foreground: colors.danger_text, background: background),
       )
     },
     Stage::ready => {

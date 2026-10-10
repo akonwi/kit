@@ -36,6 +36,8 @@ struct Model {
   selected_tool: Str,
   // Tool rows whose output is shown.
   open_output: [Str: Bool],
+  // Images whose previews were requested for showing, in order.
+  requested: [Str],
 }
 
 // Every message is shown; there is no earlier history.
@@ -89,6 +91,9 @@ impl cui::Component for Host {
           },
           open: fn(id: Str) {
             self.model.opened.push(id)
+          },
+          request: fn(id: Str) {
+            self.model.requested.push(id)
           },
         },
         bash: transcript_pane::Bash{
@@ -242,6 +247,7 @@ fn render(count: Int) [Str] {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -274,6 +280,7 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -339,6 +346,7 @@ test fn pending_assistant_prose_is_revealed_only_after_completion() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -413,6 +421,7 @@ test fn virtual_list_updates_report_when_the_latest_message_leaves_view() Void!S
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -468,6 +477,7 @@ test fn a_transcript_at_its_end_follows_new_messages() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -529,6 +539,7 @@ test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -593,6 +604,7 @@ test fn scrolled_transcript_preserves_its_keyed_reading_anchor_during_reflow() V
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -659,6 +671,7 @@ test fn markdown_selection_survives_transcript_reflow() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -711,6 +724,7 @@ test fn selected_transcript_row_remains_retained_when_height_growth_moves_it_off
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -776,6 +790,7 @@ test fn the_latest_control_returns_a_scrolled_transcript_to_its_tail() Void!Str 
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -835,6 +850,7 @@ test fn a_new_attachment_scope_remounts_the_transcript_at_its_tail() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -922,6 +938,7 @@ test fn attaching_opens_a_tall_final_reply_at_its_start() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -961,6 +978,7 @@ test fn a_tall_reply_arriving_at_the_end_opens_at_its_start() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -1004,6 +1022,7 @@ test fn a_reply_that_fits_keeps_following_the_end() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -1047,6 +1066,7 @@ test fn a_tall_reply_arriving_while_scrolled_away_leaves_the_view_alone() Void!S
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -1092,6 +1112,7 @@ test fn a_tall_prompt_follows_the_end() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -1179,6 +1200,7 @@ test fn a_first_page_too_short_to_fill_the_view_loads_earlier_history() Void!Str
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1224,6 +1246,7 @@ test fn earlier_history_loads_within_forty_rows_of_the_top() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1267,6 +1290,7 @@ test fn a_prepended_page_keeps_the_reading_position() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1325,6 +1349,7 @@ test fn a_failed_page_pauses_loading_until_retried() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1364,6 +1389,7 @@ test fn a_page_prepended_at_the_very_top_keeps_the_oldest_message_in_place() Voi
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1443,6 +1469,7 @@ test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -1538,6 +1565,7 @@ test fn an_expanded_image_shows_its_preview_below_its_row() Void!Str {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   }
   let renderer = cui::mount(
     app,
@@ -1628,6 +1656,7 @@ fn bash_model(messages: [transcript::Message]) mut Model {
     open_work: [:],
     selected_tool: "",
     open_output: [:],
+    requested: [],
   })
 }
 
@@ -2394,5 +2423,67 @@ test fn a_title_column_stops_growing_at_its_widest() Void!Str {
       "     Reconcile Every Pending Workspac  kit",
       "",
     ],
+  )
+}
+
+fn shown_image_run(caption: Str) [transcript::Message] {
+  let reply = mut transcript::message("t1-reply", "t1", transcript::Role::assistant)
+  let call = mut transcript::tool_call("c0", "show_image")
+  call.arguments = "{{\"path\":\"shots/home.png\"}}"
+  reply.tool_calls = [call.@]
+  let result = mut transcript::message("t1-result-0", "t1", transcript::Role::tool)
+  result.tool_call_id = "c0"
+  result.tool_name = "show_image"
+  result.tool_state = transcript::ToolState::completed
+  result.text = "Image displayed successfully."
+  result.details = "{{\"presentation\":\"transcript-image\",\"attachmentId\":\"attachment_home\",\"filename\":\"home.png\",\"mediaType\":\"image/png\",\"width\":800,\"height\":600,\"caption\":\"{caption}\"}}"
+  [reply.@, result.@]
+}
+
+test fn a_shown_image_loads_below_its_closed_chip_with_its_caption() Void!Str {
+  let terminal = headless::new(60, 18)
+  defer terminal.destroy()
+  let model = bash_model(shown_image_run("Home screen after the redesign"))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  // The preview's 12 rows are reserved while it loads.
+  let expected = mut List::new<Str>()
+  for row in ["", "", " ▸ 1 tool call", "", "   loading preview…"] {
+    expected.push(row)
+  }
+  for _ in 1..11 {
+    expected.push("")
+  }
+  expected.push("   Home screen after the redesign")
+  expected.push("")
+  try expect_rows(rows(terminal), expected.@)
+  let requested = strings::Join(mut model.requested, ",")
+  testing::assert(
+    requested == "attachment_home",
+    "the preview is requested once shown: {requested}",
+  )
+}
+
+test fn a_loaded_shown_image_paints_and_opens_when_clicked() Void!Str {
+  let terminal = headless::new(60, 18)
+  defer terminal.destroy()
+  let model = bash_model(shown_image_run(""))
+  model.previews = ["attachment_home": red_preview()]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  let shown = rows(terminal)
+  // Without a caption, the image ends the run.
+  let painted = "   " + strings::Repeat("▀", 48)
+  try testing::assert(
+    shown.at(3).or("") == " ▸ 1 tool call" and shown.at(4).or("") == "" and shown.at(5).or("") == painted and shown.at(16).or("") == painted and shown.at(17).or("") == "",
+    "the image fills its rows below the chip:\n{strings::Join(mut shown, "|\n")}",
+  )
+  terminal.click(10, 8)
+  settle(terminal)
+  testing::assert(
+    model.opened.size() == 1 and model.opened.at(0).or("") == "attachment_home",
+    "clicking the image opens it",
   )
 }
