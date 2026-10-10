@@ -122,7 +122,8 @@ struct SessionEventProjection {
                 session.messages.append(TranscriptMessage(id: "live-user-" + event.turnId, role: "user", text: value, tools: [], attachments: SessionProjection.attachments(event.content ?? []), annotations: annotations))
                 candidateAnnotationTurn = value == "Annotations" && (event.content?.isEmpty ?? true) ? event.turnId : nil
             }
-            session.observedTurns = Array(Set((session.observedTurns ?? []) + [event.turnId]))
+            // Sorted so an unchanged set never reads as changed session metadata.
+            session.observedTurns = Set((session.observedTurns ?? []) + [event.turnId]).sorted()
             lastTurn = event.turnId
         case "plugin.message.added":
             guard let plugin = event.pluginId, !plugin.isEmpty, let value = event.text, !value.isEmpty,

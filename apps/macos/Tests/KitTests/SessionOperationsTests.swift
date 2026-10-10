@@ -44,9 +44,10 @@ private actor MutationStub: SessionMutationClient {
         calls.append(input)
         return try await withCheckedThrowingContinuation { continuation = $0 }
     }
-    func acknowledge(_ session: String = "s", queued: Bool = false) {
+    func acknowledge(_ session: String = "s", queued: Bool = false, turn: String? = nil) {
         queue = WireFollowUpQueue(count: queued ? 1 : 0, previews: queued ? ["Queued prompt"] : [], annotationIds: nil)
-        continuation?.resume(returning: WirePromptSubmission(reservation: queued ? nil : WireTurnReservation(sessionId: session, turnId: "turn"), queued: queued, queue: queue))
+        let reservation = queued && turn == nil ? nil : WireTurnReservation(sessionId: session, turnId: turn ?? "turn")
+        continuation?.resume(returning: WirePromptSubmission(reservation: reservation, queued: queued, queue: queue))
         continuation = nil
     }
     func reject(_ error: ClientError) { continuation?.resume(throwing: error); continuation = nil }
@@ -219,6 +220,38 @@ private actor MutationStub: SessionMutationClient {
         #expect(state.ui.serverAttachmentIDs == ["attachment"])
         #expect(state.operations.queue?.count == 0)
     }
+    @Test func queuedReceiptBecomesSentOnceItsTurnIsObserved() async throws {
+        let client = MutationStub()
+        let operations = SessionOperations()
+        func session(turns: [String]) -> SessionExcerpt {
+            var value = SessionExcerpt(id: "s", title: "Test", sourceTitle: "Test", model: "m", thinking: "high", workspace: "w", date: "", messages: [])
+            value.observedTurns = turns
+            return value
+        }
+        func submit() async throws {
+            operations.submit(client: client, session: "s", input: WirePromptInput(text: "Follow up", attachmentIds: nil, annotationIds: nil),
+                              draft: .init(text: "Follow up", notes: [:], attachmentIDs: []), uncertain: {}, acknowledged: {})
+            try await wait { await client.continuation != nil }
+        }
+
+        operations.reconcile(session(turns: ["earlier"]))
+        try await submit()
+        await client.acknowledge(queued: true, turn: "first")
+        try await wait { operations.submission == .acknowledged("Queued") }
+        operations.reconcile(session(turns: ["earlier"]))
+        #expect(operations.submission == .acknowledged("Queued"))
+        operations.reconcile(session(turns: ["earlier", "first"]))
+        #expect(operations.submission == .acknowledged("Sent"))
+
+        // A turn observed before its acknowledgement arrives still settles the receipt.
+        try await submit()
+        operations.reconcile(session(turns: ["earlier", "first", "second"]))
+        await client.acknowledge(queued: true, turn: "second")
+        try await wait { operations.submission == .acknowledged("Queued") }
+        operations.reconcile(session(turns: []))
+        #expect(operations.submission == .acknowledged("Sent"))
+    }
+
     @Test func abortWaitsForAuthoritativeTerminalState() async throws {
         let client = MutationStub()
         let operations = SessionOperations()
