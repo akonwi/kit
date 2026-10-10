@@ -246,6 +246,30 @@ final class SessionStore {
         let session = selectedID, operation = bashOperation
         Task { await operation.abort(session: session, id: id, client: client) }
     }
+    struct MCPStatus: Equatable {
+        var servers: [MCPServerStatus]
+        var warnings: [String]
+    }
+    /// Status read while the MCP view is visible; the session stream does not
+    /// carry MCP changes, so other readers see the latest stream snapshot.
+    private var polledMCPStatus: (session: String, status: MCPStatus)?
+    var mcpStatus: MCPStatus {
+        if let polled = polledMCPStatus, polled.session == selectedID { return polled.status }
+        return MCPStatus(servers: selected?.mcpServers ?? [], warnings: selected?.mcpWarnings ?? [])
+    }
+    /// Polls MCP status for the selected session until cancelled.
+    func monitorMCPStatus(interval: Duration = .seconds(2)) async {
+        let client = replica.client, id = selectedID
+        guard !client.isDemo, !id.isEmpty else { return }
+        defer { if polledMCPStatus?.session == id { polledMCPStatus = nil } }
+        while !Task.isCancelled {
+            if let snapshot = try? await client.snapshot(id), !Task.isCancelled, selectedID == id {
+                let status = MCPStatus(servers: snapshot.mcpServers ?? [], warnings: snapshot.mcpWarnings ?? [])
+                if polledMCPStatus?.session != id || polledMCPStatus?.status != status { polledMCPStatus = (id, status) }
+            }
+            do { try await Task.sleep(for: interval) } catch { return }
+        }
+    }
     func monitorBash() async {
         guard let client = bashClient else { return }
         let session = selectedID, operation = bashOperation

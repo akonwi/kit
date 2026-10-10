@@ -44,10 +44,11 @@ struct MCPStatusView: View {
         .font(.kit(size: 13)).frame(width: 560, height: 520)
         .foregroundStyle(theme.text).background(theme.surface)
         .onExitCommand { state.ui.palette = false }
+        .task(id: "\(state.serverID)/\(state.selectedID)") { await state.monitorMCPStatus() }
     }
 
-    private var servers: [MCPServerStatus] { state.selected?.mcpServers ?? [] }
-    private var warnings: [String] { state.selected?.mcpWarnings ?? [] }
+    private var servers: [MCPServerStatus] { state.mcpStatus.servers }
+    private var warnings: [String] { state.mcpStatus.warnings }
 
     private func serverCard(_ server: MCPServerStatus) -> some View {
         VStack(alignment: .leading, spacing: 10) {
