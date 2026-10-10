@@ -142,7 +142,7 @@ typealias WireActiveCompaction = Components.Schemas.ActiveCompaction
 
 typealias WireSessionUsage = Components.Schemas.SessionUsage
 
-struct WirePluginFooterStyle: Codable, Sendable {
+struct WirePluginFooterStyle: Codable, Sendable, Equatable {
     let `fg`: String?
     let `bg`: String?
     let `bold`: Bool?
@@ -152,19 +152,19 @@ struct WirePluginFooterStyle: Codable, Sendable {
     let `strikethrough`: Bool?
 }
 
-struct WirePluginFooterSegment: Codable, Sendable {
+struct WirePluginFooterSegment: Codable, Sendable, Equatable {
     let `text`: String
     let `style`: WirePluginFooterStyle
 }
 
-struct WirePluginFooterItem: Codable, Sendable {
+struct WirePluginFooterItem: Codable, Sendable, Equatable {
     let `id`: String
     let `pluginId`: String
     let `instance`: String
     let `content`: [WirePluginFooterSegment]?
 }
 
-struct WirePluginFooter: Codable, Sendable {
+struct WirePluginFooter: Codable, Sendable, Equatable {
     let `items`: [WirePluginFooterItem]?
     let `locationHidden`: Bool
 }
@@ -195,7 +195,7 @@ struct WireFollowUpQueue: Codable, Sendable {
 
 typealias WireMCPServerStatus = Components.Schemas.MCPServerStatus
 
-struct WireSubagentSource: Codable, Sendable {
+struct WireSubagentSource: Codable, Sendable, Equatable {
     let `kind`: String
     let `path`: String
     let `pluginId`: String?
@@ -208,7 +208,7 @@ struct WireSubagentDefinition: Codable, Sendable {
     let `source`: WireSubagentSource
 }
 
-struct WireSubagentDiagnostic: Codable, Sendable {
+struct WireSubagentDiagnostic: Codable, Sendable, Equatable {
     let `severity`: String
     let `code`: String
     let `message`: String
@@ -253,7 +253,7 @@ struct WireSubagentMailboxItem: Codable, Sendable {
     let `createdAt`: String
 }
 
-struct WirePluginInteractionOwner: Codable, Sendable {
+struct WirePluginInteractionOwner: Codable, Sendable, Equatable {
     let `pluginId`: String
     let `instance`: String
 }
@@ -265,7 +265,7 @@ enum WireInteractionKind: String, Codable, Sendable {
     case value3 = "guided"
 }
 
-struct WireInteractionOption: Codable, Sendable {
+struct WireInteractionOption: Codable, Sendable, Equatable {
     let `id`: String
     let `label`: String
     let `detail`: String?
@@ -278,7 +278,7 @@ enum WireInteractionQuestionKind: String, Codable, Sendable {
     case value3 = "boolean"
 }
 
-struct WireInteractionQuestion: Codable, Sendable {
+struct WireInteractionQuestion: Codable, Sendable, Equatable {
     let `id`: String
     let `prompt`: String
     let `detail`: String?
@@ -287,7 +287,7 @@ struct WireInteractionQuestion: Codable, Sendable {
     let `options`: [WireInteractionOption]?
 }
 
-struct WireInteractionRequest: Codable, Sendable {
+struct WireInteractionRequest: Codable, Sendable, Equatable {
     let `plugin`: WirePluginInteractionOwner?
     let `confirmLabel`: String?
     let `cancelLabel`: String?

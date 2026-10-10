@@ -15,8 +15,8 @@ struct SubagentTranscriptUpdate: Sendable {
     let activity: String?
 }
 
-struct SubagentRoster: Decodable, Sendable {
-    struct Item: Decodable, Identifiable, Sendable {
+struct SubagentRoster: Decodable, Sendable, Equatable {
+    struct Item: Decodable, Identifiable, Sendable, Equatable {
         var id: String { name }
         let name: String
         let description: String

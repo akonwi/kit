@@ -59,20 +59,73 @@ private actor ShellResults {
             .init(id: "after", role: "assistant", text: "After shell", tools: [])])
         #expect(rows.map(\.id) == ["before", ids[0], "after"])
     }
+    @Test func statusTextShowsOnlyUnsuccessfulOutcomes() throws {
+        func settled(_ status: WireBashExecutionStatus, exitCode: Int? = 0, timedOut: Bool = false) throws -> BashExecution {
+            try BashExecution(.init(id: "bash_test", sessionId: "s", sequence: 0, command: "printf test", status: status,
+                output: "", exitCode: exitCode, excludeFromContext: false, truncated: false,
+                timedOut: timedOut, errorMessage: status == .value1 ? nil : "Stopped", startedAt: "2026-09-15T12:00:00Z",
+                completedAt: "2026-09-15T12:00:01Z"), session: "s")
+        }
+        let cases: [(BashExecution, String?)] = [
+            (try execution(), nil),
+            (try settled(.value1), nil),
+            (try settled(.value1, exitCode: 2), "Exit 2"),
+            (try settled(.value2, timedOut: true), "Timed out"),
+            (try settled(.value3, exitCode: nil), "Aborted"),
+            (try settled(.value4, exitCode: nil), "Interrupted")
+        ]
+        #expect(cases.map { BashExecutionView.status(of: $0.0) } == cases.map(\.1))
+    }
+
     @Test func pollingPreservesLiveMessagesAndTerminalState() async throws {
         let sink = ShellResults()
         let projection = BashWatchProjection { await sink.accept($0) }
-        let session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "server", model: "model", thinking: "off", workspace: "tmp", date: "", messages: [.init(id: "assistant", role: "assistant", text: "Live response", tools: [])])
+        var session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "server", model: "model", thinking: "off", workspace: "tmp", date: "", messages: [.init(id: "assistant", role: "assistant", text: "Live response", tools: [])])
+        session.activeBashID = "bash_test"
         await projection.stream(session)
-        await projection.poll(session, active: try execution(), settled: [])
+        #expect(await projection.pollTargets() == ["bash_test"])
         #expect(await sink.latest?.activeBashID == "bash_test")
-        await projection.poll(session, active: nil, settled: [try execution(status: .value1, output: "test")])
+        await projection.poll([try execution()])
+        #expect(await projection.pollTargets() == ["bash_test"])
+        await projection.poll([try execution(status: .value1, output: "test")])
+        #expect(await projection.pollTargets() == [])
+        // Later live deliveries still carry the stream snapshot's stale active ID.
         await projection.stream(session)
         let rows = await sink.latest?.messages
         #expect(rows?.map(\.id) == ["assistant", "bash_test"])
         #expect(rows?.first?.text == "Live response")
         #expect(rows?.last?.bash?.statusLabel == "Completed")
         #expect(await sink.latest?.activeBashID == nil)
+    }
+
+    @Test func idleSessionsDoNotPollAndRunningRowsArePolledUntilSettled() async throws {
+        actor Reads {
+            var ids: [String] = []
+            func record(_ id: String) { ids.append(id) }
+        }
+        let sink = ShellResults(), reads = Reads()
+        let projection = BashWatchProjection { await sink.accept($0) }
+        let watch = Task {
+            try await projection.watch(interval: .milliseconds(10)) { id in
+                await reads.record(id)
+                return try execution(id, status: .value1, output: "done")
+            }
+        }
+        defer { watch.cancel() }
+        let idle = SessionExcerpt(id: "s", title: "Test", sourceTitle: "server", model: "model", thinking: "off", workspace: "tmp", date: "", messages: [])
+        await projection.stream(idle)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await reads.ids == [])
+        var running = idle
+        running.messages = [try execution("bash_row").message]
+        await projection.stream(running)
+        for _ in 0..<100 where await sink.latest?.messages.first?.bash?.running != false {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await sink.latest?.messages.map(\.id) == ["bash_row"])
+        #expect(await sink.latest?.messages.first?.bash?.output == "done")
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await reads.ids == ["bash_row"])
     }
     @Test(.enabled(if: ProcessInfo.processInfo.environment["KIT_BASH_LIVE_TEST"] == "1"))
     func liveExecutionContextAndAbort() async throws {
@@ -96,12 +149,14 @@ private actor ShellResults {
                 let snapshot = try await client.snapshot(session)
                 #expect(snapshot.messages.contains { $0.bash?.id == id } == !excluded)
             }
-            let observed = ShellResults()
-            let watch = Task { try await client.watch(session) { await observed.accept($0) } }
-            defer { watch.cancel() }
+            // The watch learns of executions from its snapshots; commands started
+            // by this window are tracked by its BashOperation instead.
             let id = "bash_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
             _ = try await client.startBash(session, input: .init(executionId: id, command: "sleep 30", excludeFromContext: true))
             #expect(try await client.snapshot(session).activeBashID == id)
+            let observed = ShellResults()
+            let watch = Task { try await client.watch(session) { await observed.accept($0) } }
+            defer { watch.cancel() }
             for _ in 0..<60 {
                 if await observed.latest?.messages.contains(where: { $0.bash?.id == id && $0.bash?.running == true }) == true { break }
                 try await Task.sleep(for: .milliseconds(100))

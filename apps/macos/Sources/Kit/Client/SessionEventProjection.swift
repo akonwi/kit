@@ -12,11 +12,22 @@ struct SessionEventProjection {
     private var lastTurn: String?
     private let persistedMessages: Set<String>
     private let persistedTools: Set<String>
-    private var liveBytes = 0
+    /// Bytes of live tool output held in `session.messages`.
+    private var toolOutputBytes = 0
+    /// Upper bound on live content held between authoritative snapshots.
+    private let retainedLiveLimit: Int
+    /// Set once held live content exceeds `retainedLiveLimit`. Live prose and
+    /// tool output then stop accumulating until the next turn starts; the
+    /// turn-completion snapshot supplies the persisted transcript.
+    private(set) var liveContentSuspended = false
+    static let defaultRetainedLiveLimit = 32 * 1024 * 1024
     private var activeAssistant: String?
     private var activeRunID: String?
     private var pendingInteractions: Set<String> = []
     private var thinkingTools: [String: String] = [:]
+    /// Row position of every tool call in `session.messages`. Positions are
+    /// verified on use because rare row removals can shift them.
+    private var toolRows: [String: Int] = [:]
 
     init(_ snapshot: WireSessionSnapshot, terminalError: String? = nil) throws {
         try self.init(session: SessionProjection.snapshot(snapshot), source: snapshot.messages ?? [],
@@ -26,8 +37,10 @@ struct SessionEventProjection {
     }
 
     init(session: SessionExcerpt, source: [WireTranscriptMessage], activeRunID: String? = nil,
-         replayAvailable: Bool = true, pendingInteractions: Set<String> = []) throws {
+         replayAvailable: Bool = true, pendingInteractions: Set<String> = [],
+         retainedLiveLimit: Int = SessionEventProjection.defaultRetainedLiveLimit) throws {
         self.session = session
+        self.retainedLiveLimit = retainedLiveLimit
         self.activeRunID = activeRunID
         self.pendingInteractions = pendingInteractions
         self.session.tabStatus = Self.status(runID: activeRunID, pending: pendingInteractions)
@@ -51,6 +64,9 @@ struct SessionEventProjection {
         }
         persistedTools = Set(source.filter { $0.role == "tool" }.compactMap(\.toolCallId))
         lastTurn = source.last?.turnId
+        for (index, row) in self.session.messages.enumerated() {
+            for tool in row.tools { toolRows[tool.id] = index }
+        }
     }
 
     mutating func updateSubagents(_ snapshot: WireSessionSnapshot) throws {
@@ -65,10 +81,7 @@ struct SessionEventProjection {
     }
 
     mutating func apply(_ event: TranscriptEvent) throws {
-        liveBytes += (event.delta?.utf8.count ?? 0) + (event.text?.utf8.count ?? 0)
-            + (event.thinking?.utf8.count ?? 0) + (event.arguments?.utf8.count ?? 0)
-            + (event.content ?? []).reduce(0) { $0 + ($1.text?.utf8.count ?? 0) }
-        guard liveBytes <= 32 * 1024 * 1024 else { throw ClientError.oversized }
+        defer { if !liveContentSuspended, retainedLiveBytes > retainedLiveLimit { suspendLiveContent() } }
         switch event.kind {
         case "scratchpad.changed":
             guard let record = event.scratchpad else { throw ClientError.invalidPayload }
@@ -90,6 +103,7 @@ struct SessionEventProjection {
             guard let ids = event.annotationIds, ids.count <= 64, Set(ids).count == ids.count else { throw ClientError.invalidPayload }
             session.annotations?.removeAll { ids.contains($0.id) }
         case "turn.started":
+            liveContentSuspended = false
             candidateAnnotationTurn = nil
             session.activeCompactionID = nil
             if activeRunID != event.turnId { retainPluginInteractions() }
@@ -116,7 +130,8 @@ struct SessionEventProjection {
                 session.messages.append(TranscriptMessage(id: "live-user-" + event.turnId, role: "user", text: value, tools: [], attachments: SessionProjection.attachments(event.content ?? []), annotations: annotations))
                 candidateAnnotationTurn = value == "Annotations" && (event.content?.isEmpty ?? true) ? event.turnId : nil
             }
-            session.observedTurns = Array(Set((session.observedTurns ?? []) + [event.turnId]))
+            // Sorted so an unchanged set never reads as changed session metadata.
+            session.observedTurns = Set((session.observedTurns ?? []) + [event.turnId]).sorted()
             lastTurn = event.turnId
         case "plugin.message.added":
             guard let plugin = event.pluginId, !plugin.isEmpty, let value = event.text, !value.isEmpty,
@@ -132,10 +147,12 @@ struct SessionEventProjection {
             activeAssistant = id
             guard !persistedMessages.contains(id) else { return }
             if event.kind == "assistant.started" {
+                guard !liveContentSuspended else { return }
                 text[id] = event.text.map { [-1: $0] } ?? [:]
                 thinking[id] = event.thinking.map { [-1: $0] } ?? [:]
             } else {
                 guard let delta = event.delta, (event.contentIndex ?? 0) >= 0 else { throw ClientError.invalidPayload }
+                guard !liveContentSuspended else { return }
                 if event.kind == "assistant.text.delta" {
                     text[id, default: [:]][event.contentIndex ?? 0, default: ""] += delta
                 } else {
@@ -147,7 +164,7 @@ struct SessionEventProjection {
                 let value = joined(thinking[id])
                 session.activity = value.split(separator: "\n").last.map(String.init) ?? "Thinking…"
                 if let toolID = thinkingTools[id],
-                   let row = session.messages.firstIndex(where: { $0.tools.contains { $0.id == toolID } }),
+                   let row = toolRow(toolID),
                    let tool = session.messages[row].tools.firstIndex(where: { $0.id == toolID }) {
                     session.messages[row].tools[tool].thinking = value
                 }
@@ -159,16 +176,16 @@ struct SessionEventProjection {
                 let message = TranscriptMessage(id: id, role: "assistant", text: value, tools: [])
                 // Completion can be delivered again without a new snapshot.
                 // Update the existing response without moving it past later rows.
-                if let index = session.messages.firstIndex(where: { $0.id == id }) {
+                if let index = session.messages.lastIndex(where: { $0.id == id }) {
                     session.messages[index] = message
                 } else {
                     session.messages.append(message)
                 }
             }
-            if let finalThinking = event.thinking {
+            if let finalThinking = event.thinking, !liveContentSuspended {
                 thinking[id] = [-1: finalThinking]
                 if let toolID = thinkingTools[id],
-                   let row = session.messages.firstIndex(where: { $0.tools.contains { $0.id == toolID } }),
+                   let row = toolRow(toolID),
                    let tool = session.messages[row].tools.firstIndex(where: { $0.id == toolID }) {
                     session.messages[row].tools[tool].thinking = finalThinking
                 }
@@ -180,7 +197,7 @@ struct SessionEventProjection {
             guard let id = event.toolCallId, !id.isEmpty, let name = event.toolName, !name.isEmpty else { throw ClientError.invalidPayload }
             guard !persistedTools.contains(id) else { return }
             session.activity = "Working…"
-            var row = session.messages.firstIndex { $0.tools.contains { $0.id == id } }
+            var row = toolRow(id)
             if row == nil {
                 if lastTurn == event.turnId, session.messages.last?.role == "tools" { row = session.messages.count - 1 }
                 else {
@@ -189,6 +206,7 @@ struct SessionEventProjection {
                 }
             }
             let index = row!
+            toolRows[id] = index
             let old = session.messages[index].tools.first { $0.id == id }
             let output = SessionProjection.visibleText(event.content ?? [])
             let completed = event.kind == "tool.completed"
@@ -198,8 +216,13 @@ struct SessionEventProjection {
                 let value = joined(thinking[assistant])
                 if !value.isEmpty { evidence = value; thinkingTools[assistant] = id }
             }
+            let previousOutput = old?.output ?? ""
+            // While suspended, deltas do not accumulate; completion still
+            // carries the tool's final, server-bounded result.
+            let nextOutput = completed ? output : liveContentSuspended ? previousOutput : previousOutput + output
+            toolOutputBytes += nextOutput.utf8.count - previousOutput.utf8.count
             let value = ToolActivity(id: id, name: name, summary: name,
-                output: completed ? output : (old?.output ?? "") + output,
+                output: nextOutput,
                 arguments: event.arguments ?? old?.arguments, failed: event.isError ?? old?.failed ?? false,
                 status: completed ? "Completed" : event.kind == "tool.planned" ? "Planned" : "Running…",
                 thinking: evidence,
@@ -278,6 +301,38 @@ struct SessionEventProjection {
     private mutating func retainPluginInteractions() {
         session.pendingInteractions = (session.pendingInteractions ?? []).filter { $0.plugin != nil }
         pendingInteractions = Set((session.pendingInteractions ?? []).map(\.id))
+    }
+
+    /// The row containing a tool call, without scanning the transcript when
+    /// the recorded position is still accurate.
+    private mutating func toolRow(_ id: String) -> Int? {
+        if let index = toolRows[id], session.messages.indices.contains(index),
+           session.messages[index].tools.contains(where: { $0.id == id }) {
+            return index
+        }
+        guard toolRows[id] != nil,
+              let index = session.messages.lastIndex(where: { $0.tools.contains { $0.id == id } }) else {
+            toolRows[id] = nil
+            return nil
+        }
+        toolRows[id] = index
+        return index
+    }
+
+    /// Live content currently held: buffered prose and thinking, and live tool output.
+    private var retainedLiveBytes: Int {
+        func size(_ buffers: [String: [Int: String]]) -> Int {
+            buffers.values.reduce(0) { total, blocks in blocks.values.reduce(total) { $0 + $1.utf8.count } }
+        }
+        return toolOutputBytes + size(text) + size(thinking)
+    }
+
+    /// Releases buffered live prose and stops further accumulation for this turn.
+    private mutating func suspendLiveContent() {
+        liveContentSuspended = true
+        text.removeAll()
+        thinking.removeAll()
+        if activeRunID != nil { session.activity = "Working…" }
     }
 
     private static func status(runID: String?, pending: Set<String>) -> SessionTabStatus {

@@ -29,7 +29,10 @@ final class SessionOperations {
     private(set) var abortError: String?
     private var queueRevision = 0
     private var abortGeneration = UUID()
+    /// Turns observed while a submission's receipt is outstanding. The server
+    /// reserves the receipt turn at submission, so earlier turns never match.
     private var observedTurns = Set<String>()
+    private var awaitingReceipt: Bool { submission == .pending || submission == .acknowledged("Queued") }
     private var currentRun: String?
     @ObservationIgnored private var submitTask: Task<Void, Never>?
     @ObservationIgnored private var queueTask: Task<Void, Never>?
@@ -69,8 +72,11 @@ final class SessionOperations {
 
     func reconcile(_ session: SessionExcerpt) {
         currentRun = session.activeRunID
-        observedTurns.formUnion(session.observedTurns ?? [])
-        if let receiptTurn, observedTurns.contains(receiptTurn) { submission = .acknowledged("Sent") }
+        if awaitingReceipt { observedTurns.formUnion(session.observedTurns ?? []) }
+        if let receiptTurn, observedTurns.contains(receiptTurn) {
+            submission = .acknowledged("Sent")
+            observedTurns = []
+        }
         if queue == nil { queue = session.followUps }
         if let abortingRun, abortingRun != currentRun { self.abortingRun = nil }
     }
@@ -106,6 +112,7 @@ final class SessionOperations {
         queueRevision += 1
         submission = .pending
         receiptTurn = nil
+        observedTurns = []
         submitTask = Task { [weak self] in
             do {
                 let result = try await request()

@@ -44,7 +44,7 @@ enum SessionProjection {
         session.activeCompactionID = snapshot.activeCompaction?.id
         session.activeBashID = snapshot.activeBashExecutionId
         session.activeRunID = snapshot.activeTurnId
-        session.observedTurns = Array(Set((snapshot.messages ?? []).map(\.turnId)))
+        session.observedTurns = Set((snapshot.messages ?? []).map(\.turnId)).sorted()
         session.followUps = try FollowUpState(snapshot.followUps)
         session.providerRetryAt = snapshot.providerRetry?.retryAt
         session.providerRetryCount = snapshot.providerRetry?.count

@@ -246,6 +246,30 @@ final class SessionStore {
         let session = selectedID, operation = bashOperation
         Task { await operation.abort(session: session, id: id, client: client) }
     }
+    struct MCPStatus: Equatable {
+        var servers: [MCPServerStatus]
+        var warnings: [String]
+    }
+    /// Status read while the MCP view is visible; the session stream does not
+    /// carry MCP changes, so other readers see the latest stream snapshot.
+    private var polledMCPStatus: (session: String, status: MCPStatus)?
+    var mcpStatus: MCPStatus {
+        if let polled = polledMCPStatus, polled.session == selectedID { return polled.status }
+        return MCPStatus(servers: selected?.mcpServers ?? [], warnings: selected?.mcpWarnings ?? [])
+    }
+    /// Polls MCP status for the selected session until cancelled.
+    func monitorMCPStatus(interval: Duration = .seconds(2)) async {
+        let client = replica.client, id = selectedID
+        guard !client.isDemo, !id.isEmpty else { return }
+        defer { if polledMCPStatus?.session == id { polledMCPStatus = nil } }
+        while !Task.isCancelled {
+            if let snapshot = try? await client.snapshot(id), !Task.isCancelled, selectedID == id {
+                let status = MCPStatus(servers: snapshot.mcpServers ?? [], warnings: snapshot.mcpWarnings ?? [])
+                if polledMCPStatus?.session != id || polledMCPStatus?.status != status { polledMCPStatus = (id, status) }
+            }
+            do { try await Task.sleep(for: interval) } catch { return }
+        }
+    }
     func monitorBash() async {
         guard let client = bashClient else { return }
         let session = selectedID, operation = bashOperation
@@ -395,14 +419,31 @@ final class SessionStore {
     var historyLoading: Bool { replica.historyLoading }
     var historyError: String? { replica.historyError }
     var hasEarlierHistory: Bool { selected?.historyCursor != nil }
+    var hasLoadedHistory: Bool { replica.hasLoadedHistory }
+    /// How long the reader stays at the live bottom before loaded history is released.
+    @ObservationIgnored var historyReleaseDelay: Duration = .seconds(30)
     func loadHistory(beforePrepend: @escaping @MainActor () -> Void = {}) {
         replica.loadHistory(beforePrepend: beforePrepend)
     }
-    var selectedID: String { replica.selectedID }
-    var selected: SessionExcerpt? { replica.snapshot }
-    var messages: [TranscriptMessage] {
-        bashOperation.merge(into: demo?.messages ?? selected?.messages ?? [])
+    /// Releases pages loaded before the recent snapshot window, along with
+    /// the row interaction state that belonged to them.
+    func releaseLoadedHistory() {
+        guard replica.hasLoadedHistory else { return }
+        replica.releaseLoadedHistory()
+        ui.transcript.retainDrawers(for: replica.messages)
     }
+    var selectedID: String { replica.selectedID }
+    /// Selected session metadata. Its `messages` and `activity` are always
+    /// empty; read ``messages`` and ``activity`` so streaming updates
+    /// invalidate only the views that present them.
+    var selected: SessionExcerpt? { replica.metadata }
+    /// The complete selected session, including transcript rows. Views should
+    /// prefer ``selected`` and ``messages``; this observes every replica change.
+    var selectedSnapshot: SessionExcerpt? { replica.snapshot }
+    var messages: [TranscriptMessage] {
+        bashOperation.merge(into: demo?.messages ?? replica.messages)
+    }
+    var activity: String? { replica.activity }
     var model: String { demo?.model ?? selected?.model ?? "" }
     /// The active model's label when its session inputs are known to exclude images.
     var imageRejectingModel: String? {
@@ -442,7 +483,7 @@ final class SessionStore {
         if let sessionID, !sessionID.isEmpty { replica.select(sessionID) }
         ui = SessionUIState(demo: client.isDemo)
         demo = client.isDemo ? DemoSessionState() : nil
-        demo?.select(replica.snapshot)
+        demo?.select(selectedSnapshot)
         operationsBySession[replica.selectedID] = SessionOperations()
         configurations[replica.selectedID] = ComposerConfiguration()
         if let cwd = replica.snapshot?.cwd { knownDirectories[replica.selectedID] = cwd }
@@ -478,7 +519,7 @@ final class SessionStore {
         if operationsBySession[id] == nil { operationsBySession[id] = SessionOperations() }
         if configurations[id] == nil { configurations[id] = ComposerConfiguration() }
         replica.select(id)
-        demo?.select(selected)
+        demo?.select(selectedSnapshot)
         applyAcknowledgedDraft()
         attach()
     }

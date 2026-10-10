@@ -61,6 +61,33 @@ struct BashExecution: Decodable, Sendable, Equatable, Identifiable {
         return parser.date(from: value) != nil
     }
     var message: TranscriptMessage { .init(id: id, role: "bash", text: "", tools: [], bash: self) }
+
+    /// Places tracked executions into transcript rows. A row with an execution's
+    /// identity is replaced when `replace` allows; otherwise the execution is
+    /// inserted at the start (empty anchor), after its anchor row, or at the end.
+    static func merge(_ executions: [BashExecution], anchors: [String: String], into messages: [TranscriptMessage],
+                      replace: (_ row: TranscriptMessage, _ execution: BashExecution) -> Bool = { _, _ in true }) -> [TranscriptMessage] {
+        guard !executions.isEmpty else { return messages }
+        var rows = messages
+        // Replacements never shift rows, so one position lookup serves them all.
+        let positions = Dictionary(rows.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var missing: [BashExecution] = []
+        for execution in executions {
+            if let index = positions[execution.id] {
+                if replace(rows[index], execution) { rows[index] = execution.message }
+            } else {
+                missing.append(execution)
+            }
+        }
+        for execution in missing {
+            if anchors[execution.id] == "" {
+                rows.insert(execution.message, at: 0)
+            } else if let anchor = anchors[execution.id], let index = rows.firstIndex(where: { $0.id == anchor }) {
+                rows.insert(execution.message, at: index + 1)
+            } else { rows.append(execution.message) }
+        }
+        return rows
+    }
 }
 
 struct BashDraft: Equatable {

@@ -50,17 +50,9 @@ import Observation
         } catch { self.error = error.localizedDescription }
     }
     func merge(into messages: [TranscriptMessage]) -> [TranscriptMessage] {
-        var rows = messages
-        for execution in executions {
-            if let index = rows.firstIndex(where: { $0.id == execution.id }) {
-                if rows[index].bash?.running != false || !execution.running { rows[index] = execution.message }
-            } else if anchors[execution.id] == "" {
-                rows.insert(execution.message, at: 0)
-            } else if let anchor = anchors[execution.id], let index = rows.firstIndex(where: { $0.id == anchor }) {
-                rows.insert(execution.message, at: index + 1)
-            } else { rows.append(execution.message) }
+        BashExecution.merge(executions, anchors: anchors, into: messages) { row, execution in
+            row.bash?.running != false || !execution.running
         }
-        return rows
     }
     func retry(session: String, client: any BashClient, acknowledged: @MainActor (String) -> Void) async {
         guard let admission else { return }

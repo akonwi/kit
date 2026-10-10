@@ -223,7 +223,7 @@ private actor SnapshotClient: SessionNamingClient {
         store.previewModel("Preview model")
         #expect(store.messages.map(\.role) == ["assistant", "user", "preview"])
         #expect(store.model == "Preview model")
-        #expect(store.selected?.messages.map(\.text) == ["Original"])
+        #expect(store.selectedSnapshot?.messages.map(\.text) == ["Original"])
         #expect(store.selected?.model == "original")
         #expect(store.ui.draft == "")
     }
