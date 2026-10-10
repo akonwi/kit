@@ -28,7 +28,7 @@ func (s *Service) observeCommittedObservation(ctx context.Context, session, cwd,
 		return nil, err
 	}
 	defer release()
-	ctx, cancel := boundedContext(ctx)
+	ctx, cancel := s.boundedContext(ctx)
 	defer cancel()
 	workspace := s.workspaces.Ref(session, cwd)
 	if workspace.WorkspaceID != workspaceID {
