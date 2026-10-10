@@ -216,11 +216,30 @@ Process ownership and plugin UI routing follow
 - [ ] CORE-CLI-001 — Add shell completion and noninteractive session list,
   rename, and delete commands.
 - [ ] CORE-GH-002 — Use the daemon-owned GitHub observer that supplies built-in
-  footer status to keep the model informed when the current pull request's CI
-  checks change, without requiring the user or model to explicitly fetch them.
-  Deliver bounded, deduplicated, provenance-labeled updates at a safe model
-  consumption boundary without impersonating user speech or interrupting an
-  in-flight request; fence stale results across branch, repository, PR, and
-  session changes, and degrade silently when GitHub status is unavailable.
-  Verify pending, successful, and failed check transitions plus reconnect and
-  stale-update behavior.
+  footer status to keep the model informed as the current pull request's CI
+  checks, review decision, required approvals, and overall merge readiness
+  change, without requiring the user or model to explicitly fetch them. Deliver
+  bounded, deduplicated, provenance-labeled updates at a safe model consumption
+  boundary without impersonating user speech or interrupting an in-flight
+  request; fence stale results across branch, repository, PR, and session
+  changes, and degrade silently when GitHub status is unavailable. Verify
+  pending, successful, and failed check transitions; approval, changes-requested,
+  and dismissal transitions; required checks and approvals becoming satisfied;
+  merge-readiness changes; reconnect; and stale-update behavior. Treat review
+  comments as separate future work because their actionable content requires
+  comment identity, thread, update, and resolution semantics beyond status
+  observation.
+- [ ] CORE-GH-003 — Add a Kit-owned reaction policy for actionable pull-request
+  status boundaries observed by `CORE-GH-002`, with inform-only, ask, and
+  auto-react modes. Initially ask through the shared client interaction surface
+  when a required check fails, changes are requested, or the pull request becomes
+  merge-ready, offering a one-time reaction and persistent session or project
+  preferences while clearly disclosing that a reaction can consume tokens and
+  invoke normally permitted tools. Never infer approval when no client is
+  attached; retain the information boundary instead. Coalesce concurrent prompts,
+  revalidate repository, branch, pull request, head revision, and latest status
+  before reacting, and use an idempotent admission key with `Droid.React` so a
+  repeated response cannot start duplicate turns. Auto-reactions retain the
+  session's normal model, tool policy, interceptors, and approvals. Verify each
+  policy mode, preference persistence, detached clients, status changes while a
+  prompt is open, duplicate responses, busy sessions, and runtime restart.
