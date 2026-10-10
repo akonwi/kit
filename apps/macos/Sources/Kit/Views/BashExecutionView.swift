@@ -4,6 +4,13 @@ struct BashExecutionView: View {
     @Environment(\.mica) private var theme
     let execution: BashExecution
     @State private var hovered = false
+    /// Outcome text beside the command. The spinner alone conveys a running
+    /// execution, and a successful completion needs no label.
+    static func status(of execution: BashExecution) -> String? {
+        if execution.running { return nil }
+        guard execution.status != "completed" || execution.timedOut || (execution.exitCode ?? 0) != 0 else { return nil }
+        return execution.statusLabel
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 10) {
@@ -11,8 +18,8 @@ struct BashExecutionView: View {
                 else { Image(systemName: "terminal").foregroundStyle(theme.muted) }
                 HighlightedCodeText(language: "bash", source: execution.command, fontSize: 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if execution.status != "completed" || execution.timedOut || (execution.exitCode ?? 0) != 0 {
-                    Text(execution.statusLabel).font(.kit(size: 11)).foregroundStyle(theme.muted)
+                if let status = Self.status(of: execution) {
+                    Text(status).font(.kit(size: 11)).foregroundStyle(theme.muted)
                 }
                 Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(execution.command, forType: .string) } label: {
                     Image(systemName: "doc.on.doc")

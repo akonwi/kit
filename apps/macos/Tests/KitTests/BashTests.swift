@@ -59,6 +59,24 @@ private actor ShellResults {
             .init(id: "after", role: "assistant", text: "After shell", tools: [])])
         #expect(rows.map(\.id) == ["before", ids[0], "after"])
     }
+    @Test func statusTextShowsOnlyUnsuccessfulOutcomes() throws {
+        func settled(_ status: WireBashExecutionStatus, exitCode: Int? = 0, timedOut: Bool = false) throws -> BashExecution {
+            try BashExecution(.init(id: "bash_test", sessionId: "s", sequence: 0, command: "printf test", status: status,
+                output: "", exitCode: exitCode, excludeFromContext: false, truncated: false,
+                timedOut: timedOut, errorMessage: status == .value1 ? nil : "Stopped", startedAt: "2026-09-15T12:00:00Z",
+                completedAt: "2026-09-15T12:00:01Z"), session: "s")
+        }
+        let cases: [(BashExecution, String?)] = [
+            (try execution(), nil),
+            (try settled(.value1), nil),
+            (try settled(.value1, exitCode: 2), "Exit 2"),
+            (try settled(.value2, timedOut: true), "Timed out"),
+            (try settled(.value3, exitCode: nil), "Aborted"),
+            (try settled(.value4, exitCode: nil), "Interrupted")
+        ]
+        #expect(cases.map { BashExecutionView.status(of: $0.0) } == cases.map(\.1))
+    }
+
     @Test func pollingPreservesLiveMessagesAndTerminalState() async throws {
         let sink = ShellResults()
         let projection = BashWatchProjection { await sink.accept($0) }
