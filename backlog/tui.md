@@ -99,8 +99,10 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     stays in its run and its thinking is listed.
   - [x] Tool row: a state icon (spinner, blank when done, `✗` failed, `⊘`
     not run), the title in the accent color (danger when failed, muted when
-    aborted), and a summary chip. Below 60 columns the chip takes a second
-    line and paths are cut from the start.
+    aborted), and a summary chip. A chip's rows share a title column as wide
+    as their longest title, from 18 to 32 cells (vaxis fixes it at 18).
+    Below 60 columns the chip takes a second line and paths are cut from the
+    start.
   - [x] Row selection: clicking a row fills it; closing or opening a chip
     clears the selection. Unlike vaxis, opening a chip selects nothing.
   - [x] Unknown tools: the humanized name (`my_tool` → "My Tool") with the
@@ -164,7 +166,7 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   - [x] MCP namespaces, one tool per server named after it (new titles): List
     `<server>`, Search `<server>` · query, Describe or Call `<server>` ·
     tool, Log out of `<server>`, recognized by the session's configured
-    servers. Titles stay short for the title column and clip beyond it.
+    servers.
   - [x] Plugin tools, named `<plugin>__<tool>` (new titles): the humanized
     tool name · the plugin.
 - [~] TUI-COOPER-006 — Command palette, inline pickers, and configuration,

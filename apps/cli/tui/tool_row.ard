@@ -20,8 +20,11 @@ use go:strings
 // Rows narrower than this put the summary on a second line.
 let narrow_width = 60
 
-// The width of the title column in a wide row.
-let title_width = 18
+// The narrowest and widest the title column of a wide row gets. Rows in one
+// chip share a column as wide as their longest title, within these bounds;
+// a title wider than the widest clips.
+let min_title_width = 18
+let max_title_width = 32
 
 // How a call's state is shown.
 enum Mark {
@@ -57,6 +60,21 @@ fn presentation(call: transcript::ToolCall, result: transcript::Message, servers
     },
     names,
   )
+}
+
+// The width of the title column shared by rows with these titles.
+fn title_column(titles: [Str]) Int {
+  mut width = min_title_width
+  for title in titles {
+    let wanted = display_width(title)
+    if wanted > width {
+      width = wanted
+    }
+  }
+  match width > max_title_width {
+    true => max_title_width,
+    false => width,
+  }
 }
 
 fn display_width(value: Str) Int {
@@ -124,6 +142,8 @@ struct Props {
   on_select: fn(),
   // The session's MCP servers, whose tools are titled after them.
   servers: [Str],
+  // The width of the title column of a wide row (see `title_column`).
+  title_width: Int,
 }
 
 fn view(props: Props) cui::View {
@@ -222,7 +242,7 @@ impl cui::Component for Row {
       presented.Title,
       styles: match narrow {
         true => ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
-        false => ui::style(width: ui::cells(title_width), flex_shrink: 0.0),
+        false => ui::style(width: ui::cells(self.props.title_width), flex_shrink: 0.0),
       },
       text_style: ui::text_style(foreground: title_color),
       wrap: ui::TextWrap::none,
