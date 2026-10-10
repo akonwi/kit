@@ -66,6 +66,8 @@ struct Message {
   pending: Bool,
   // Files attached to a user message.
   attachments: [Attachment],
+  // Annotations a user message sent.
+  annotations: [sessionbridge::Annotation],
   // The direct shell run of a bash message.
   bash: sessionbridge::Bash?,
   // The plugin that submitted a plugin message.
@@ -158,6 +160,7 @@ fn message(id: Str, turn_id: Str, role: Role) Message {
     aborted: false,
     pending: false,
     attachments: [],
+    annotations: [],
     bash: Maybe::new<sessionbridge::Bash>(),
     plugin_id: "",
     details: "",
@@ -184,6 +187,7 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
     let thinking_parts = mut List::new<Str>()
     let calls = mut List::new<ToolCall>()
     let attached = mut List::new<Attachment>()
+    let noted = mut List::new<sessionbridge::Annotation>()
     let user = source.Role == "user"
     for block in source.Content {
       match {
@@ -218,6 +222,11 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
           }
         },
         block.Kind == "file" => text_parts.push("[file: {block.Filename}]"),
+        user and block.Kind == "annotations" => {
+          for annotation in block.Annotations {
+            noted.push(annotation)
+          }
+        },
         _ => (),
       }
     }
@@ -249,6 +258,7 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
       projected.aborted = source.StopReason == "aborted"
       projected.sequence = source.Sequence
       projected.attachments = attached.@
+      projected.annotations = noted.@
       projected.plugin_id = source.PluginID
       projected.details = source.Details
       if not unsafe::is_nil(source.Bash) {
@@ -710,12 +720,13 @@ impl Live {
   }
 
   // Shows a submitted prompt before the server accepts it.
-  fn mut submit(text: Str, attachments: [Attachment]) {
+  fn mut submit(text: Str, attachments: [Attachment], annotations: [sessionbridge::Annotation]?) {
     self.reset()
     self.activity = "Working…"
     let user = mut message("", "", Role::user)
     user.text = text
     user.attachments = attachments
+    user.annotations = annotations.or([])
     self.messages.push(user.@)
     self.has_user = true
   }

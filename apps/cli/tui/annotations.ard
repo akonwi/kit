@@ -1,3 +1,4 @@
+use ard/async
 use ard/testing
 
 use go:api/contract as protocol
@@ -8,6 +9,7 @@ use go:kit/ffi/sessionbridge
 use kit/tui/controls
 use kit/tui/theme
 use go:path/filepath
+use go:strings
 
 // Annotations are notes on lines of a workspace file or a side of a diff.
 // The session owns them: they wait above the composer as chips, show inline
@@ -107,6 +109,17 @@ fn label(annotation: sessionbridge::Annotation) Str {
     annotation.Kind != "diff" => "{name}:{lines}",
     annotation.Side == "old" => "{name} −{lines}",
     _ => "{name} +{lines}",
+  }
+}
+
+// Where an annotation is: its path and lines, with a diff side marked −
+// for old and + for new.
+fn location(annotation: sessionbridge::Annotation) Str {
+  let lines = range(annotation.StartLine, annotation.EndLine)
+  match {
+    annotation.Kind != "diff" => "{annotation.Path}:{lines}",
+    annotation.Side == "old" => "{annotation.Path} −{lines}",
+    _ => "{annotation.Path} +{lines}",
   }
 }
 
@@ -234,6 +247,277 @@ fn editor(props: EditorProps) cui::View {
         left: ui::cells(props.indent),
       },
     ),
+  )
+}
+
+// A note being written: where it sits, the lines of `path` on `side` ("" in
+// a file), and the annotation it edits, or 0 for a new one on `anchor`.
+struct Draft {
+  path: Str,
+  side: Str,
+  start: Int,
+  end: Int,
+  id: Uint64,
+  anchor: protocol::AnnotationAnchor,
+  text: Str,
+  // Whether the whole body is loading, or a save is under way.
+  loading: Bool,
+  saving: Bool,
+  failure: Str,
+}
+
+// The note editor's state, which a pane keeps while the editor's row may
+// scroll out of view. Results of a load or save for an editor since closed
+// are ignored.
+struct Drafting {
+  current: Draft?,
+  generation: Int,
+}
+
+fn drafting() mut Drafting {
+  (mut Drafting{current: Maybe::new<Draft>(), generation: 0})
+}
+
+impl Drafting {
+  fn is_open() Bool {
+    self.current.is_some()
+  }
+
+  // Whether the editor edits annotation `id`.
+  fn edits(id: Uint64) Bool {
+    match self.current {
+      draft => draft.id == id and id != Uint64::from(0),
+      _ => false,
+    }
+  }
+
+  // Opens the editor on a new note.
+  fn mut begin(file_path: Str, side: Str, start: Int, end: Int, anchor: protocol::AnnotationAnchor) {
+    self.generation =+ 1
+    self.current = Maybe::new(
+      Draft{
+        path: file_path,
+        side: side,
+        start: start,
+        end: end,
+        id: Uint64::from(0),
+        anchor: anchor,
+        text: "",
+        loading: false,
+        saving: false,
+        failure: "",
+      },
+    )
+  }
+
+  // Opens the editor on a saved note, loading its body when the snapshot
+  // may have cut it short.
+  fn mut edit(note: sessionbridge::Annotation, context: cui::Context, service: Service) {
+    self.generation =+ 1
+    let generation = self.generation
+    let loading = may_be_cut(note.Body)
+    self.current = Maybe::new(
+      Draft{
+        path: note.Path,
+        side: note.Side,
+        start: note.StartLine,
+        end: note.EndLine,
+        id: note.ID,
+        anchor: protocol::AnnotationAnchor{},
+        text: note.Body,
+        loading: loading,
+        saving: false,
+        failure: "",
+      },
+    )
+    if loading {
+      let preview = note.Body
+      let dispatch = context.dispatch
+      async::start(fn() {
+        let result = service.body(note.ID)
+        let _ = dispatch(fn() {
+          if generation == self.generation {
+            self.change(fn(draft: mut Draft) {
+              draft.loading = false
+              match result {
+                ok(body) => {
+                  // Text typed meanwhile is kept.
+                  if draft.text == preview {
+                    draft.text = body
+                  }
+                },
+                err(failure) => { draft.failure = failure },
+              }
+            })
+          }
+        })
+      })
+    }
+  }
+
+  private fn mut change(update: fn(mut Draft)) {
+    match self.current {
+      draft => {
+        let next = mut draft
+        update(next)
+        self.current = Maybe::new(next.@)
+      },
+      _ => (),
+    }
+  }
+
+  fn mut input(value: Str) {
+    self.change(fn(draft: mut Draft) {
+      draft.text = value
+    })
+  }
+
+  // Saves the note, closing the editor and calling `done` once saved.
+  fn mut save(context: cui::Context, service: Service, done: fn()) {
+    match self.current {
+      draft => {
+        let body = strings::TrimSpace(draft.text)
+        let busy = draft.loading or draft.saving
+        if body != "" and not busy {
+          self.change(fn(next: mut Draft) {
+            next.saving = true
+            next.failure = ""
+          })
+          let generation = self.generation
+          let dispatch = context.dispatch
+          async::start(fn() {
+            let failure = match draft.id == Uint64::from(0) {
+              true => service.create(draft.anchor, body),
+              false => service.update(draft.id, body),
+            }
+            let _ = dispatch(fn() {
+              if generation == self.generation {
+                match failure == "" {
+                  true => {
+                    self.close()
+                    done()
+                  },
+                  false => {
+                    self.change(fn(next: mut Draft) {
+                      next.saving = false
+                      next.failure = failure
+                    })
+                  },
+                }
+              }
+            })
+          })
+        }
+      },
+      _ => (),
+    }
+  }
+
+  // Closes the editor; a load or save still running is ignored.
+  fn mut close() {
+    self.generation =+ 1
+    self.current = Maybe::new<Draft>()
+  }
+
+  // The editor, indented `indent` cells. Cancel closes it and calls `done`.
+  fn mut view(
+    themes: theme::Context,
+    indent: Int,
+    context: cui::Context?,
+    service: Service?,
+    done: fn(),
+  ) cui::View {
+    match self.current {
+      draft => {
+        editor(
+          EditorProps{
+            themes: themes,
+            draft: draft.text,
+            editing: draft.id != Uint64::from(0),
+            busy: draft.loading or draft.saving,
+            failure: draft.failure,
+            indent: indent,
+            input: fn(value: Str) {
+              self.input(value)
+            },
+            save: fn() {
+              match context {
+                current => {
+                  match service {
+                    saving => self.save(current, saving, done),
+                    _ => (),
+                  }
+                },
+                _ => (),
+              }
+            },
+            cancel: fn() {
+              self.close()
+              done()
+            },
+          },
+        )
+      },
+      _ => cui::box([]),
+    }
+  }
+}
+
+// A saved note under its last line: a × at the end of a `gutter`-wide
+// column, where the + would be, then the note, which a click edits.
+fn note_row(
+  themes: theme::Context,
+  note: sessionbridge::Annotation,
+  gutter: Int,
+  remove: fn(),
+  edit: fn(),
+) cui::View {
+  let colors = themes.current()
+  let delete = keymap::simple_command("annotation.remove", "Remove annotation", fn() Bool {
+    remove()
+    true
+  })
+  let change = keymap::simple_command("annotation.edit", "Edit annotation", fn() Bool {
+    edit()
+    true
+  })
+  let body = match may_be_cut(note.Body) {
+    true => "{note.Body}…",
+    false => note.Body,
+  }
+  cui::box(
+    [
+      cui::box(
+        [
+          controls::button(
+            themes,
+            "×",
+            delete,
+            variant: controls::ButtonVariant::secondary,
+            compact: true,
+            focusable: false,
+            foreground: colors.muted,
+          ),
+        ],
+        styles: ui::style(
+          width: ui::cells(gutter),
+          flex_shrink: 0.0,
+          flex_direction: ui::FlexDirection::row,
+          justify_content: ui::Justify::end,
+        ),
+      ),
+      controls::button(
+        themes,
+        "{glyph} {body}",
+        change,
+        variant: controls::ButtonVariant::secondary,
+        compact: true,
+        focusable: false,
+        stretch: true,
+        styles: ui::style(flex_grow: 1.0, flex_shrink: 1.0),
+      ),
+    ],
+    styles: ui::style(flex_direction: ui::FlexDirection::row, background: colors.surface),
   )
 }
 

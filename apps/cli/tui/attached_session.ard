@@ -139,6 +139,8 @@ struct Controller {
   folded_bash: [Str: Bool],
   // Plugin messages shown in full, by turn ID.
   expanded_plugins: [Str: Bool],
+  // User messages whose sent annotations are expanded, by message ID.
+  expanded_notes: [Str: Bool],
   // Work chips opened or closed by a click, by work key.
   open_work: [Str: Bool],
   // The selected tool row in the open work chip, or empty.
@@ -300,6 +302,7 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     bash_failure: "",
     folded_bash: [:],
     expanded_plugins: [:],
+    expanded_notes: [:],
     open_work: [:],
     selected_tool: "",
     open_output: [:],
@@ -1135,6 +1138,10 @@ impl Controller {
   }
 
   // Expands or collapses the plugin message that started turn_id.
+  fn mut toggle_sent_annotations(id: Str) {
+    self.expanded_notes.set(id, not self.expanded_notes.get(id).or(false))
+  }
+
   fn mut toggle_plugin_message(turn_id: Str) {
     self.expanded_plugins.set(turn_id, not self.expanded_plugins.get(turn_id).or(false))
   }
@@ -2682,7 +2689,11 @@ impl Controller {
   // Starts the optimistic live turn for a local submission when no other turn
   // is active. Returns whether the live transcript must be rolled back on
   // rejection.
-  private fn mut begin_submission(display: Str, staged: [attachments::Staged]) Bool {
+  private fn mut begin_submission(
+    display: Str,
+    staged: [attachments::Staged],
+    notes: [sessionbridge::Annotation],
+  ) Bool {
     self.notice = ""
     let optimistic = self.live.activity == "" and not self.start_pending
     if optimistic {
@@ -2698,7 +2709,7 @@ impl Controller {
           )
         }
       }
-      self.live.submit(display, shown.@)
+      self.live.submit(display, shown.@, notes)
       self.start_pending = true
       (self.host.show_latest)()
     }
@@ -2752,7 +2763,7 @@ impl Controller {
                 true => " {args}",
                 false => "",
               }
-              let optimistic = self.begin_submission("/{name}{suffix}", [])
+              let optimistic = self.begin_submission("/{name}{suffix}", [], [])
               let ctx = lifetime.Context
               let dispatch = self.host.dispatch
               async::start(fn() {
@@ -2842,8 +2853,9 @@ impl Controller {
   fn mut submit(text: Str) {
     if self.can_submit() {
       let ids = attachments::prompt_ids(self.attachments)
+      let sent_notes = self.pending_annotations()
       let notes = mut List::new<Uint64>()
-      for annotation in self.pending_annotations() {
+      for annotation in sent_notes {
         notes.push(annotation.ID)
       }
       let annotation_ids = notes.@
@@ -2863,7 +2875,7 @@ impl Controller {
                 let staged = self.attachments
                 self.attachments = []
                 self.sending_annotations = annotation_ids
-                let optimistic = self.begin_submission(text, staged)
+                let optimistic = self.begin_submission(text, staged, sent_notes)
                 self.expand_sent_image(staged)
                 let ctx = lifetime.Context
                 let dispatch = self.host.dispatch
@@ -5030,4 +5042,12 @@ test fn stale_annotations_block_sending() Void!Str {
     blocked(subject, "go"),
   )
   testing::assert(blocked(subject, "!ls") == "", "a command leaves them waiting")
+}
+
+test fn a_sent_prompt_shows_its_annotations_at_once() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  let _ = subject.begin_submission("", [], [file_annotation(1, 1), file_annotation(2, 4)])
+  let shown = subject.live.messages.at(0).expect("the optimistic prompt")
+  testing::assert(annotation_ids(shown.annotations) == "[1][2]", annotation_ids(shown.annotations))
 }
