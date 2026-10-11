@@ -30,9 +30,9 @@ jobs:
           - os: ubuntu-24.04
             platform: linux_amd64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: apps/cli/go.mod
           cache: true
@@ -75,7 +75,7 @@ jobs:
           [[ "$actual" == "$expected" ]] || { printf 'Expected %s; got %s\n' "$expected" "$actual" >&2; exit 1; }
           "$smoke_dir/kit" --help
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: kit-${{ matrix.platform }}
           path: kit_*.tar.gz
@@ -86,9 +86,9 @@ jobs:
     needs: [build]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
