@@ -57,7 +57,7 @@ func TestRunVersion(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"version"}, &stdout, &stderr, Dependencies{})
+	code := Parse(context.Background(), []string{"version"}, &stdout, &stderr).ExitCode
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
@@ -71,7 +71,7 @@ func TestRunHelp(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"help"}, &stdout, &stderr, Dependencies{})
+	code := Parse(context.Background(), []string{"help"}, &stdout, &stderr).ExitCode
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
@@ -360,7 +360,7 @@ func TestAuthAndServerCommandTreesExposeHelp(t *testing.T) {
 func TestHiddenServerHasNoPublicHelpTopic(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
-	if code := Run(context.Background(), []string{"help", "__server"}, &stdout, &stderr, Dependencies{}); code != 2 {
+	if code := Parse(context.Background(), []string{"help", "__server"}, &stdout, &stderr).ExitCode; code != 2 {
 		t.Fatalf("hidden help exit = %d, stdout = %q stderr = %q", code, stdout.String(), stderr.String())
 	}
 	if stdout.Len() != 0 || strings.Contains(stderr.String(), "Usage:") {
@@ -372,14 +372,14 @@ func TestRunNewHelpAndArgumentValidation(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"new", "--help"}, &stdout, &stderr, Dependencies{})
+	code := Parse(context.Background(), []string{"new", "--help"}, &stdout, &stderr).ExitCode
 	if code != 0 || !strings.Contains(stdout.String(), "kit new") || stderr.Len() != 0 {
 		t.Fatalf("new help exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	code = Run(context.Background(), []string{"new", "unexpected"}, &stdout, &stderr, Dependencies{})
+	code = Parse(context.Background(), []string{"new", "unexpected"}, &stdout, &stderr).ExitCode
 	if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "unexpected") {
 		t.Fatalf("new argument exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -409,11 +409,64 @@ func TestServerStatusWhenUnavailable(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"server", "status"}, &stdout, &stderr, Dependencies{})
+	code := Parse(context.Background(), []string{"server", "status"}, &stdout, &stderr).ExitCode
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1", code)
 	}
 	if !strings.Contains(stderr.String(), "server unavailable") {
 		t.Fatalf("stderr = %q, want unavailable message", stderr.String())
+	}
+}
+
+func TestParseLeavesInteractiveCommandsToTheEntryPoint(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	for _, test := range []struct {
+		args []string
+		kind string
+	}{
+		{nil, InvocationInteractive},
+		{[]string{"--session", "01234567"}, InvocationInteractive},
+		{[]string{"new", "--name", "Focused work"}, InvocationInteractive},
+		{[]string{"sessions"}, InvocationSessions},
+		{[]string{"threads"}, InvocationSessions},
+		{[]string{"version"}, InvocationExit},
+	} {
+		invocation := Parse(context.Background(), test.args, &stdout, &stderr)
+		if invocation.Kind != test.kind || invocation.ExitCode != 0 {
+			t.Fatalf("Parse(%q) = %s exit %d, want %s; stderr = %q", test.args, invocation.Kind, invocation.ExitCode, test.kind, stderr.String())
+		}
+	}
+	invocation := Parse(context.Background(), []string{"new", "--name", "Focused work"}, &stdout, &stderr)
+	if invocation.options.Name != "Focused work" || invocation.options.NewSessionID == "" {
+		t.Fatalf("kit new options = %+v", invocation.options)
+	}
+	if usage := Parse(context.Background(), []string{"sessions", "extra"}, &stdout, &stderr); usage.Kind != InvocationExit || usage.ExitCode != 2 {
+		t.Fatalf("usage error = %+v", usage)
+	}
+}
+
+func TestAPickedSessionOpensInteractively(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	picked := Open(Parse(context.Background(), []string{"sessions"}, &stdout, &stderr), "session_1")
+	if picked.Kind != InvocationInteractive || picked.options.SessionID != "session_1" {
+		t.Fatalf("picked = %+v", picked)
+	}
+}
+
+func TestFinishReportsTheTerminalClientResult(t *testing.T) {
+	t.Parallel()
+	var stderr bytes.Buffer
+	if code := (Prepared{}).Finish(context.Background(), "", &stderr); code != 0 || stderr.Len() != 0 {
+		t.Fatalf("clean exit = %d, stderr = %q", code, stderr.String())
+	}
+	if code := (Prepared{}).Finish(context.Background(), "terminal lost", &stderr); code != 1 || stderr.String() != "kit: terminal UI: terminal lost\n" {
+		t.Fatalf("failure exit = %d, stderr = %q", code, stderr.String())
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if code := (Prepared{}).Finish(ctx, "", &stderr); code != 130 {
+		t.Fatalf("interrupted exit = %d", code)
 	}
 }

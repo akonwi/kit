@@ -52,11 +52,10 @@ vaxis client's tests. Until then, `cmd/kit` ships the vaxis client. Known,
 accepted differences: centered odd-width content can sit one cell right,
 because Cooper rounds half-cell layout edges up (Cooper ADR 0020); and the
 signed-out "Connect a provider" button is filled with the primary accent
-rather than vaxis's surface fill.
+rather than vaxis's surface fill; and `kit sessions` lists sessions before its
+inline picker opens, sized once to them, because a Cooper inline app keeps
+its height, where vaxis opens at ten rows and grows as they load.
 
-- [~] TUI-COOPER-010 — Sessions. Remaining: the standalone `kit sessions`
-  picker, which still reports that it is unavailable (`pick_session` in
-  `tui.ard`).
 - [ ] TUI-COOPER-015 — Replace `internal/tui` and `cmd/kit`: build releases
   from `apps/cli`, run its checks in CI, and remove the vaxis client.
 

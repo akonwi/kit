@@ -21,7 +21,7 @@ use go:syscall
 // status; Kit must exit with the matching code itself so shells, scripts, and
 // CI can still tell "interrupted" apart from "failed".
 //
-// This happens in two steps. `cli::Run` only sees a canceled context, so it
+// This happens in two steps. The command line only sees a canceled context, so it
 // reports every interruption as 130. Only this function knows which signal
 // arrived, so it corrects 130 to 128 + that signal. Other codes are kept even
 // if a signal races a command that already succeeded (0) or failed (1).
@@ -54,9 +54,12 @@ fn main() {
     }
   })
 
-  let deps = cli::Dependencies{RunTUI: tui::run, PickSession: tui::pick_session}
   let args = os::Args.slice(start: 1).expect("process arguments").to_list()
-  mut exit_code = cli::Run(lifetime.Context, mut args, os::Stdout, os::Stderr, deps)
+  let invocation = cli::Parse(lifetime.Context, mut args, os::Stdout, os::Stderr)
+  mut exit_code = match invocation.Kind == cli::InvocationExit {
+    true => invocation.ExitCode,
+    false => interactive(lifetime.Context, invocation),
+  }
   // 130 means "interrupted"; replace it with 128 + the actual signal number.
   if exit_code == 130 {
     select {
@@ -70,4 +73,43 @@ fn main() {
     }
   }
   os::Exit(exit_code)
+}
+
+// Runs an interactive command: `kit sessions` first picks a session in an
+// inline picker, then the terminal client attaches to it. Go prepares the
+// session and reports failures; the terminal apps run here.
+fn interactive(ctx: context::Context, invocation: cli::Invocation) Int {
+  let environment = cli::OpenEnvironment(ctx, invocation, os::Stderr)
+  defer environment.Close()
+  match {
+    environment.ExitCode != 0 => environment.ExitCode,
+    invocation.Kind == cli::InvocationSessions => {
+      match tui::pick_session(ctx, environment.Client, environment.ThemeDefinition) {
+        ok(id) => {
+          match {
+            id != "" => run(ctx, environment, cli::Open(invocation, id)),
+            contextbridge::Done(ctx) => 130,
+            _ => 0,
+          }
+        },
+        err(failure) => cli::PickerFailure(ctx, failure.error(), os::Stderr),
+      }
+    },
+    _ => run(ctx, environment, invocation),
+  }
+}
+
+// Runs the terminal client for a prepared invocation.
+fn run(ctx: context::Context, environment: cli::Environment, invocation: cli::Invocation) Int {
+  let prepared = environment.Prepare(ctx, invocation, os::Stderr)
+  match prepared.ExitCode != 0 {
+    true => prepared.ExitCode,
+    false => {
+      let failure = match tui::run(prepared.Options) {
+        ok(_) => "",
+        err(failure) => failure.error(),
+      }
+      prepared.Finish(ctx, failure, os::Stderr)
+    },
+  }
 }

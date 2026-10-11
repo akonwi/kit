@@ -27,20 +27,14 @@ type commandDependencies struct {
 	server          func(context.Context, []string, io.Writer, io.Writer) int
 }
 
-func defaultCommandDependencies(deps Dependencies) commandDependencies {
+func defaultCommandDependencies() commandDependencies {
 	return commandDependencies{
 		stdin:           os.Stdin,
 		stdinIsTerminal: stdinIsTerminal,
-		interactive: func(ctx context.Context, options interactiveOptions, stdout, stderr io.Writer) int {
-			return runInteractive(ctx, options, stdout, stderr, deps.RunTUI)
-		},
-		print: runPrintOptions,
-		sessions: func(ctx context.Context, options interactiveOptions, stdout, stderr io.Writer) int {
-			return runSessions(ctx, options, stdout, stderr, deps)
-		},
-		internalServer: runInternalServer,
-		auth:           runAuthCommand,
-		server:         runServerCommand,
+		print:           runPrintOptions,
+		internalServer:  runInternalServer,
+		auth:            runAuthCommand,
+		server:          runServerCommand,
 	}
 }
 
@@ -61,12 +55,6 @@ func resultForCode(code int) error {
 		return nil
 	}
 	return reportedExit{code: code}
-}
-
-// Run constructs and executes Kit's public command tree and returns a stable
-// process exit code. The executable boundary remains responsible for os.Exit.
-func Run(ctx context.Context, args []string, stdout, stderr io.Writer, deps Dependencies) int {
-	return executeCommand(ctx, args, stdout, stderr, defaultCommandDependencies(deps))
 }
 
 func executeCommand(

@@ -8,21 +8,6 @@ import (
 	kittheme "github.com/akonwi/kit/internal/theme"
 )
 
-// Dependencies are supplied by the executable entry point. The terminal client
-// functions run on the calling goroutine until the client exits.
-type Dependencies struct {
-	RunTUI      RunTUIFunc
-	PickSession PickSessionFunc
-}
-
-// RunTUIFunc starts a terminal client attached to one session and blocks until
-// it exits.
-type RunTUIFunc func(TUIOptions) error
-
-// PickSessionFunc presents the saved-session picker and returns the selected
-// session ID, or an empty ID when the user dismisses it.
-type PickSessionFunc func(SessionPickerOptions) (string, error)
-
 // TUIOptions configures one terminal client attached to one session.
 type TUIOptions struct {
 	Context               context.Context
@@ -49,12 +34,6 @@ type TUIOptions struct {
 	ModelOverrideService  ModelOverrideService
 	DiffWrapLines         bool
 	DiffPreferenceService DiffPreferenceService
-}
-
-// SessionPickerOptions configures the saved-session picker.
-type SessionPickerOptions struct {
-	Context context.Context
-	Client  *kit.Client
 }
 
 // DeviceLogin performs OpenAI Codex device-code login.

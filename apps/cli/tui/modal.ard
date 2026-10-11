@@ -6,8 +6,10 @@ use kit/tui/theme
 
 // Placement selects a bounded dialog position appropriate to its interaction.
 enum Placement {
+  // Fills a bounded region, such as an inline app's rows, at picker width.
   centered,
   picker,
+  region,
 }
 
 // Dialog describes a framed modal surface. The shell owns whether it is mounted
@@ -140,16 +142,18 @@ private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
 
 private fn panel_style(colors: theme::Theme, placement: Placement) ui::Style {
   let width = match placement {
-    Placement::picker => ui::percent(80.0),
     Placement::centered => ui::percent(70.0),
+    _ => ui::percent(80.0),
   }
   let top = match placement {
     Placement::picker => ui::percent(25.0),
     Placement::centered => ui::percent(33.0),
+    Placement::region => ui::cells(0),
   }
   let height = match placement {
     Placement::picker => ui::cells(20),
     Placement::centered => ui::undefined(),
+    Placement::region => ui::percent(100.0),
   }
   ui::style(
     position: ui::Position::absolute,

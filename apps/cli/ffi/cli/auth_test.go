@@ -82,7 +82,7 @@ func TestAuthStatusAndLogoutCommands(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if code := Run(context.Background(), []string{"auth", "status"}, &stdout, &stderr, Dependencies{}); code != 0 {
+	if code := Parse(context.Background(), []string{"auth", "status"}, &stdout, &stderr).ExitCode; code != 0 {
 		t.Fatalf("status exit = %d, stderr = %q", code, stderr.String())
 	}
 	if got := stdout.String(); !strings.Contains(got, "openai-codex\toauth\tsaved") || strings.Contains(got, "secret-access") {
@@ -91,7 +91,7 @@ func TestAuthStatusAndLogoutCommands(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(context.Background(), []string{"auth", "logout", "openai-codex"}, &stdout, &stderr, Dependencies{}); code != 0 {
+	if code := Parse(context.Background(), []string{"auth", "logout", "openai-codex"}, &stdout, &stderr).ExitCode; code != 0 {
 		t.Fatalf("logout exit = %d, stderr = %q", code, stderr.String())
 	}
 	record, err := auth.NewStore(paths.Auth).LoadOpenAICodexCredentials(context.Background())
@@ -138,11 +138,11 @@ func TestLoginAndLogoutRejectEnvironmentBackedDaemon(t *testing.T) {
 
 	for _, args := range [][]string{{"auth", "login", "openai-codex"}, {"auth", "logout", "openai-codex"}} {
 		var stdout, stderr bytes.Buffer
-		if code := Run(context.Background(), args, &stdout, &stderr, Dependencies{}); code != 1 {
-			t.Errorf("Run(%q) exit = %d, stderr = %q", args, code, stderr.String())
+		if code := Parse(context.Background(), args, &stdout, &stderr).ExitCode; code != 1 {
+			t.Errorf("Parse(%q) exit = %d, stderr = %q", args, code, stderr.String())
 		}
 		if !strings.Contains(stderr.String(), "environment credentials") {
-			t.Errorf("Run(%q) stderr = %q", args, stderr.String())
+			t.Errorf("Parse(%q) stderr = %q", args, stderr.String())
 		}
 	}
 
@@ -167,8 +167,8 @@ func TestAuthCommandUsage(t *testing.T) {
 		{"auth", "login"}, {"auth", "login", "anthropic"}, {"auth", "logout"}, {"auth", "unknown"},
 	} {
 		var stdout, stderr bytes.Buffer
-		if code := Run(context.Background(), args, &stdout, &stderr, Dependencies{}); code != 2 {
-			t.Errorf("Run(%q) exit = %d, stderr = %q", args, code, stderr.String())
+		if code := Parse(context.Background(), args, &stdout, &stderr).ExitCode; code != 2 {
+			t.Errorf("Parse(%q) exit = %d, stderr = %q", args, code, stderr.String())
 		}
 	}
 }

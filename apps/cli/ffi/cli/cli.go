@@ -1,6 +1,7 @@
-// Package cli is Kit's executable role dispatcher for the Ard-built entry
-// point. It owns command parsing, headless commands, and interactive setup;
-// the terminal client is supplied by the entry point through Dependencies.
+// Package cli is the command line of the Ard-built entry point. It parses
+// commands, runs the headless ones, and prepares interactive ones; the entry
+// point runs the terminal client between Environment.Prepare and
+// Prepared.Finish.
 package cli
 
 import (
@@ -21,8 +22,6 @@ import (
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/identifier"
 	kitserver "github.com/akonwi/kit/internal/server"
-	"github.com/akonwi/kit/internal/settings"
-	kittheme "github.com/akonwi/kit/internal/theme"
 	"github.com/akonwi/kit/internal/version"
 )
 
@@ -70,171 +69,6 @@ type interactiveOptions struct {
 	Name         string
 	Model        string
 	Thinking     string
-}
-
-func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer, stderr io.Writer, runTUI RunTUIFunc) int {
-	if runTUI == nil {
-		fmt.Fprintln(stderr, "kit: terminal UI is unavailable")
-		return 1
-	}
-	paths, err := apphome.Resolve("")
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: %v\n", err)
-		return 1
-	}
-	cwd := ""
-	if options.SessionID == "" {
-		cwd, err = resolveCWD(options.CWD)
-		if err != nil {
-			fmt.Fprintf(stderr, "kit: %v\n", err)
-			return 1
-		}
-	}
-	if options.Temporary && options.NewSessionID == "" {
-		options.NewSessionID, err = identifier.New("session_")
-		if err != nil {
-			fmt.Fprintf(stderr, "kit: prepare temporary session: %v\n", err)
-			return 1
-		}
-	}
-	manager := kitserver.NewManager(paths)
-	client, err := bootstrapLocalClient(ctx, paths)
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: %v\n", err)
-		return 1
-	}
-	defer client.Close()
-	if options.SessionID != "" {
-		resolveContext, resolveCancel := context.WithTimeout(ctx, 3*time.Second)
-		selected, resolveErr := client.ResolveSession(resolveContext, options.SessionID)
-		resolveCancel()
-		if resolveErr != nil {
-			fmt.Fprintf(stderr, "kit: resolve session: %v\n", resolveErr)
-			return 1
-		}
-		options.SessionID = selected.ID
-		cwd = selected.CWD
-	}
-
-	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
-	_, health, err := kitserver.NewClient(paths).Probe(probeContext)
-	probeCancel()
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", err)
-		return 1
-	}
-	// Credential-source support is checked under the daemon startup lock at
-	// login time, not by restarting a healthy daemon during client startup.
-	providers, defaultModel := interactiveProviders(health.Providers)
-	authenticated := len(providers) > 0
-	if options.Model != "" {
-		defaultModel = options.Model
-		provider, _, _ := strings.Cut(options.Model, "/")
-		if !providers[provider] {
-			authenticated = false
-		}
-	}
-	defaultThinking := options.Thinking
-	credentialStore := auth.NewStore(paths.Auth)
-	login, err := auth.NewOpenAICodexDeviceLogin(auth.OpenAICodexDeviceLoginOptions{
-		Store: credentialStore,
-		AcquireSave: func(ctx context.Context) (func() error, error) {
-			return manager.AcquireCredentialStoreMutation(ctx, auth.OpenAICodexProviderID)
-		},
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: configure OpenAI Codex login: %v\n", err)
-		return 1
-	}
-	browserLogin, err := auth.NewAnthropicOAuthLogin(auth.AnthropicOAuthLoginOptions{
-		Store: credentialStore,
-		AcquireSave: func(ctx context.Context) (func() error, error) {
-			return manager.AcquireCredentialStoreMutation(ctx, auth.AnthropicProviderID)
-		},
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: configure Claude subscription login: %v\n", err)
-		return 1
-	}
-	apiKeyLogin, err := auth.NewAPIKeyLogin(auth.APIKeyLoginOptions{
-		Store: credentialStore, AcquireSave: manager.AcquireCredentialStoreMutation,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: configure API-key login: %v\n", err)
-		return 1
-	}
-	settingsStore, err := settings.NewStore(paths.Settings)
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: configure settings: %v\n", err)
-		return 1
-	}
-	loadedSettings, settingsWarnings, err := settingsStore.Load()
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: load settings: %v; using system theme\n", err)
-		loadedSettings.Theme = kittheme.SystemName
-	}
-	for _, warning := range settingsWarnings {
-		fmt.Fprintf(stderr, "kit: %v\n", warning)
-	}
-	var themeDefinition kittheme.Definition
-	if loadedSettings.Theme != kittheme.SystemName {
-		var diagnostics []kittheme.Diagnostic
-		themeDefinition, diagnostics, err = kittheme.Load(paths.Themes, loadedSettings.Theme)
-		if err != nil {
-			fmt.Fprintf(stderr, "kit: load theme %q: %v; using system theme\n", loadedSettings.Theme, err)
-			loadedSettings.Theme = kittheme.SystemName
-			themeDefinition = kittheme.Definition{}
-		} else {
-			for _, diagnostic := range diagnostics {
-				fmt.Fprintf(stderr, "kit: theme %q: %v\n", loadedSettings.Theme, diagnostic)
-			}
-		}
-	}
-	runErr := runTUI(TUIOptions{
-		Context:               ctx,
-		Client:                client,
-		CWD:                   cwd,
-		Location:              interactiveLocation(ctx, cwd),
-		ResolveLocation:       interactiveLocation,
-		DefaultModel:          defaultModel,
-		DefaultThinking:       defaultThinking,
-		ResumeModelFilter:     options.Model,
-		ResumeThinkingFilter:  options.Thinking,
-		AvailableProviders:    providers,
-		Authenticated:         authenticated,
-		SessionID:             options.SessionID,
-		NewSessionID:          options.NewSessionID,
-		NewSessionName:        options.Name,
-		TemporarySession:      options.Temporary,
-		Login:                 login,
-		BrowserLogin:          browserLogin,
-		APIKeyLogin:           apiKeyLogin,
-		ThemeName:             loadedSettings.Theme,
-		ThemeDefinition:       themeDefinition,
-		ThemeService:          interactiveThemeService{directory: paths.Themes, settings: settingsStore},
-		ModelOverrideService:  interactiveModelOverrideService{settings: settingsStore},
-		DiffWrapLines:         loadedSettings.DiffWrapLines,
-		DiffPreferenceService: interactiveDiffPreferenceService{settings: settingsStore},
-	})
-	if options.Temporary {
-		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		cleanupErr := cleanupTemporarySession(cleanupContext, client, options.NewSessionID)
-		cleanupCancel()
-		if cleanupErr != nil {
-			fmt.Fprintf(stderr, "kit: dispose temporary session: %v\n", cleanupErr)
-			if runErr == nil {
-				return 1
-			}
-		}
-	}
-	if runErr != nil {
-		fmt.Fprintf(stderr, "kit: terminal UI: %v\n", runErr)
-		return 1
-	}
-	if ctx.Err() != nil {
-		return 130
-	}
-	return 0
 }
 
 func resolveCWD(requested string) (string, error) {
@@ -306,40 +140,6 @@ func interactiveLocation(_ context.Context, cwd string) string {
 		}
 	}
 	return location
-}
-
-func runSessions(ctx context.Context, options interactiveOptions, stdout, stderr io.Writer, deps Dependencies) int {
-	if deps.PickSession == nil {
-		fmt.Fprintln(stderr, "kit: session picker is unavailable")
-		return 1
-	}
-	paths, err := apphome.Resolve("")
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: %v\n", err)
-		return 1
-	}
-	client, err := bootstrapLocalClient(ctx, paths)
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: %v\n", err)
-		return 1
-	}
-	defer client.Close()
-	selected, err := deps.PickSession(SessionPickerOptions{
-		Context: ctx,
-		Client:  client,
-	})
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			return 130
-		}
-		fmt.Fprintf(stderr, "kit: session picker: %v\n", err)
-		return 1
-	}
-	if selected == "" {
-		return 0
-	}
-	options.SessionID = selected
-	return runInteractive(ctx, options, stdout, stderr, deps.RunTUI)
 }
 
 func runPrintOptions(ctx context.Context, options printOptions, stdout, stderr io.Writer) int {

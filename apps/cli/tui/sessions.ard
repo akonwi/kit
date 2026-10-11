@@ -15,7 +15,8 @@ use go:strings
 use go:time
 
 // Props supplies the saved-session catalog service and receives a fully
-// attached replacement session after the user selects it.
+// attached replacement session after the user selects it. The standalone
+// `kit sessions` picker instead receives the chosen ID through `choose`.
 struct Props {
   themes: theme::Context,
   client: mut api::Client,
@@ -24,6 +25,13 @@ struct Props {
   dismiss: keymap::SimpleCommand,
   renamed: fn(protocol::SessionInfo),
   applied: fn(mut api::Session, protocol::SessionSnapshot),
+  // Chooses a session by ID instead of attaching to it.
+  choose: fn(Str)?,
+  // Sessions already listed, shown without loading them again.
+  listed: [protocol::SessionInfo]?,
+  // Where the explorer's dialogs sit; centered and picker placements by
+  // default.
+  placement: modal::Placement?,
 }
 
 struct Row {
@@ -53,8 +61,8 @@ struct Picker {
 fn new(props: mut Props) mut Picker {
   (mut Picker{
     props: props,
-    sessions: [],
-    loading: true,
+    sessions: props.listed.or([]),
+    loading: props.listed.is_none(),
     pending: false,
     error: "",
     collapsed: [],
@@ -229,6 +237,16 @@ private fn row_item(row: Row, current: Str, pending: Bool, now: time::Time, disc
 impl cui::Lifecycle for Picker {
   fn mut mounted(context: cui::Context) {
     self.context = Maybe::new(context)
+    if self.loading {
+      self.load(context)
+    }
+  }
+
+  fn mut unmounting(ctx: cui::Context) {}
+}
+
+impl Picker {
+  private fn mut load(context: cui::Context) {
     let lifetime = self.props.lifetime
     let client = self.props.client
     let dispatch = context.dispatch
@@ -249,7 +267,10 @@ impl cui::Lifecycle for Picker {
     })
   }
 
-  fn mut unmounting(ctx: cui::Context) {}
+  // The dialog placement, or fallback unless the parent chose one.
+  private fn placed(fallback: modal::Placement) modal::Placement {
+    self.props.placement.or(fallback)
+  }
 }
 
 impl Picker {
@@ -438,6 +459,13 @@ impl Picker {
   }
 
   private fn mut select(session_id: Str, context: cui::Context) {
+    match self.props.choose {
+      choose => choose(session_id),
+      _ => self.attach(session_id, context),
+    }
+  }
+
+  private fn mut attach(session_id: Str, context: cui::Context) {
     if self.pending or session_id == self.props.current_session_id {
       self.props.dismiss.invoke()
     } else {
@@ -487,7 +515,7 @@ impl cui::Component for Picker {
           modal::dialog(
             self.props.themes,
             modal::Dialog{
-              placement: modal::Placement::centered,
+              placement: self.placed(modal::Placement::centered),
               title: "Sessions",
               meta: "",
               header: [],
@@ -516,7 +544,7 @@ impl cui::Component for Picker {
               modal::dialog(
                 self.props.themes,
                 modal::Dialog{
-                  placement: modal::Placement::centered,
+                  placement: self.placed(modal::Placement::centered),
                   title: "Sessions",
                   meta: "",
                   header: [],
@@ -563,6 +591,7 @@ impl cui::Component for Picker {
                     self.toggle(session_id, expand)
                   }),
                   tree: Maybe::new(search_tree(self.sessions, self.props.current_session_id, self.pending)),
+                  placement: self.props.placement,
                   on_query_change: fn(query: Str) {},
                   on_selection_change: fn(selected: Str) {
                     self.selection_changed(selected)
@@ -629,7 +658,7 @@ impl Picker {
     modal::dialog(
       self.props.themes,
       modal::Dialog{
-        placement: modal::Placement::picker,
+        placement: self.placed(modal::Placement::picker),
         title: "Rename session",
         meta: match self.rename_pending {
           true => "saving…",
@@ -666,7 +695,7 @@ impl Picker {
     modal::dialog(
       self.props.themes,
       modal::Dialog{
-        placement: modal::Placement::picker,
+        placement: self.placed(modal::Placement::picker),
         title: "Sessions",
         meta: "",
         header: [],

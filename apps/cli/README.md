@@ -2,14 +2,21 @@
 
 `apps/cli` is an Ard project that builds the `kit` executable. `main.ard` is
 the process entry point: it applies build metadata, turns interrupt and
-termination signals into command cancellation and exit codes, and supplies the
-terminal client to the command line in `ffi/cli`, which owns command parsing,
-headless commands, the daemon role, and interactive setup. Go calls whose
-result shapes Ard cannot import use small bridges such as `ffi/contextbridge`.
+termination signals into command cancellation and exit codes, and runs the
+interactive commands. The command line in `ffi/cli` parses commands and runs
+the headless ones and the daemon role (`cli.Parse`); for an interactive
+command it connects to the server and loads settings (`cli.OpenEnvironment`)
+and prepares the terminal client's options (`Environment.Prepare`), while
+`main.ard` runs the terminal apps in between: `kit sessions` runs the inline
+session picker (`tui::pick_session`) and then the terminal client
+(`tui::run`). Go calls whose result shapes Ard cannot import use small
+bridges such as `ffi/contextbridge`.
 
 This entry point is being developed alongside `cmd/kit`. Until `cmd/kit` is
-removed, `ffi/cli` is a copy of `internal/cli`; mirror command-line changes in
-both. The terminal client is written in Ard with Cooper (`tui.ard`, `tui/`) and
+removed, `ffi/cli` keeps the commands, flags, help, and exit codes of
+`internal/cli`; mirror command-line changes in both. Its interactive flow is
+structured differently, because the terminal apps run in Ard. The terminal
+client is written in Ard with Cooper (`tui.ard`, `tui/`) and
 is working toward parity with the vaxis/ui client that `cmd/kit` ships; see the
 Cooper client parity section of `backlog/tui.md`.
 

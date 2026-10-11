@@ -96,6 +96,8 @@ struct PickerProps {
   empty: Str?,
   // tree is the full hierarchy searched while a query is present; see Props.
   tree: [Branch]?,
+  // Where the dialog sits; a picker placement by default.
+  placement: modal::Placement?,
   on_query_change: fn(Str),
   on_selection_change: fn(Str),
   on_activate: fn(Item),
@@ -1038,7 +1040,7 @@ impl cui::Component for Picker {
     modal::dialog(
       self.props.themes,
       modal::Dialog{
-        placement: modal::Placement::picker,
+        placement: self.source.placement.or(modal::Placement::picker),
         title: self.title,
         meta: "",
         header: header(props, Maybe::new<Bool>(), Maybe::new<mut cui::InputRef>()),
