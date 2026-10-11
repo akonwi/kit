@@ -13,7 +13,7 @@ concurrency:
 jobs:
   openapi-compatibility:
     name: OpenAPI compatibility
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
     env:
       # Native Tree-sitter and the race detector require a C toolchain.
       CGO_ENABLED: "1"
