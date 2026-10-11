@@ -225,7 +225,7 @@ impl Editor {
   }
 
   private fn mut change(value: Str) {
-    if not self.closing and self.draft != value {
+    if (not self.closing) and self.draft != value {
       self.draft = value
       self.failure = ""
       self.generation =+ 1

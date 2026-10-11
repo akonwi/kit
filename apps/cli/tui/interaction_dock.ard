@@ -976,7 +976,8 @@ impl Dock {
       )
     }
     // A confirmation that offers a choice already has a decline button.
-    if not self.mode() == Mode::confirm and self.offers_choice() {
+    let declines = self.mode() == Mode::confirm and self.offers_choice()
+    if not declines {
       let cancel = keymap::simple_command("interaction.cancel.pointer", "Cancel", fn() Bool {
         self.cancel()
       })

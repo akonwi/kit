@@ -264,7 +264,7 @@ private fn named(name: Str) Tab {
 
 test fn opening_appends_selects_and_deduplicates() Void!Str {
   let subject = tabs()
-  try testing::assert(not subject.shown() and subject.on_agent(), "only Agent at first")
+  try testing::assert((not subject.shown()) and subject.on_agent(), "only Agent at first")
   try testing::assert(subject.open(named("a")) and subject.open(named("b")), "tabs open")
   try testing::assert(subject.selected == "b", "the opened tab is selected")
   try testing::assert(subject.open(named("a")), "reopening succeeds")
@@ -317,7 +317,7 @@ test fn closing_selects_the_neighbor() Void!Str {
   )
   try testing::assert(subject.close("d") and subject.on_agent(), "closing the only tab selects Agent")
   testing::assert(
-    not subject.close(agent) and not subject.close("gone"),
+    (not subject.close(agent)) and not subject.close("gone"),
     "Agent and closed tabs cannot close",
   )
 }

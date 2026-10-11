@@ -391,7 +391,7 @@ impl Flow {
   }
 
   private fn mut submit_api_key(value: Str) {
-    if not self.pending and value != "" {
+    if (not self.pending) and value != "" {
       match self.context {
         context => {
           self.cancel_attempt()

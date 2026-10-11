@@ -134,7 +134,7 @@ fn position(text: Str, needle: Str) [Int] {
 fn wait_for_color(terminal: headless::TestApp, needle: Str, expected: ui::Color) Bool {
   mut matched = false
   mut attempts = 0
-  while not matched and attempts < 100 {
+  while (not matched) and attempts < 100 {
     terminal.flush()
     let point = position(terminal.frame().text(), needle)
     if point.at(0).or(-1) >= 0 {
@@ -305,7 +305,7 @@ test fn markdown_reparses_changed_source_in_the_retained_component() Void!Str {
   let painted = terminal.frame().text()
   let second = position(painted, "second")
   try testing::assert(
-    not painted.contains("first") and painted.contains("second"),
+    (not painted.contains("first")) and painted.contains("second"),
     "changed source replaces cached document",
   )
   testing::assert(
@@ -660,7 +660,7 @@ test fn inline_markdown_renders_activity_emphasis_without_markers() Void!Str {
   defer terminal.destroy()
   let painted = terminal.frame().text()
   try testing::assert(
-    painted.contains("Checking retries and status") and not painted.contains("**") and not painted.contains("*status*"),
+    painted.contains("Checking retries and status") and (not painted.contains("**")) and (not painted.contains("*status*")),
     "inline activity renders Markdown without source markers: {painted}",
   )
   let retries = position(painted, "retries")

@@ -527,7 +527,8 @@ fn rows(messages: [Message]) [Row] {
     match held {
       thought => {
         // Thinking that no run of its turn follows shows on its own.
-        if not joins and message.turn_id == thought.turn_id {
+        let joins_its_turn = joins and message.turn_id == thought.turn_id
+        if not joins_its_turn {
           result.push(Row{message: thought, work: Maybe::new<Work>()})
           held = Maybe::new<Message>()
         }

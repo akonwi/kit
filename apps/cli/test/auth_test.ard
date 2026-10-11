@@ -134,7 +134,7 @@ fn shows(terminal: headless::TestApp, text: Str) Bool {
 
 fn wait_for_text(terminal: headless::TestApp, text: Str) Bool {
   mut attempts = 0
-  while not shows(terminal, text) and attempts < 200 {
+  while (not shows(terminal, text)) and attempts < 200 {
     terminal.flush()
     time::Sleep(time::Millisecond * 2)
     attempts =+ 1
@@ -265,7 +265,7 @@ test fn device_login_shows_its_code_and_back_cancels_the_attempt() Void!Str {
 
   press(terminal, "escape")
   mut attempts = 0
-  while not model.device_cancelled and attempts < 200 {
+  while (not model.device_cancelled) and attempts < 200 {
     terminal.flush()
     time::Sleep(time::Millisecond * 2)
     attempts =+ 1
@@ -300,7 +300,7 @@ test fn closing_the_flow_cancels_an_in_flight_login() Void!Str {
     model.open = false
   })
   mut attempts = 0
-  while not model.device_cancelled and attempts < 200 {
+  while (not model.device_cancelled) and attempts < 200 {
     terminal.flush()
     time::Sleep(time::Millisecond * 2)
     attempts =+ 1

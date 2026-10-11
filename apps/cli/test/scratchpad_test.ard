@@ -138,7 +138,7 @@ fn mount(terminal: headless::TestApp, value: mut Model) cui::Renderer {
 fn wait_for_update(terminal: headless::TestApp, value: mut Model) {
   mut attempts = 0
   mut saved = false
-  while not saved and attempts < 100 {
+  while (not saved) and attempts < 100 {
     terminal.flush()
     match value.record {
       record => { saved = record.Content != "shared notes" },
@@ -202,7 +202,7 @@ test fn scratchpad_close_flushes_before_requesting_unmount() Void!Str {
   try testing::assert(value.control.close(true), "the mounted pane accepts a close request")
   try testing::assert(value.control.close(true), "a repeated close is handled idempotently")
   mut attempts = 0
-  while not value.closed and attempts < 100 {
+  while (not value.closed) and attempts < 100 {
     terminal.flush()
     time::Sleep(time::Millisecond * 2)
     attempts =+ 1

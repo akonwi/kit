@@ -1,3 +1,5 @@
+use ard/testing
+
 use go:api
 use go:api/contract as protocol
 use go:context
@@ -61,7 +63,7 @@ fn attach(ctx: context::Context, options: cli::TUIOptions) Attached!Str {
       failure("create session", err)
     }
     try expect(
-      not new_session or selected.ID == options.NewSessionID,
+      created_requested(options.NewSessionID, selected.ID),
       "create session returned a different session id",
     )
   }
@@ -126,9 +128,27 @@ private fn resolve_model(catalog: protocol::ModelCatalog, preferred: Str, explic
   }
 }
 
+// Whether the server created the session the command line asked for: an ID
+// that `kit new` or `--temp` requested must come back unchanged.
+fn created_requested(requested_id: Str, created_id: Str) Bool {
+  requested_id == "" or created_id == requested_id
+}
+
 private fn expect(condition: Bool, message: Str) Void!Str {
   match condition {
     true => Result::ok(()),
     false => Result::err(message),
   }
+}
+
+test fn a_requested_session_id_must_come_back_unchanged() Void!Str {
+  try testing::assert(created_requested("session_1", "session_1"), "the requested session was created")
+  try testing::assert(
+    not created_requested("session_1", "session_2"),
+    "a different session is not the requested one",
+  )
+  testing::assert(
+    created_requested("", "session_2"),
+    "without a request any new session is accepted",
+  )
 }

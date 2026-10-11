@@ -2384,7 +2384,7 @@ impl Controller {
 
   // Loads the authoritative Scratchpad when the snapshot did not supply one.
   fn mut load_scratchpad() {
-    if self.active and not self.scratchpad_loading and self.scratchpad_record.is_none() {
+    if self.active and (not self.scratchpad_loading) and self.scratchpad_record.is_none() {
       match self.lifetime {
         lifetime => {
           match self.session {
@@ -2691,7 +2691,7 @@ impl Controller {
   // cannot be lost between forking and submitting.
   fn mut fork(message: Str) {
     let source_id = self.session_id()
-    if self.active and source_id != "" and (not self.new_session_pending and not self.reload_pending) {
+    if self.active and source_id != "" and (not self.new_session_pending) and (not self.reload_pending) {
       match self.lifetime {
         lifetime => {
           let request = mut protocol::ForkSessionInput{}
@@ -3632,7 +3632,8 @@ impl Controller {
   fn pending_annotations() [sessionbridge::Annotation] {
     let pending = mut List::new<sessionbridge::Annotation>()
     for annotation in self.annotations {
-      if not annotations::includes(self.follow_ups.AnnotationIDs, annotation.ID) or annotations::includes(self.sending_annotations, annotation.ID) {
+      let claimed = annotations::includes(self.follow_ups.AnnotationIDs, annotation.ID) or annotations::includes(self.sending_annotations, annotation.ID)
+      if not claimed {
         pending.push(annotation)
       }
     }
@@ -4723,7 +4724,7 @@ test fn finished_uploads_update_only_their_row() Void!Str {
   let second = subject.attachments.at(1).expect("second")
   try testing::assert(first.id == "attachment-a" and not first.uploading, "the upload is recorded")
   try testing::assert(
-    second.failure == "too large" and not second.uploading and second.id == "",
+    second.failure == "too large" and (not second.uploading) and second.id == "",
     "the failure is recorded",
   )
   try testing::assert(
@@ -4931,7 +4932,7 @@ test fn disposal_ends_the_attachment_scope() Void!Str {
   subject.dispose()
   subject.apply_info(protocol::SessionInfo{ID: "session-1", Name: "Late"})
   subject.apply_scratchpad_saved(protocol::Scratchpad{Content: "late"})
-  try testing::assert(not subject.active and not subject.can_submit(), "a disposed attachment is inert")
+  try testing::assert((not subject.active) and not subject.can_submit(), "a disposed attachment is inert")
   try testing::assert(subject.info.or(protocol::SessionInfo{}).Name == "", "late records are ignored")
   testing::assert(subject.scratchpad_record.is_none(), "late editor completions are ignored")
 }

@@ -1014,7 +1014,7 @@ test fn escape_leaves_the_panel_keeping_the_command_as_a_prompt() Void!Str {
   terminal.flush()
   terminal.key(key("escape"))
   terminal.flush()
-  try testing::assert(not value.bash and value.aborts == 0, "Escape leaves the panel first")
+  try testing::assert((not value.bash) and value.aborts == 0, "Escape leaves the panel first")
   try expect_rows(rows(terminal), ["", "", "", "", "", "", " git log", ""])
   // Typing continues the prompt.
   terminal.key(character("!"))
@@ -1057,7 +1057,7 @@ test fn escape_closes_command_history_then_the_panel_then_reaches_the_turn() Voi
   )
   terminal.key(key("escape"))
   terminal.flush()
-  try testing::assert(not value.bash and value.aborts == 0, "the second Escape leaves the panel")
+  try testing::assert((not value.bash) and value.aborts == 0, "the second Escape leaves the panel")
   terminal.key(key("escape"))
   terminal.flush()
   testing::assert(value.aborts == 1, "the third reaches the application")
