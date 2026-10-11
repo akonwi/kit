@@ -706,3 +706,72 @@ func TestParseRawTreeDiffRejectsMalformedRecords(t *testing.T) {
 		}
 	}
 }
+
+func TestObservationBudgetExpiryIsTypedDeadlineLimit(t *testing.T) {
+	dir, service, workspaceID := targetFixture(t)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "a.txt")
+	git(t, dir, "commit", "-qm", "changed")
+	catalog, err := service.ListTargets(t.Context(), "session_test", dir, protocol.ListDiffTargetsInput{WorkspaceID: workspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := findTarget(t, catalog, protocol.DiffTargetCommit, func(entry protocol.DiffTargetEntry) bool { return entry.Metadata.Subject == "changed" })
+	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := &Error{Code: LimitExceeded, Message: "the diff took longer than the server allows", Details: map[string]string{"limit": "deadline"}}
+	service.budget = time.Nanosecond
+	operations := map[string]func() error{
+		"list targets": func() error {
+			_, err := service.ListTargets(t.Context(), "session_test", dir, protocol.ListDiffTargetsInput{WorkspaceID: workspaceID})
+			return err
+		},
+		"observe target": func() error {
+			_, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID})
+			return err
+		},
+		"observe working tree": func() error {
+			_, err := service.Observe(t.Context(), "session_test", dir, protocol.ObserveWorkingTreeInput{WorkspaceID: workspaceID})
+			return err
+		},
+		"read committed file": func() error {
+			_, err := service.ReadFile(t.Context(), "session_test", dir, protocol.ReadFileDiffInput{TargetID: page.Observation.Target.ID, TargetRevision: page.Observation.Revision, Path: "a.txt", ExpectedFileRevision: page.Files[0].FileRevision})
+			return err
+		},
+	}
+	for name, operation := range operations {
+		err := operation()
+		var diffErr *Error
+		if !errors.As(err, &diffErr) || fmt.Sprint(*diffErr) != fmt.Sprint(*want) {
+			t.Errorf("%s: error = %#v, want %#v", name, err, want)
+			continue
+		}
+		if diffErr.Validate() != nil {
+			t.Errorf("%s: deadline error is not a valid diff error: %v", name, diffErr.Validate())
+		}
+	}
+}
+
+func TestCallerContextEndingIsReturnedUnchanged(t *testing.T) {
+	dir, service, workspaceID := targetFixture(t)
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	for name, test := range map[string]struct {
+		ctx  context.Context
+		want error
+	}{
+		"canceled":        {canceled, context.Canceled},
+		"caller deadline": {expired, context.DeadlineExceeded},
+	} {
+		_, err := service.Observe(test.ctx, "session_test", dir, protocol.ObserveWorkingTreeInput{WorkspaceID: workspaceID})
+		if err != test.want {
+			t.Errorf("%s: error = %#v, want %#v", name, err, test.want)
+		}
+	}
+}

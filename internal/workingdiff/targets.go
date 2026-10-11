@@ -121,7 +121,8 @@ func (s *Service) decodeTargetReference(raw string) (targetReference, error) {
 }
 
 // ListTargets snapshots the local repository and returns bounded selectable targets.
-func (s *Service) ListTargets(ctx context.Context, session, cwd string, in protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
+func (s *Service) ListTargets(ctx context.Context, session, cwd string, in protocol.ListDiffTargetsInput) (_ protocol.DiffTargetCatalog, err error) {
+	defer projectDeadline(ctx, &err)
 	if err := in.Validate(); err != nil {
 		return protocol.DiffTargetCatalog{}, &Error{Code: InvalidPath, Message: "diff target catalog request is invalid"}
 	}
@@ -130,7 +131,7 @@ func (s *Service) ListTargets(ctx context.Context, session, cwd string, in proto
 		return protocol.DiffTargetCatalog{}, err
 	}
 	defer release()
-	ctx, cancel := boundedContext(ctx)
+	ctx, cancel := s.boundedContext(ctx)
 	defer cancel()
 	ref := s.workspaces.Ref(session, cwd)
 	if ref.WorkspaceID != in.WorkspaceID {
@@ -545,11 +546,12 @@ func abbreviate(oid string) string {
 }
 
 // ObserveTarget verifies a server-issued reference and observes its pinned evidence.
-func (s *Service) ObserveTarget(ctx context.Context, session, cwd string, in protocol.ObserveDiffInput) (protocol.DiffPage, error) {
+func (s *Service) ObserveTarget(ctx context.Context, session, cwd string, in protocol.ObserveDiffInput) (_ protocol.DiffPage, err error) {
+	defer projectDeadline(ctx, &err)
 	if err := in.Validate(); err != nil {
 		return protocol.DiffPage{}, &Error{Code: InvalidPath, Message: "diff observation request is invalid"}
 	}
-	ctx, cancel := boundedContext(ctx)
+	ctx, cancel := s.boundedContext(ctx)
 	defer cancel()
 	ref, err := s.decodeTargetReference(in.TargetReference)
 	if err != nil {

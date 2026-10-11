@@ -88,6 +88,9 @@ type Service struct {
 	gates        map[string]chan struct{}
 	pending      map[string]int
 	now          func() time.Time
+	// budget bounds each observation or file read the service performs on
+	// behalf of a caller.
+	budget time.Duration
 }
 
 func NewService(ws *workspace.Service) (*Service, error) {
@@ -95,7 +98,7 @@ func NewService(ws *workspace.Service) (*Service, error) {
 	if e != nil {
 		return nil, e
 	}
-	s := &Service{runner: r, workspaces: ws, observations: map[string]*observation{}, active: make(chan struct{}, 8), gates: map[string]chan struct{}{}, pending: map[string]int{}, now: time.Now}
+	s := &Service{runner: r, workspaces: ws, observations: map[string]*observation{}, active: make(chan struct{}, 8), gates: map[string]chan struct{}{}, pending: map[string]int{}, now: time.Now, budget: observationBudget}
 	_, e = rand.Read(s.key[:])
 	return s, e
 }
@@ -159,7 +162,8 @@ func token(prefix string, parts ...string) string {
 	}
 	return prefix + base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
-func (s *Service) Observe(ctx context.Context, session, cwd string, in protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
+func (s *Service) Observe(ctx context.Context, session, cwd string, in protocol.ObserveWorkingTreeInput) (_ protocol.WorkingTreePage, err error) {
+	defer projectDeadline(ctx, &err)
 	if err := in.Validate(); err != nil {
 		return protocol.WorkingTreePage{}, &Error{Code: InvalidPath, Message: "working-tree request is invalid"}
 	}
@@ -171,7 +175,7 @@ func (s *Service) Observe(ctx context.Context, session, cwd string, in protocol.
 	if in.Cursor != "" {
 		return s.listCursor(session, in)
 	}
-	ctx, cancel := boundedContext(ctx)
+	ctx, cancel := s.boundedContext(ctx)
 	defer cancel()
 	var last error
 	for attempt := 0; attempt < 3; attempt++ {
@@ -190,12 +194,29 @@ func (s *Service) Observe(ctx context.Context, session, cwd string, in protocol.
 
 var errRaced = errors.New("observation raced")
 
-func boundedContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	deadline := time.Now().Add(8 * time.Second)
+// observationBudget is the time the service allows one observation or file
+// read before it reports a deadline limit.
+const observationBudget = 8 * time.Second
+
+// boundedContext limits ctx to the service's observation budget, keeping any
+// earlier caller deadline.
+func (s *Service) boundedContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline := time.Now().Add(s.budget)
 	if existing, ok := ctx.Deadline(); ok && existing.Before(deadline) {
 		deadline = existing
 	}
 	return context.WithDeadline(ctx, deadline)
+}
+
+// projectDeadline converts expiry of the service's own observation budget into
+// a typed deadline limit error. Errors caused by the caller's context ending,
+// whether by cancellation or the caller's own deadline, are left unchanged.
+// Exported methods defer it with the caller's context before bounding.
+func projectDeadline(caller context.Context, err *error) {
+	if *err == nil || caller.Err() != nil || !errors.Is(*err, context.DeadlineExceeded) {
+		return
+	}
+	*err = &Error{Code: LimitExceeded, Message: "the diff took longer than the server allows", Details: map[string]string{"limit": "deadline"}}
 }
 
 func (s *Service) observeAttempt(ctx context.Context, session, cwd string, in protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {

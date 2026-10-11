@@ -26,10 +26,19 @@ type DiffError struct {
 	Details map[string]string `json:"details,omitempty"`
 }
 
+// Valid reports whether code is a declared diff error code.
+func (code DiffErrorCode) Valid() bool {
+	switch code {
+	case DiffErrorInvalidPath, DiffErrorNotRepository, DiffErrorUnsupportedRepository, DiffErrorStaleWorkspace, DiffErrorStaleTarget, DiffErrorStaleFile, DiffErrorStaleCursor, DiffErrorNotFound, DiffErrorPermissionDenied, DiffErrorLimit, DiffErrorCapacity, DiffErrorRepositoryUnavailable, DiffErrorUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 func (e *DiffError) Error() string { return e.Message }
 func (e DiffError) Validate() error {
-	valid := map[DiffErrorCode]bool{DiffErrorInvalidPath: true, DiffErrorNotRepository: true, DiffErrorUnsupportedRepository: true, DiffErrorStaleWorkspace: true, DiffErrorStaleTarget: true, DiffErrorStaleFile: true, DiffErrorStaleCursor: true, DiffErrorNotFound: true, DiffErrorPermissionDenied: true, DiffErrorLimit: true, DiffErrorCapacity: true, DiffErrorRepositoryUnavailable: true, DiffErrorUnavailable: true}
-	if !valid[e.Code] || !ValidErrorMessage(e.Message) || len(e.Details) > 4 {
+	if !e.Code.Valid() || !ValidErrorMessage(e.Message) || len(e.Details) > 4 {
 		return fmt.Errorf("diff error is invalid")
 	}
 	allowed := map[string]bool{}
