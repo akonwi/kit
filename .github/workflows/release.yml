@@ -19,7 +19,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             platform: darwin_arm64
           # macos-13 (Intel) runners are retired; macos-15-intel is the
           # supported Intel label through 2027.
