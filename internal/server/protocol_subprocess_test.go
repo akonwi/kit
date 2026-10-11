@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -21,87 +20,18 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// TestSubprocessProtocol42ReleaseGate tests separately compiled binaries from
-// the same source. The current release gate rejects skew without disruption;
-// this is not evidence of compatibility across source revisions.
-func TestSubprocessProtocol42ReleaseGate(t *testing.T) {
+// TestSubprocessReleaseGate builds two Kit binaries from the current source
+// with different release labels. Each label's client attaches to the daemon
+// with the same label, and the daemon with the other label rejects it without
+// disruption. This is not evidence of compatibility across source revisions.
+func TestSubprocessReleaseGate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping subprocess builds in short mode")
 	}
-	root := protocolTestRoot(t)
-	runProtocolBinaryMatrix(t, [2]string{"release-a", "release-b"}, [2]string{root, root}, true, false)
+	runReleaseGate(t, protocolTestRoot(t), [2]string{"release-a", "release-b"})
 }
 
-// TestSubprocessProtocol42StableSkew checks two release-labeled binaries built
-// from the same source in both directions, including attachment during work.
-// The pinned-revision matrix separately checks source-level skew.
-func TestSubprocessProtocol42StableSkew(t *testing.T) {
-	if version.SessionProtocolVersion != 42 {
-		t.Skip("protocol 43 intentionally breaks the protocol-42 release compatibility promise")
-	}
-	if testing.Short() {
-		t.Skip("skipping subprocess builds in short mode")
-	}
-	root := protocolTestRoot(t)
-	runProtocolBinaryMatrix(t, [2]string{"0.39.0", "0.39.1"}, [2]string{root, root}, false, false)
-}
-
-// TestProtocol42TaggedReleaseMatrix checks bidirectional attachment with real
-// release labels. It must never use the development-version bypass.
-func TestProtocol42TaggedReleaseMatrix(t *testing.T) {
-	runProtocol42TaggedMatrix(t, false)
-}
-
-// TestProtocol42TaggedWireSmoke uses dev-labeled *test clients* built from
-// pinned revisions to inspect wire interoperability behind the current release
-// gate. This is not a release compatibility pass and cannot replace the
-// release-labeled matrix. Neither smoke test covers every protocol semantic.
-func TestProtocol42TaggedWireSmoke(t *testing.T) {
-	runProtocol42TaggedMatrix(t, true)
-}
-
-// Run with KIT_PROTOCOL42_BASELINE_TAG, KIT_PROTOCOL42_CANDIDATE_VERSION, and
-// either KIT_PROTOCOL42_CANDIDATE_TAG or KIT_PROTOCOL42_CANDIDATE_COMMIT (a full
-// SHA). A commit candidate remains provisional until that commit is released.
-func runProtocol42TaggedMatrix(t *testing.T, wireOnly bool) {
-	t.Helper()
-	baseline := os.Getenv("KIT_PROTOCOL42_BASELINE_TAG")
-	candidate := os.Getenv("KIT_PROTOCOL42_CANDIDATE_VERSION")
-	candidateTag := os.Getenv("KIT_PROTOCOL42_CANDIDATE_TAG")
-	candidateCommit := os.Getenv("KIT_PROTOCOL42_CANDIDATE_COMMIT")
-	if baseline == "" && candidate == "" && candidateTag == "" && candidateCommit == "" {
-		t.Skip("requires a tagged protocol-42 baseline and candidate release version")
-	}
-	if testing.Short() {
-		t.Skip("skipping subprocess builds in short mode")
-	}
-	if baseline == "" || candidate == "" || baseline == candidate ||
-		!regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$`).MatchString(candidate) ||
-		(candidateTag != "" && candidateTag != candidate) || (candidateTag == "") == (candidateCommit == "") {
-		t.Fatal("set a tagged baseline, distinct semver candidate, and exactly one matching candidate tag or full commit")
-	}
-	root := protocolTestRoot(t)
-	candidateRef := candidateCommit
-	if candidateTag != "" {
-		candidateRef = "refs/tags/" + candidateTag
-	}
-	if protocolRevisionCommit(t, root, "refs/tags/"+baseline) == protocolRevisionCommit(t, root, candidateRef) {
-		t.Fatal("baseline and candidate resolve to the same source revision")
-	}
-	baselineRoot := archiveProtocolTag(t, root, baseline)
-	candidateRoot := ""
-	if candidateTag != "" {
-		candidateRoot = archiveProtocolTag(t, root, candidateTag)
-	} else {
-		candidateRoot = archiveProtocolCommit(t, root, candidateCommit)
-	}
-	if wireOnly {
-		t.Log("WIRE-ONLY SMOKE: dev-labeled test clients bypass the release-string gate; not a release compatibility pass")
-	}
-	runProtocolBinaryMatrix(t, [2]string{baseline, candidate}, [2]string{baselineRoot, candidateRoot}, false, wireOnly)
-}
-
-// protocolSubprocessEnv prevents ambient matrix/helper controls from leaking
+// protocolSubprocessEnv prevents ambient helper controls from leaking
 // into daemon and client subprocesses. The isolated home and dummy credential
 // are always provided explicitly by callers.
 func protocolSubprocessEnv(extra ...string) []string {
@@ -125,84 +55,15 @@ func protocolTestRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
 }
 
-func archiveProtocolTag(t *testing.T, root, tag string) string {
-	t.Helper()
-	if !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$`).MatchString(tag) {
-		t.Fatalf("protocol matrix requires a release tag, got %q", tag)
-	}
-	return archiveProtocolRevision(t, root, "refs/tags/"+tag, tag)
-}
-
-func archiveProtocolCommit(t *testing.T, root, commit string) string {
-	t.Helper()
-	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(commit) {
-		t.Fatalf("protocol matrix requires a full candidate commit SHA, got %q", commit)
-	}
-	return archiveProtocolRevision(t, root, commit, commit)
-}
-
-func protocolRevisionCommit(t *testing.T, root, ref string) string {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", ref+"^{commit}")
-	cmd.Dir = root
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("resolve revision %s: %v\n%s", ref, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-func archiveProtocolRevision(t *testing.T, root, ref, label string) string {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
-	archive := filepath.Join(t.TempDir(), "source.tar")
-	cmd := exec.CommandContext(ctx, "git", "archive", "-o", archive, ref)
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("archive %s: %v\n%s", label, err, out)
-	}
-	sourceRoot := t.TempDir()
-	extract := exec.CommandContext(ctx, "tar", "-xf", archive, "-C", sourceRoot)
-	if out, err := extract.CombinedOutput(); err != nil {
-		t.Fatalf("extract %s: %v\n%s", label, err, out)
-	}
-	metadata, err := os.ReadFile(filepath.Join(sourceRoot, "internal/version/version.go"))
-	if err != nil {
-		t.Fatalf("read protocol version for %s: %v", label, err)
-	}
-	if !regexp.MustCompile(`(?m)^\s*SessionProtocolVersion\s*=\s*42\s*$`).Match(metadata) {
-		t.Fatalf("revision %s does not declare session protocol 42", label)
-	}
-	// Compile one identical client contract against each release's own types
-	// and implementation. Keep the archive's runtime source unmodified.
-	fixture, err := os.ReadFile(filepath.Join(root, "internal/server/protocol_subprocess_test.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(sourceRoot, "internal/server/protocol_subprocess_test.go"), fixture, 0600); err != nil {
-		t.Fatal(err)
-	}
-	return sourceRoot
-}
-
-func runProtocolBinaryMatrix(t *testing.T, labels [2]string, roots [2]string, expectSkew, wireOnly bool) {
+// runReleaseGate builds a daemon and a protocol client for each label from the
+// source at root, then runs every client against every daemon.
+func runReleaseGate(t *testing.T, root string, labels [2]string) {
 	t.Helper()
 	binDir := t.TempDir()
-	for index, label := range labels {
-		root := roots[index]
-		buildVersion := strings.TrimPrefix(label, "v")
-		buildKitBinary(t, root, filepath.Join(binDir, "kit-"+label), buildVersion)
-		clientVersion := buildVersion
-		if wireOnly {
-			// The pinned daemon binaries retain their real release labels. Only
-			// the test clients exercise the existing development bypass.
-			clientVersion = "dev"
-		}
+	for _, label := range labels {
+		buildKitBinary(t, root, filepath.Join(binDir, "kit-"+label), label)
 		ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
-		cmd := exec.CommandContext(ctx, "go", "test", "-c", "-ldflags", "-X github.com/akonwi/kit/internal/version.Version="+clientVersion,
+		cmd := exec.CommandContext(ctx, "go", "test", "-c", "-ldflags", "-X github.com/akonwi/kit/internal/version.Version="+label,
 			"-o", filepath.Join(binDir, "client-"+label), "./internal/server")
 		cmd.Dir = root
 		cmd.Env = protocolSubprocessEnv("GOTOOLCHAIN=auto", apphome.EnvHome+"="+t.TempDir())
@@ -214,7 +75,6 @@ func runProtocolBinaryMatrix(t *testing.T, labels [2]string, roots [2]string, ex
 	}
 	for index, daemonLabel := range labels {
 		t.Run(daemonLabel, func(t *testing.T) {
-			root := roots[index]
 			paths := apphome.FromHome(filepath.Join(t.TempDir(), "home"))
 			workspace := t.TempDir()
 			// The dummy credential exposes a local model catalog; this test never
@@ -286,7 +146,7 @@ func runProtocolBinaryMatrix(t *testing.T, labels [2]string, roots [2]string, ex
 				}
 			})
 			before, err := LoadRegistry(paths)
-			if err != nil || before.KitVersion != strings.TrimPrefix(daemonLabel, "v") || before.ProtocolVersion != version.SessionProtocolVersion {
+			if err != nil || before.KitVersion != daemonLabel || before.ProtocolVersion != version.SessionProtocolVersion {
 				t.Fatalf("daemon registry = %+v, %v", before, err)
 			}
 			other := labels[1-index]
@@ -294,14 +154,10 @@ func runProtocolBinaryMatrix(t *testing.T, labels [2]string, roots [2]string, ex
 				client := filepath.Join(binDir, "client-"+clientLabel)
 				clientEnv := append(append([]string{}, env...), "KIT_PROTOCOL_CLIENT_HELPER=1",
 					"KIT_PROTOCOL_TEST_HOME="+paths.Home, "KIT_PROTOCOL_TEST_WORKSPACE="+workspace)
-				if expectSkew && clientLabel != daemonLabel {
+				if clientLabel != daemonLabel {
 					clientEnv = append(clientEnv, "KIT_PROTOCOL_EXPECT_RELEASE_MISMATCH=1")
-				} else if clientLabel == daemonLabel {
-					observer := client
-					if !expectSkew {
-						observer = filepath.Join(binDir, "client-"+other)
-					}
-					clientEnv = append(clientEnv, "KIT_PROTOCOL_OBSERVER_BIN="+observer)
+				} else {
+					clientEnv = append(clientEnv, "KIT_PROTOCOL_OBSERVER_BIN="+client)
 				}
 				ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 				cmd := exec.CommandContext(ctx, client, "-test.run=^TestProtocolClientHelper$", "-test.v")
