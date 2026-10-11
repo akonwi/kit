@@ -45,19 +45,25 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 The Ard and Cooper terminal client in `apps/cli`
 ([ADR 0035](../docs/adrs/0035-build-the-terminal-client-with-ard-and-cooper.md))
-replaces the vaxis/ui client in `internal/tui` once it reaches parity with it.
+replaces the vaxis/ui client in `internal/tui` and is what releases build.
 Parity means the same visible content, layout, focus, and interaction as the
 vaxis client, asserted by exact-row headless Cooper tests derived from the
-vaxis client's tests. Until then, `cmd/kit` ships the vaxis client. Known,
-accepted differences: centered odd-width content can sit one cell right,
+vaxis client's tests. Known, accepted differences: centered odd-width content can sit one cell right,
 because Cooper rounds half-cell layout edges up (Cooper ADR 0020); and the
 signed-out "Connect a provider" button is filled with the primary accent
 rather than vaxis's surface fill; and `kit sessions` lists sessions before its
 inline picker opens, sized once to them, because a Cooper inline app keeps
 its height, where vaxis opens at ten rows and grows as they load.
 
-- [ ] TUI-COOPER-015 — Replace `internal/tui` and `cmd/kit`: build releases
-  from `apps/cli`, run its checks in CI, and remove the vaxis client.
+- [~] TUI-COOPER-015 — Replace `internal/tui` and `cmd/kit`. CI checks
+  `apps/cli`, and releases build `kit` from it, with `vX.Y.Z-rc.N` tags
+  published as GitHub prereleases. Remaining, after v0.43.0 has been used for
+  a while: remove `cmd/kit`, `internal/cli`, `internal/tui`,
+  `scripts/test-tui-input-ownership.py` and its CI step, and the `vaxis-ui`
+  skill, which drops `go.rockorager.dev/vaxis` from the root module; then
+  update `AGENTS.md`, the design skill, `apps/cli/README.md`, and the deferred
+  items below that assume the vaxis client (such as TUI-PICK-006 and
+  TUI-IMAGE-001).
 
 Upstream dependencies:
 

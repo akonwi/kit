@@ -12,13 +12,13 @@ session picker (`tui::pick_session`) and then the terminal client
 (`tui::run`). Go calls whose result shapes Ard cannot import use small
 bridges such as `ffi/contextbridge`.
 
-This entry point is being developed alongside `cmd/kit`. Until `cmd/kit` is
-removed, `ffi/cli` keeps the commands, flags, help, and exit codes of
-`internal/cli`; mirror command-line changes in both. Its interactive flow is
-structured differently, because the terminal apps run in Ard. The terminal
-client is written in Ard with Cooper (`tui.ard`, `tui/`) and
-is working toward parity with the vaxis/ui client that `cmd/kit` ships; see the
-Cooper client parity section of `backlog/tui.md`.
+Releases build `kit` from this entry point (`.github/workflows/release.yml`).
+The terminal client is written in Ard with Cooper (`tui.ard`, `tui/`); its
+parity with the former vaxis/ui client, and accepted differences, are recorded
+in the Cooper client parity section of `backlog/tui.md`. `cmd/kit`,
+`internal/cli`, and the vaxis client in `internal/tui` remain only until they
+are removed (TUI-COOPER-015); `ffi/cli` owns the command line and need not
+mirror new changes into `internal/cli`.
 
 The directory is a separate Go module (`github.com/akonwi/kit/apps/cli`) that
 replaces `github.com/akonwi/kit` with the repository root, so root

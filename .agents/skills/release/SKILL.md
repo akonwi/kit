@@ -15,8 +15,12 @@ for the relevant release.
 
 ## Go CLI release (`vX.Y.Z`)
 
-Publish Kit's Go executable through GitHub Releases and the `kit` Homebrew
-formula. The `v*` tag workflow builds **only** CLI artifacts.
+Publish Kit's executable through GitHub Releases and the `kit` Homebrew
+formula. The `v*` tag workflow builds **only** CLI artifacts. The released
+`kit` is the Ard project in `apps/cli` (the Ard + Cooper terminal client and
+Kit's command line and server); see `apps/cli/README.md`. A release candidate
+(`vX.Y.Z-rc.N`) follows the same steps with the differences in
+[Release candidates](#release-candidates).
 
 ### Steps
 
@@ -31,7 +35,8 @@ formula. The `v*` tag workflow builds **only** CLI artifacts.
    minor for new capabilities; ask if ambiguous. Use a stable `vX.Y.Z` tag.
    The tag is the release version: there is no package.json version bump.
    `internal/version.Version` and `Commit` keep their development defaults;
-   the workflow overrides them with linker flags. Compare the current session
+   the workflow sets them through the `apps/cli` build values `version` and
+   `commit`. Compare the current session
    protocol with the previous stable tag. All breaking wire changes since that
    tag share one next protocol number; normalize accidental additional bumps
    before release and regenerate maintained clients.
@@ -56,6 +61,9 @@ formula. The `v*` tag workflow builds **only** CLI artifacts.
    go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/*.yml
    git diff --check
    ```
+   Then run the `apps/cli` checks listed in `apps/cli/README.md` (Ard
+   formatting, type checks, and tests; vet and tests of its Go bridges) with
+   the Ard version pinned in `.github/actions/setup-ard/action.yml`.
    Formatting must produce no filenames. Use an isolated `KIT_HOME` for tests.
    CGO and a C/C++ toolchain are required for Tree-sitter (ADR 0021).
 
@@ -67,7 +75,9 @@ formula. The `v*` tag workflow builds **only** CLI artifacts.
    commit=$(git rev-parse HEAD)
    out=$(mktemp -d)
    # On macOS, also export MACOSX_DEPLOYMENT_TARGET=14.0.
-   CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X github.com/akonwi/kit/internal/version.Version=$version -X github.com/akonwi/kit/internal/version.Commit=$commit" -o "$out/kit" ./cmd/kit
+   (cd apps/cli && ard deps fetch && CGO_ENABLED=1 GOFLAGS="-trimpath -ldflags=-s" \
+     ard build main.ard --release --define version="$version" \
+     --define commit="$commit" --out "$out/kit")
    tar -czf "$out/kit.tar.gz" -C "$out" kit
    mkdir "$out/extracted"
    tar -xzf "$out/kit.tar.gz" -C "$out/extracted"
@@ -87,13 +97,14 @@ formula. The `v*` tag workflow builds **only** CLI artifacts.
    git push origin vX.Y.Z
    ```
    `.github/workflows/release.yml` builds on native macOS/Linux arm64/amd64
-   runners using Go from `go.mod`, with CGO enabled. macOS targets 14.0 or newer;
+   runners using Go from `apps/cli/go.mod` and the pinned Ard release, with CGO
+   enabled. macOS targets 14.0 or newer;
    Linux builds use Ubuntu 24.04 (glibc 2.39 baseline). Tree-sitter is compiled
    in; system libraries remain platform dependencies. Do not claim fully
    static Linux binaries or compatibility with older libc versions.
 
 6. Watch the tag's workflow (`gh run list --workflow=release.yml`, then
-   `gh run watch <run-id> --exit-status`). Each job packages only the Go `kit`
+   `gh run watch <run-id> --exit-status`). Each job packages only the `kit`
    executable and smoke-tests the extracted binary's version and help.
    The release job publishes `docs/releases/vX.Y.Z.md`, not generated PR summaries
    or web-bundled notes. Verify the published body matches the curated notes.
@@ -118,6 +129,25 @@ formula. The `v*` tag workflow builds **only** CLI artifacts.
 8. Report the version, validation results and platform limits, release commit,
    tag, GitHub release URL, and Homebrew tap commit. Never imply a local dry run
    published a release or verified other platforms.
+
+### Release candidates
+
+A release candidate tests the release process and a build before promoting
+it. Tag it `vX.Y.Z-rc.N` (the workflow rejects other prerelease forms), with
+notes in `docs/releases/vX.Y.Z-rc.N.md` that say what the candidate tests and
+how to try it. The workflow publishes it as a GitHub **prerelease**, so it never
+becomes the latest release that in-app release history and the OpenAPI
+compatibility gate read. Do not update the Homebrew formula for a candidate.
+
+An RC version is outside the stable-release compatibility promise
+(`internal/server/compatibility.go`): a candidate cannot attach to a running
+daemon of another version. Try it with an isolated `KIT_HOME`, or stop the
+stable daemon first and restart it afterward. Download each platform's archive
+you can run and check `kit version`, `kit --help`, and an interactive session.
+
+Fix problems forward and tag `rc.N+1`. To promote, tag `vX.Y.Z` on the tested
+commit (or on a later commit that only adds the stable notes) and follow the
+stable steps, including Homebrew.
 
 ## Native macOS app release (`macos-vX.Y.Z`)
 
