@@ -7,7 +7,7 @@ version = { type = "Str", default = "dev", release = true }
 commit = { type = "Str", default = "unknown", release = true }
 
 [dependencies]
-cooper = { path = "../../../cooper" }
+cooper = { git = "https://github.com/akonwi/cooper.git", commit = "38227a6" }
 
 [go.imports]
 api = "github.com/akonwi/kit/api"

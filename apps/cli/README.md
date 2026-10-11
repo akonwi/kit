@@ -23,7 +23,26 @@ Cooper client parity section of `backlog/tui.md`.
 The directory is a separate Go module (`github.com/akonwi/kit/apps/cli`) that
 replaces `github.com/akonwi/kit` with the repository root, so root
 `go build ./...` and `go test ./...` do not include it. Building requires Ard
-0.42.0 or newer and Go 1.27 or newer.
+0.43.0 or newer (CI uses the version in `.github/workflows/go-tests.yml`) and
+Go 1.27 or newer.
+
+## Cooper
+
+The terminal client depends on [Cooper](https://github.com/akonwi/cooper) as
+a Git dependency pinned to a commit in `ard.toml` and locked in `ard.lock`.
+Ard builds from its dependency cache and never fetches on its own, so restore
+the locked commit after cloning or after the lock changes:
+
+```sh
+ard deps fetch
+```
+
+To move to a newer Cooper commit that is on GitHub, run
+`ard add github.com/akonwi/cooper@<commit>` (or `ard update cooper` for the
+latest `main`) and commit `ard.toml` and `ard.lock` together. To develop
+against an unpushed local Cooper checkout, temporarily set
+`cooper = { path = "../../../cooper" }` in `ard.toml`; push the Cooper change
+and pin its commit before committing Kit.
 
 ## Develop
 
@@ -31,6 +50,7 @@ Run commands from this directory. Use an isolated `KIT_HOME`; see
 `.agents/skills/worktree-development/SKILL.md` before starting a daemon.
 
 ```sh
+ard deps fetch
 ard format --check .
 ard check main.ard
 ard test
