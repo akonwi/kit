@@ -143,7 +143,7 @@ impl Picker {
         current_supported = true
       }
     }
-    if not current_supported and self.levels.size() > 0 {
+    if (not current_supported) and self.levels.size() > 0 {
       self.selection = self.levels.at(0).or("")
     }
   }

@@ -56,7 +56,7 @@ fn background(terminal: headless::TestApp, x: Int, y: Int) ui::Color? {
 fn wait_for_color(terminal: headless::TestApp, x: Int, y: Int, expected: ui::Color) Bool {
   mut matched = false
   mut attempts = 0
-  while not matched and attempts < 100 {
+  while (not matched) and attempts < 100 {
     terminal.flush()
     matched = same_color(foreground(terminal, x, y), expected)
     if not matched {

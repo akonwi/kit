@@ -116,7 +116,7 @@ fn await_attempt(terminal: headless::TestApp, attempts: Chan<Int>) Void!Str {
   }
   try testing::assert(attempted, "a start attempt was made")
   mut tries = 0
-  while not terminal.frame().text().contains("Kit could not start") and tries < 100 {
+  while (not terminal.frame().text().contains("Kit could not start")) and tries < 100 {
     time::Sleep(5 * time::Millisecond)
     terminal.flush()
     tries =+ 1

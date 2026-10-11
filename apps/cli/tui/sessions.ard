@@ -305,7 +305,7 @@ impl Picker {
   fn mut begin_rename(session_id: Str) {
     let context = self.context.expect("mounted session picker")
     let _ = context.dispatch(fn() {
-      if not self.pending and not self.delete_pending {
+      if (not self.pending) and not self.delete_pending {
         for session in self.sessions {
           if session.ID == session_id {
             self.rename_session_id = session_id

@@ -811,7 +811,7 @@ impl Pane {
       context => {
         match self.fetcher() {
           fetch => {
-            if not self.observing and self.workspace_id != "" {
+            if (not self.observing) and self.workspace_id != "" {
               self.observing = true
               let generation = self.generation
               let dispatch = context.dispatch
