@@ -158,3 +158,12 @@ Upstream dependencies:
 - [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/tree`, and other commands
   when their owning deferred capabilities are implemented.
 - [ ] TUI-SET-003 — Expose deferred pager defaults when that workflow exists.
+- [ ] TUI-STATUS-001 — Report Kit's state through the Program Status
+  Protocol (OSC 7501) once Cooper supports it
+  ([akonwi/cooper#17](https://github.com/akonwi/cooper/issues/17)). The
+  root record, with `app=kit`, is `working` while a turn or compaction runs;
+  `blocked` with `kind=permission` for a model confirmation, `question` for
+  other model and plugin requests, and `auth` while signed out or logging in;
+  `done` when a turn completes, `error` when it fails or is interrupted, and
+  `idle` when the user aborts it. Decide whether Kit's own desktop
+  notifications should stand down when the terminal supports the protocol.
