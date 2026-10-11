@@ -126,6 +126,7 @@ private fn inert_attachment_host() attached_session::Host {
     image_matte: fn() ui::Color {
       ui::rgb(0, 0, 0)
     },
+    alert: fn(title: Str, message: Str) {},
   }
 }
 
@@ -2023,6 +2024,9 @@ impl Shell {
       },
       image_matte: fn() ui::Color {
         self.props.themes.current().user_fill
+      },
+      alert: fn(title: Str, message: Str) {
+        terminal_status::alert(self.props.terminal, title, message)
       },
     }
   }

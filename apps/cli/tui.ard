@@ -1,5 +1,6 @@
 use cooper
 use cooper/cui
+use cooper/event
 use cooper/terminal_progress
 use go:kit/ffi/cli
 use kit/tui/bootstrap
@@ -29,6 +30,18 @@ fn run(options: cli::TUIOptions) Void!Error {
       },
       progress: fn(state: terminal_progress::State) Bool {
         application.context.progress(state, Maybe::new<Int>())
+      },
+      bell: fn() Bool {
+        application.context.bell()
+      },
+      notify: fn(message: Str, title: Str) Bool {
+        application.context.notify(message, title: title)
+      },
+      focused: fn() Bool {
+        match application.context.terminal_focus() {
+          focus => focus == event::TerminalFocus::gained,
+          _ => false,
+        }
       },
     },
     open_url: fn(target: Str) Void!Error {

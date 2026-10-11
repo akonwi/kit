@@ -55,12 +55,6 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 - [~] TUI-COOPER-010 — Sessions. Remaining: the standalone `kit sessions`
   picker, which still reports that it is unavailable (`pick_session` in
   `tui.ard`).
-- [~] TUI-COOPER-012 — Notifications and terminal integration. Remaining:
-  turn-completion notifications and bell; an attention alert (bell and
-  desktop notification) when a model or plugin request arrives, once per
-  request, so a user in another window notices the agent is waiting (not in
-  the vaxis client); and confirming toast, selection-copy, and link-opening
-  parity.
 - [~] TUI-COOPER-013 — System theme. Remaining: use the theme's derived
   surfaces for filled controls such as the signed-out "Connect a provider"
   button.

@@ -86,6 +86,18 @@ fn mount(terminal: headless::TestApp, quits: mut Quits, authenticated: Bool, att
       progress: fn(state: terminal_progress::State) Bool {
         terminal.context.progress(state, Maybe::new<Int>())
       },
+      bell: fn() Bool {
+        terminal.context.bell()
+      },
+      notify: fn(message: Str, title: Str) Bool {
+        terminal.context.notify(message, title: title)
+      },
+      focused: fn() Bool {
+        match terminal.context.terminal_focus() {
+          focus => focus == event::TerminalFocus::gained,
+          _ => false,
+        }
+      },
     },
     open_url: fn(target: Str) Void!Error {
       Result::ok(())

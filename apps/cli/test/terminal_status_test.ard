@@ -2,6 +2,7 @@ use ard/testing
 
 use cooper
 use cooper/cui
+use cooper/event
 use cooper/terminal_progress
 use cooper/testing as headless
 use kit/tui/terminal_status
@@ -52,6 +53,18 @@ fn host_terminal(terminal: headless::TestApp) terminal_status::Terminal {
     },
     progress: fn(state: terminal_progress::State) Bool {
       terminal.context.progress(state, Maybe::new<Int>())
+    },
+    bell: fn() Bool {
+      terminal.context.bell()
+    },
+    notify: fn(message: Str, title: Str) Bool {
+      terminal.context.notify(message, title: title)
+    },
+    focused: fn() Bool {
+      match terminal.context.terminal_focus() {
+        focus => focus == event::TerminalFocus::gained,
+        _ => false,
+      }
     },
   }
 }

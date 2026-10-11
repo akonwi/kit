@@ -30,11 +30,17 @@ let title_frame_duration = 160 * time::Millisecond
 // animation slows down inside them.
 let multiplexer_frame_duration = time::Second
 
-// Terminal is the host capability that publishes status. Both report whether
-// the terminal accepted the update.
+// Terminal is the host capability that publishes status and alerts. Each
+// operation reports whether the terminal accepted it.
 struct Terminal {
   set_title: fn(Str) Bool,
   progress: fn(terminal_progress::State) Bool,
+  bell: fn() Bool,
+  // Sends a desktop notification: a message under a title.
+  notify: fn(Str, Str) Bool,
+  // Whether the terminal reported that it has focus. A terminal that has not
+  // reported focus is treated as unfocused.
+  focused: fn() Bool,
 }
 
 // detached accepts no status, for clients without a hosting terminal.
@@ -46,6 +52,24 @@ fn detached() Terminal {
     progress: fn(state: terminal_progress::State) Bool {
       false
     },
+    bell: fn() Bool {
+      false
+    },
+    notify: fn(message: Str, title: Str) Bool {
+      false
+    },
+    focused: fn() Bool {
+      false
+    },
+  }
+}
+
+// alert draws the user back to Kit: it rings the bell and, unless the user
+// is already looking at the terminal, sends a desktop notification.
+fn alert(terminal: Terminal, title: Str, message: Str) {
+  let _ = (terminal.bell)()
+  if not (terminal.focused)() {
+    let _ = (terminal.notify)(message, title)
   }
 }
 
@@ -294,5 +318,47 @@ test fn multiplexers_slow_the_running_animation() Void!Str {
       ""
     }) == title_frame_duration,
     "direct",
+  )
+}
+
+private struct Alerts {
+  focused: Bool,
+  log: [Str],
+}
+
+private fn alert_terminal(alerts: mut Alerts) Terminal {
+  Terminal{
+    set_title: fn(value: Str) Bool {
+      true
+    },
+    progress: fn(state: terminal_progress::State) Bool {
+      true
+    },
+    bell: fn() Bool {
+      alerts.log.push("bell")
+      true
+    },
+    notify: fn(message: Str, title: Str) Bool {
+      alerts.log.push("{title}: {message}")
+      true
+    },
+    focused: fn() Bool {
+      alerts.focused
+    },
+  }
+}
+
+test fn an_alert_rings_and_notifies_only_while_the_terminal_is_unfocused() Void!Str {
+  let alerts = mut Alerts{focused: false, log: []}
+  alert(alert_terminal(alerts), "Kit", "Agent turn complete")
+  try testing::assert(
+    alerts.log.size() == 2 and alerts.log.at(0).or("") == "bell" and alerts.log.at(1).or("") == "Kit: Agent turn complete",
+    "an unfocused terminal rings and notifies",
+  )
+  alerts.focused = true
+  alert(alert_terminal(alerts), "Kit", "Agent turn complete")
+  testing::assert(
+    alerts.log.size() == 3 and alerts.log.at(2).or("") == "bell",
+    "a focused terminal only rings",
   )
 }
