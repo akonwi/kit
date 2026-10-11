@@ -3,7 +3,6 @@ use cooper/keymap
 use cooper/ui
 use go:github.com/akonwi/kit/internal/hyperlink
 use go:github.com/akonwi/kit/internal/markdown as parser
-use go:github.com/akonwi/vaxis
 use kit/tui/code
 use kit/tui/theme
 use go:strings
@@ -462,14 +461,6 @@ private struct TableLayout {
   tsv: Str,
 }
 
-private fn display_width(value: Str) Int {
-  mut width = 0
-  for character in vaxis::Characters(value) {
-    width =+ character.Width
-  }
-  width
-}
-
 private fn table_text(runs: [parser::Run]) Str {
   let parts = mut List::new<Str>()
   for run in runs {
@@ -492,7 +483,7 @@ private fn table_layout(block: parser::Block) TableLayout {
   for row in block.Rows {
     mut index = 0
     for cell in row.Cells {
-      let width = maximum(1, display_width(table_text(cell.Runs)))
+      let width = maximum(1, ui::text_width(table_text(cell.Runs)))
       if width > widths.at(index).or(1) {
         widths.set(index, width)
       }
@@ -549,7 +540,7 @@ private fn table_cell(
   width: Int,
   alignment: parser::Alignment,
 ) cui::View {
-  let used = display_width(table_text(runs))
+  let used = ui::text_width(table_text(runs))
   let extra = maximum(0, width - used)
   mut left = 0
   mut right = extra

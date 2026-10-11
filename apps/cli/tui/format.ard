@@ -1,8 +1,8 @@
 use ard/testing
 
 use go:api/contract as protocol
+use cooper/ui
 use go:fmt
-use go:github.com/akonwi/vaxis
 use go:math
 use go:os
 use go:path/filepath
@@ -71,30 +71,21 @@ fn format_session_updated(raw: Str, now: time::Time) Str {
   }
 }
 
-// The number of terminal cells value occupies.
-fn cell_width(value: Str) Int {
-  mut width = 0
-  for character in vaxis::Characters(value) {
-    width =+ character.Width
-  }
-  width
-}
-
 // value cut to its first cells within maximum, ending in `…`. A value that
 // fits is unchanged.
 fn truncate_cells(value: Str, maximum: Int) Str {
   if maximum <= 0 {
     ""
-  } else if cell_width(value) <= maximum {
+  } else if ui::text_width(value) <= maximum {
     value
   } else {
     mut kept = ""
     mut used = 0
     mut fitting = true
-    for character in vaxis::Characters(value) {
-      if fitting and used + character.Width <= maximum - 1 {
-        kept = "{kept}{character.Grapheme}"
-        used =+ character.Width
+    for character in ui::graphemes(value) {
+      if fitting and used + character.width <= maximum - 1 {
+        kept = "{kept}{character.text}"
+        used =+ character.width
       } else {
         fitting = false
       }
@@ -107,28 +98,24 @@ private fn truncate_start_cells(value: Str, maximum: Int) Str {
   if maximum <= 0 {
     ""
   } else {
-    let characters = vaxis::Characters(value)
-    mut width = 0
-    for character in characters {
-      width =+ character.Width
-    }
-    if width <= maximum {
+    let characters = ui::graphemes(value)
+    if ui::text_width(value) <= maximum {
       value
     } else {
       mut remaining = maximum - 1
       mut start = characters.size()
       while start > 0 {
         let character = characters.at(start - 1).expect("character index")
-        if character.Width > remaining {
+        if character.width > remaining {
           break
         }
         start =- 1
-        remaining =- character.Width
+        remaining =- character.width
       }
       mut suffix = ""
       mut index = start
       while index < characters.size() {
-        suffix = "{suffix}{characters.at(index).expect("character index").Grapheme}"
+        suffix = "{suffix}{characters.at(index).expect("character index").text}"
         index =+ 1
       }
       "…{suffix}"

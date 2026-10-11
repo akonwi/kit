@@ -8,13 +8,11 @@ use cooper/event
 use cooper/ui
 use go:fmt
 use go:github.com/akonwi/kit/internal/highlight
-use go:github.com/akonwi/vaxis
 use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
 use kit/tui/after_commit
 use kit/tui/annotations
 use kit/tui/code
-use kit/tui/format
 use kit/tui/layout
 use kit/tui/theme
 use kit/tui/workspace
@@ -116,11 +114,11 @@ fn visible(segments: [Segment], from: Int, width: Int) [Segment] {
   mut at = 0
   for segment in segments {
     mut text = ""
-    for character in vaxis::Characters(segment.text) {
+    for character in ui::graphemes(segment.text) {
       let start = at
-      at =+ character.Width
+      at =+ character.width
       if start >= from and at <= from + width {
-        text = "{text}{character.Grapheme}"
+        text = "{text}{character.text}"
       }
     }
     if text != "" {
@@ -133,7 +131,7 @@ fn visible(segments: [Segment], from: Int, width: Int) [Segment] {
 private fn line_width(segments: [Segment]) Int {
   mut width = 0
   for segment in segments {
-    width =+ format::cell_width(segment.text)
+    width =+ ui::text_width(segment.text)
   }
   width
 }
@@ -146,12 +144,12 @@ fn status(width: Int, file_path: Str, cursor: Int, count: Int, size: Int) Str {
   let shorter = "Ln {cursor} · {count} lines"
   let shortest = "Ln {cursor}"
   // A cell either side of the header and two between its sides.
-  let room = width - 4 - format::cell_width(file_path)
+  let room = width - 4 - ui::text_width(file_path)
   let least = width / 3
   match {
-    width <= 0 or format::cell_width(full) <= room => full,
-    width - 4 - format::cell_width(full) >= least => full,
-    format::cell_width(shorter) <= room or width - 4 - format::cell_width(shorter) >= least => shorter,
+    width <= 0 or ui::text_width(full) <= room => full,
+    width - 4 - ui::text_width(full) >= least => full,
+    ui::text_width(shorter) <= room or width - 4 - ui::text_width(shorter) >= least => shorter,
     _ => shortest,
   }
 }

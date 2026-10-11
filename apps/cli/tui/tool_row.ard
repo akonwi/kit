@@ -3,7 +3,6 @@ use ard/testing
 use cooper
 use cooper/cui
 use cooper/ui
-use go:github.com/akonwi/vaxis
 use go:kit/ffi/toolpresentation
 use kit/tui/layout
 use kit/tui/spinner
@@ -70,7 +69,7 @@ private fn result_input(result: transcript::Message) toolpresentation::Result {
 fn title_column(titles: [Str]) Int {
   mut width = min_title_width
   for title in titles {
-    let wanted = display_width(title)
+    let wanted = ui::text_width(title)
     if wanted > width {
       width = wanted
     }
@@ -81,27 +80,19 @@ fn title_column(titles: [Str]) Int {
   }
 }
 
-fn display_width(value: Str) Int {
-  mut width = 0
-  for character in vaxis::Characters(value) {
-    width =+ character.Width
-  }
-  width
-}
-
 // value cut to its last cells within limit, behind `…/`. A value that fits,
 // or a limit under two cells, is unchanged.
 fn path_tail(value: Str, limit: Int) Str {
-  match limit < 2 or display_width(value) <= limit {
+  match limit < 2 or ui::text_width(value) <= limit {
     true => value,
     false => {
-      let budget = limit - display_width("…/")
-      let characters = vaxis::Characters(value)
+      let budget = limit - ui::text_width("…/")
+      let characters = ui::graphemes(value)
       mut start = characters.size()
       mut used = 0
       mut fitting = true
       while fitting and start > 0 {
-        let width = characters.at(start - 1).expect("character").Width
+        let width = characters.at(start - 1).expect("character").width
         if used + width > budget {
           fitting = false
         } else {
@@ -112,7 +103,7 @@ fn path_tail(value: Str, limit: Int) Str {
       let kept = mut List::new<Str>()
       for character, index in characters {
         if index >= start {
-          kept.push(character.Grapheme)
+          kept.push(character.text)
         }
       }
       "…/" + strings::TrimLeft(strings::Join(kept, ""), "/")
@@ -126,7 +117,7 @@ fn shorten(summary: Str, path: Str, limit: Int) Str {
   match path != "" and strings::HasPrefix(summary, path) {
     true => {
       let suffix = strings::TrimPrefix(summary, path)
-      let budget = limit - display_width(suffix)
+      let budget = limit - ui::text_width(suffix)
       let room = match budget < 2 {
         true => 2,
         false => budget,

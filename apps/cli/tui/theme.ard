@@ -205,7 +205,6 @@ private fn tint(base: Rgb, accent: Rgb, opacity: Float64) Rgb {
   rgb(mix(base.r, accent.r), mix(base.g, accent.g), mix(base.b, accent.b))
 }
 
-// The theme for Cooper's terminal-color fallback.
 // selection_pulse is the copy feedback: a 22% fade from selection toward the
 // terminal background, then back to the selection fill.
 fn selection_pulse(colors: Theme, progress: Float64) ui::Color {
@@ -217,6 +216,7 @@ fn selection_pulse_color(selection: ui::Color, backdrop: ui::Color, progress: Fl
   to_ui(tint(from_ui(selection), from_ui(backdrop), amount))
 }
 
+// The theme for Cooper's terminal-color fallback.
 fn system() Theme {
   resolve(kittheme::Definition{}, ctheme::default())
 }
