@@ -3,7 +3,6 @@ use cooper/event
 use cooper/keymap
 use cooper/ui
 use kit/tui/after_commit
-use kit/tui/format
 use kit/tui/modal
 use kit/tui/status
 use kit/tui/theme
@@ -581,7 +580,7 @@ fn columns(catalog: [Item]) Columns {
 }
 
 private fn widest(current: Int, text: Str) Int {
-  let width = format::cell_width(text)
+  let width = ui::text_width(text)
   match width > current {
     true => width,
     false => current,

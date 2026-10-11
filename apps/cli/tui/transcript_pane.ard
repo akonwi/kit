@@ -2,7 +2,6 @@ use cooper
 use cooper/cui
 use cooper/keymap
 use cooper/ui
-use go:github.com/akonwi/vaxis
 use go:kit/ffi/pluginmessage
 use go:kit/ffi/sessionbridge
 use go:kit/ffi/toolpresentation
@@ -1066,7 +1065,7 @@ impl PluginRow {
         let width = header.layout().local.width
         let message = self.props.message
         let summary = pluginmessage::Summary(strings::TrimSpace(message.text))
-        let overflows = width > 0 and display_width("◆ {message.plugin_id} · {summary}") > width
+        let overflows = width > 0 and ui::text_width("◆ {message.plugin_id} · {summary}") > width
         let changed = overflows != self.overflows
         self.overflows = overflows
         changed
@@ -1074,14 +1073,6 @@ impl PluginRow {
       _ => false,
     }
   }
-}
-
-private fn display_width(value: Str) Int {
-  mut width = 0
-  for character in vaxis::Characters(value) {
-    width =+ character.Width
-  }
-  width
 }
 
 impl cui::Component for PluginRow {

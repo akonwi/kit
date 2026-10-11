@@ -1,7 +1,7 @@
 use ard/unsafe
 
 use go:api/contract as protocol
-use go:github.com/akonwi/vaxis
+use cooper/ui
 use go:kit/ffi/sessionbridge
 use go:strings
 
@@ -1169,10 +1169,10 @@ impl Live {
 private fn utf8_prefix(value: Str, limit: Int) Str {
   mut kept = ""
   mut done = false
-  for character in vaxis::Characters(value) {
+  for character in ui::graphemes(value) {
     if not done {
-      if kept.size() + character.Grapheme.size() <= limit {
-        kept = kept + character.Grapheme
+      if kept.size() + character.text.size() <= limit {
+        kept = kept + character.text
       } else {
         done = true
       }

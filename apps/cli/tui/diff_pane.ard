@@ -16,7 +16,6 @@ use kit/tui/annotations
 use kit/tui/code
 use kit/tui/controls
 use kit/tui/file_pane
-use kit/tui/format
 use kit/tui/layout
 use kit/tui/spinner
 use kit/tui/theme
@@ -2014,7 +2013,7 @@ private fn gutter(current: Section, old: Str, new: Str, marker: Str) Str {
 }
 
 private fn pad(value: Str, width: Int) Str {
-  let room = width - format::cell_width(value)
+  let room = width - ui::text_width(value)
   match room > 0 {
     true => strings::Repeat(" ", room) + value,
     false => value,
@@ -2024,7 +2023,7 @@ private fn pad(value: Str, width: Int) Str {
 private fn segments_width(segments: [file_pane::Segment]) Int {
   mut width = 0
   for segment in segments {
-    width =+ format::cell_width(segment.text)
+    width =+ ui::text_width(segment.text)
   }
   width
 }

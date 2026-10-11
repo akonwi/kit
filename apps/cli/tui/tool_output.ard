@@ -1,6 +1,5 @@
 use cooper/cui
 use cooper/ui
-use go:github.com/akonwi/vaxis
 use go:kit/ffi/toolpresentation
 use kit/tui/code
 use kit/tui/theme
@@ -79,10 +78,7 @@ fn row_count(blocks: [toolpresentation::Block]) Int {
 fn text_width(text: Str) Int {
   mut widest = 0
   for line in strings::Split(strings::ReplaceAll(trimmed(text), "\t", "  "), "\n") {
-    mut width = 0
-    for character in vaxis::Characters(line) {
-      width =+ character.Width
-    }
+    let width = ui::text_width(line)
     if width > widest {
       widest = width
     }

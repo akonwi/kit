@@ -124,7 +124,7 @@ fn await_attempt(terminal: headless::TestApp, attempts: Chan<Int>) Void!Str {
   testing::pass()
 }
 
-test fn signed_out_shell_matches_the_vaxis_layout() Void!Str {
+test fn signed_out_shell_centers_the_connect_prompt() Void!Str {
   let terminal = headless::new(60, 12)
   defer terminal.destroy()
   let quits = mut Quits{count: 0}

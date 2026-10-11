@@ -40,8 +40,8 @@ test fn the_system_theme_paints_terminal_defaults_and_derived_tones() Void!Str {
   try check("background", colors.background, ui::terminal_default())
   try check("foreground", colors.foreground, ui::terminal_default())
   try check("border", colors.border, ui::rgb(96, 101, 110))
-  // vaxis's selectable-text style keeps the terminal foreground over this
-  // terminal-derived selection fill.
+  // Selected text keeps the terminal foreground over this terminal-derived
+  // selection fill.
   try check("selection", colors.selection, ui::rgb(52, 102, 143))
   try check("muted", colors.muted, ui::rgb(122, 127, 137))
   try check("disabled", colors.disabled, ui::rgb(96, 101, 110))
@@ -96,7 +96,7 @@ test fn dark_primary_hover_lifts_a_custom_picker_fill() Void!Str {
 
 test fn accent_text_is_the_terminal_magenta_unless_the_theme_sets_its_accent() Void!Str {
   // The palette's magenta, rgb(198, 120, 221), lifted for contrast on the
-  // dark background, as vaxis's AccentText.
+  // dark background.
   try check(
     "accent_text",
     theme::resolve(kittheme::Definition{}, dark()).accent_text,

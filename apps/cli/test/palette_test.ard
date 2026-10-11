@@ -602,7 +602,7 @@ test fn filtering_and_enter_activation_work_end_to_end() Void!Str {
   testing::pass()
 }
 
-test fn selected_picker_rows_use_the_vaxis_focus_tint() Void!Str {
+test fn selected_picker_rows_use_the_picker_focus_tint() Void!Str {
   let terminal = headless::new(40, 12)
   defer terminal.destroy()
   let model = mut Model{

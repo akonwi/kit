@@ -119,7 +119,7 @@ fn fit(widths: [Int], selected: Int, width: Int, more: fn(Int) Int) Fit {
 }
 
 private fn label_width(entry: Entry) Int {
-  format::cell_width(entry.label)
+  ui::text_width(entry.label)
 }
 
 private fn chrome(entry: Entry) Int {
@@ -147,7 +147,7 @@ private fn more_label(hidden: Int) Str {
 }
 
 private fn more_width(hidden: Int) Int {
-  format::cell_width(more_label(hidden)) + plain_chrome
+  ui::text_width(more_label(hidden)) + plain_chrome
 }
 
 private struct Strip {
