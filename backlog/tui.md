@@ -52,9 +52,6 @@ vaxis client's tests. Until then, `cmd/kit` ships the vaxis client. Known,
 accepted differences: centered odd-width content can sit one cell right,
 because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 
-- [ ] TUI-COOPER-017 — Opening a diff annotation's chip for a commit or
-  branch the Diff tab isn't comparing compares that target and shows the
-  annotated lines; it currently only opens the tab.
 - [~] TUI-COOPER-010 — Sessions. Remaining: the standalone `kit sessions`
   picker, which still reports that it is unavailable (`pick_session` in
   `tui.ard`).
