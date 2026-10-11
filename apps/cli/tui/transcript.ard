@@ -48,7 +48,7 @@ fn tool_call(id: Str, name: Str) ToolCall {
   }
 }
 
-// The most streamed output kept for a running tool, in bytes, as in vaxis.
+// The most streamed output kept for a running tool, in bytes.
 let live_output_limit = 61440
 
 struct Message {
@@ -509,12 +509,11 @@ impl Batch {
   }
 }
 
-// rows groups the tool calls of each turn into work rows, as the vaxis
-// client does. A run starts at an assistant message that calls tools, after
-// any prose of that message, and continues through the turn's later calls
-// until prose, another kind of row, or another turn ends it. Messages that
-// show nothing outside a run, such as thinking alone, do not end it; their
-// thinking is one of its steps.
+// rows groups the tool calls of each turn into work rows. A run starts at an
+// assistant message that calls tools, after any prose of that message, and
+// continues through the turn's later calls until prose, another kind of row, or
+// another turn ends it. Messages that show nothing outside a run, such as
+// thinking alone, do not end it; their thinking is one of its steps.
 fn rows(messages: [Message]) [Row] {
   let result = mut List::new<Row>()
   mut current = batch("")

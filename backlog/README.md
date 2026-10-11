@@ -105,7 +105,8 @@ Deferred scope sections rather than silently expanding production release scope.
 ## Accepted decisions
 
 - [-] `web-tui` is removed.
-- [-] OpenTUI is replaced by the native vaxis/ui client.
+- [-] OpenTUI is replaced by the native Ard and Cooper terminal client
+  ([ADR 0035](../docs/adrs/0035-build-the-terminal-client-with-ard-and-cooper.md)).
 - [-] The TypeScript/Pi runtime is replaced by Kit's private Go/droids runtime.
 - [-] Subagents are concurrent supervised executions with durable mailboxes.
 - [-] In-process TypeScript plugins are not restored; future custom plugins use

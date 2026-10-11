@@ -20,7 +20,7 @@ fn session_name(session: protocol::SessionInfo) Str {
   }
 }
 
-// session_display_cwd matches the vaxis session picker: paths under the home
+// session_display_cwd shortens a session's directory: paths under the home
 // directory use ~ and long paths preserve their most useful trailing cells.
 fn session_display_cwd(cwd: Str, width: Int) Str {
   if strings::TrimSpace(cwd) == "" {
@@ -46,8 +46,8 @@ fn session_display_cwd(cwd: Str, width: Int) Str {
   }
 }
 
-// format_session_updated uses the compact relative labels from the vaxis
-// picker, falling back to an ISO date once a session is at least 30 days old.
+// format_session_updated uses compact relative labels, falling back to an ISO
+// date once a session is at least 30 days old.
 fn format_session_updated(raw: Str, now: time::Time) Str {
   match time::Parse(time::RFC3339Nano, raw) {
     err(_) => "unknown",
@@ -202,7 +202,7 @@ fn usage_integer(value: Int) Str {
   strings::Join(mut groups, ",")
 }
 
-// context_window abbreviates model capacity exactly as the vaxis model picker.
+// context_window abbreviates model capacity for the model picker.
 fn context_window(tokens: Int) Str {
   match tokens >= 1000000 {
     true => fmt::Sprintf("%.1fM", Float64::fit(tokens) / 1000000.0),
@@ -245,7 +245,7 @@ private fn digits(value: Str) Bool {
   value != "" and strings::Trim(value, "0123456789") == ""
 }
 
-test fn model_names_match_the_vaxis_client() Void!Str {
+test fn model_names_are_title_cased_without_the_provider() Void!Str {
   try testing::assert(
     model_name("openai-codex/gpt-5.6-sol") == "GPT 5.6 Sol",
     model_name("openai-codex/gpt-5.6-sol"),
@@ -268,7 +268,7 @@ test fn context_percentage_rounds_and_clamps() Void!Str {
   testing::pass()
 }
 
-test fn context_windows_match_the_vaxis_model_picker() Void!Str {
+test fn context_windows_abbreviate_thousands_and_millions() Void!Str {
   try testing::assert(context_window(1000000) == "1.0M", context_window(1000000))
   try testing::assert(context_window(272000) == "272k", context_window(272000))
   testing::pass()
@@ -282,7 +282,7 @@ test fn diagnostic_numbers_are_grouped_and_precise() Void!Str {
   testing::pass()
 }
 
-test fn session_paths_match_the_vaxis_picker() Void!Str {
+test fn session_paths_shorten_home_and_keep_their_end() Void!Str {
   try testing::assert(
     truncate_start_cells("/one/two/three", 10) == "…two/three",
     truncate_start_cells("/one/two/three", 10),
@@ -293,7 +293,7 @@ test fn session_paths_match_the_vaxis_picker() Void!Str {
   }
 }
 
-test fn session_times_match_the_vaxis_picker() Void!Str {
+test fn session_times_read_as_relative_labels() Void!Str {
   match time::Parse(time::RFC3339Nano, "2026-03-03T12:00:00Z") {
     err(_) => testing::assert(false, "fixture timestamp did not parse"),
     ok(now) => {

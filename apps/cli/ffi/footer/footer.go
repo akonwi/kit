@@ -1,7 +1,6 @@
 // Package footer lays out the right side of the terminal client's footer: the
 // working directory with its Git status and pull request, and plugin footer
-// items. It ports the vaxis client's footer rules so both clients fit the same
-// content into the same width.
+// items, fitting as much of that content as the width allows.
 package footer
 
 import (

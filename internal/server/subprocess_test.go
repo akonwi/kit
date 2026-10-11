@@ -95,13 +95,21 @@ func TestSubprocessRestartReplacesOlderDaemon(t *testing.T) {
 	}
 }
 
+// buildKitBinary builds a Kit executable labeled buildVersion from the source
+// tree at root. A tree with the Ard terminal client builds its headless command
+// line, which runs every command but the interactive ones without the Ard
+// toolchain; an archived revision from before that client builds cmd/kit.
 func buildKitBinary(t *testing.T, root, output, buildVersion string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	directory, target := filepath.Join(root, "apps", "cli"), "./ffi/cli/testdata/kit"
+	if _, err := os.Stat(filepath.Join(directory, "ffi", "cli", "testdata", "kit")); err != nil {
+		directory, target = root, "./cmd/kit"
+	}
 	ldflag := fmt.Sprintf("-X github.com/akonwi/kit/internal/version.Version=%s", buildVersion)
-	command := exec.CommandContext(ctx, "go", "build", "-ldflags", ldflag, "-o", output, "./cmd/kit")
-	command.Dir = root
+	command := exec.CommandContext(ctx, "go", "build", "-ldflags", ldflag, "-o", output, target)
+	command.Dir = directory
 	command.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
 	if result, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build Kit test binary: %v\n%s", err, result)

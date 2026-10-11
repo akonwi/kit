@@ -24,19 +24,20 @@ quoted or backslash-escaped on a single space-separated line.
 
 Path recognition is conservative: every non-empty pasted entry must resolve to
 a supported regular file or the paste remains ordinary composer text. Binary
-image clipboard payloads are not supported because Vaxis bracketed paste only
-provides text.
+image clipboard payloads are not supported because terminal bracketed paste
+only provides text.
 
-Staged attachments appear above the composer as removable rows. Image-only
+Staged attachments appear above the composer as removable chips. Image-only
 submission is valid. Failed admission restores the same staged attachment
 identities; queued prompts retain them durably.
 
 ### Transcript presentation
 
-Sent user images and successful, explicitly typed `show_image` results both
-render image pixels inline. Images are not collapsible. A preview is replaced
-by a persistent `preview unavailable` error row only when decoding or rendering
-fails.
+Sent user images are listed under their message, and clicking an image's row
+expands its preview inline; expanding another image collapses the first.
+Successful, explicitly typed `show_image` results render their pixels inline
+below the tool call. A preview is replaced by a persistent `preview unavailable`
+error row only when decoding or rendering fails.
 
 Previews reserve bounded geometry while decoding, with a maximum of 72 columns
 and 12 terminal rows. Metadata includes the filename, dimensions when known,
@@ -46,19 +47,14 @@ tool image results are never promoted.
 Clicking a transcript image opens its persisted bytes in the system default
 application. Kit does not provide a retained image workspace pane.
 
-### Initial renderer
+### Renderer
 
-The initial renderer uses normal `vaxis/ui` cell painting. Each terminal cell
-represents two vertically adjacent pixels using Unicode upper/lower half-block
-characters and truecolor foreground/background styles. Decoding and scaling run
-asynchronously, and rendered cells are cached by attachment identity and target
-size.
-
-This deliberately avoids a Vaxis fork, a duplicate `ui.Run`, and the unrelated
-`vxfw` widget framework. Native Kitty and Sixel placement is tracked by
-`TUI-IMAGE-001` in the [native TUI backlog](../../backlog/tui.md).
-pending an upstream retained-image paint API in `vaxis/ui`. Unicode half-block
-rendering is the supported baseline until then.
+Previews are Cooper image nodes. Terminals that support the Kitty graphics
+protocol receive the image itself, clipped to the visible area and hidden
+under overlapping content. Elsewhere, each terminal cell represents two
+vertically adjacent pixels using Unicode upper/lower half-block characters and
+truecolor foreground/background styles. Decoding and scaling run
+asynchronously, off the UI thread.
 
 ## Authoritative attachment model
 
@@ -151,6 +147,5 @@ launch failures are shown to the user.
 
 ## Outstanding work
 
-Native Kitty/Sixel rendering and clipboard image ingestion are tracked by
-`TUI-IMAGE-001` and `TUI-ATT-003` through `TUI-ATT-006` in the
-[native TUI backlog](../../backlog/tui.md).
+Clipboard image ingestion is tracked by `TUI-ATT-003` through `TUI-ATT-006` in
+the [native TUI backlog](../../backlog/tui.md).

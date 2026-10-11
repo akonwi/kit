@@ -27,9 +27,7 @@ it.
 
 The native TUI is written in Ard with Cooper in `apps/cli`
 ([ADR 0035](docs/adrs/0035-build-the-terminal-client-with-ard-and-cooper.md)),
-and releases build the `kit` executable from it. The former vaxis/ui client in
-`internal/tui` and `cmd/kit` remains in the repository only until its removal
-(TUI-COOPER-015); do not change it for new work. The maintained clients are the
+and releases build the `kit` executable from it. The maintained clients are the
 native TUI and the native macOS app (`apps/macos`).
 
 The semantic browser client (`apps/web`, `backlog/web.md`) is not actively
@@ -115,9 +113,9 @@ run `go test -race ./...` for changes to daemon, session, subagent, plugin, or
 other concurrency-sensitive code when the platform supports it.
 
 `apps/cli` is a separate Go module and Ard project that builds the released
-`kit` executable. Its `ffi/cli` package owns the command line; `internal/cli`
-and `cmd/kit` remain only until the vaxis client is removed and need not mirror
-new command-line changes. Its interactive flow runs in `main.ard`. For changes there, run the checks listed in `apps/cli/README.md`.
+`kit` executable. Its `ffi/cli` package owns the command line, and its
+interactive flow runs in `main.ard`. For changes there, run the checks listed
+in `apps/cli/README.md`.
 
 When explicitly asked to change the browser client, run its formatting, lint,
 typecheck, unit, and browser suites defined by the web workspace. Bun is a

@@ -3,10 +3,9 @@ use ard/testing
 use go:api/contract as protocol
 
 // The attached session's indexed project paths, shared by the composer's file
-// mentions. As in the vaxis client, one index serves a session and working
-// directory: it loads when first needed, again after five minutes, and from
-// a forced server refresh when the working directory changes. Only the
-// latest request's result is kept.
+// mentions. One index serves a session and working directory: it loads when
+// first needed, again after five minutes, and from a forced server refresh when
+// the working directory changes. Only the latest request's result is kept.
 
 // How long loaded paths stay fresh, in milliseconds.
 let refresh_after = Int64::from(300000)

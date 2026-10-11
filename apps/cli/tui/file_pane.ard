@@ -156,7 +156,7 @@ fn status(width: Int, file_path: Str, cursor: Int, count: Int, size: Int) Str {
   }
 }
 
-// A file size as vaxis shows it.
+// A file size in a compact, human-readable unit.
 fn size_label(size: Int) Str {
   match {
     size < 1024 => "{size} B",
@@ -1070,7 +1070,7 @@ test fn visible_text_starts_at_the_column_within_the_width() Void!Str {
   )
 }
 
-test fn sizes_read_like_vaxis() Void!Str {
+test fn sizes_use_binary_units() Void!Str {
   try testing::assert(size_label(512) == "512 B", "bytes")
   try testing::assert(size_label(9385) == "9.2 KiB", "kibibytes")
   testing::assert(size_label(2 * 1048576) == "2.0 MiB", "mebibytes")

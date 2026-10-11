@@ -272,14 +272,16 @@ isolation without a user-run migration operation.
 
 ### Native TUI
 
-The terminal client is rebuilt in Go with `go.rockorager.dev/vaxis/ui`. It
+The terminal client is written in Ard with the Cooper terminal UI library and
+built into the `kit` executable from `apps/cli`
+([ADR 0035](0035-build-the-terminal-client-with-ard-and-cooper.md)). It
 preserves Kit's visual language and workflows rather than mechanically
 translating TypeScript components.
 
 The TUI consumes only session-client and platform contracts. Focus, overlays,
 composer drafts, workspace tabs, scroll positions, terminal dimensions, theme,
 and keybindings remain renderer-owned state. Runtime updates from goroutines
-enter the vaxis event loop through its dispatch mechanism.
+enter the Cooper event loop through its dispatch mechanism.
 
 The TUI must not import SQLite implementations, droids runtime types, concrete
 server internals, or plugin process implementations.
@@ -367,7 +369,8 @@ the rewrite are triaged explicitly as R1, Post-R1, or superseded work.
 Recorded replacement decisions include:
 
 - remove `web-tui`;
-- replace OpenTUI with vaxis/ui;
+- replace OpenTUI with a native terminal client, written in Ard with Cooper
+  ([ADR 0035](0035-build-the-terminal-client-with-ard-and-cooper.md));
 - replace the TypeScript/Pi agent core with the Kit-local Go/droids core;
 - use SQLite for fresh native runtime storage without importing legacy history;
 - run subagents concurrently under the runtime;
@@ -378,7 +381,6 @@ Recorded replacement decisions include:
 The exact package set should grow with real consumers, but the intended shape is:
 
 ```text
-cmd/kit/                 executable composition root
 internal/apphome/        paths and filesystem ownership
 internal/server/         discovery, lifecycle, authoritative server and session directory
 internal/session/        parent runtime orchestration
@@ -387,7 +389,7 @@ internal/plugin/         manifests, RPC, process supervision
 internal/storage/        SQLite and migrations
 api/contract/            canonical Go wire records and validation
 api/                     public stateful Go server/session client
-internal/tui/            vaxis presentation
+apps/cli/                executable entry point, command line, and Ard/Cooper terminal client
 web/                     Solid/Mica browser source
 docs/adrs/               current architecture decisions
 docs/plugin-protocol/    public plugin wire contract
@@ -411,7 +413,7 @@ to hold shared types.
 
 ### Trade-offs
 
-- Rebuilding the OpenTUI client in vaxis/ui is substantial product work.
+- Rebuilding the OpenTUI client natively is substantial product work.
 - The daemon adds process discovery, authentication, upgrade, logging, and
   lifecycle responsibilities.
 - Runtime, storage, protocol, and client projections intentionally duplicate

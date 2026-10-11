@@ -1,6 +1,7 @@
 import Foundation
 
-/// Native counterpart of internal/tui/transcript_model.go's presentBashCommand.
+/// Native counterpart of the terminal client's `BashCommand` summary
+/// (apps/cli/ffi/toolpresentation).
 struct BashCommandPresentation {
     let text: String
 

@@ -182,7 +182,7 @@ private struct RightProps {
 }
 
 // The right side fits its content to the width it measures after each
-// layout, before drawing, as the vaxis client does (`ffi/footer`).
+// layout, before drawing, using the footer rules in `ffi/footer`.
 private struct RightSide {
   props: mut RightProps,
   frame: mut cui::BoxRef,

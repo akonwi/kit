@@ -7,7 +7,7 @@ description: Kit's UI design language and visual standards. Use when building or
 
 Kit's UI is **utilitarian, pleasant, and intuitive**. It should communicate state and available actions clearly without drawing attention to decoration. Every visual choice should improve comprehension, navigation, or feedback.
 
-The legacy reference UI lives in `apps/web/src/`; the native v2 TUI implements the same semantic language with `vaxis/ui`. Browser-specific presentations may reuse the principles while using renderer-appropriate primitives.
+The legacy reference UI lives in `apps/web/src/`; the native TUI in `apps/cli` implements the same semantic language in Ard with Cooper. Browser-specific presentations may reuse the principles while using renderer-appropriate primitives.
 
 ## Root Shell Boundary
 
@@ -161,7 +161,7 @@ Examples: settings, login, session exploration, command palette, workspace file 
 
 OpenTUI paints border cells with the box background, which can create an inset appearance on filled surfaces. Keep dialog and border-cell backgrounds continuous; do not add decorative inner borders to compensate.
 
-Palette pickers use `palettePicker`; inline pickers use `inlinePicker`. Do not fork picker interaction and selection styling.
+Palette pickers use `palette::new_picker`; inline pickers use `tui/inline_picker.ard`. Do not fork picker interaction and selection styling.
 
 ### Interaction dock
 
@@ -411,7 +411,7 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 
 ### Markdown
 
-- Parse native TUI Markdown into renderer-neutral semantic blocks; do not render HTML or prebuilt ANSI strings into vaxis.
+- Parse native TUI Markdown into renderer-neutral semantic blocks; do not render HTML or prebuilt ANSI strings into the terminal.
 - Keep fenced code as explicit language/source blocks so syntax tokenization can be added independently of Markdown parsing and mapped into reactive theme styles.
 - Cache parsed documents by stable content identity. Rebuild width- and theme-dependent widgets rather than caching painted output.
 - Render headings through weight and semantic emphasis rather than literal heading markers. Use hanging indents for wrapped list items and a quiet left border for block quotes.
@@ -425,15 +425,14 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 
 - **Focused row:** use a background highlight such as `bgMuted`; do not add a decorative row border.
 - **Pickers:** a centered modal list is a *palette picker* and must render
-  through `palettePicker` (`internal/tui/palette_picker.go`), which owns the
-  frame, filtering, the display-only search field, rows, selection, and
-  overflow presentation. Pass the query and catalog, not filtered items or a
-  search `textInputConfig`; edit the query only through `pickerKeyModel`.
-  Custom matching goes through one documented `pickerFilter` hook built on
-  `filterPickerItems`. A list anchored to
-  the composer or another point is an *inline picker* and renders through
-  `inlinePicker` (`internal/tui/inline_picker.go`). See "Picker
-  terminology" in `docs/design/v2-ui-direction.md`.
+  through `palette::new_picker` (`apps/cli/tui/palette.ard`), which owns the
+  frame, filtering, the search field, rows, selection, and overflow
+  presentation. Pass the catalog, not filtered items, and let the picker own
+  the query and the shared fuzzy matcher. The command palette, whose query
+  carries command arguments, composes the lower-level `palette::header` and
+  `palette::body` instead. A list anchored to the composer or another point is
+  an *inline picker* and renders through `apps/cli/tui/inline_picker.ard`. See
+  "Picker terminology" in `docs/design/v2-ui-direction.md`.
 - **Selected-text copying:** acknowledge Kit-handled copies with a brief, theme-derived pulse of the copied selection's background rather than a success toast. Preserve text color, selection, and focus; repeated copies restart the bounded pulse. This indicates that Kit issued the copy, not that the terminal acknowledged clipboard storage. Terminal-native copying outside Kit has no in-app feedback.
 - **Disabled command:** keep stable command catalogs visible and searchable. Render
   unavailable rows with disabled/muted text plus a concise reason such as
@@ -442,7 +441,7 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
   warning toast. Ephemeral action feedback belongs in a toast, not by replacing
   a picker’s fixed navigation footer.
 - **Input:** transparent background with `borderDefault` when idle, `borderFocused` when focused, and `borderAccent` while editing when those states are distinct.
-- A single-line input that owns a row fills all available horizontal space by default. Compact intrinsic-width inputs must be an explicit exception. In the native TUI, use Kit's `textInput` primitive for normal inputs; it is full-width by default. Use a bare `ui.TextField` only when an intentionally compact intrinsic-width control is required.
+- A single-line input that owns a row fills all available horizontal space by default. Compact intrinsic-width inputs must be an explicit exception. In the native TUI, a row-owning Cooper `cui::input` grows to fill its row (`flex_grow: 1.0`); give an input intrinsic width only when an intentionally compact control is required.
 - Presentation tests for new row-owning inputs must render a value longer than the toolkit's intrinsic minimum width and assert that the complete value remains visible at a representative viewport width. This catches accidentally shrink-wrapped fields.
 - **Toggle:** use the established four-cell track and two-cell knob; active track uses `toggleOn`.
 - **Compact clickable control:** show immediate hover feedback, commonly `bgMuted` plus `textPrimary`. Communicate focus with the control background instead of decorative brackets around its label. A terminal pointer shape is optional supplemental feedback, never the only feedback, and must be reset on mouse-out.

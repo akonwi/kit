@@ -11,11 +11,10 @@ use kit/tui/theme
 use kit/tui/transcript
 use go:strings
 
-// One tool call in an open work chip, as the vaxis client draws it: a state
-// icon, the title in an accent column, and the summary in a chip. A row
-// narrower than `narrow_width` puts the chip on its own line and keeps the
-// end of a path that leads its summary. Clicking a row selects it; the
-// selected row is filled.
+// One tool call in an open work chip: a state icon, the title in an accent
+// column, and the summary in a chip. A row narrower than `narrow_width` puts
+// the chip on its own line and keeps the end of a path that leads its summary.
+// Clicking a row selects it; the selected row is filled.
 
 // Rows narrower than this put the summary on a second line.
 let narrow_width = 60

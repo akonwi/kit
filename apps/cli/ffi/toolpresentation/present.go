@@ -1,6 +1,5 @@
 // Package toolpresentation derives a tool call's title and summary for the
-// transcript's tool rows, as the vaxis client does (presentToolCall in
-// internal/tui/transcript_model.go).
+// transcript's tool rows.
 package toolpresentation
 
 import (

@@ -5,8 +5,8 @@ use kit/tui/format
 use kit/tui/inline_picker
 use go:time
 
-// The sessions a `#` mention can reference, as in the vaxis client: every
-// session but the attached one, listed afresh each time a mention opens.
+// The sessions a `#` mention can reference: every session but the attached one,
+// listed afresh each time a mention opens.
 
 // Source is the listed sessions and the state of their latest load.
 // `generation` changes whenever the list or its state does, so the composer

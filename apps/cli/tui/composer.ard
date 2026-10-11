@@ -130,7 +130,7 @@ enum Recall {
   commands,
 }
 
-// Older command pages read while the picker is open, as in the vaxis client.
+// Older command pages read while the picker is open.
 let bash_page_limit = 5
 
 // Props contains live Shell-owned dependencies. Composer owns its draft,
@@ -1000,8 +1000,7 @@ impl cui::Component for Composer {
     }
     // Paths or sessions that load while a mention is open are ranked for it.
     self.refresh_mention()
-    // Ctrl+Shift+W deletes the next word, pairing with Ctrl+W, as in the
-    // vaxis client.
+    // Ctrl+Shift+W deletes the next word, pairing with Ctrl+W.
     let editing = keymap::rebind(
       ui::default_text_area_bindings(),
       ui::TextAreaAction::insert_newline,

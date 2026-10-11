@@ -261,21 +261,19 @@ their terminal's native workflow.
 - A **palette picker** is a centered modal list shaped like the command
   palette: the command palette, model, thinking, theme, file, workspace tab,
   diff target, and session pickers, and the login provider picker. Every
-  palette picker renders through the shared `palettePicker` widget
-  (`internal/tui/palette_picker.go`). Callers pass the query and the
-  unfiltered catalog; the widget derives the visible rows with the shared
-  filter (`filterPickerItems` in `internal/tui/picker.go`) and shows the query
-  in a display-only search field. The query is edited only through
-  `pickerKeyModel` on the input-owner route, which filters with the same
-  function. A picker that cannot use the shared filter supplies one
-  documented `pickerFilter` hook built on it, used by both the widget and the
-  key model.
+  palette picker renders through the shared palette in
+  `apps/cli/tui/palette.ard`. Ordinary pickers use the self-contained
+  `palette::new_picker`: callers pass the unfiltered catalog, and the picker
+  owns the query and derives the visible rows with the shared fuzzy matcher.
+  The command palette, whose query also carries command arguments, composes
+  the lower-level `palette::header` and `palette::body` with the same
+  matcher.
 - An **inline picker** is a non-modal list attached to the composer: the file
   and session mention menus and message and bash history. The composer text is
   its query and the composer owns the cursor, so an inline picker has no title
   or search field. Every inline picker renders through the shared
-  `inlinePicker` widget (`internal/tui/inline_picker.go`). It shares the
-  palette picker's items, filter, row rendering, and navigation keys. It has
+  inline picker in `apps/cli/tui/inline_picker.ard`. It shares the palette
+  picker's fuzzy matcher, row layout, and navigation keys. It has
   no footer hints; a status, such as a failed refresh, shows below a
   full-width divider only while present. Its width follows the palette picker
   rule. It rests on the composer line where it was opened, with its left edge

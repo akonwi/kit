@@ -4,7 +4,8 @@ Kit is a native coding agent for macOS and Linux with a terminal UI, headless
 commands, durable sessions, concurrent subagents, and language-neutral process
 plugins. Windows is not supported.
 
-Kit is implemented in Go. Its architecture is recorded in
+Kit is implemented in Go, with its terminal client written in
+[Ard](https://ard.run). Its architecture is recorded in
 [`docs/adrs/0001-native-go-architecture.md`](docs/adrs/0001-native-go-architecture.md),
 and release scope is tracked in [`backlog/README.md`](backlog/README.md).
 
@@ -14,7 +15,8 @@ and release scope is tracked in [`backlog/README.md`](backlog/README.md).
 - a reusable public [`droids`](./droids) agent runtime, importable as
   `github.com/akonwi/kit/droids` and seeded from
   [`github.com/akonwi/droids`](https://github.com/akonwi/droids)
-- `vaxis/ui` for the native terminal client
+- a native terminal client in [`apps/cli`](apps/cli), written in Ard with the
+  [Cooper](https://github.com/akonwi/cooper) terminal UI toolkit
 - SQLite for authoritative session/runtime state
 - JSON-RPC child processes for custom plugins written in any language
 
@@ -67,7 +69,7 @@ kit auth status
 kit auth logout openai-codex
 ```
 
-A normal `kit` invocation starts the viewport-native vaxis TUI. It
+A normal `kit` invocation starts the native terminal client. It
 starts or discovers the daemon, offers OpenAI, Anthropic, and OpenCode Go API-key
 login plus OpenAI Codex and Claude Pro/Max subscription login when credentials are
 missing, resumes the latest usable session

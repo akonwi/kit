@@ -153,16 +153,20 @@ kit sessions
 session directory and supports opening, renaming, confirmed deletion, and exit
 without selection.
 
-The picker is a standalone vaxis application rendered in a bounded terminal
-primary-screen live region:
+The picker is a standalone Cooper application rendered on the terminal's
+primary screen in inline mode, sized once to the listed sessions, and erased
+when it closes:
 
-```go
-ui.Run(sessionPicker, ui.WithDynamicPrimaryScreen())
+```ard
+cooper::app(
+  exit_on_ctrl_c: false,
+  screen: screen::config(screen::Mode::inline, height: picker_height(listed), clear_on_exit: true),
+)
 ```
 
-This preserves shell scrollback and occupies only the rows preferred by the
-picker. Enter returns the exact selected session ID and closes the live region;
-the command then launches the normal alternate-screen TUI attached to that
+This preserves shell scrollback and occupies only the rows the picker needs.
+Enter returns the exact selected session ID and closes the live region; the
+command then launches the normal alternate-screen TUI attached to that
 session. Escape or Ctrl+C closes the picker without launching a session.
 
 The embedded and standalone session explorers share controller and presentation

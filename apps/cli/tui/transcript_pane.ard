@@ -26,10 +26,9 @@ use go:strings
 //
 // It opens at, and follows, its latest message until the user scrolls away;
 // returning to the end resumes following. Short transcripts rest on the
-// composer, as in the vaxis client. An assistant reply taller than the
-// viewport opens at its first row instead, both when it arrives while the
-// transcript follows its end and when an attachment opens on it, so reading
-// starts at the beginning of the answer.
+// composer. An assistant reply taller than the viewport opens at its first row
+// instead, both when it arrives while the transcript follows its end and when
+// an attachment opens on it, so reading starts at the beginning of the answer.
 //
 // Earlier history loads a page at a time once the view is within
 // `history_threshold` rows of the top, which includes a first page too short
@@ -879,9 +878,9 @@ private fn attachment_label(
   )
 }
 
-// A shell command typed in the composer, as in the vaxis client: a success
-// rule on the left, a spinner while it runs and then its outcome, the command,
-// and its muted output. Clicking a finished header folds the output.
+// A shell command typed in the composer: a success rule on the left, a spinner
+// while it runs and then its outcome, the command, and its muted output.
+// Clicking a finished header folds the output.
 private fn bash_entry(colors: theme::Theme, bash: Bash, run: sessionbridge::Bash) cui::View {
   let output: [Str] = match run.Output == "" {
     true => [],
@@ -1008,12 +1007,12 @@ private fn bash_entry(colors: theme::Theme, bash: Bash, run: sessionbridge::Bash
   )
 }
 
-// A plugin-submitted message, as in the vaxis client: one quiet row naming
-// the plugin and summarizing the message's first line. A message of several
-// lines, or one line too long for the row, expands to show it in full beneath
-// a left rule; a single line that fits is shown whole and does not expand.
-// The message is context the plugin gave the agent, so it stays subordinate
-// to user and assistant messages.
+// A plugin-submitted message: one quiet row naming the plugin and summarizing
+// the message's first line. A message of several lines, or one line too long
+// for the row, expands to show it in full beneath a left rule; a single line
+// that fits is shown whole and does not expand. The message is context the
+// plugin gave the agent, so it stays subordinate to user and assistant
+// messages.
 fn plugin_entry(themes: theme::Context, plugins: Plugins, message: transcript::Message) cui::View {
   cui::child(
     new_plugin_row,

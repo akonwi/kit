@@ -53,8 +53,7 @@ A completed turn emits BEL and a terminal-mediated notification. This remains
 separate from the title state, allowing terminals such as Ghostty to retain
 their own unfocused-attention marker.
 
-Live title changes use the vaxis terminal backend. Progress, BEL, and final
-cleanup sequences use `/dev/tty` when available, with a TTY stderr fallback.
-Control and Unicode formatting characters are removed from title content.
-Repeated states are coalesced, and TUI shutdown always restores the idle title
-and removes surface progress.
+Title, progress, BEL, and notification output go through the Cooper runtime that
+drives the terminal client. Control and Unicode formatting characters are
+removed from title content. Repeated states are coalesced, and TUI shutdown
+always restores the idle title and removes surface progress.
