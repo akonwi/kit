@@ -1,0 +1,133 @@
+use ard/testing
+
+use go:context
+use cooper/event
+use go:errors
+use go:kit/ffi/contextbridge
+use kit/tui/model_refresh
+use kit/tui/toast
+use go:strings
+
+struct Deferred {
+  work: [fn()],
+  calls: Int,
+}
+
+// Notifications raised so far, as "title: detail" with a persistence marker.
+fn shown(control: mut toast::Control) Str {
+  let parts = mut List::new<Str>()
+  for request in control.pending {
+    let persistence = match request.persistent {
+      true => "persistent",
+      false => "transient",
+    }
+    parts.push("{request.title}: {request.detail} ({persistence})")
+  }
+  strings::Join(parts, " | ")
+}
+
+fn immediate(action: fn()) Void!event::DispatchError {
+  action()
+  Result::ok(())
+}
+
+fn failing(message: Str) Int!Error {
+  match errors::New(message) {
+    err(failure) => Result::err(failure),
+    ok => Result::ok(0),
+  }
+}
+
+fn lifetime() contextbridge::Cancellation {
+  contextbridge::WithCancel(context::Background())
+}
+
+test fn a_refresh_reports_the_refreshed_catalog_size() Void!Str {
+  let notifications = toast::control()
+  let subject = model_refresh::custom(
+    fn(ctx: context::Context) Int!Error {
+      Result::ok(42)
+    },
+    fn(work: fn()) {
+      work()
+    },
+    notifications,
+  )
+  subject.bind(immediate, lifetime())
+  subject.refresh()
+  try testing::assert(
+    shown(notifications) == "Model catalog refreshed: 42 models available (transient)",
+    shown(notifications),
+  )
+  testing::assert(not subject.pending, "a finished refresh releases the next one")
+}
+
+test fn a_failed_refresh_reports_a_persistent_error() Void!Str {
+  let notifications = toast::control()
+  let subject = model_refresh::custom(
+    fn(ctx: context::Context) Int!Error {
+      failing("catalog unavailable")
+    },
+    fn(work: fn()) {
+      work()
+    },
+    notifications,
+  )
+  subject.bind(immediate, lifetime())
+  subject.refresh()
+  try testing::assert(
+    shown(notifications) == "Model refresh failed: catalog unavailable (persistent)",
+    shown(notifications),
+  )
+  testing::assert(not subject.pending, "a failed refresh releases the next one")
+}
+
+test fn only_one_refresh_runs_at_a_time() Void!Str {
+  let notifications = toast::control()
+  let deferred = mut Deferred{work: [], calls: 0}
+  let subject = model_refresh::custom(
+    fn(ctx: context::Context) Int!Error {
+      deferred.calls =+ 1
+      Result::ok(7)
+    },
+    fn(work: fn()) {
+      deferred.work.push(work)
+    },
+    notifications,
+  )
+  subject.bind(immediate, lifetime())
+  subject.refresh()
+  subject.refresh()
+  try testing::assert(deferred.work.size() == 1, "the second request does not start a refresh")
+  try testing::assert(
+    shown(notifications) == "Model refresh unavailable: Model refresh is already in progress. (transient)",
+    shown(notifications),
+  )
+
+  for work in deferred.work {
+    work()
+  }
+  deferred.work = []
+  subject.refresh()
+  testing::assert(
+    deferred.work.size() == 1 and deferred.calls == 1,
+    "a refresh may start again once the previous one finishes",
+  )
+}
+
+test fn an_unbound_refresher_does_nothing() Void!Str {
+  let notifications = toast::control()
+  let deferred = mut Deferred{work: [], calls: 0}
+  let subject = model_refresh::custom(
+    fn(ctx: context::Context) Int!Error {
+      Result::ok(1)
+    },
+    fn(work: fn()) {
+      deferred.work.push(work)
+    },
+    notifications,
+  )
+  subject.refresh()
+  try testing::assert(deferred.work.size() == 0, "no refresh starts before mount")
+  testing::assert(notifications.pending_count() == 0, "nothing is reported before mount")
+}

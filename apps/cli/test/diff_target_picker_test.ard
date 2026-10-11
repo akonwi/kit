@@ -1,0 +1,107 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/keymap
+use cooper/testing as headless
+use kit/tui/diff_pane
+use kit/tui/diff_target_picker
+use kit/tui/theme
+use go:strings
+use go:time
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn row_of(terminal: headless::TestApp, text: Str) Int {
+  mut found = -1
+  for row, index in rows(terminal) {
+    if found < 0 and strings::Contains(row, text) {
+      found = index
+    }
+  }
+  found
+}
+
+fn commit(reference: Str) protocol::DiffTargetEntry {
+  protocol::DiffTargetEntry{
+    Reference: reference,
+    TargetID: "difftarget_c",
+    Kind: "commit",
+    Metadata: protocol::DiffTargetMetadata{Label: "db99f1d  feat(cli): ghost buttons"},
+  }
+}
+
+// Lists the fresh targets after a moment, so the cached ones show first.
+fn slow_list(input: protocol::ListDiffTargetsInput) protocol::DiffTargetCatalog!Error {
+  time::Sleep(time::Millisecond * 150)
+  Result::ok(protocol::DiffTargetCatalog{Targets: [commit("difftargetref_fresh")]})
+}
+
+test fn cached_targets_show_at_once_and_a_pick_waits_for_fresh_ones() Void!Str {
+  let terminal = headless::new(100, 32)
+  defer terminal.destroy()
+  let chosen = mut List::new<Str>()
+  let remembered = mut List::new<Str>()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_target_picker::view(
+      diff_target_picker::Props{
+        themes: theme::context(theme::store(theme::system())),
+        request: diff_pane::TargetRequest{
+          workspace_id: "workspace_a",
+          current: "",
+          cached: [commit("difftargetref_cached")],
+          remember: fn(targets: [protocol::DiffTargetEntry]) {
+            for target in targets {
+              remembered.push(target.Reference)
+            }
+          },
+          choose: fn(target: protocol::DiffTargetEntry) {
+            chosen.push(target.Reference)
+          },
+        },
+        list: Maybe::new(slow_list),
+        dismiss: keymap::simple_command("test.dismiss", "Close", fn() Bool {
+          true
+        }),
+        chosen: fn() {},
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let row = row_of(terminal, "db99f1d")
+  try testing::assert(
+    row >= 0,
+    "the cached target shows at once:\n{strings::Join(mut rows(terminal), "|\n")}",
+  )
+  try testing::assert(
+    row_of(terminal, "Refreshing targets…") > row,
+    "while the list refreshes:\n{strings::Join(mut rows(terminal), "|\n")}",
+  )
+  terminal.click(30, row)
+  terminal.flush()
+  try testing::assert(chosen.size() == 0, "a pick during the refresh waits")
+  try testing::assert(row_of(terminal, "Opening once targets refresh…") > row, "and says so")
+  mut attempts = 0
+  while attempts < 100 and chosen.size() == 0 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  try testing::assert(
+    chosen.size() == 1 and chosen.at(0).or("") == "difftargetref_fresh",
+    "then opens the fresh entry: {strings::Join(mut chosen.@, ",")}",
+  )
+  testing::assert(
+    remembered.size() == 1 and remembered.at(0).or("") == "difftargetref_fresh",
+    "and the pane keeps the fresh list",
+  )
+}

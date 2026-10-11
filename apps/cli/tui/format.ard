@@ -1,0 +1,329 @@
+use ard/testing
+
+use go:api/contract as protocol
+use go:fmt
+use go:github.com/akonwi/vaxis
+use go:math
+use go:os
+use go:path/filepath
+use go:strconv
+use go:strings
+use go:time
+
+// Text shown in the shell chrome.
+
+// The session name shown in the header.
+fn session_name(session: protocol::SessionInfo) Str {
+  match strings::TrimSpace(session.Name) == "" {
+    true => "Unnamed session",
+    false => session.Name,
+  }
+}
+
+// session_display_cwd matches the vaxis session picker: paths under the home
+// directory use ~ and long paths preserve their most useful trailing cells.
+fn session_display_cwd(cwd: Str, width: Int) Str {
+  if strings::TrimSpace(cwd) == "" {
+    ""
+  } else {
+    mut display = filepath::Clean(cwd)
+    match os::UserHomeDir() {
+      ok(home) => {
+        match filepath::Rel(home, display) {
+          ok(relative) => {
+            if relative == "." {
+              display = "~"
+            } else if relative != ".." and not strings::HasPrefix(relative, "../") {
+              display = filepath::Join("~", relative)
+            }
+          },
+          err(_) => (),
+        }
+      },
+      err(_) => (),
+    }
+    truncate_start_cells(display, width)
+  }
+}
+
+// format_session_updated uses the compact relative labels from the vaxis
+// picker, falling back to an ISO date once a session is at least 30 days old.
+fn format_session_updated(raw: Str, now: time::Time) Str {
+  match time::Parse(time::RFC3339Nano, raw) {
+    err(_) => "unknown",
+    ok(updated) => {
+      mut age = now.Sub(updated)
+      if age < 0 {
+        age = 0
+      }
+      if age < time::Minute {
+        "just now"
+      } else if age < time::Hour {
+        "{strconv::Itoa(Int::fit(age / time::Minute))}m ago"
+      } else if age < time::Hour * 24 {
+        "{strconv::Itoa(Int::fit(age / time::Hour))}h ago"
+      } else if age < time::Hour * 24 * 30 {
+        "{strconv::Itoa(Int::fit(age / (time::Hour * 24)))}d ago"
+      } else {
+        updated.Format("2006-01-02")
+      }
+    },
+  }
+}
+
+// The number of terminal cells value occupies.
+fn cell_width(value: Str) Int {
+  mut width = 0
+  for character in vaxis::Characters(value) {
+    width =+ character.Width
+  }
+  width
+}
+
+// value cut to its first cells within maximum, ending in `…`. A value that
+// fits is unchanged.
+fn truncate_cells(value: Str, maximum: Int) Str {
+  if maximum <= 0 {
+    ""
+  } else if cell_width(value) <= maximum {
+    value
+  } else {
+    mut kept = ""
+    mut used = 0
+    mut fitting = true
+    for character in vaxis::Characters(value) {
+      if fitting and used + character.Width <= maximum - 1 {
+        kept = "{kept}{character.Grapheme}"
+        used =+ character.Width
+      } else {
+        fitting = false
+      }
+    }
+    "{kept}…"
+  }
+}
+
+private fn truncate_start_cells(value: Str, maximum: Int) Str {
+  if maximum <= 0 {
+    ""
+  } else {
+    let characters = vaxis::Characters(value)
+    mut width = 0
+    for character in characters {
+      width =+ character.Width
+    }
+    if width <= maximum {
+      value
+    } else {
+      mut remaining = maximum - 1
+      mut start = characters.size()
+      while start > 0 {
+        let character = characters.at(start - 1).expect("character index")
+        if character.Width > remaining {
+          break
+        }
+        start =- 1
+        remaining =- character.Width
+      }
+      mut suffix = ""
+      mut index = start
+      while index < characters.size() {
+        suffix = "{suffix}{characters.at(index).expect("character index").Grapheme}"
+        index =+ 1
+      }
+      "…{suffix}"
+    }
+  }
+}
+
+// Formats a `provider/model` selector for display, for example
+// `anthropic/claude-sonnet-4-6` as `Claude Sonnet 4.6`.
+fn model_name(selector: Str) Str {
+  let slash = strings::Index(selector, "/")
+  let id = match slash < 0 {
+    true => selector,
+    false => selector.slice(slash + 1, selector.size()).or(selector),
+  }
+  let parts = strings::Split(id, "-")
+  let formatted = mut List::new<Str>()
+  mut index = 0
+  while index < parts.size() {
+    mut part = parts.at(index).or("")
+    let next = parts.at(index + 1).or("")
+    if digits(part) and digits(next) {
+      part = "{part}.{next}"
+      index =+ 1
+    }
+    formatted.push(capitalized(part))
+    index =+ 1
+  }
+  strings::Join(formatted, " ")
+}
+
+// The rounded share of the context window in use, clamped to 1 through 100,
+// or none when either count is unavailable.
+fn context_percentage(tokens: Int, window: Int) Int? {
+  match tokens <= 0 or window <= 0 {
+    true => Maybe::new<Int>(),
+    false => {
+      let share = math::Round(Float64::fit(tokens) * 100.0 / Float64::fit(window))
+      let rounded = Int::fit(share)
+      Maybe::new(
+        match rounded < 1 {
+          true => 1,
+          false => {
+            match rounded > 100 {
+              true => 100,
+              false => rounded,
+            }
+          },
+        },
+      )
+    },
+  }
+}
+
+// usage_integer groups token counts using the diagnostics view's locale-like
+// thousands separator convention.
+fn usage_integer(value: Int) Str {
+  let digits = "{value}"
+  let remainder = digits.size() % 3
+  let first = match remainder == 0 {
+    true => 3,
+    false => remainder,
+  }
+  let groups = mut List::new<Str>()
+  groups.push(digits.slice(0, first).or(digits))
+  mut index = first
+  while index < digits.size() {
+    groups.push(digits.slice(index, index + 3).or(""))
+    index =+ 3
+  }
+  strings::Join(mut groups, ",")
+}
+
+// context_window abbreviates model capacity exactly as the vaxis model picker.
+fn context_window(tokens: Int) Str {
+  match tokens >= 1000000 {
+    true => fmt::Sprintf("%.1fM", Float64::fit(tokens) / 1000000.0),
+    false => {
+      match tokens >= 1000 {
+        true => "{tokens / 1000}k",
+        false => "{tokens}",
+      }
+    },
+  }
+}
+
+// usage_cost matches the established diagnostics precision for provider costs.
+fn usage_cost(value: Float64) Str {
+  match value == 0.0 {
+    true => "$0.00",
+    false => {
+      match value < 0.01 {
+        true => "${fmt::Sprintf("%.6f", value)}",
+        false => "${fmt::Sprintf("%.2f", value)}",
+      }
+    },
+  }
+}
+
+private fn capitalized(part: Str) Str {
+  match strings::ToLower(part) {
+    "gpt" => "GPT",
+    "openai" => "OpenAI",
+    _ => {
+      match part == "" or digits(part) {
+        true => part,
+        false => "{strings::ToUpper(part.slice(0, 1).or(""))}{part.slice(1, part.size()).or("")}",
+      }
+    },
+  }
+}
+
+private fn digits(value: Str) Bool {
+  value != "" and strings::Trim(value, "0123456789") == ""
+}
+
+test fn model_names_match_the_vaxis_client() Void!Str {
+  try testing::assert(
+    model_name("openai-codex/gpt-5.6-sol") == "GPT 5.6 Sol",
+    model_name("openai-codex/gpt-5.6-sol"),
+  )
+  try testing::assert(
+    model_name("anthropic/claude-sonnet-4-6") == "Claude Sonnet 4.6",
+    model_name("anthropic/claude-sonnet-4-6"),
+  )
+  try testing::assert(
+    model_name("openai/gpt-5.3-codex") == "GPT 5.3 Codex",
+    model_name("openai/gpt-5.3-codex"),
+  )
+  testing::pass()
+}
+
+test fn context_percentage_rounds_and_clamps() Void!Str {
+  try testing::assert(context_percentage(0, 272000).is_none(), "empty context is hidden")
+  try testing::assert(context_percentage(110000, 272000).or(0) == 40, "110k of 272k is 40%")
+  try testing::assert(context_percentage(300000, 272000).or(0) == 100, "overflow clamps to 100%")
+  testing::pass()
+}
+
+test fn context_windows_match_the_vaxis_model_picker() Void!Str {
+  try testing::assert(context_window(1000000) == "1.0M", context_window(1000000))
+  try testing::assert(context_window(272000) == "272k", context_window(272000))
+  testing::pass()
+}
+
+test fn diagnostic_numbers_are_grouped_and_precise() Void!Str {
+  try testing::assert(usage_integer(1234567) == "1,234,567", usage_integer(1234567))
+  try testing::assert(usage_cost(0.0) == "$0.00", usage_cost(0.0))
+  try testing::assert(usage_cost(0.001234) == "$0.001234", usage_cost(0.001234))
+  try testing::assert(usage_cost(1.2) == "$1.20", usage_cost(1.2))
+  testing::pass()
+}
+
+test fn session_paths_match_the_vaxis_picker() Void!Str {
+  try testing::assert(
+    truncate_start_cells("/one/two/three", 10) == "…two/three",
+    truncate_start_cells("/one/two/three", 10),
+  )
+  match os::UserHomeDir() {
+    ok(home) => testing::assert(session_display_cwd(home, 40) == "~", session_display_cwd(home, 40)),
+    err(_) => testing::pass(),
+  }
+}
+
+test fn session_times_match_the_vaxis_picker() Void!Str {
+  match time::Parse(time::RFC3339Nano, "2026-03-03T12:00:00Z") {
+    err(_) => testing::assert(false, "fixture timestamp did not parse"),
+    ok(now) => {
+      try testing::assert(format_session_updated("invalid", now) == "unknown", "invalid timestamp")
+      try testing::assert(
+        format_session_updated("2026-03-03T11:59:30Z", now) == "just now",
+        format_session_updated("2026-03-03T11:59:30Z", now),
+      )
+      try testing::assert(
+        format_session_updated("2026-03-03T11:45:00Z", now) == "15m ago",
+        format_session_updated("2026-03-03T11:45:00Z", now),
+      )
+      try testing::assert(
+        format_session_updated("2026-03-01T12:00:00Z", now) == "2d ago",
+        format_session_updated("2026-03-01T12:00:00Z", now),
+      )
+      try testing::assert(
+        format_session_updated("2026-01-01T00:00:00Z", now) == "2026-01-01",
+        format_session_updated("2026-01-01T00:00:00Z", now),
+      )
+      testing::pass()
+    },
+  }
+}
+
+test fn unnamed_sessions_have_a_placeholder_name() Void!Str {
+  try testing::assert(session_name(protocol::SessionInfo{Name: "  "}) == "Unnamed session", "blank name")
+  try testing::assert(
+    session_name(protocol::SessionInfo{Name: "Focused work"}) == "Focused work",
+    "named session",
+  )
+  testing::pass()
+}

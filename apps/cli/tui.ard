@@ -1,0 +1,142 @@
+use go:api
+use go:api/contract as protocol
+use go:context
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/screen
+use cooper/terminal_progress
+use cooper/ui
+use go:github.com/akonwi/kit/internal/theme as kittheme
+use go:kit/ffi/cli
+use go:kit/ffi/contextbridge
+use kit/tui/bootstrap
+use kit/tui/modal
+use kit/tui/sessions
+use kit/tui/shell
+use kit/tui/terminal_status
+use kit/tui/theme
+
+// Kit's terminal client, built with Cooper.
+
+// Runs the terminal client attached to the session selected by `options` and
+// blocks until it exits.
+fn run(options: cli::TUIOptions) Void!Error {
+  let application = try cooper::app(exit_on_ctrl_c: false)
+  let system = application.theme()
+  defer application.destroy()
+  let themes = theme::context(theme::store(theme::resolve(options.ThemeDefinition, system)))
+  let props = shell::Props{
+    options: options,
+    themes: themes,
+    quit: fn() {
+      application.context.destroy_live()
+    },
+    attach: bootstrap::attach,
+    terminal: terminal_status::Terminal{
+      set_title: fn(value: Str) Bool {
+        application.context.set_title(value)
+      },
+      progress: fn(state: terminal_progress::State) Bool {
+        application.context.progress(state, Maybe::new<Int>())
+      },
+      bell: fn() Bool {
+        application.context.bell()
+      },
+      notify: fn(message: Str, title: Str) Bool {
+        application.context.notify(message, title: title)
+      },
+      focused: fn() Bool {
+        match application.context.terminal_focus() {
+          focus => focus == event::TerminalFocus::gained,
+          _ => false,
+        }
+      },
+    },
+    open_url: fn(target: Str) Void!Error {
+      application.context.open_url(target)
+    },
+  }
+  let renderer = cui::mount(application, cui::child(shell::new, props))
+  defer renderer.destroy()
+  application.run()
+}
+
+let picker_min_rows = 10
+let picker_max_rows = 20
+// The picker frame: borders, title, search field, footer, and their rules.
+let picker_chrome_rows = 8
+
+// The inline session picker's height: a row per session and the frame,
+// between 10 and 20 rows as in the vaxis client. A failed list uses the
+// minimum.
+fn picker_height(listed: [protocol::SessionInfo]?) Int {
+  let rows = match listed {
+    sessions => sessions.size() + picker_chrome_rows,
+    _ => picker_min_rows,
+  }
+  match {
+    rows < picker_min_rows => picker_min_rows,
+    rows > picker_max_rows => picker_max_rows,
+    _ => rows,
+  }
+}
+
+private struct Choice {
+  id: Str,
+}
+
+// Presents saved sessions in a picker drawn below the shell prompt rather
+// than full screen, and returns the chosen session's ID, or an empty ID when
+// it is dismissed. The picker's rows are cleared when it closes. A Cooper
+// inline app keeps its height, so the sessions are listed first to size it.
+fn pick_session(ctx: context::Context, client: mut api::Client, definition: kittheme::Definition) Str!Error {
+  let listed = match client.ListSessions(ctx, api::ListSessionsOptions{CWD: ""}) {
+    ok(found) => Maybe::new(found),
+    err(_) => Maybe::new<[protocol::SessionInfo]>(),
+  }
+  let application = try cooper::app(
+    // Inline screens keep their last frame by default; the picker's rows are
+    // erased instead, leaving the cursor where they began.
+    exit_on_ctrl_c: false,
+    screen: screen::config(screen::Mode::inline, height: picker_height(listed), clear_on_exit: true),
+  )
+  defer application.destroy()
+  let themes = theme::context(theme::store(theme::resolve(definition, application.theme())))
+  let lifetime = contextbridge::WithCancel(ctx)
+  defer lifetime.Cancel()
+  let choice = mut Choice{id: ""}
+  let close = keymap::simple_command("sessions.dismiss", "Close", fn() Bool {
+    application.context.destroy_live()
+    true
+  })
+  let props = sessions::Props{
+    themes: themes,
+    client: client,
+    lifetime: lifetime,
+    current_session_id: "",
+    dismiss: close,
+    renamed: fn(session: protocol::SessionInfo) {},
+    applied: fn(session: mut api::Session, snapshot: protocol::SessionSnapshot) {},
+    choose: fn(id: Str) {
+      choice.id = id
+      application.context.destroy_live()
+    },
+    listed: listed,
+    placement: modal::Placement::region,
+  }
+  // Ctrl+C closes the picker from anywhere, as in the vaxis client.
+  let root = cui::box(
+    [cui::child(sessions::new, props)],
+    key: "session-picker",
+    styles: ui::style(width: ui::percent(100.0), height: ui::percent(100.0)),
+    commands: [close],
+    bindings: [keymap::binding(keymap::key("c", ctrl: true), close.with())],
+    binding_scope: keymap::ScopeMode::application,
+  )
+  let renderer = cui::mount(application, root)
+  defer renderer.destroy()
+  try application.run()
+  Result::ok(choice.id)
+}

@@ -1,0 +1,291 @@
+use ard/testing
+
+use go:api/contract as protocol
+use kit/tui/format
+use kit/tui/palette
+use kit/tui/status
+use go:strings
+
+// The attached session's subagents: the agents its definitions offer and the
+// conversations it has delegated to them. The server owns both; the client
+// keeps the latest roster from the session snapshot and the subagent list.
+
+// Roster is the latest list of definitions and conversations.
+struct Roster {
+  definitions: [protocol::SubagentDefinition],
+  conversations: [protocol::SubagentConversation],
+}
+
+fn roster() Roster {
+  Roster{definitions: [], conversations: []}
+}
+
+// Row is one agent in the picker: a definition, joined with its conversation
+// when it has one, or a conversation whose definition is gone.
+struct Row {
+  name: Str,
+  description: Str,
+  model: Str,
+  thinking: Str,
+  // The conversation's state, or empty when the agent has not started.
+  state: Str,
+  conversation_id: Str,
+}
+
+// status_of is the icon for a conversation state; an agent that has not
+// started has none.
+fn status_of(state: Str) status::Status? {
+  match state {
+    "" => Maybe::new<status::Status>(),
+    "running" => Maybe::new(status::Status::working),
+    "failed" => Maybe::new(status::Status::failed),
+    "aborted" => Maybe::new(status::Status::stopped),
+    "interrupted" => Maybe::new(status::Status::stopped),
+    _ => Maybe::new(status::Status::idle),
+  }
+}
+
+// tab_status is a conversation tab's marker: shown while it works and after
+// it stops short, and absent once it finishes.
+fn tab_status(state: Str) status::Status? {
+  match state {
+    "running" => Maybe::new(status::Status::working),
+    "failed" => Maybe::new(status::Status::failed),
+    "aborted" => Maybe::new(status::Status::stopped),
+    "interrupted" => Maybe::new(status::Status::stopped),
+    _ => Maybe::new<status::Status>(),
+  }
+}
+
+// The picker lists running agents first, then those that stopped short,
+// then finished and unstarted ones.
+private fn rank(state: Str) Int {
+  match state {
+    "running" => 0,
+    "failed" => 1,
+    "aborted" => 2,
+    "interrupted" => 3,
+    "idle" => 4,
+    _ => 5,
+  }
+}
+
+// rows joins definitions with their conversations, in picker order.
+fn rows(roster: Roster) [Row] {
+  let result = mut List::new<Row>()
+  let defined = mut List::new<Str>()
+  for definition in roster.definitions {
+    defined.push(definition.Name)
+    let row = mut Row{
+      name: definition.Name,
+      description: definition.Description,
+      model: definition.Model,
+      thinking: "",
+      state: "",
+      conversation_id: "",
+    }
+    for conversation in roster.conversations {
+      if conversation.AgentName == definition.Name {
+        row.model = conversation.Model
+        row.thinking = conversation.ThinkingLevel
+        row.state = conversation.State
+        row.conversation_id = conversation.ID
+      }
+    }
+    result.push(row.@)
+  }
+  for conversation in roster.conversations {
+    mut known = false
+    for name in defined {
+      if name == conversation.AgentName {
+        known = true
+      }
+    }
+    if not known {
+      result.push(
+        Row{
+          name: conversation.AgentName,
+          description: "Previously active subagent conversation",
+          model: conversation.Model,
+          thinking: conversation.ThinkingLevel,
+          state: conversation.State,
+          conversation_id: conversation.ID,
+        },
+      )
+    }
+  }
+  result.sort(fn(left: Row, right: Row) Bool {
+    let left_rank = rank(left.state)
+    let right_rank = rank(right.state)
+    match left_rank == right_rank {
+      true => strings::Compare(strings::ToLower(left.name), strings::ToLower(right.name)) < 0,
+      false => left_rank < right_rank,
+    }
+  })
+  result.@
+}
+
+// configuration is a row's model and thinking level, as "Sonnet 4.5 (high)".
+// An agent without its own uses the session's.
+fn configuration(row: Row, session_model: Str, session_thinking: Str) Str {
+  let model = match row.model == "" {
+    true => session_model,
+    false => row.model,
+  }
+  let thinking = match row.thinking == "" {
+    true => session_thinking,
+    false => row.thinking,
+  }
+  let name = format::model_name(model)
+  match {
+    thinking == "" => name,
+    name == "" => "({thinking})",
+    _ => "{name} ({thinking})",
+  }
+}
+
+// catalog is the picker's rows. An agent that has not started is listed,
+// muted, but cannot be opened: the model starts agents.
+fn catalog(roster: Roster, session_model: Str, session_thinking: Str) [palette::Item] {
+  let items = mut List::new<palette::Item>()
+  for row in rows(roster) {
+    items.push(
+      palette::Item{
+        key: row.name,
+        label: row.name,
+        hint: "",
+        description: row.description,
+        meta: configuration(row, session_model, session_thinking),
+        search_terms: [],
+        disabled_reason: "",
+        status: status_of(row.state),
+        disabled: Maybe::new(row.conversation_id == ""),
+      },
+    )
+  }
+  items.@
+}
+
+// conversation is the conversation with the ID, if it is still retained.
+fn conversation(roster: Roster, id: Str) protocol::SubagentConversation? {
+  mut found = Maybe::new<protocol::SubagentConversation>()
+  for current in roster.conversations {
+    if current.ID == id {
+      found = Maybe::new(current)
+    }
+  }
+  found
+}
+
+// conversation_of is the ID of the agent's conversation, or empty.
+fn conversation_of(roster: Roster, agent: Str) Str {
+  mut found = ""
+  for current in roster.conversations {
+    if current.AgentName == agent {
+      found = current.ID
+    }
+  }
+  found
+}
+
+// cancellable is the conversation's task that cancelling would stop: its
+// active task, else one that is queued or running.
+fn cancellable(conversation: protocol::SubagentConversation) protocol::SubagentTask? {
+  mut found = Maybe::new<protocol::SubagentTask>()
+  for task in conversation.Tasks {
+    if task.ID == conversation.ActiveTaskID and conversation.ActiveTaskID != "" {
+      found = Maybe::new(task)
+    }
+  }
+  if found.is_none() {
+    for task in conversation.Tasks {
+      let pending = task.State == "queued" or task.State == "running"
+      if found.is_none() and pending {
+        found = Maybe::new(task)
+      }
+    }
+  }
+  found
+}
+
+// failure is the reason the conversation's latest task failed, or empty.
+fn failure(conversation: protocol::SubagentConversation) Str {
+  mut reason = ""
+  mut latest = Uint64::from(0)
+  for task in conversation.Tasks {
+    if task.State == "failed" and task.Sequence >= latest {
+      latest = task.Sequence
+      reason = strings::Join(mut strings::Fields(task.Error), " ")
+    }
+  }
+  reason
+}
+
+fn definition(name: Str, description: Str) protocol::SubagentDefinition {
+  protocol::SubagentDefinition{Name: name, Description: description}
+}
+
+fn started(id: Str, name: Str, state: Str) protocol::SubagentConversation {
+  protocol::SubagentConversation{
+    ID: id,
+    AgentName: name,
+    State: state,
+    Model: "anthropic/claude-sonnet-4-5",
+    ThinkingLevel: "high",
+  }
+}
+
+test fn rows_list_running_agents_first_and_keep_unstarted_ones() Void!Str {
+  let listed = rows(
+    Roster{
+      definitions: [
+        definition("designer", "UI/UX expert"),
+        definition("librarian", "Searches docs"),
+        definition("code-reviewer", "Reviews changes"),
+        definition("ard-expert", "Ard authority"),
+      ],
+      conversations: [
+        started("subagent_r", "code-reviewer", "running"),
+        started("subagent_l", "librarian", "failed"),
+        started("subagent_a", "ard-expert", "idle"),
+        started("subagent_o", "retired", "aborted"),
+      ],
+    },
+  )
+  let names = mut List::new<Str>()
+  for row in listed {
+    names.push("{row.name}:{row.state}:{row.conversation_id}")
+  }
+  let joined = strings::Join(names, " ")
+  testing::assert(
+    joined == "code-reviewer:running:subagent_r librarian:failed:subagent_l retired:aborted:subagent_o ard-expert:idle:subagent_a designer::",
+    joined,
+  )
+}
+
+test fn configurations_fall_back_to_the_sessions() Void!Str {
+  let own = Row{
+    name: "a",
+    description: "",
+    model: "anthropic/claude-haiku-4-5",
+    thinking: "low",
+    state: "idle",
+    conversation_id: "subagent_a",
+  }
+  let inherited = Row{
+    name: "b",
+    description: "",
+    model: "",
+    thinking: "",
+    state: "",
+    conversation_id: "",
+  }
+  try testing::assert(
+    configuration(own, "openai/gpt-5", "high") == "Claude Haiku 4.5 (low)",
+    configuration(own, "openai/gpt-5", "high"),
+  )
+  testing::assert(
+    configuration(inherited, "anthropic/claude-sonnet-4-5", "high") == "Claude Sonnet 4.5 (high)",
+    configuration(inherited, "anthropic/claude-sonnet-4-5", "high"),
+  )
+}

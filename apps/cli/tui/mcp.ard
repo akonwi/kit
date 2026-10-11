@@ -1,0 +1,89 @@
+use go:api/contract as protocol
+use cooper/cui
+use cooper/keymap
+use kit/tui/palette
+use kit/tui/theme
+use go:strings
+
+// Props is the snapshot-backed MCP status projection shown in the picker.
+struct Props {
+  themes: theme::Context,
+  servers: [protocol::MCPServerStatus],
+  warnings: [Str],
+  dismiss: keymap::SimpleCommand,
+}
+
+struct Status {
+  // Server status is parent-owned and may change while the retained picker is
+  // open. The nested palette retains its own query, selection, and scrolling.
+  props: mut Props,
+}
+
+fn new(props: mut Props) mut Status {
+  (mut Status{props: props})
+}
+
+private fn status_label(state: Str) Str {
+  match state {
+    "configured" => "available",
+    "error" => "failed",
+    _ => state,
+  }
+}
+
+// source_label keeps configuration provenance concise in the picker metadata column.
+private fn source_label(source: Str) Str {
+  match source {
+    "kit-user" => "global",
+    "shared-project" => "project",
+    "kit-project" => "project",
+    _ => source,
+  }
+}
+
+private fn catalog(servers: [protocol::MCPServerStatus]) [palette::Item] {
+  let result = mut List::new<palette::Item>()
+  for server in servers {
+    let tools = match server.ToolCount == 1 {
+      true => "tool",
+      false => "tools",
+    }
+    result.push(
+      palette::Item{
+        key: server.Name,
+        label: server.Name,
+        hint: "",
+        meta: source_label(server.Source),
+        description: "{status_label(server.State)} · {strings::ToUpper(server.Transport)} · {server.ToolCount} {tools}",
+        search_terms: [server.Transport, server.Source, server.Description, server.State],
+        disabled_reason: "",
+      },
+    )
+  }
+  result.@
+}
+
+impl cui::Component for Status {
+  fn mut render() cui::View {
+    cui::child(
+      palette::new_picker,
+      palette::PickerProps{
+        themes: self.props.themes,
+        catalog: catalog(self.props.servers),
+        placeholder: "Search MCP servers…",
+        initial_selection: "",
+        title: "",
+        footer: "",
+        error: "",
+        dismiss: self.props.dismiss,
+        override: Maybe::new<fn(Str)>(),
+        remove: Maybe::new<fn(Str)>(),
+        toggle: Maybe::new<fn(Str, Bool)>(),
+        tree: Maybe::new<[palette::Branch]>(),
+        on_query_change: fn(query: Str) {},
+        on_selection_change: fn(selected: Str) {},
+        on_activate: fn(item: palette::Item) {},
+      },
+    )
+  }
+}

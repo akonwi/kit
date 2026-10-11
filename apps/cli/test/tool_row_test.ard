@@ -1,0 +1,271 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use cooper/ui
+use go:kit/ffi/toolpresentation
+use kit/tui/theme
+use kit/tui/tool_row
+use kit/tui/transcript
+use go:strings
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn same_color(left: ui::Color?, right: ui::Color) Bool {
+  match left {
+    color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+    _ => false,
+  }
+}
+
+fn call(name: Str, arguments: Str) transcript::ToolCall {
+  let made = mut transcript::tool_call("c1", name)
+  made.arguments = arguments
+  made.@
+}
+
+fn result(state: transcript::ToolState, text: Str) transcript::Message {
+  let made = mut transcript::message("r1", "t1", transcript::Role::tool)
+  made.tool_call_id = "c1"
+  made.tool_state = state
+  made.text = text
+  made.@
+}
+
+struct Shown {
+  terminal: headless::TestApp,
+  renderer: cui::Renderer,
+}
+
+// Mounts one row in a terminal width cells wide and lets it measure itself.
+fn show(width: Int, called: transcript::ToolCall, outcome: transcript::Message, servers: [Str]?) Shown {
+  let terminal = headless::new(width, 2)
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    tool_row::view(
+      tool_row::Props{
+        themes: theme::context(theme::store(theme::system())),
+        call: called,
+        result: outcome,
+        selected: false,
+        on_select: fn() {},
+        servers: servers.or([]),
+        title_width: tool_row::min_title_width,
+      },
+    ),
+  )
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+  Shown{terminal: terminal, renderer: renderer}
+}
+
+test fn a_wide_row_shows_its_title_column_and_summary_chip() Void!Str {
+  let shown = show(
+    64,
+    call("edit", "{{\"path\":\"internal/parser/tokenize.go\"}}"),
+    result(transcript::ToolState::completed, "Edited"),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(rows(shown.terminal), ["  Edit file           internal/parser/tokenize.go", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  let title = shown.terminal.frame().cell(2, 0).expect("title")
+  try testing::assert(same_color(title.style.foreground, colors.accent_text), "the title is accented")
+  let chip = shown.terminal.frame().cell(21, 0).expect("chip")
+  testing::assert(same_color(chip.style.background, colors.surface), "the summary sits on a chip")
+}
+
+test fn a_failed_call_marks_its_title_as_failed() Void!Str {
+  let shown = show(
+    64,
+    call("bash", "{{\"command\":\"go test ./...\"}}"),
+    result(transcript::ToolState::failed, "exit status 1"),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(rows(shown.terminal), ["✗ Run command         go test ./...", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  let icon = shown.terminal.frame().cell(0, 0).expect("icon")
+  try testing::assert(same_color(icon.style.foreground, colors.danger_text), "the mark is red")
+  let title = shown.terminal.frame().cell(2, 0).expect("title")
+  testing::assert(same_color(title.style.foreground, colors.danger_text), "the title is red")
+}
+
+test fn a_call_that_did_not_run_is_muted() Void!Str {
+  let shown = show(
+    64,
+    call("read", "{{\"path\":\"go.mod\"}}"),
+    result(transcript::ToolState::not_run, ""),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(rows(shown.terminal), ["⊘ Read file           go.mod", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  let title = shown.terminal.frame().cell(2, 0).expect("title")
+  testing::assert(same_color(title.style.foreground, colors.muted), "the title is muted")
+}
+
+test fn a_narrow_row_moves_its_summary_below_and_keeps_the_path_end() Void!Str {
+  let shown = show(
+    34,
+    call("read", "{{\"path\":\"docs/design/0012-native-macos-client.md\"}}"),
+    result(transcript::ToolState::completed, "one\ntwo"),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(rows(shown.terminal), ["  Read file", "   …/native-macos-client.md:1–2"])
+}
+
+test fn a_call_with_nothing_to_summarize_shows_only_its_title() Void!Str {
+  let shown = show(
+    64,
+    call("read_scratchpad", "{{}}"),
+    result(transcript::ToolState::completed, "notes"),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(rows(shown.terminal), ["  Read scratchpad", ""])
+  let narrow = show(
+    30,
+    call("subagent_inbox", "{{}}"),
+    result(transcript::ToolState::completed, ""),
+  )
+  defer narrow.terminal.destroy()
+  defer narrow.renderer.destroy()
+  expect_rows(rows(narrow.terminal), ["  Check inbox", ""])
+}
+
+test fn an_mcp_call_is_titled_after_its_server() Void!Str {
+  let shown = show(
+    64,
+    call("everything", "{{\"action\":\"search\",\"query\":\"dns records\"}}"),
+    result(transcript::ToolState::completed, ""),
+    servers: ["everything"],
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(rows(shown.terminal), ["  Search everything   dns records", ""])
+}
+
+struct Opened {
+  targets: [toolpresentation::FileTarget],
+  selections: Int,
+}
+
+test fn a_read_summary_opens_its_file_at_the_first_line_read() Void!Str {
+  let opened = mut Opened{targets: [], selections: 0}
+  let terminal = headless::new(64, 2)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    tool_row::view(
+      tool_row::Props{
+        themes: theme::context(theme::store(theme::system())),
+        call: call("read", "{{\"path\":\"internal/parser/tokenize.go\",\"offset\":40}}"),
+        result: result(transcript::ToolState::completed, "package parser"),
+        selected: false,
+        on_select: fn() {
+          opened.selections =+ 1
+        },
+        servers: [],
+        title_width: tool_row::min_title_width,
+        open_file: Maybe::new(fn(target: toolpresentation::FileTarget) {
+          let next = mut List::new<toolpresentation::FileTarget>()
+          for earlier in opened.targets {
+            next.push(earlier)
+          }
+          next.push(target)
+          opened.targets = next.@
+        }),
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+  let colors = theme::context(theme::store(theme::system())).current()
+  terminal.mouse_move(25, 0)
+  terminal.flush()
+  let chip = terminal.frame().cell(25, 0).expect("chip")
+  try testing::assert(
+    same_color(chip.style.background, colors.surface_hovered),
+    "the summary shows it is a link",
+  )
+  terminal.click(25, 0)
+  terminal.flush()
+  try testing::assert(opened.targets.size() == 1, "clicking the summary opens its file")
+  let target = opened.targets.at(0).expect("the opened file")
+  try testing::assert(
+    target.Path == "internal/parser/tokenize.go" and target.Line == 40,
+    "at the first line read",
+  )
+  try testing::assert(opened.selections == 0, "the summary's click doesn't select the row")
+  terminal.click(4, 0)
+  terminal.flush()
+  testing::assert(
+    opened.targets.size() == 1 and opened.selections == 1,
+    "the title still selects the row",
+  )
+}
+
+test fn a_subagent_summary_opens_the_agents_conversation() Void!Str {
+  let opened = mut Opened{targets: [], selections: 0}
+  let agents = mut List::new<Str>()
+  let terminal = headless::new(64, 2)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    tool_row::view(
+      tool_row::Props{
+        themes: theme::context(theme::store(theme::system())),
+        call: call("subagent", "{{\"action\":\"start\",\"agent\":\"code-reviewer\",\"message\":\"Review\"}}"),
+        result: result(transcript::ToolState::completed, "started"),
+        selected: false,
+        on_select: fn() {
+          opened.selections =+ 1
+        },
+        servers: [],
+        title_width: tool_row::min_title_width,
+        open_file: Maybe::new(fn(target: toolpresentation::FileTarget) {}),
+        open_agent: Maybe::new(fn(agent: Str) {
+          agents.push(agent)
+        }),
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+  try expect_rows(rows(terminal), ["  Start agent         code-reviewer", ""])
+  terminal.click(25, 0)
+  terminal.flush()
+  try testing::assert(
+    strings::Join(mut agents, ",") == "code-reviewer",
+    "clicking the agent opens its conversation: {strings::Join(mut agents, ",")}",
+  )
+  testing::assert(opened.selections == 0, "the summary's click doesn't select the row")
+}

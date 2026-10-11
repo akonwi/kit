@@ -1,0 +1,1680 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/attachments
+use kit/tui/composer
+use kit/tui/file_index
+use kit/tui/session_mentions
+use kit/tui/theme
+use go:os
+use go:path/filepath
+use go:strings
+
+struct Model {
+  enabled: Bool,
+  focus_eligible: Bool,
+  submitted: Str,
+  accept_submission: Bool,
+  other: Str,
+  bash: Bool,
+  palette_opens: Int,
+  follow_ups: Int,
+  restores: Int,
+  recalls: Int,
+  // Requests for command history, and the cursors of older pages asked for.
+  bash_recalls: Int,
+  older: [Int64],
+  // Escapes reaching the application, as the Shell's turn abort does.
+  aborts: Int,
+  submissions: Int,
+  // Whether pasted paths are accepted, and those accepted.
+  accept_attachments: Bool,
+  attached: [Str],
+  // The indexed paths mentions list, and how often they were asked for.
+  files: file_index::Index,
+  file_loads: Int,
+  // The sessions `#` mentions list, and how often they were asked for.
+  sessions: session_mentions::Source,
+  session_loads: Int,
+  context: cui::Context?,
+  control: mut composer::Ref,
+  other_input: mut cui::InputRef,
+}
+
+struct Props {
+  model: mut Model,
+  themes: theme::Context,
+}
+
+struct Host {
+  props: mut Props,
+}
+
+fn host(props: mut Props) mut Host {
+  (mut Host{props: props})
+}
+
+impl cui::Lifecycle for Host {
+  fn mut mounted(context: cui::Context) {
+    self.props.model.context = Maybe::new(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    let model = self.props.model
+    let abort = keymap::simple_command("test.abort", "Abort", fn() Bool {
+      model.aborts =+ 1
+      true
+    })
+    // The composer rests at the bottom, as in the Shell, so pickers that grow
+    // upward from it are on screen.
+    cui::box(
+      [
+        cui::box([], styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0))),
+        composer::view(
+          composer::Props{
+            // As the Shell's attachment does, the index starts loading.
+            themes: self.props.themes,
+            enabled: model.enabled,
+            focus_eligible: model.focus_eligible,
+            control: model.control,
+            submit: fn(text: Str) Bool {
+              model.submissions =+ 1
+              if model.accept_submission {
+                model.submitted = text
+              }
+              model.accept_submission
+            },
+            follow_ups: model.follow_ups,
+            attach: fn(paths: [Str]) Bool {
+              if model.accept_attachments {
+                for path in paths {
+                  model.attached.push(path)
+                }
+              }
+              model.accept_attachments
+            },
+            restore_follow_ups: fn() {
+              model.restores =+ 1
+            },
+            recall_history: fn() {
+              model.recalls =+ 1
+            },
+            recall_bash: fn() {
+              model.bash_recalls =+ 1
+            },
+            older_bash: fn(before: Int64) {
+              model.older.push(before)
+            },
+            open_palette: fn() {
+              model.palette_opens =+ 1
+            },
+            files: model.files,
+            load_files: fn() {
+              model.file_loads =+ 1
+              match model.context {
+                context => {
+                  let _ = context.dispatch(fn() {
+                    model.files.loading = true
+                  })
+                },
+                _ => (),
+              }
+            },
+            sessions: model.sessions,
+            load_sessions: fn() {
+              model.session_loads =+ 1
+              match model.context {
+                context => {
+                  let _ = context.dispatch(fn() {
+                    model.sessions = session_mentions::begin(model.sessions)
+                  })
+                },
+                _ => (),
+              }
+            },
+            bash_changed: fn(bash: Bool) {
+              model.bash = bash
+            },
+          },
+        ),
+        cui::input(
+          model.other,
+          key: "other",
+          ref: model.other_input,
+          styles: ui::style(flex_shrink: 0.0),
+          on_input: fn(value: Str, context: cui::Context) {
+            model.other = value
+          },
+        ),
+      ],
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        flex_direction: ui::FlexDirection::column,
+      ),
+      commands: [abort],
+      bindings: [keymap::binding(keymap::key("escape"), abort.with())],
+      binding_scope: keymap::ScopeMode::application,
+    )
+  }
+}
+
+fn model() mut Model {
+  (mut Model{
+    enabled: true,
+    focus_eligible: true,
+    submitted: "",
+    accept_submission: true,
+    other: "",
+    bash: false,
+    palette_opens: 0,
+    follow_ups: 0,
+    restores: 0,
+    recalls: 0,
+    bash_recalls: 0,
+    older: [],
+    aborts: 0,
+    submissions: 0,
+    accept_attachments: true,
+    attached: [],
+    files: file_index::Index{
+      paths: [],
+      loading: false,
+      failure: "",
+      truncated: false,
+      generation: 0,
+    },
+    file_loads: 0,
+    sessions: session_mentions::source(),
+    session_loads: 0,
+    context: Maybe::new<cui::Context>(),
+    control: composer::ref(),
+    other_input: cui::input_ref(),
+  })
+}
+
+fn mount(terminal: headless::TestApp, value: mut Model) cui::Renderer {
+  cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    cui::child(host, Props{model: value, themes: theme::context(theme::store(theme::system()))}),
+  )
+}
+
+fn key(name: Str, text: Str?) mut event::KeyEvent {
+  event::key(
+    name,
+    text.or(""),
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: false,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+fn character(value: Str) mut event::KeyEvent {
+  key(value, text: value)
+}
+
+fn chord(name: Str, shift: Bool, ctrl: Bool) mut event::KeyEvent {
+  event::key(
+    name,
+    "",
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: shift,
+      ctrl: ctrl,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+test fn ctrl_w_and_ctrl_shift_w_delete_the_word_before_and_after_the_cursor() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("one two three"))
+  terminal.flush()
+  terminal.key(chord("w", false, true))
+  terminal.flush()
+  terminal.key(chord("a", false, true))
+  terminal.flush()
+  terminal.key(chord("w", true, true))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  // Submission trims the spaces left around the remaining word.
+  testing::assert(value.submitted == "two", "got \"{value.submitted}\"")
+}
+
+test fn parent_renders_do_not_make_the_composer_reclaim_focus() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let context = value.context.expect("mounted host")
+  let _ = value.other_input.focus(context)
+  let _ = context.dispatch(fn() {
+    value.enabled = true
+  })
+  terminal.flush()
+  terminal.key(character("a"))
+  terminal.flush()
+  terminal.key(character("b"))
+  terminal.flush()
+
+  try testing::assert(value.other == "ab", "the explicitly focused input keeps keyboard ownership")
+  testing::assert(value.submitted == "", "the composer remains idle")
+}
+
+test fn a_focus_request_does_not_keep_reclaiming_focus() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  try testing::assert(value.control.focus(), "focus is requested")
+  terminal.flush()
+  let context = value.context.expect("mounted host")
+  let _ = value.other_input.focus(context)
+  terminal.flush()
+  // Each typed letter commits a frame; the composer stays unfocused.
+  terminal.key(character("a"))
+  terminal.flush()
+  terminal.key(character("b"))
+  terminal.flush()
+  testing::assert(value.other == "ab", "the other input keeps focus: {value.other}")
+}
+
+test fn enabling_the_composer_does_not_focus_it_without_an_explicit_request() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let context = value.context.expect("mounted host")
+  let _ = value.other_input.focus(context)
+  let _ = context.dispatch(fn() {
+    value.enabled = false
+  })
+  terminal.flush()
+  let _ = context.dispatch(fn() {
+    value.enabled = true
+  })
+  terminal.flush()
+  terminal.key(character("x"))
+  terminal.flush()
+  try testing::assert(value.other == "x", "an enabled transition does not steal focus")
+
+  try testing::assert(value.control.focus(), "the mounted composer accepts an explicit focus request")
+  terminal.flush()
+  terminal.flush()
+  terminal.key(character("y"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+
+  testing::assert(
+    value.submitted == "y",
+    "explicit focus routes input and submission to the composer",
+  )
+}
+
+test fn the_retained_composer_preserves_drafts_across_parent_updates() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("a"))
+  terminal.flush()
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.enabled = true
+  })
+  terminal.flush()
+  terminal.key(character("b"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+
+  testing::assert(value.submitted == "ab", "parent reconciliation preserves the child-owned draft")
+}
+
+test fn clear_and_restore_mutate_the_draft_through_the_composer_owner() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  try testing::assert(value.bash, "the Bash panel is reported to the Shell")
+  try testing::assert(value.control.clear(), "clear handles a non-empty draft")
+  terminal.flush()
+  try testing::assert(not value.bash, "clearing the draft closes the Bash panel")
+  try testing::assert(
+    value.control.restore_if_empty("restored"),
+    "restore is scheduled through the owner",
+  )
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(value.submitted == "restored", "a failed submission can restore an empty draft")
+
+  terminal.key(character("old session"))
+  terminal.flush()
+  let _ = value.control.reset()
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "", "session reset clears the child-owned draft")
+}
+
+test fn rejected_submission_keeps_the_draft_until_shell_can_accept_it() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  value.accept_submission = false
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("draft"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(
+    value.submitted == "",
+    "Shell can reject a submission without accepting responsibility",
+  )
+
+  value.accept_submission = true
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(
+    value.submitted == "draft",
+    "the rejected draft remains available for a later submission",
+  )
+}
+
+test fn parent_can_enable_and_focus_the_composer_in_one_transition() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  value.enabled = false
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let context = value.context.expect("mounted host")
+  let _ = value.other_input.focus(context)
+  terminal.flush()
+  let _ = context.dispatch(fn() {
+    value.enabled = true
+    let _ = value.control.focus()
+  })
+  terminal.flush()
+  terminal.flush()
+  terminal.key(character("x"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+
+  try testing::assert(value.other == "", "the previous input releases focus")
+  testing::assert(
+    value.submitted == "x",
+    "the newly enabled composer receives the explicit focus request",
+  )
+}
+
+test fn a_focus_request_does_not_override_the_parent_transitions_final_disabled_state() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let context = value.context.expect("mounted host")
+  let _ = value.other_input.focus(context)
+  terminal.flush()
+  let _ = context.dispatch(fn() {
+    value.enabled = true
+    let _ = value.control.focus()
+    value.enabled = false
+  })
+  terminal.flush()
+  terminal.flush()
+  terminal.key(character("x"))
+  terminal.flush()
+
+  try testing::assert(value.submitted == "", "the disabled composer does not receive input")
+  testing::assert(value.other == "x", "the prior focus owner remains active")
+}
+
+test fn a_focus_request_does_not_override_a_new_workspace_focus_owner() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let context = value.context.expect("mounted host")
+  let _ = value.other_input.focus(context)
+  terminal.flush()
+  let _ = context.dispatch(fn() {
+    let _ = value.control.focus()
+    // Composer remains editable, but another workspace owns default focus.
+    value.focus_eligible = false
+  })
+  terminal.flush()
+  terminal.flush()
+  terminal.key(character("x"))
+  terminal.flush()
+
+  try testing::assert(value.submitted == "", "the composer does not take the workspace's focus")
+  testing::assert(value.other == "x", "the workspace focus owner remains active")
+}
+
+test fn up_restores_queued_follow_ups_only_while_any_are_queued() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("ab"))
+  terminal.flush()
+  terminal.key(
+    event::key(
+      "return",
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: true,
+        ctrl: false,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  terminal.key(character("cd"))
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.flush()
+  terminal.key(character("X"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(
+    value.restores == 0 and value.submitted == "abX\ncd",
+    "without a queue Up moves the cursor: {value.submitted}",
+  )
+
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.follow_ups = 2
+  })
+  terminal.flush()
+  terminal.key(character("draft"))
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.flush()
+  testing::assert(value.restores == 1, "Up restores the queue, even with a draft")
+}
+
+test fn enter_offers_a_blank_draft_as_empty() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  value.submitted = "unchanged"
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character(" "))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(
+    value.submissions == 1 and value.submitted == "",
+    "the shell decides what an empty draft sends",
+  )
+}
+
+test fn a_pasted_file_list_is_attached_instead_of_typed() Void!Str {
+  let directory = attachments::fixtures()
+  defer os::RemoveAll(directory)
+  let notes = filepath::Join(directory, "notes.txt")
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("see "))
+  terminal.flush()
+  terminal.paste(event::paste("{notes}\n"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(
+    value.attached.size() == 1 and value.attached.at(0).or("") == notes,
+    "the file is attached",
+  )
+  try testing::assert(value.submitted == "see", "the path stays out of the draft: {value.submitted}")
+
+  terminal.paste(event::paste("look at {notes}"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(value.attached.size() == 1, "prose is not attached")
+  try testing::assert(value.submitted == "look at {notes}", "prose is typed: {value.submitted}")
+
+  value.accept_attachments = false
+  terminal.paste(event::paste(notes))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == notes, "a refused attachment stays text: {value.submitted}")
+}
+
+test fn restored_text_goes_before_the_draft_with_the_cursor_at_the_end() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("draft"))
+  terminal.flush()
+  try testing::assert(value.control.prepend("first\n\nsecond"), "prepend is scheduled")
+  terminal.flush()
+  terminal.key(character("!"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(
+    value.submitted == "first\n\nsecond\n\ndraft!",
+    "the queue comes first: {value.submitted}",
+  )
+
+  let _ = value.control.prepend("only")
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "only", "an empty draft takes the text alone")
+}
+
+test fn a_file_list_inserted_as_text_is_attached() Void!Str {
+  let directory = attachments::fixtures()
+  defer os::RemoveAll(directory)
+  let notes = filepath::Join(directory, "notes.txt")
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("see "))
+  terminal.flush()
+  // A terminal that does not mark pastes inserts the text as one change.
+  terminal.key(character(notes))
+  terminal.flush()
+  terminal.key(character("!"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(
+    value.attached.size() == 1 and value.attached.at(0).or("") == notes,
+    "the file is attached",
+  )
+  testing::assert(value.submitted == "see !", "the path leaves the draft: {value.submitted}")
+}
+
+test fn a_path_completed_across_changes_is_attached() Void!Str {
+  let directory = attachments::fixtures()
+  defer os::RemoveAll(directory)
+  let notes = filepath::Join(directory, "notes.txt")
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  for part in [filepath::Dir(notes), "/notes", ".txt"] {
+    terminal.key(character(part))
+    terminal.flush()
+  }
+  try testing::assert(value.attached.size() == 1, "the completed path is attached")
+  terminal.key(character("hi"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "hi", "the draft is cleared of the path: {value.submitted}")
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn history() [composer::HistoryEntry] {
+  [
+    composer::HistoryEntry{id: "3", text: "run the tests"},
+    composer::HistoryEntry{id: "2", text: "fix the\n  flaky test"},
+    composer::HistoryEntry{id: "1", text: "explain the repo"},
+  ]
+}
+
+test fn up_on_a_blank_draft_asks_for_message_history() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character(" "))
+  terminal.key(key("up"))
+  terminal.flush()
+  try testing::assert(value.recalls == 1, "a blank draft recalls history")
+
+  terminal.key(character("draft"))
+  terminal.key(key("up"))
+  terminal.flush()
+  try testing::assert(value.recalls == 1, "a draft keeps Up for the cursor")
+
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.follow_ups = 1
+  })
+  terminal.flush()
+  let _ = value.control.clear()
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.flush()
+  testing::assert(
+    value.recalls == 1 and value.restores == 1,
+    "queued follow-ups are restored first",
+  )
+}
+
+test fn message_history_lists_prompts_oldest_first_above_the_composer() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  try testing::assert(value.control.open_history(history()), "history is scheduled")
+  terminal.flush()
+  // The newest prompt sits nearest the composer, selected; a multi-line
+  // prompt shows on one line.
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      " ┌──────────────────────────────────────────────┐",
+      " │ explain the repo                             │",
+      " │ fix the flaky test                           │",
+      " │▌run the tests                                │",
+      " └──────────────────────────────────────────────┘",
+      " Ask kit to do something…",
+      "",
+    ],
+  )
+}
+
+test fn the_draft_filters_message_history_and_enter_recalls_the_selection() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let _ = value.control.open_history(history())
+  terminal.flush()
+  terminal.key(character("ts"))
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      " ┌──────────────────────────────────────────────┐",
+      " │▌fix the flaky test                           │",
+      " │ run the tests                                │",
+      " └──────────────────────────────────────────────┘",
+      " ts",
+      "",
+    ],
+  )
+  // Moving wraps at both ends: down to the last, past it to the first, and
+  // back up past the first to the last.
+  terminal.key(key("down"))
+  terminal.key(key("down"))
+  terminal.key(key("up"))
+  terminal.key(key("up"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(value.submissions == 0, "Enter recalls instead of sending")
+  terminal.key(character("!"))
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(
+    value.submitted == "fix the\n  flaky test!",
+    "the whole prompt is recalled with the cursor at its end: {value.submitted}",
+  )
+}
+
+test fn escape_closes_message_history_and_keeps_the_draft() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let _ = value.control.open_history(history())
+  terminal.flush()
+  terminal.key(character("zzz"))
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(6).or("") == " │ No results                                   │",
+    "nothing matches",
+  )
+  // Enter with nothing selected does nothing.
+  terminal.key(key("return"))
+  terminal.key(key("escape"))
+  terminal.flush()
+  try expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", " zzz", ""])
+  try testing::assert(value.aborts == 0, "Escape closes the picker without aborting the turn")
+  terminal.key(key("escape"))
+  terminal.flush()
+  try testing::assert(value.aborts == 1, "without the picker Escape aborts again")
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "zzz", "Enter sends again")
+}
+
+test fn clicking_a_prompt_recalls_it() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let _ = value.control.open_history(history())
+  terminal.flush()
+  terminal.click(5, 4)
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "explain the repo", "got {value.submitted}")
+}
+
+test fn a_disabled_composer_closes_message_history() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let _ = value.control.open_history(history())
+  terminal.flush()
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.enabled = false
+  })
+  terminal.flush()
+  let _ = context.dispatch(fn() {
+    value.enabled = true
+  })
+  terminal.flush()
+  expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", " Ask kit to do something…", ""])
+}
+
+test fn typing_bang_opens_the_bash_panel_with_the_prefix_out_of_the_field() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  try testing::assert(value.bash, "the composer reports the Bash panel")
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "┌──────────────────────────────────────────────┐",
+      "│ Bash                              In context │",
+      "├──────────────────────────────────────────────┤",
+      "│ Run a command…                               │",
+      "└──────────────────────────────────────────────┘",
+      "",
+    ],
+  )
+  terminal.key(character("ls"))
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(5).or("") == "│ ls                                           │",
+    "got {rows(terminal).at(5).or("")}",
+  )
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(
+    value.submitted == "!ls" and not value.bash,
+    "the command runs with its prefix: {value.submitted}",
+  )
+}
+
+test fn a_bang_at_the_start_keeps_the_result_out_of_context_until_backspace() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!ls"))
+  terminal.key(key("home"))
+  terminal.key(character("!"))
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "┌──────────────────────────────────────────────┐",
+      "│ Bash                          Not in context │",
+      "├──────────────────────────────────────────────┤",
+      "│ ls                                           │",
+      "└──────────────────────────────────────────────┘",
+      "",
+    ],
+  )
+  // The caret stays before the command, so Backspace puts it back in
+  // context, and what is typed next goes before it.
+  terminal.key(key("backspace"))
+  terminal.key(character("x"))
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(3).or("") == "│ Bash                              In context │" and rows(terminal).at(5).or("") == "│ xls                                          │",
+    "got {rows(terminal).at(3).or("")} / {rows(terminal).at(5).or("")}",
+  )
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "!xls", "got {value.submitted}")
+}
+
+test fn backspace_edits_the_command_and_leaves_the_panel_once_it_is_empty() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!!l"))
+  terminal.flush()
+  terminal.key(key("backspace"))
+  terminal.flush()
+  try testing::assert(
+    value.bash and rows(terminal).at(3).or("") == "│ Bash                          Not in context │",
+    "deleting the command keeps the panel and its mode",
+  )
+  terminal.key(key("backspace"))
+  terminal.flush()
+  try testing::assert(
+    value.bash and rows(terminal).at(3).or("") == "│ Bash                              In context │",
+    "the first Backspace at the start puts the result in context",
+  )
+  terminal.key(key("backspace"))
+  terminal.flush()
+  try testing::assert(not value.bash, "the next one leaves the panel")
+  expect_rows(rows(terminal), ["", "", "", "", "", "", " Ask kit to do something…", ""])
+}
+
+test fn escape_leaves_the_panel_keeping_the_command_as_a_prompt() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!!git log"))
+  terminal.flush()
+  terminal.key(key("escape"))
+  terminal.flush()
+  try testing::assert(not value.bash and value.aborts == 0, "Escape leaves the panel first")
+  try expect_rows(rows(terminal), ["", "", "", "", "", "", " git log", ""])
+  // Typing continues the prompt.
+  terminal.key(character("!"))
+  terminal.key(key("escape"))
+  terminal.flush()
+  try testing::assert(value.aborts == 1, "an ordinary draft passes Escape on")
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "git log!", "got {value.submitted}")
+}
+
+test fn escape_closes_command_history_then_the_panel_then_reaches_the_turn() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!ls"))
+  terminal.flush()
+  let _ = value.control.open_bash_history(commands())
+  terminal.flush()
+  terminal.key(key("escape"))
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────┐",
+      "│ Bash                                      In context │",
+      "├──────────────────────────────────────────────────────┤",
+      "│ ls                                                   │",
+      "└──────────────────────────────────────────────────────┘",
+      "",
+    ],
+  )
+  terminal.key(key("escape"))
+  terminal.flush()
+  try testing::assert(not value.bash and value.aborts == 0, "the second Escape leaves the panel")
+  terminal.key(key("escape"))
+  terminal.flush()
+  testing::assert(value.aborts == 1, "the third reaches the application")
+}
+
+fn same(left: ui::Color?, right: ui::Color) Bool {
+  match left {
+    color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+    _ => false,
+  }
+}
+
+test fn the_context_switch_is_muted_meta_that_fills_on_hover() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+  let colors = theme::context(theme::store(theme::system())).current()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  // It was once underlined like a URL; underlines are only for navigable
+  // links.
+  let resting = terminal.frame().cell(40, 3).expect("context label").style
+  try testing::assert(
+    same(resting.foreground, colors.muted) and same(resting.background, colors.background) and (not resting.underline),
+    "the label rests as plain muted meta",
+  )
+  terminal.mouse_move(40, 3)
+  terminal.flush()
+  let hovered = terminal.frame().cell(40, 3).expect("context label").style
+  try testing::assert(
+    same(hovered.foreground, colors.primary_text) and same(hovered.background, colors.surface_hovered),
+    "hovering shows the control fill",
+  )
+  terminal.mouse_move(10, 3)
+  terminal.flush()
+  let left = terminal.frame().cell(40, 3).expect("context label").style
+  testing::assert(same(left.foreground, colors.muted), "leaving restores the rest style")
+}
+
+test fn clicking_the_context_switches_where_the_result_goes() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!pwd"))
+  terminal.flush()
+  terminal.click(40, 3)
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(3).or("") == "│ Bash                          Not in context │",
+    "got {rows(terminal).at(3).or("")}",
+  )
+  terminal.click(40, 3)
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(3).or("") == "│ Bash                              In context │",
+    "got {rows(terminal).at(3).or("")}",
+  )
+  // The field keeps focus.
+  terminal.key(character(" -P"))
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "!pwd -P", "got {value.submitted}")
+}
+
+fn commands() [composer::HistoryEntry] {
+  [
+    composer::HistoryEntry{id: "bash_3", text: "!git status"},
+    composer::HistoryEntry{id: "bash_2", text: "!!make test"},
+    composer::HistoryEntry{id: "bash_1", text: "!ls"},
+  ]
+}
+
+fn page(entries: [composer::HistoryEntry], more: Bool, before: Int) composer::BashPage? {
+  Maybe::new(
+    composer::BashPage{
+      entries: entries,
+      more: more,
+      before: Int64::from(before),
+    },
+  )
+}
+
+test fn up_and_down_in_bash_mode_ask_for_earlier_commands() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.flush()
+  terminal.key(key("down"))
+  terminal.flush()
+  try testing::assert(value.bash_recalls == 2 and value.recalls == 0, "both keys recall commands")
+
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.follow_ups = 1
+  })
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.key(key("down"))
+  terminal.flush()
+  testing::assert(
+    value.restores == 1 and value.bash_recalls == 3,
+    "queued follow-ups keep Up; Down still recalls commands",
+  )
+}
+
+test fn command_history_rests_above_the_caret_and_filters_by_command() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  let _ = value.control.open_bash_history(commands())
+  terminal.flush()
+  // The list sits on the row above the caret's line, from the caret's
+  // column, over the panel's header. Rows keep their `!` or `!!`.
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "  ┌──────────────────────────────────────────────┐",
+      "  │ !ls                                          │",
+      "┌─│ !!make test                                  │─────┐",
+      "│ │▌!git status                                  │text │",
+      "├─└──────────────────────────────────────────────┘─────┤",
+      "│ Run a command…                                       │",
+      "└──────────────────────────────────────────────────────┘",
+      "",
+    ],
+  )
+  // The command after `!` is the query, and the list follows the caret.
+  terminal.key(character("ma"))
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      "┌───┌──────────────────────────────────────────────┐───┐",
+      "│ Ba│▌!!make test                                  │xt │",
+      "├───└──────────────────────────────────────────────┘───┤",
+      "│ ma                                                   │",
+      "└──────────────────────────────────────────────────────┘",
+      "",
+    ],
+  )
+  // Choosing a command sets its mode.
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(5).or("") == "│ Bash                                  Not in context │" and rows(terminal).at(7).or("") == "│ make test                                            │",
+    "got {rows(terminal).at(5).or("")} / {rows(terminal).at(7).or("")}",
+  )
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "!!make test", "the command keeps its mode: {value.submitted}")
+}
+
+test fn the_sessions_commands_replace_the_known_ones_as_they_load() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!zz"))
+  terminal.flush()
+  let _ = value.control.open_bash_history(commands())
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(5).or("") == "│ Ba│ Loading history…                             │xt │",
+    "nothing known matches while history loads",
+  )
+  let _ = value.control.answer_bash_history(
+    page([composer::HistoryEntry{id: "bash_9", text: "!zz top"}], false, 0),
+    false,
+  )
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(5).or("") == "│ Ba│▌!zz top                                      │xt │",
+    "got {rows(terminal).at(5).or("")}",
+  )
+  // Leaving the Bash panel closes the picker.
+  terminal.key(key("backspace"))
+  terminal.key(key("backspace"))
+  terminal.key(key("backspace"))
+  terminal.flush()
+  expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", " Ask kit to do something…", ""])
+}
+
+test fn moving_up_past_the_oldest_command_reads_older_pages() Void!Str {
+  let terminal = headless::new(56, 12)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  let _ = value.control.open_bash_history([])
+  terminal.flush()
+  let _ = value.control.answer_bash_history(page(commands(), true, 40), false)
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.key(key("up"))
+  terminal.flush()
+  try testing::assert(value.older.size() == 0, "the newest commands come first")
+  terminal.key(key("up"))
+  terminal.key(key("up"))
+  terminal.flush()
+  try testing::assert(
+    value.older.size() == 1 and value.older.at(0).or(Int64::from(0)) == Int64::from(40),
+    "one read of the page before the cursor: {value.older.size()}",
+  )
+  let _ = value.control.answer_bash_history(
+    page([composer::HistoryEntry{id: "bash_0", text: "!pwd"}], false, 0),
+    true,
+  )
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(4).or("") == "  │ !pwd                                         │" and rows(terminal).at(5).or("") == "  │▌!ls                                          │",
+    "the older page goes above the selection, which stays",
+  )
+  // With no older page left, Up wraps.
+  terminal.key(key("up"))
+  terminal.key(key("up"))
+  terminal.flush()
+  testing::assert(
+    value.older.size() == 1 and rows(terminal).at(7).or("") == "│ │▌!git status                                  │text │",
+    "got {rows(terminal).at(7).or("")}",
+  )
+}
+
+test fn a_failed_older_page_ends_paging() Void!Str {
+  let terminal = headless::new(56, 12)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  let _ = value.control.open_bash_history([])
+  let _ = value.control.answer_bash_history(page(commands(), true, 40), false)
+  terminal.flush()
+  terminal.key(key("down"))
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.flush()
+  try testing::assert(value.older.size() == 1, "the oldest asks for more")
+  let _ = value.control.answer_bash_history(Maybe::new<composer::BashPage>(), true)
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.flush()
+  testing::assert(
+    value.older.size() == 1 and rows(terminal).at(7).or("") == "│ │▌!git status                                  │text │",
+    "Up wraps instead: {rows(terminal).at(7).or("")}",
+  )
+}
+
+// Types text one key at a time, as a person does.
+fn type_text(terminal: headless::TestApp, text: Str) {
+  for letter in strings::Split(text, "") {
+    terminal.key(character(letter))
+  }
+  terminal.flush()
+}
+
+fn indexed(paths: [Str]) file_index::Index {
+  file_index::Index{
+    paths: paths,
+    loading: false,
+    failure: "",
+    truncated: false,
+    generation: 1,
+  }
+}
+
+fn set_files(value: mut Model, files: file_index::Index) {
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.files = files
+  })
+}
+
+fn project() [Str] {
+  ["docs/", "internal/tui/app.go", "internal/tui/shell.go", "go.mod"]
+}
+
+test fn typing_at_after_a_space_asks_for_files_and_lists_them_above_it() Void!Str {
+  let terminal = headless::new(56, 9)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "mail@")
+  try testing::assert(value.file_loads == 0, "an @ inside a word is text")
+  type_text(terminal, " see @")
+  try testing::assert(value.file_loads == 1, "the mention asks for the index")
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      "        ┌──────────────────────────────────────────────┐",
+      "        │ Loading files…                               │",
+      "        └──────────────────────────────────────────────┘",
+      " mail@ see @",
+      "",
+    ],
+  )
+  set_files(value, indexed(project()))
+  terminal.flush()
+  // The picker rests on the line above the @, moved left only as far as the
+  // terminal requires, with the first path selected.
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      "        ┌──────────────────────────────────────────────┐",
+      "        │▌docs/                                        │",
+      "        │ internal/tui/app.go                          │",
+      "        │ internal/tui/shell.go                        │",
+      "        │ go.mod                                       │",
+      "        └──────────────────────────────────────────────┘",
+      " mail@ see @",
+      "",
+    ],
+  )
+}
+
+test fn the_query_ranks_paths_and_enter_mentions_the_selection_at_the_caret() Void!Str {
+  let terminal = headless::new(56, 9)
+  defer terminal.destroy()
+  let value = model()
+  value.files = indexed(project())
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  // The mention is typed before existing text.
+  type_text(terminal, "x")
+  terminal.key(chord("a", false, true))
+  type_text(terminal, "@tui")
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      " ┌──────────────────────────────────────────────┐",
+      " │▌internal/tui/app.go                          │",
+      " │ internal/tui/shell.go                        │",
+      " └──────────────────────────────────────────────┘",
+      " @tuix",
+      "",
+    ],
+  )
+  // Moving wraps, so Up from the first selects the last.
+  terminal.key(key("up"))
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(value.submissions == 0, "Enter mentions instead of sending")
+  // The caret keeps following what is typed after the mention.
+  type_text(terminal, "yz")
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(
+    value.submitted == "@internal/tui/shell.go yzx",
+    "the path replaces the query and the caret follows it: {value.submitted}",
+  )
+}
+
+test fn escape_and_whitespace_close_a_mention_and_keep_the_text() Void!Str {
+  let terminal = headless::new(56, 9)
+  defer terminal.destroy()
+  let value = model()
+  value.files = indexed(project())
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "@go")
+  terminal.key(key("escape"))
+  terminal.flush()
+  try expect_rows(rows(terminal), ["", "", "", "", "", "", "", " @go", ""])
+  try testing::assert(value.aborts == 0, "Escape closes the picker without aborting the turn")
+  type_text(terminal, " @")
+  try testing::assert(rows(terminal).at(7).or("") == " @go @", "a second mention opens")
+  type_text(terminal, "do ")
+  try expect_rows(rows(terminal), ["", "", "", "", "", "", "", " @go @do", ""])
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "@go @do", "Enter sends once the mention closed")
+}
+
+test fn clicking_a_path_mentions_it() Void!Str {
+  let terminal = headless::new(56, 9)
+  defer terminal.destroy()
+  let value = model()
+  value.files = indexed(project())
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "@")
+  terminal.click(4, 4)
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "@internal/tui/shell.go", "got {value.submitted}")
+}
+
+test fn the_index_reports_failures_and_partial_lists() Void!Str {
+  let terminal = headless::new(56, 9)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "@")
+  set_files(
+    value,
+    file_index::Index{
+      paths: [],
+      loading: false,
+      failure: "connection refused",
+      truncated: false,
+      generation: 0,
+    },
+  )
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(5).or("") == " │ Could not load files: connection refused     │",
+    "an index that never loaded explains why",
+  )
+  set_files(
+    value,
+    file_index::Index{
+      paths: ["internal/very/long/directory/structure/with/levels/tui/inline_picker.go", "go.mod"],
+      loading: false,
+      failure: "",
+      truncated: true,
+      generation: 2,
+    },
+  )
+  terminal.flush()
+  // A long path keeps its file name, and a partial index says so.
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      " ┌──────────────────────────────────────────────┐",
+      " │▌…/structure/with/levels/tui/inline_picker.go │",
+      " │ go.mod                                       │",
+      " ├──────────────────────────────────────────────┤",
+      " │ Showing first 4,000 indexed paths            │",
+      " └──────────────────────────────────────────────┘",
+      " @",
+      "",
+    ],
+  )
+}
+
+// Lists sessions as a finished load does, with the attached one excluded.
+fn list_sessions(value: mut Model, listed: [protocol::SessionInfo]!Str) {
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.sessions = session_mentions::finish(
+      value.sessions,
+      value.sessions.generation,
+      listed,
+      "attached",
+    )
+  })
+}
+
+fn other_sessions() [protocol::SessionInfo] {
+  [
+    protocol::SessionInfo{
+      ID: "attached",
+      Name: "This session",
+      CWD: "/srv/kit",
+    },
+    protocol::SessionInfo{
+      ID: "ses_release",
+      Name: "Release notes",
+      CWD: "/srv/kit",
+    },
+    protocol::SessionInfo{
+      ID: "ses_flaky",
+      Name: "",
+      CWD: "/srv/api",
+    },
+  ]
+}
+
+test fn typing_hash_after_a_space_lists_the_other_sessions_above_it() Void!Str {
+  let terminal = headless::new(72, 9)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "issue#")
+  try testing::assert(value.session_loads == 0, "a # inside a word is text")
+  type_text(terminal, " see #")
+  try testing::assert(value.session_loads == 1, "the mention asks for sessions")
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      "            ┌───────────────────────────────────────────────────────┐",
+      "            │ Loading sessions…                                     │",
+      "            └───────────────────────────────────────────────────────┘",
+      " issue# see #",
+      "",
+    ],
+  )
+  list_sessions(value, Result::ok(other_sessions()))
+  terminal.flush()
+  // Each session shows its name, then its directory and age, with the first
+  // selected.
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "            ┌───────────────────────────────────────────────────────┐",
+      "            │▌Release notes    /srv/kit                     unknown │",
+      "            │ Unnamed session  /srv/api                     unknown │",
+      "            └───────────────────────────────────────────────────────┘",
+      " issue# see #",
+      "",
+    ],
+  )
+}
+
+test fn a_session_id_matches_and_enter_inserts_a_session_reference() Void!Str {
+  let terminal = headless::new(72, 9)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "compare #")
+  list_sessions(value, Result::ok(other_sessions()))
+  terminal.flush()
+  type_text(terminal, "flaky")
+  try testing::assert(
+    rows(terminal).at(5).or("") == "         │▌Unnamed session  /srv/api                     unknown │",
+    "the ID matches: {rows(terminal).at(5).or("")}",
+  )
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(value.submissions == 0, "Enter mentions instead of sending")
+  type_text(terminal, "now")
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(
+    value.submitted == "compare #[session:ses_flaky] now",
+    "the reference replaces the query and the caret follows it: {value.submitted}",
+  )
+}
+
+test fn a_failed_session_load_is_shown_in_the_picker() Void!Str {
+  let terminal = headless::new(72, 9)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "#")
+  list_sessions(value, Result::err("connection refused"))
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(5).or("") == " │ Could not load sessions: connection refused           │",
+    rows(terminal).at(5).or(""),
+  )
+  // Escape closes it; a new mention lists sessions afresh.
+  terminal.key(key("escape"))
+  type_text(terminal, " #")
+  testing::assert(value.session_loads == 2, "each mention lists sessions again")
+}

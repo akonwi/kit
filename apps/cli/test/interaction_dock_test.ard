@@ -1,0 +1,997 @@
+use ard/testing
+use ard/unsafe
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/interaction_dock
+use kit/tui/theme
+use go:strings
+
+struct Model {
+  request: protocol::InteractionRequest,
+  queue_length: Int,
+  active: Bool,
+  submitting: Bool,
+  responses: [protocol::InteractionResponse],
+  control: mut interaction_dock::Ref,
+}
+
+struct HostProps {
+  model: mut Model,
+  themes: theme::Context,
+}
+
+struct Host {
+  model: mut Model,
+  themes: theme::Context,
+}
+
+fn host(props: mut HostProps) mut Host {
+  (mut Host{model: props.model, themes: props.themes})
+}
+
+// Hosts the dock beneath a transcript stand-in that keeps three rows, the way
+// the shell lays out the agent workspace.
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    let model = self.model
+    cui::box(
+      [
+        cui::box(
+          [cui::text("transcript")],
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0), min_height: ui::cells(3)),
+        ),
+        interaction_dock::dock(
+          interaction_dock::Props{
+            themes: self.themes,
+            request: model.request,
+            queue_length: model.queue_length,
+            active: model.active,
+            submitting: model.submitting,
+            respond: fn(response: protocol::InteractionResponse) {
+              model.responses.push(response)
+            },
+            control: model.control,
+          },
+        ),
+      ],
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        flex_direction: ui::FlexDirection::column,
+      ),
+    )
+  }
+}
+
+fn model(request: protocol::InteractionRequest) mut Model {
+  (mut Model{
+    request: request,
+    queue_length: 1,
+    active: true,
+    submitting: false,
+    responses: [],
+    control: interaction_dock::ref(),
+  })
+}
+
+fn mount(terminal: headless::TestApp, state: mut Model) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(app, cui::child(host, HostProps{model: state, themes: themes}))
+  settle(terminal)
+  renderer
+}
+
+// Windowed lists report their visible range after a commit, and the overflow
+// rows that range adds lay the list out once more.
+// Draws frames until the screen stops changing, as a live terminal does. A
+// list revealing its highlight can take several frames when overflow rows
+// appear and resize it.
+fn settle(terminal: headless::TestApp) {
+  terminal.flush()
+  mut previous = terminal.frame().text()
+  mut frames = 1
+  mut stable = false
+  while (not stable) and frames < 12 {
+    terminal.flush()
+    let current = terminal.frame().text()
+    stable = current == previous
+    previous = current
+    frames =+ 1
+  }
+}
+
+fn press(terminal: headless::TestApp, name: Str, shift: Bool?) {
+  terminal.key(key(name, shift))
+  settle(terminal)
+}
+
+fn type_text(terminal: headless::TestApp, text: Str) {
+  for character in text {
+    terminal.key(
+      event::key(
+        "{character}",
+        "{character}",
+        event::KeyEventType::press,
+        event::Modifiers{
+          shift: false,
+          ctrl: false,
+          alt: false,
+          super: false,
+        },
+      ),
+    )
+  }
+  settle(terminal)
+}
+
+fn only_response(state: mut Model) protocol::InteractionResponse!Str {
+  match state.responses.size() == 1 {
+    true => Result::ok(state.responses.at(0).expect("response")),
+    false => Result::err("{state.responses.size()} responses"),
+  }
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn key(name: Str, shift: Bool?) mut event::KeyEvent {
+  event::key(
+    name,
+    "",
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: shift.or(false),
+      ctrl: false,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+fn runners() protocol::InteractionRequest {
+  protocol::InteractionRequest{
+    ID: "interaction_runner",
+    TurnID: "turn-1",
+    ToolCallID: "call-1",
+    Kind: protocol::InteractionSelect,
+    Title: "Which test runner should I set up?",
+    Detail: "No test config exists yet. `vitest` reuses the Vite build.",
+    Options: [
+      protocol::InteractionOption{
+        ID: "vitest",
+        Label: "Vitest",
+        Detail: "Vite-native, Jest-compatible API",
+      },
+      protocol::InteractionOption{
+        ID: "jest",
+        Label: "Jest",
+        Detail: "Most widely used; needs a transform",
+      },
+      protocol::InteractionOption{
+        ID: "node",
+        Label: "node:test",
+        Detail: "Built in, no dependencies",
+      },
+      protocol::InteractionOption{
+        ID: "playwright",
+        Label: "Playwright Test",
+        Detail: "Browser end-to-end runner",
+      },
+      protocol::InteractionOption{
+        ID: "mocha",
+        Label: "Mocha + Chai",
+        Detail: "Flexible; assertions are separate",
+      },
+      protocol::InteractionOption{
+        ID: "none",
+        Label: "None for now",
+        Detail: "Only add the CI job",
+      },
+    ],
+  }
+}
+
+test fn a_select_request_lists_every_option_at_its_natural_height() Void!Str {
+  let terminal = headless::new(72, 18)
+  defer terminal.destroy()
+  let state = model(runners())
+  state.queue_length = 2
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────────────────┐",
+      "│ Which test runner should I set up?                            1 of 2 │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ No test config exists yet. vitest reuses the Vite build.             │",
+      "│                                                                      │",
+      "│▌A   Vitest           Vite-native, Jest-compatible API                │",
+      "│ B   Jest             Most widely used; needs a transform             │",
+      "│ C   node:test        Built in, no dependencies                       │",
+      "│ D   Playwright Test  Browser end-to-end runner                       │",
+      "│ E   Mocha + Chai     Flexible; assertions are separate               │",
+      "│ F   None for now     Only add the CI job                             │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ ↑↓ move · enter/space select · esc cancel                    Cancel  │",
+      "└──────────────────────────────────────────────────────────────────────┘",
+    ],
+  )
+  let colors = theme::system()
+  let selected = terminal.frame().cell(
+    30,
+    9,
+  ).expect("selected row").style.background.expect("selected fill")
+  testing::assert(
+    selected.red == colors.picker_selected.red and selected.green == colors.picker_selected.green and selected.blue == colors.picker_selected.blue,
+    "the highlighted option uses the picker selection fill",
+  )
+}
+
+test fn the_keyboard_moves_through_options_and_chooses_one() Void!Str {
+  let terminal = headless::new(72, 18)
+  defer terminal.destroy()
+  let state = model(runners())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  press(terminal, "down")
+  press(terminal, "j")
+  press(terminal, "k")
+  try testing::assert(
+    rows(terminal).at(9).or("") == "│ A   Vitest           Vite-native, Jest-compatible API                │" and rows(terminal).at(10).or("") == "│▌B   Jest             Most widely used; needs a transform             │",
+    "the highlight follows the keys",
+  )
+  press(terminal, "return")
+  let response = try only_response(state)
+  testing::assert(
+    response.RequestID == "interaction_runner" and response.SelectedOptionID == "jest" and (not response.Cancelled),
+    "Return chooses the highlighted option",
+  )
+}
+
+test fn clicking_an_option_chooses_it() Void!Str {
+  let terminal = headless::new(72, 18)
+  defer terminal.destroy()
+  let state = model(runners())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  terminal.click(10, 11)
+  settle(terminal)
+  let response = try only_response(state)
+  testing::assert(response.SelectedOptionID == "node", "the clicked option is chosen")
+}
+
+test fn a_constrained_terminal_windows_the_options_around_the_highlight() Void!Str {
+  let terminal = headless::new(72, 16)
+  defer terminal.destroy()
+  let state = model(runners())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────────────────┐",
+      "│ Which test runner should I set up?                                   │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ No test config exists yet. vitest reuses the Vite build.             │",
+      "│                                                                      │",
+      "│▌A   Vitest           Vite-native, Jest-compatible API                │",
+      "│ B   Jest             Most widely used; needs a transform             │",
+      "│ C   node:test        Built in, no dependencies                       │",
+      "│ D   Playwright Test  Browser end-to-end runner                       │",
+      "│     ▼ 2 more                                                         │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ ↑↓ move · enter/space select · esc cancel                    Cancel  │",
+      "└──────────────────────────────────────────────────────────────────────┘",
+    ],
+  )
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "down")
+  expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────────────────┐",
+      "│ Which test runner should I set up?                                   │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ No test config exists yet. vitest reuses the Vite build.             │",
+      "│                                                                      │",
+      "│     ▲ 2 more                                                         │",
+      "│ C   node:test        Built in, no dependencies                       │",
+      "│ D   Playwright Test  Browser end-to-end runner                       │",
+      "│▌E   Mocha + Chai     Flexible; assertions are separate               │",
+      "│     ▼ 1 more                                                         │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ ↑↓ move · enter/space select · esc cancel                    Cancel  │",
+      "└──────────────────────────────────────────────────────────────────────┘",
+    ],
+  )
+}
+
+fn confirmation() protocol::InteractionRequest {
+  protocol::InteractionRequest{
+    ID: "interaction_confirm",
+    TurnID: "turn-1",
+    ToolCallID: "call-1",
+    Kind: protocol::InteractionConfirm,
+    Title: "Delete the generated snapshots?",
+    Detail: "This removes **14 files**.",
+  }
+}
+
+test fn a_confirmation_answers_from_letters_and_buttons() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let state = model(confirmation())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────┐",
+      "│ Delete the generated snapshots?                          │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ This removes 14 files.                                   │",
+      "│                                                          │",
+      "│   Yes     No                                             │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ y yes · n no · esc cancel                        Cancel  │",
+      "└──────────────────────────────────────────────────────────┘",
+    ],
+  )
+  press(terminal, "n", shift: true)
+  let declined = try only_response(state)
+  try testing::assert((not unsafe::is_nil(declined.Confirmed)) and not declined.Confirmed.@, "N declines")
+  state.responses = []
+  press(terminal, "y")
+  let accepted = try only_response(state)
+  try testing::assert((not unsafe::is_nil(accepted.Confirmed)) and accepted.Confirmed.@, "y accepts")
+  state.responses = []
+  terminal.click(4, 8)
+  settle(terminal)
+  let clicked = try only_response(state)
+  testing::assert(
+    (not unsafe::is_nil(clicked.Confirmed)) and clicked.Confirmed.@,
+    "clicking Yes accepts",
+  )
+}
+
+test fn escape_and_the_cancel_button_cancel_the_request() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let state = model(confirmation())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  press(terminal, "escape")
+  let escaped = try only_response(state)
+  try testing::assert(escaped.Cancelled and unsafe::is_nil(escaped.Confirmed), "Escape cancels")
+  state.responses = []
+  terminal.click(52, 10)
+  settle(terminal)
+  let clicked = try only_response(state)
+  testing::assert(clicked.Cancelled, "the Cancel button cancels")
+}
+
+test fn a_text_request_submits_a_non_empty_answer() Void!Str {
+  let terminal = headless::new(60, 10)
+  defer terminal.destroy()
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_branch",
+      TurnID: "turn-1",
+      ToolCallID: "call-1",
+      Kind: protocol::InteractionInput,
+      Title: "Which branch should the fix target?",
+      Placeholder: "release/… or main",
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────┐",
+      "│ Which branch should the fix target?                      │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│  release/… or main                                       │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ enter submit · esc cancel                        Cancel  │",
+      "└──────────────────────────────────────────────────────────┘",
+    ],
+  )
+  press(terminal, "return")
+  try testing::assert(state.responses.size() == 0, "an empty answer is not submitted")
+  type_text(terminal, "main")
+  press(terminal, "return")
+  let response = try only_response(state)
+  testing::assert(
+    (not unsafe::is_nil(response.Value)) and response.Value.@ == "main",
+    "Return submits the typed answer",
+  )
+}
+
+test fn the_dock_ignores_input_while_inactive_or_submitting() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let state = model(confirmation())
+  state.active = false
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  press(terminal, "y")
+  press(terminal, "escape")
+  terminal.click(4, 8)
+  settle(terminal)
+  try testing::assert(state.responses.size() == 0, "a dock behind a dialog does not answer")
+  renderer.update(fn() {
+    state.active = true
+    state.submitting = true
+  })
+  settle(terminal)
+  press(terminal, "y")
+  testing::assert(state.responses.size() == 0, "a submitted request is not answered twice")
+}
+
+fn setup_questions() protocol::InteractionRequest {
+  protocol::InteractionRequest{
+    ID: "interaction_setup",
+    TurnID: "turn-1",
+    ToolCallID: "call-1",
+    Kind: protocol::InteractionGuided,
+    Title: "Set up the test suite",
+    Questions: [
+      protocol::InteractionQuestion{
+        ID: "name",
+        Prompt: "What should the npm script be called?",
+        Kind: protocol::InteractionQuestionText,
+        Required: true,
+      },
+      protocol::InteractionQuestion{
+        ID: "location",
+        Prompt: "Where should test files live?",
+        Detail: "Colocated tests match the default `include` glob.",
+        Kind: protocol::InteractionQuestionSelect,
+        Required: true,
+        Options: [
+          protocol::InteractionOption{
+            ID: "colocated",
+            Label: "Next to the source",
+            Detail: "src/clamp.test.ts",
+          },
+          protocol::InteractionOption{
+            ID: "folder",
+            Label: "Top-level tests/",
+            Detail: "tests/clamp.test.ts",
+          },
+        ],
+      },
+      protocol::InteractionQuestion{
+        ID: "jobs",
+        Prompt: "Which CI jobs should run the tests?",
+        Kind: protocol::InteractionQuestionMultiselect,
+        Required: false,
+        Options: [
+          protocol::InteractionOption{ID: "pr", Label: "Pull requests"},
+          protocol::InteractionOption{ID: "main", Label: "Pushes to main"},
+          protocol::InteractionOption{ID: "nightly", Label: "Nightly"},
+        ],
+      },
+    ],
+  }
+}
+
+fn answer(response: protocol::InteractionResponse, id: Str) protocol::InteractionAnswer!Str {
+  match response.Answers.get(id) {
+    found => Result::ok(found),
+    _ => Result::err("no answer for {id}"),
+  }
+}
+
+test fn guided_questions_collect_every_answer_into_one_response() Void!Str {
+  let terminal = headless::new(72, 14)
+  defer terminal.destroy()
+  let state = model(setup_questions())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────────────────┐",
+      "│ Set up the test suite                                          ◉ ○ ○ │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ What should the npm script be called?                                │",
+      "│                                                                      │",
+      "│  Type an answer                                                      │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ enter submit · esc cancel                                    Cancel  │",
+      "└──────────────────────────────────────────────────────────────────────┘",
+    ],
+  )
+  type_text(terminal, "test")
+  press(terminal, "return")
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────────────────┐",
+      "│ Set up the test suite                                          ● ◉ ○ │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ Where should test files live?                                        │",
+      "│ Colocated tests match the default include glob.                      │",
+      "│                                                                      │",
+      "│▌A   Next to the source  src/clamp.test.ts                            │",
+      "│ B   Top-level tests/    tests/clamp.test.ts                          │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ ↑↓ move · enter/space select · shift+tab back · esc cancel   Cancel  │",
+      "└──────────────────────────────────────────────────────────────────────┘",
+    ],
+  )
+  press(terminal, "down")
+  press(terminal, "return")
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────────────────┐",
+      "│ Set up the test suite                                          ● ● ◉ │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ Which CI jobs should run the tests?                                  │",
+      "│                                                                      │",
+      "│▌A   [ ] Pull requests                                                │",
+      "│ B   [ ] Pushes to main                                               │",
+      "│ C   [ ] Nightly                                                      │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ ↑↓ move · space toggle · enter continue …  Continue   Skip   Cancel  │",
+      "└──────────────────────────────────────────────────────────────────────┘",
+    ],
+  )
+  press(terminal, "space")
+  press(terminal, "j")
+  press(terminal, "j")
+  press(terminal, "space")
+  try testing::assert(
+    rows(terminal).at(8).or("") == "│ A   [x] Pull requests                                                │" and rows(terminal).at(10).or("") == "│▌C   [x] Nightly                                                      │",
+    "space toggles the highlighted option",
+  )
+  press(terminal, "return")
+  let response = try only_response(state)
+  let name = try answer(response, "name")
+  let location = try answer(response, "location")
+  let jobs = try answer(response, "jobs")
+  try testing::assert((not unsafe::is_nil(name.Text)) and name.Text.@ == "test", "the text answer")
+  try testing::assert(
+    location.OptionIDs.size() == 1 and location.OptionIDs.at(0).or("") == "folder",
+    "the chosen option",
+  )
+  testing::assert(
+    jobs.OptionIDs.size() == 2 and jobs.OptionIDs.at(0).or("") == "pr" and jobs.OptionIDs.at(1).or("") == "nightly",
+    "checked options in option order",
+  )
+}
+
+test fn shift_tab_returns_to_earlier_answers() Void!Str {
+  let terminal = headless::new(72, 14)
+  defer terminal.destroy()
+  let state = model(setup_questions())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  type_text(terminal, "test")
+  press(terminal, "tab")
+  press(terminal, "down")
+  press(terminal, "tab")
+  press(terminal, "space")
+  press(terminal, "tab", shift: true)
+  try testing::assert(
+    rows(terminal).at(6).or("") == "│ Where should test files live?                                        │" and rows(terminal).at(10).or("") == "│▌B   Top-level tests/    tests/clamp.test.ts                          │",
+    "going back restores the chosen option",
+  )
+  press(terminal, "tab", shift: true)
+  try testing::assert(
+    rows(terminal).at(8).or("") == "│ What should the npm script be called?                                │" and rows(terminal).at(10).or("") == "│  test                                                                │",
+    "going back restores the text answer",
+  )
+  press(terminal, "tab", shift: true)
+  testing::assert(
+    state.responses.size() == 0 and rows(terminal).at(8).or("") == "│ What should the npm script be called?                                │",
+    "the first question has nothing before it",
+  )
+}
+
+test fn only_optional_questions_can_be_skipped() Void!Str {
+  let terminal = headless::new(72, 14)
+  defer terminal.destroy()
+  let state = model(setup_questions())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  press(terminal, "return")
+  press(terminal, "tab")
+  try testing::assert(
+    rows(terminal).at(8).or("") == "│ What should the npm script be called?                                │",
+    "a required question needs an answer",
+  )
+  type_text(terminal, "test")
+  press(terminal, "return")
+  press(terminal, "return")
+  press(terminal, "return")
+  let response = try only_response(state)
+  let jobs = try answer(response, "jobs")
+  testing::assert(
+    jobs.Skipped and jobs.OptionIDs.size() == 0,
+    "continuing with nothing checked skips",
+  )
+}
+
+test fn a_yes_no_question_answers_only_from_a_choice() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_ci",
+      TurnID: "turn-1",
+      ToolCallID: "call-1",
+      Kind: protocol::InteractionGuided,
+      Title: "CI",
+      Questions: [
+        protocol::InteractionQuestion{
+          ID: "enable",
+          Prompt: "Add a CI job?",
+          Kind: protocol::InteractionQuestionBoolean,
+          Required: true,
+        },
+      ],
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────┐",
+      "│ CI                                                     ◉ │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ Add a CI job?                                            │",
+      "│                                                          │",
+      "│   Yes     No                                             │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ y yes · n no · esc cancel                        Cancel  │",
+      "└──────────────────────────────────────────────────────────┘",
+    ],
+  )
+  press(terminal, "tab")
+  try testing::assert(state.responses.size() == 0, "Tab does not choose for the user")
+  press(terminal, "n")
+  let response = try only_response(state)
+  let enable = try answer(response, "enable")
+  testing::assert((not unsafe::is_nil(enable.Boolean)) and not enable.Boolean.@, "n answers no")
+}
+
+test fn long_questionnaires_compact_the_step_trail() Void!Str {
+  let questions = mut List::new<protocol::InteractionQuestion>()
+  mut index = 0
+  while index < 10 {
+    questions.push(
+      protocol::InteractionQuestion{
+        ID: "q{index}",
+        Prompt: "Question {index}?",
+        Kind: protocol::InteractionQuestionText,
+        Required: false,
+      },
+    )
+    index =+ 1
+  }
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_long",
+      TurnID: "turn-1",
+      ToolCallID: "call-1",
+      Kind: protocol::InteractionGuided,
+      Title: "Survey",
+      Questions: questions.@,
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  type_text(terminal, "a")
+  press(terminal, "return")
+  press(terminal, "return")
+  testing::assert(
+    rows(terminal).at(4).or("") == "│ Survey                                   ●○◉○○○○○○○ 3/10 │",
+    "answered, skipped, current, and remaining questions: {rows(terminal).at(4).or("")}",
+  )
+}
+
+test fn pasted_text_fills_a_text_answer_without_submitting_it() Void!Str {
+  let terminal = headless::new(60, 10)
+  defer terminal.destroy()
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_branch",
+      TurnID: "turn-1",
+      ToolCallID: "call-1",
+      Kind: protocol::InteractionInput,
+      Title: "Which branch should the fix target?",
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  terminal.paste(event::paste("release/2.0\n"))
+  settle(terminal)
+  try testing::assert(state.responses.size() == 0, "a paste never submits")
+  press(terminal, "return")
+  let response = try only_response(state)
+  testing::assert(
+    (not unsafe::is_nil(response.Value)) and response.Value.@ == "release/2.0",
+    "the pasted text is the answer: {response.Value.@}",
+  )
+}
+
+test fn a_paste_does_not_answer_a_choice() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let state = model(confirmation())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  terminal.paste(event::paste("y"))
+  settle(terminal)
+  testing::assert(state.responses.size() == 0, "pasted text is not a key press")
+}
+
+fn owner() mut protocol::PluginInteractionOwner {
+  (mut protocol::PluginInteractionOwner{PluginID: "ui-api-demo", Instance: "owner:1"})
+}
+
+fn plugin_confirmation(default_value: Bool) protocol::InteractionRequest {
+  let preferred = mut default_value
+  protocol::InteractionRequest{
+    ID: "interaction_confirm",
+    Plugin: owner(),
+    Kind: protocol::InteractionConfirm,
+    Title: "Confirm plugin action",
+    Detail: "Shows a **toast**.",
+    ConfirmLabel: "Show toast",
+    CancelLabel: "Do not show",
+    DefaultValue: preferred,
+  }
+}
+
+fn same(left: ui::Color, right: ui::Color) Bool {
+  left.red == right.red and left.green == right.green and left.blue == right.blue
+}
+
+fn fill(terminal: headless::TestApp, x: Int, y: Int) ui::Color {
+  terminal.frame().cell(x, y).expect("cell").style.background.expect("button fill")
+}
+
+test fn a_plugin_confirmation_shows_its_source_labels_and_default() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let state = model(plugin_confirmation(true))
+  state.queue_length = 2
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────┐",
+      "│ Confirm plugin action             ui-api-demo  ·  1 of 2 │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ Shows a toast.                                           │",
+      "│                                                          │",
+      "│   Show toast     Do not show                             │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ tab switch · enter choose · y/n answer · esc cancel      │",
+      "└──────────────────────────────────────────────────────────┘",
+    ],
+  )
+  let colors = theme::system()
+  try testing::assert(
+    same(fill(terminal, 3, 8), colors.primary) and same(fill(terminal, 18, 8), colors.surface),
+    "the default answer is highlighted",
+  )
+  press(terminal, "tab")
+  testing::assert(
+    same(fill(terminal, 3, 8), colors.surface) and same(fill(terminal, 18, 8), colors.primary),
+    "Tab highlights the other answer",
+  )
+}
+
+test fn return_chooses_the_highlighted_plugin_answer() Void!Str {
+  for default_value in [false, true] {
+    for switched in [false, true] {
+      let terminal = headless::new(60, 12)
+      let state = model(plugin_confirmation(default_value))
+      let renderer = mount(terminal, state)
+      if switched {
+        press(terminal, "right")
+      }
+      press(terminal, "return")
+      let want = match switched {
+        true => not default_value,
+        false => default_value,
+      }
+      let response = only_response(state)
+      renderer.destroy()
+      terminal.destroy()
+      let answer = try response
+      try testing::assert(
+        (not unsafe::is_nil(answer.Confirmed)) and answer.Confirmed.@ == want,
+        "default {default_value}, switched {switched}",
+      )
+    }
+  }
+  testing::pass()
+}
+
+test fn a_plugin_confirmation_without_a_default_highlights_declining() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_confirm",
+      Plugin: owner(),
+      Kind: protocol::InteractionConfirm,
+      Title: "Confirm plugin action",
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  press(terminal, "return")
+  let declined = try only_response(state)
+  try testing::assert(
+    (not unsafe::is_nil(declined.Confirmed)) and not declined.Confirmed.@,
+    "Return declines when nothing is preferred",
+  )
+  state.responses = []
+  press(terminal, "escape")
+  let cancelled = try only_response(state)
+  testing::assert(cancelled.Cancelled, "Escape still cancels the request")
+}
+
+test fn a_plugin_text_request_starts_from_its_initial_value_and_accepts_an_empty_answer() Void!Str {
+  let terminal = headless::new(60, 10)
+  defer terminal.destroy()
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_note",
+      Plugin: owner(),
+      Kind: protocol::InteractionInput,
+      Title: "Plugin input",
+      InitialValue: "draft note",
+      Placeholder: "Your note",
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try testing::assert(
+    rows(terminal).at(6).or("") == "│  draft note                                              │",
+    "the initial value fills the field",
+  )
+  press(terminal, "return")
+  let initial = try only_response(state)
+  try testing::assert(
+    (not unsafe::is_nil(initial.Value)) and initial.Value.@ == "draft note",
+    "the initial value is the answer",
+  )
+  let empty_terminal = headless::new(60, 10)
+  defer empty_terminal.destroy()
+  let empty_state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_empty",
+      Plugin: owner(),
+      Kind: protocol::InteractionInput,
+      Title: "Optional note",
+      Placeholder: "Your note",
+    },
+  )
+  let empty_renderer = mount(empty_terminal, empty_state)
+  defer empty_renderer.destroy()
+  press(empty_terminal, "return")
+  let empty = try only_response(empty_state)
+  testing::assert(
+    (not unsafe::is_nil(empty.Value)) and empty.Value.@ == "" and (not empty.Cancelled),
+    "an empty answer is still an answer",
+  )
+}
+
+test fn a_filterable_plugin_select_is_a_plain_list() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let filterable = mut true
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_select",
+      Plugin: owner(),
+      Kind: protocol::InteractionSelect,
+      Title: "Choose target",
+      Filterable: filterable,
+      Placeholder: "Filter scopes...",
+      Options: [
+        protocol::InteractionOption{ID: "option_file", Label: "Current file"},
+        protocol::InteractionOption{ID: "option_project", Label: "Whole project"},
+      ],
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────┐",
+      "│ Choose target                                ui-api-demo │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│▌A   Current file                                         │",
+      "│ B   Whole project                                        │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ ↑↓ move · enter/space select · esc cancel        Cancel  │",
+      "└──────────────────────────────────────────────────────────┘",
+    ],
+  )
+  press(terminal, "j")
+  press(terminal, "return")
+  let response = try only_response(state)
+  testing::assert(
+    response.SelectedOptionID == "option_project",
+    "the plain list chooses by keyboard",
+  )
+}

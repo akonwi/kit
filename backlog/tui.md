@@ -13,9 +13,6 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-CMD-004 — Tab completes the selected command's name in the palette
   query followed by a space and keeps the palette open. The list stays pinned
   to that command while arguments are typed, until the command name is edited.
-- [ ] TUI-CMD-005 — Edit the palette query conventionally: move the cursor with
-  Left/Right/Home/End, insert and delete at the cursor, and delete by word.
-  List navigation keeps its current keys; no additional bindings are added.
 - [ ] TUI-CMD-007 — Show argument hints for built-in commands that accept
   arguments (`cd`, `name`, `fork`). Running a command without a required
   argument (such as `cd`) prompts for it in the palette's dialog frame instead
@@ -43,6 +40,29 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   actionable failures without exposing credentials. Depends on `CORE-AUTH-001`.
 - [ ] TUI-HEAD-001 — Make diagnostics and unavailable interaction behavior clear
   when transitioning between TUI and headless workflows.
+
+## Cooper client parity
+
+The Ard and Cooper terminal client in `apps/cli`
+([ADR 0035](../docs/adrs/0035-build-the-terminal-client-with-ard-and-cooper.md))
+replaces the vaxis/ui client in `internal/tui` once it reaches parity with it.
+Parity means the same visible content, layout, focus, and interaction as the
+vaxis client, asserted by exact-row headless Cooper tests derived from the
+vaxis client's tests. Until then, `cmd/kit` ships the vaxis client. Known,
+accepted differences: centered odd-width content can sit one cell right,
+because Cooper rounds half-cell layout edges up (Cooper ADR 0020); and the
+signed-out "Connect a provider" button is filled with the primary accent
+rather than vaxis's surface fill; and `kit sessions` lists sessions before its
+inline picker opens, sized once to them, because a Cooper inline app keeps
+its height, where vaxis opens at ten rows and grows as they load.
+
+- [ ] TUI-COOPER-015 — Replace `internal/tui` and `cmd/kit`: build releases
+  from `apps/cli`, run its checks in CI, and remove the vaxis client.
+
+Upstream dependencies:
+
+- Cooper: a CUI `text_area` submit callback, in place of the composer's
+  Enter keymap binding.
 
 ## Scope decisions
 
@@ -93,8 +113,22 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   fallback, or adopt an explicitly reviewed native equivalent.
 - [ ] TUI-IMAGE-001 — Add retained `vaxis/ui` image paint operations upstream
   and use them for native Kitty/Sixel transcript rendering with clipping.
-- [ ] TUI-ATT-003 — Add bounded binary clipboard image ingestion when vaxis
-  exposes a typed clipboard payload contract.
+- [ ] TUI-ATT-003 — Read an image from the system clipboard into a bounded
+  temporary file for attachment. Terminals paste only text and Cooper's
+  clipboard is text-only (OSC 52), so this uses `osascript` on macOS and
+  `wl-paste` or `xclip` on Linux when installed, and reports when no reader
+  or image is available. Shared by TUI-ATT-005 and TUI-ATT-006.
+- [ ] TUI-ATT-004 — When a paste consists only of absolute paths and any of
+  them no longer exists, explain it (for example, "Device Hub-001023.png no
+  longer exists") instead of silently inserting the paths as text. Screenshot
+  tools such as CleanShot put a temporary file on the clipboard and delete it
+  shortly after, so the pasted path is often stale.
+- [ ] TUI-ATT-005 — When a pasted image path no longer exists, attach the
+  image still on the clipboard instead, through TUI-ATT-003.
+- [ ] TUI-ATT-006 — Ctrl+V attaches an image from the clipboard through
+  TUI-ATT-003. Copying image data alone (from a browser, or a screenshot sent
+  to the clipboard) makes the terminal paste nothing, so a key is the only
+  way in; Cmd+V never reaches the app.
 - [ ] TUI-THREAD-001 — Present cached `#thread` suggestions, escaping, bounded
   expansion, and cancellation. Depends on `CORE-THREAD-001`.
 - [ ] TUI-PAGER-001 — Implement pager sectioning, auto-open behavior, notes,
@@ -118,3 +152,12 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/tree`, and other commands
   when their owning deferred capabilities are implemented.
 - [ ] TUI-SET-003 — Expose deferred pager defaults when that workflow exists.
+- [ ] TUI-STATUS-001 — Report Kit's state through the Program Status
+  Protocol (OSC 7501) once Cooper supports it
+  ([akonwi/cooper#17](https://github.com/akonwi/cooper/issues/17)). The
+  root record, with `app=kit`, is `working` while a turn or compaction runs;
+  `blocked` with `kind=permission` for a model confirmation, `question` for
+  other model and plugin requests, and `auth` while signed out or logging in;
+  `done` when a turn completes, `error` when it fails or is interrupted, and
+  `idle` when the user aborts it. Decide whether Kit's own desktop
+  notifications should stand down when the terminal supports the protocol.

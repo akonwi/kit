@@ -1,0 +1,13 @@
+name = "kit"
+ard = ">= 0.43.0"
+target = "go"
+
+[build.values]
+version = { type = "Str", default = "dev", release = true }
+commit = { type = "Str", default = "unknown", release = true }
+
+[dependencies]
+cooper = { git = "https://github.com/akonwi/cooper.git", commit = "38227a6" }
+
+[go.imports]
+api = "github.com/akonwi/kit/api"

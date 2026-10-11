@@ -1,0 +1,58 @@
+use ard/async
+
+use cooper/cui
+use cooper/ui
+use go:time
+
+// Kit's standard activity frames, advanced every 80 milliseconds while mounted.
+let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+let frame_duration = 80 * time::Millisecond
+
+struct SpinnerProps {
+  styles: ui::Style?,
+}
+
+struct Indicator {
+  props: mut SpinnerProps,
+  frame: Int,
+}
+
+// spinner is an atomic activity indicator. Compose it with feature-owned text
+// and layout rather than adding labels or positioning behavior here.
+fn spinner(styles: ui::Style?) cui::View {
+  cui::child(new, SpinnerProps{styles: styles})
+}
+
+private fn new(props: mut SpinnerProps) mut Indicator {
+  (mut Indicator{props: props, frame: 0})
+}
+
+impl cui::Lifecycle for Indicator {
+  fn mut mounted(ctx: cui::Context) {
+    let cancellation = ctx.cancellation
+    let dispatch = ctx.dispatch
+    async::start(fn() {
+      mut running = true
+      while running {
+        select {
+          cancellation.recv() => { running = false },
+          time::After(frame_duration).recv() => {
+            if dispatch(fn() {
+              self.frame = (self.frame + 1) % frames.size()
+            }).is_err() {
+              running = false
+            }
+          },
+        }
+      }
+    })
+  }
+
+  fn mut unmounting(ctx: cui::Context) {}
+}
+
+impl cui::Component for Indicator {
+  fn mut render() cui::View {
+    cui::text(frames.at(self.frame).expect("spinner frame"), styles: self.props.styles)
+  }
+}

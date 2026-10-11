@@ -1,0 +1,115 @@
+use ard/async
+use ard/build
+
+use go:context
+use go:github.com/akonwi/kit/internal/version
+use go:kit/ffi/cli
+use go:kit/ffi/contextbridge
+use kit/tui
+use go:os
+use go:os/signal
+use go:syscall
+
+// Runs Kit's command line. Interrupt and termination signals cancel the
+// command context; a signal-caused interruption exits with 128 plus the
+// signal number.
+//
+// Exit codes follow the Unix shell convention for signal deaths: a process
+// killed by signal N reports status 128 + N (SIGINT 2 -> 130, SIGTERM 15 ->
+// 143). Kit catches these signals so it can cancel work, restore the terminal,
+// and dispose temporary sessions, which means the kernel no longer sets that
+// status; Kit must exit with the matching code itself so shells, scripts, and
+// CI can still tell "interrupted" apart from "failed".
+//
+// This happens in two steps. The command line only sees a canceled context, so it
+// reports every interruption as 130. Only this function knows which signal
+// arrived, so it corrects 130 to 128 + that signal. Other codes are kept even
+// if a signal races a command that already succeeded (0) or failed (1).
+//
+// Ctrl+C inside the TUI is not a signal: the terminal is in raw mode, so it is
+// an ordinary keypress that the TUI handles, typically exiting with 0.
+fn main() {
+  version::Version = build::version
+  version::Commit = build::commit
+
+  let lifetime = contextbridge::WithCancel(context::Background())
+  defer lifetime.Cancel()
+  let signals = Chan::new<os::Signal>(1)
+  signal::Notify(signals.sender(), os::Interrupt, syscall::SIGTERM)
+  defer signal::Stop(signals.sender())
+  // Records the signal number for the exit-code correction below. The send
+  // happens before cancellation, so it is visible once `cli::Run` returns;
+  // the buffered channel stands in for Go's atomic.
+  let received = Chan::new<Int>(1)
+  async::start(fn() {
+    match signals.recv() {
+      sig => {
+        match sig {
+          syscall::Signal(number) => received.send(number),
+          _ => (),
+        }
+        lifetime.Cancel()
+      },
+      _ => (),
+    }
+  })
+
+  let args = os::Args.slice(start: 1).expect("process arguments").to_list()
+  let invocation = cli::Parse(lifetime.Context, mut args, os::Stdout, os::Stderr)
+  mut exit_code = match invocation.Kind == cli::InvocationExit {
+    true => invocation.ExitCode,
+    false => interactive(lifetime.Context, invocation),
+  }
+  // 130 means "interrupted"; replace it with 128 + the actual signal number.
+  if exit_code == 130 {
+    select {
+      let number = received.recv() => {
+        match number {
+          n => { exit_code = 128 + n },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+  os::Exit(exit_code)
+}
+
+// Runs an interactive command: `kit sessions` first picks a session in an
+// inline picker, then the terminal client attaches to it. Go prepares the
+// session and reports failures; the terminal apps run here.
+fn interactive(ctx: context::Context, invocation: cli::Invocation) Int {
+  let environment = cli::OpenEnvironment(ctx, invocation, os::Stderr)
+  defer environment.Close()
+  match {
+    environment.ExitCode != 0 => environment.ExitCode,
+    invocation.Kind == cli::InvocationSessions => {
+      match tui::pick_session(ctx, environment.Client, environment.ThemeDefinition) {
+        ok(id) => {
+          match {
+            id != "" => run(ctx, environment, cli::Open(invocation, id)),
+            contextbridge::Done(ctx) => 130,
+            _ => 0,
+          }
+        },
+        err(failure) => cli::PickerFailure(ctx, failure.error(), os::Stderr),
+      }
+    },
+    _ => run(ctx, environment, invocation),
+  }
+}
+
+// Runs the terminal client for a prepared invocation.
+fn run(ctx: context::Context, environment: cli::Environment, invocation: cli::Invocation) Int {
+  let prepared = environment.Prepare(ctx, invocation, os::Stderr)
+  match prepared.ExitCode != 0 {
+    true => prepared.ExitCode,
+    false => {
+      let failure = match tui::run(prepared.Options) {
+        ok(_) => "",
+        err(failure) => failure.error(),
+      }
+      prepared.Finish(ctx, failure, os::Stderr)
+    },
+  }
+}

@@ -1,0 +1,130 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/tab_strip
+use kit/tui/theme
+use go:strings
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn same_color(left: ui::Color?, right: ui::Color) Bool {
+  match left {
+    color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+    _ => false,
+  }
+}
+
+struct Clicks {
+  shown: [Str],
+  more: Int,
+}
+
+fn entry(label: Str, selected: Bool, closable: Bool, clicks: mut Clicks) tab_strip::Entry {
+  let show = keymap::simple_command("test.show:{label}", "Show", fn() Bool {
+    let next = mut List::new<Str>()
+    for earlier in clicks.shown {
+      next.push(earlier)
+    }
+    next.push(label)
+    clicks.shown = next.@
+    true
+  })
+  tab_strip::Entry{
+    label: label,
+    selected: selected,
+    show: show,
+    close: match closable {
+      true => Maybe::new(show),
+      false => Maybe::new<keymap::SimpleCommand>(),
+    },
+  }
+}
+
+struct Shown {
+  terminal: headless::TestApp,
+  renderer: cui::Renderer,
+}
+
+// Mounts a strip in a terminal width cells wide and lets it measure itself.
+fn show(width: Int, entries: [tab_strip::Entry], clicks: mut Clicks) Shown {
+  let terminal = headless::new(width, 1)
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    tab_strip::view(
+      tab_strip::Props{
+        themes: theme::context(theme::store(theme::system())),
+        entries: entries,
+        more: keymap::simple_command("test.more", "More", fn() Bool {
+          clicks.more =+ 1
+          true
+        }),
+      },
+    ),
+  )
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+  Shown{terminal: terminal, renderer: renderer}
+}
+
+test fn every_tab_shows_when_they_fit() Void!Str {
+  let clicks = mut Clicks{shown: [], more: 0}
+  let shown = show(
+    60,
+    [
+      entry("Agent", false, false, clicks),
+      entry("Scratchpad", false, true, clicks),
+      entry("tool_row.ard", true, true, clicks),
+    ],
+    clicks,
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  let row = rows(shown.terminal).at(0).or("")
+  try testing::assert(row == "  Agent   Scratchpad     tool_row.ard ×", "got {row}|")
+  let colors = theme::system()
+  let selected = shown.terminal.frame().cell(25, 0).expect("selected tab")
+  try testing::assert(
+    same_color(selected.style.background, colors.primary),
+    "the selected tab is primary",
+  )
+  let other = shown.terminal.frame().cell(10, 0).expect("other tab")
+  try testing::assert(same_color(other.style.background, colors.surface), "other tabs sit on the surface")
+  shown.terminal.click(3, 0)
+  testing::assert(
+    clicks.shown.size() == 1 and clicks.shown.at(0).or("") == "Agent",
+    "clicking a tab shows it",
+  )
+}
+
+test fn tabs_that_do_not_fit_collapse_into_more() Void!Str {
+  let clicks = mut Clicks{shown: [], more: 0}
+  let shown = show(
+    30,
+    [
+      entry("Agent", false, false, clicks),
+      entry("one.go", false, true, clicks),
+      entry("two.go", false, true, clicks),
+      entry("three.go", false, true, clicks),
+      entry("four.go", true, true, clicks),
+    ],
+    clicks,
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  let row = rows(shown.terminal).at(0).or("")
+  try testing::assert(row == "  Agent   four… ×   … 3 more", "got {row}|")
+  shown.terminal.click(25, 0)
+  testing::assert(clicks.more == 1, "the overflow tab shows every tab")
+}

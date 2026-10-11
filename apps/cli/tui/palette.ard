@@ -1,0 +1,1270 @@
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/ui
+use kit/tui/after_commit
+use kit/tui/format
+use kit/tui/modal
+use kit/tui/status
+use kit/tui/theme
+use go:strings
+
+// A search term that marks the attached row for presentation; it never matches.
+let current_marker = "__palette_current__"
+
+// Item is one flat palette row. search_terms participate in matching without
+// being displayed, so providers can be found by their authentication method.
+// A disabled row, given a reason or marked disabled, is inert: it is not
+// selected by default and a click does not activate it. Its reason replaces
+// its description as "⊘ reason"; without one the description stays.
+struct Item {
+  key: Str,
+  label: Str,
+  hint: Str,
+  description: Str,
+  meta: Str,
+  search_terms: [Str],
+  disabled_reason: Str,
+  // A status icon before the label. The picker reserves a status column for
+  // every row while any row in the catalog has one.
+  status: status::Status?,
+  disabled: Bool?,
+}
+
+// inert reports whether the row is disabled, by a reason or by its flag.
+fn inert(item: Item) Bool {
+  item.disabled_reason != "" or item.disabled.or(false)
+}
+
+// Branch is one row of a searchable tree. parent is the key of the row it is
+// nested under, or empty for a root. name is the unadorned label used for
+// matching, because item.label carries the tree's indentation and glyphs.
+struct Branch {
+  item: Item,
+  parent: Str,
+  name: Str,
+}
+
+// Catalog, query, selection, hover, and overflow visibility are controlled by
+// the feature owner; the picker only projects them.
+struct Props {
+  themes: theme::Context,
+  placeholder: Str,
+  catalog: [Item],
+  query: Str,
+  // filter_query may project a command word while query remains the complete
+  // editable invocation, including literal arguments.
+  filter_query: Str,
+  // tree, when present, is searched in place of catalog while the query is
+  // not blank, so rows under collapsed parents can be found and matches are
+  // shown beneath their ancestors.
+  tree: [Branch]?,
+  selection: Str,
+  hovered: Str,
+  hidden_above: Bool,
+  hidden_below: Bool,
+  on_query_change: fn(Str),
+  on_selection_change: fn(Str),
+  on_hover_change: fn(Str),
+  on_activate: fn(Item),
+  // Shown when no item matches; "No results" by default.
+  empty: Str?,
+}
+
+// PickerProps configures the stateful, self-contained palette picker used by
+// ordinary selection dialogs. Command palette keeps the lower-level API when
+// its query has command-argument semantics.
+struct PickerProps {
+  themes: theme::Context,
+  catalog: [Item],
+  placeholder: Str,
+  initial_selection: Str,
+  title: Str,
+  footer: Str,
+  // error replaces the footer hint with a danger-toned, feature-owned failure.
+  error: Str,
+  dismiss: keymap::SimpleCommand,
+  override: fn(Str)?,
+  // remove and rename receive the selected key for feature-owned dialogs.
+  remove: fn(Str)?,
+  rename: fn(Str)?,
+  // toggle receives the selected key and true for expand, false for collapse.
+  toggle: fn(Str, Bool)?,
+  // refresh, on Ctrl+R, asks the feature to reload its catalog.
+  refresh: fn()?,
+  // Shown when no item matches; see Props.
+  empty: Str?,
+  // tree is the full hierarchy searched while a query is present; see Props.
+  tree: [Branch]?,
+  // Where the dialog sits; a picker placement by default.
+  placement: modal::Placement?,
+  on_query_change: fn(Str),
+  on_selection_change: fn(Str),
+  on_activate: fn(Item),
+}
+
+struct Picker {
+  // source remains linked to cui::child's mutable props slot so parent
+  // rerenders can replace the catalog without remounting picker-owned state.
+  source: mut PickerProps,
+  props: Props,
+  title: Str,
+  footer: Str,
+  dismiss: keymap::SimpleCommand,
+  override: fn(Str)?,
+  remove: fn(Str)?,
+  rename: fn(Str)?,
+  toggle: fn(Str, Bool)?,
+  list: mut cui::VirtualListRef,
+  context: cui::Context?,
+  viewport: Int,
+  hidden_above: Bool,
+  hidden_below: Bool,
+}
+
+fn new_picker(props: mut PickerProps) mut Picker {
+  (mut Picker{
+    source: props,
+    props: Props{
+      themes: props.themes,
+      placeholder: props.placeholder,
+      catalog: props.catalog,
+      query: "",
+      filter_query: "",
+      tree: props.tree,
+      selection: props.initial_selection,
+      hovered: "",
+      hidden_above: false,
+      hidden_below: false,
+      on_query_change: fn(value: Str) {},
+      on_selection_change: fn(value: Str) {},
+      on_hover_change: fn(value: Str) {},
+      on_activate: props.on_activate,
+    },
+    title: props.title,
+    footer: props.footer,
+    dismiss: props.dismiss,
+    override: props.override,
+    remove: props.remove,
+    rename: props.rename,
+    toggle: props.toggle,
+    list: cui::virtual_list_ref(),
+    context: Maybe::new<cui::Context>(),
+    viewport: 0,
+    hidden_above: false,
+    hidden_below: false,
+  })
+}
+
+struct Viewport {
+  list: mut cui::VirtualListRef,
+  on_update: fn(cui::VirtualListUpdate, cui::Context),
+  on_page: fn(Int),
+}
+
+// items filters the catalog with the shared fuzzy matcher. A blank query
+// returns the catalog unchanged. Otherwise matches are ranked best first, with
+// ties in catalog order; a tree picker shows them grouped by family instead.
+fn items(props: Props) [Item] {
+  let query = search_query(props)
+  if query == "" {
+    props.catalog
+  } else {
+    match props.tree {
+      tree => tree_items(tree, query),
+      _ => {
+        let ranked = mut List::new<Ranked>()
+        mut position = 0
+        for item in props.catalog {
+          let score = item_score(item, query)
+          if score > 0 {
+            ranked.push(
+              Ranked{
+                item: item,
+                score: score,
+                position: position,
+              },
+            )
+          }
+          position =+ 1
+        }
+        ranked.sort(ranks_before)
+        let result = mut List::new<Item>()
+        for entry in ranked {
+          result.push(entry.item)
+        }
+        result.@
+      },
+    }
+  }
+}
+
+// search_query is the normalized text that filters the catalog.
+private fn search_query(props: Props) Str {
+  let raw_query = match props.filter_query != "" {
+    true => props.filter_query,
+    false => props.query,
+  }
+  strings::ToLower(strings::TrimSpace(raw_query))
+}
+
+// ranked_branches scores every branch by its name, description, and search
+// terms, best first with ties in tree order.
+private fn ranked_branches(tree: [Branch], query: Str) [Ranked] {
+  let ranked = mut List::new<Ranked>()
+  mut position = 0
+  for branch in tree {
+    let score = fields_score(branch.name, branch.item, query)
+    if score > 0 {
+      ranked.push(
+        Ranked{
+          item: branch.item,
+          score: score,
+          position: position,
+        },
+      )
+    }
+    position =+ 1
+  }
+  ranked.sort(ranks_before)
+  ranked.@
+}
+
+// tree_items shows each match with its ancestors, ignoring collapsed state.
+// A family (a root and its shown descendants) stays together in tree order,
+// and families are ordered by their best-ranked match.
+private fn tree_items(tree: [Branch], query: Str) [Item] {
+  let parents = parent_map(tree)
+  let shown = mut Map::new<Bool>()
+  let families = mut List::new<Str>()
+  let grouped = mut Map::new<Bool>()
+  for entry in ranked_branches(tree, query) {
+    // Mark the match and each ancestor until reaching one already shown.
+    mut key = entry.item.key
+    mut steps = 0
+    while key != "" and steps <= tree.size() {
+      match shown.get(key).or(false) {
+        true => { key = "" },
+        false => {
+          shown.set(key, true)
+          key = parents.get(key).or("")
+        },
+      }
+      steps =+ 1
+    }
+    let family = root_of(parents, entry.item.key)
+    if not grouped.get(family).or(false) {
+      grouped.set(family, true)
+      families.push(family)
+    }
+  }
+  let roots = mut Map::new<Str>()
+  for branch in tree {
+    if shown.get(branch.item.key).or(false) {
+      roots.set(branch.item.key, root_of(parents, branch.item.key))
+    }
+  }
+  let result = mut List::new<Item>()
+  for family in families {
+    for branch in tree {
+      if roots.get(branch.item.key).or("") == family {
+        result.push(branch.item)
+      }
+    }
+  }
+  result.@
+}
+
+// parent_map maps each key to its parent, or to empty when the row is a root
+// or its parent is not in the tree.
+private fn parent_map(tree: [Branch]) [Str: Str] {
+  let present = mut Map::new<Bool>()
+  for branch in tree {
+    present.set(branch.item.key, true)
+  }
+  let parents = mut Map::new<Str>()
+  for branch in tree {
+    parents.set(
+      branch.item.key,
+      match present.get(branch.parent).or(false) {
+        true => branch.parent,
+        false => "",
+      },
+    )
+  }
+  parents.@
+}
+
+// root_of follows parents to the top of key's family. The step bound guards
+// against malformed cyclic parents.
+private fn root_of(parents: [Str: Str], key: Str) Str {
+  mut root = key
+  mut parent = parents.get(key).or("")
+  let limit = parents.size()
+  mut steps = 0
+  while parent != "" and steps <= limit {
+    root = parent
+    parent = parents.get(parent).or("")
+    steps =+ 1
+  }
+  root
+}
+
+// query_selection is the row to select after the query changes to the one in
+// props. Tree pickers select the best match rather than the first row, which
+// may only be an ancestor shown for context, and a cleared query returns to the
+// previous row or its nearest visible ancestor.
+fn query_selection(props: Props, previous: Str) Str {
+  let visible = items(props)
+  match props.tree {
+    tree => {
+      let query = search_query(props)
+      mut next = ""
+      if query == "" {
+        let parents = parent_map(tree)
+        mut key = previous
+        mut steps = 0
+        while next == "" and key != "" and steps <= tree.size() {
+          if enabled(visible, key) {
+            next = key
+          }
+          key = parents.get(key).or("")
+          steps =+ 1
+        }
+      } else {
+        for entry in ranked_branches(tree, query) {
+          if next == "" and not inert(entry.item) {
+            next = entry.item.key
+          }
+        }
+      }
+      match next == "" {
+        true => first_enabled(visible),
+        false => next,
+      }
+    },
+    _ => first_enabled(visible),
+  }
+}
+
+private fn enabled(items: [Item], key: Str) Bool {
+  mut found = false
+  for item in items {
+    if item.key == key and not inert(item) {
+      found = true
+    }
+  }
+  found
+}
+
+private struct Ranked {
+  item: Item,
+  score: Int,
+  position: Int,
+}
+
+// ranks_before orders better scores first and equal scores by catalog order.
+private fn ranks_before(left: Ranked, right: Ranked) Bool {
+  match left.score == right.score {
+    true => left.position < right.position,
+    false => left.score > right.score,
+  }
+}
+
+// item_score is the best match among the label (weighted highest), the
+// description, and the search terms, which act as aliases. Zero means no match.
+// This follows the vaxis client's fuzzy select filter so both clients rank
+// alike.
+fn item_score(item: Item, query: Str) Int {
+  fields_score(item.label, item, query)
+}
+
+// fields_score scores label in place of item.label, so tree rows can match by
+// their unadorned name.
+private fn fields_score(label_text: Str, item: Item, query: Str) Int {
+  mut best = 0
+  let label = string_score(strings::ToLower(label_text), query)
+  if label > 0 and label + 40 > best {
+    best = label + 40
+  }
+  let description = string_score(strings::ToLower(item.description), query)
+  if description > best {
+    best = description
+  }
+  for term in item.search_terms {
+    if term != "" and term != current_marker {
+      let alias = string_score(strings::ToLower(term), query)
+      if alias > 0 and alias + 15 > best {
+        best = alias + 15
+      }
+    }
+  }
+  best
+}
+
+// string_score ranks an exact match, then a prefix, then a substring (higher
+// at a word boundary), then the query's characters in order with gaps.
+fn string_score(candidate: Str, query: Str) Int {
+  let query_chars = strings::Split(query, "")
+  let length = query_chars.size()
+  if candidate == query {
+    1000
+  } else if strings::HasPrefix(candidate, query) {
+    900 + length * 4
+  } else {
+    let chars = strings::Split(candidate, "")
+    let index = find(chars, query_chars)
+    match index >= 0 {
+      true => {
+        let boundary = match word_boundary(chars, index) {
+          true => 50,
+          false => 0,
+        }
+        800 + length * 4 - index + boundary
+      },
+      false => subsequence_score(chars, query_chars),
+    }
+  }
+}
+
+// find returns the character index of query within chars, or -1.
+private fn find(chars: [Str], query: [Str]) Int {
+  mut found = -1
+  mut start = 0
+  while found < 0 and start + query.size() <= chars.size() {
+    mut matched = true
+    mut offset = 0
+    while matched and offset < query.size() {
+      if chars.at(start + offset).or("") != query.at(offset).or("") {
+        matched = false
+      }
+      offset =+ 1
+    }
+    if matched {
+      found = start
+    }
+    start =+ 1
+  }
+  found
+}
+
+// subsequence_score rewards consecutive characters and word starts, and
+// penalizes a late start and a wide span. Non-positive scores do not match.
+private fn subsequence_score(chars: [Str], query: [Str]) Int {
+  mut query_index = 0
+  mut start = -1
+  mut last = -1
+  mut consecutive = 0
+  mut boundaries = 0
+  mut score = 0
+  mut index = 0
+  while score == 0 and query_index < query.size() and index < chars.size() {
+    if chars.at(index).or("") == query.at(query_index).or("") {
+      if start == -1 {
+        start = index
+      }
+      if last == index - 1 {
+        consecutive =+ 1
+      }
+      if word_boundary(chars, index) {
+        boundaries =+ 1
+      }
+      last = index
+      query_index =+ 1
+      if query_index == query.size() {
+        let span = last - start + 1
+        score = 500 + query.size() * 8 + consecutive * 12 + boundaries * 10 - start * 2 - span
+        if score <= 0 {
+          score = -1
+        }
+      }
+    }
+    index =+ 1
+  }
+  match score > 0 {
+    true => score,
+    false => 0,
+  }
+}
+
+private fn word_boundary(chars: [Str], index: Int) Bool {
+  match index <= 0 {
+    true => true,
+    false => {
+      match chars.at(index - 1).or("") {
+        " " => true,
+        "-" => true,
+        "_" => true,
+        ":" => true,
+        "/" => true,
+        "." => true,
+        "+" => true,
+        "#" => true,
+        "@" => true,
+        "\t" => true,
+        _ => false,
+      }
+    },
+  }
+}
+
+fn first_enabled(items: [Item]) Str {
+  mut result = ""
+  mut found = false
+  for item in items {
+    if result == "" {
+      result = item.key
+    }
+    let enabled = not inert(item)
+    if enabled and not found {
+      result = item.key
+      found = true
+    }
+  }
+  result
+}
+
+fn selected(items: [Item], key: Str) Item? {
+  mut result = Maybe::new<Item>()
+  for item in items {
+    if item.key == key {
+      result = Maybe::new(item)
+    }
+  }
+  result
+}
+
+// Picker rows share one rule for sharing their width. The label matters
+// most: it gets the widest label's room and gives way last. The meta, short
+// by design, keeps its column on the right. The hint gives way first, and the
+// description takes what is left, keeping a third of the row while any row
+// has one, so one long label can't push every description out. Columns are
+// sized from the whole unfiltered catalog, so rows align and filtering never
+// shifts them.
+// The widest the meta column gets, which fits a model and thinking level
+// such as "Claude Sonnet 4.5 (high)".
+let meta_limit = 24
+
+struct Columns {
+  // The widest label, hint, and meta, in cells; the meta at most
+  // `meta_limit`.
+  label: Int,
+  hint: Int,
+  meta: Int,
+  // Whether any row has a description.
+  described: Bool,
+  // Whether any row has a status, reserving the status column.
+  status: Bool,
+}
+
+fn columns(catalog: [Item]) Columns {
+  let columns = mut Columns{
+    label: 1,
+    hint: 0,
+    meta: 0,
+    described: false,
+    status: false,
+  }
+  for item in catalog {
+    if item.status.is_some() {
+      columns.status = true
+    }
+    if item.description != "" or item.disabled_reason != "" {
+      columns.described = true
+    }
+    columns.label = widest(columns.label, item.label)
+    columns.hint = widest(columns.hint, item.hint)
+    columns.meta = widest(columns.meta, item.meta)
+  }
+  if columns.meta > meta_limit {
+    columns.meta = meta_limit
+  }
+  columns.@
+}
+
+private fn widest(current: Int, text: Str) Int {
+  let width = format::cell_width(text)
+  match width > current {
+    true => width,
+    false => current,
+  }
+}
+
+// The label column: its widest label and a two-cell gap, giving way only
+// once the hint has.
+fn label_column(columns: Columns) ui::Style {
+  ui::style(
+    flex_basis: ui::cells(columns.label + 2),
+    flex_grow: 0.0,
+    flex_shrink: 1.0,
+    min_width: ui::cells(0),
+    padding: ui::Edges{
+      top: ui::cells(0),
+      right: ui::cells(2),
+      bottom: ui::cells(0),
+      left: ui::cells(0),
+    },
+  )
+}
+
+// The hint column, which gives way first: its shrink weight dwarfs the
+// label's.
+fn hint_column(columns: Columns) ui::Style {
+  let room = match columns.hint > 0 {
+    true => columns.hint + 2,
+    false => 0,
+  }
+  ui::style(
+    flex_basis: ui::cells(room),
+    flex_grow: 0.0,
+    flex_shrink: 1000.0,
+    min_width: ui::cells(0),
+    padding: ui::Edges{
+      top: ui::cells(0),
+      right: ui::cells(
+        match room > 0 {
+          true => 2,
+          false => 0,
+        },
+      ),
+      bottom: ui::cells(0),
+      left: ui::cells(0),
+    },
+  )
+}
+
+// The description column takes the rest, keeping a third of the row while
+// any row has a description. Without one it is empty room that pushes the
+// meta to the right edge.
+fn description_column(columns: Columns) ui::Style {
+  ui::style(
+    flex_basis: ui::cells(0),
+    flex_grow: 1.0,
+    flex_shrink: 0.0,
+    min_width: match columns.described {
+      true => ui::percent(33.0),
+      false => ui::cells(0),
+    },
+  )
+}
+
+// The meta column, right-aligned at the row's end, before `trailing` cells
+// of padding.
+fn meta_column(columns: Columns, trailing: Int) ui::Style {
+  let pad = match columns.meta > 0 {
+    true => trailing,
+    false => 0,
+  }
+  let room = match columns.meta > 0 {
+    true => columns.meta + 2 + pad,
+    false => 0,
+  }
+  ui::style(
+    width: ui::cells(room),
+    flex_shrink: 0.0,
+    flex_direction: ui::FlexDirection::row,
+    justify_content: ui::Justify::end,
+    padding: ui::Edges{
+      top: ui::cells(0),
+      right: ui::cells(pad),
+      bottom: ui::cells(0),
+      left: ui::cells(0),
+    },
+  )
+}
+
+fn header(props: Props, focused: Bool?, input_ref: (mut cui::InputRef)?) [cui::View] {
+  [
+    // A one-cell leading spacer puts the field's text in the label column,
+    // aligned with the result rows, as in the vaxis picker search field.
+    cui::box(
+      [
+        cui::box(
+          [cui::text(" ", styles: ui::style(width: ui::cells(1), flex_shrink: 0.0))],
+          styles: ui::style(background: props.themes.current().background),
+        ),
+        cui::input(
+          // A trailing pad cell keeps room for the cursor at the end of the
+          // query, as in the vaxis picker field.
+          props.query,
+          key: "palette.search",
+          placeholder: props.placeholder,
+          focused: focused,
+          autofocus: focused.is_none(),
+          ref: input_ref,
+          styles: ui::style(
+            padding: ui::Edges{
+              top: ui::cells(0),
+              right: ui::cells(1),
+              bottom: ui::cells(0),
+              left: ui::cells(0),
+            },
+            background: props.themes.current().background,
+            flex_grow: 1.0,
+            flex_basis: ui::cells(0),
+          ),
+          on_input: fn(value: Str, ctx: cui::Context) {
+            props.on_query_change(value)
+          },
+          on_submit: fn(value: Str, ctx: cui::Context) {
+            selected(
+              items(props),
+              props.selection,
+            ).map(fn(item) {
+              props.on_activate(item)
+            })
+          },
+        ),
+      ],
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::row,
+        flex_shrink: 0.0,
+        background: props.themes.current().background,
+      ),
+    ),
+    cui::divider(),
+  ]
+}
+
+// The body is a hidden-scrollbar virtual list with `⋯` overflow rows above and
+// below when the catalog extends past the viewport.
+fn body(props: Props, viewport: Viewport) cui::View {
+  let visible = items(props)
+  if visible.size() == 0 {
+    cui::box(
+      [
+        cui::text(
+          props.empty.or("No results"),
+          styles: ui::style(
+            padding: ui::Edges{
+              top: ui::cells(1),
+              right: ui::cells(1),
+              bottom: ui::cells(1),
+              left: ui::cells(1),
+            },
+          ),
+          text_style: ui::text_style(foreground: props.themes.current().muted),
+        ),
+      ],
+      styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+    )
+  } else {
+    // Marker slots are always present; a transparent spacer keeps the
+    // virtual list at a stable child position so scrolling survives
+    // overflow-marker changes.
+    let children = mut List::new<cui::View>()
+    let layout = columns(props.catalog)
+    children.push(overflow_slot(props, "above", -1, viewport.on_page))
+    children.push(
+      cui::virtual_list(
+        visible,
+        item_key: fn(item: Item) Str {
+          item.key
+        },
+        render_item: fn(item: Item) cui::View {
+          row(props, item, layout)
+        },
+        row_height: 1,
+        estimated_height: 1,
+        overscan: 2,
+        scrollbar_options: ui::scrollbar_options(visibility: ui::ScrollbarVisibility::hidden),
+        key: "palette.list",
+        ref: viewport.list,
+        on_update: viewport.on_update,
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+      ),
+    )
+    children.push(overflow_slot(props, "below", 1, viewport.on_page))
+    cui::box(
+      children.@,
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
+        flex_direction: ui::FlexDirection::column,
+      ),
+    )
+  }
+}
+
+// One stable overflow slot: a clickable `⋯` page row when content extends
+// past that edge, otherwise a transparent spacer.
+private fn overflow_slot(props: Props, key: Str, direction: Int, on_page: fn(Int)) cui::View {
+  let hidden = match direction < 0 {
+    true => not props.hidden_above,
+    false => not props.hidden_below,
+  }
+  if hidden {
+    cui::box(
+      [],
+      key: "palette.overflow.{key}",
+      styles: ui::style(height: ui::cells(0), flex_shrink: 0.0),
+    )
+  } else {
+    overflow_row(props, key, direction, on_page)
+  }
+}
+
+impl cui::Lifecycle for Picker {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+    let list = self.list
+    let selection = self.props.selection
+    let _ = after_commit::once(ctx, fn() {
+      let _ = list.current.map(fn(current) {
+        current.reveal(selection)
+      })
+    })
+  }
+
+  fn mut unmounting(ctx: cui::Context) {}
+}
+
+impl Picker {
+  private fn mut view_props() Props {
+    let catalog = self.props.catalog
+    Props{
+      themes: self.props.themes,
+      placeholder: self.props.placeholder,
+      catalog: catalog,
+      query: self.props.query,
+      filter_query: "",
+      tree: self.source.tree,
+      empty: self.source.empty,
+      selection: self.props.selection,
+      hovered: self.props.hovered,
+      hidden_above: self.hidden_above,
+      hidden_below: self.hidden_below,
+      on_query_change: fn(query: Str) {
+        self.props.query = query
+        self.source.on_query_change(query)
+        self.props.hovered = ""
+        let next = query_selection(self.view_props(), self.props.selection)
+        self.props.selection = next
+        self.source.on_selection_change(next)
+        if next != "" {
+          self.reveal(next)
+        }
+      },
+      on_selection_change: fn(selection: Str) {
+        self.props.selection = selection
+        self.source.on_selection_change(selection)
+        self.reveal(selection)
+      },
+      on_hover_change: fn(hover: Str) {
+        self.props.hovered = hover
+      },
+      on_activate: self.props.on_activate,
+    }
+  }
+
+  private fn mut reveal(selection: Str) {
+    match self.context {
+      context => {
+        let list = self.list
+        let _ = after_commit::once(context, fn() {
+          let _ = list.current.map(fn(current) {
+            current.reveal(selection)
+          })
+        })
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut viewport_props() Viewport {
+    Viewport{
+      list: self.list,
+      on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
+        let visible = items(self.view_props())
+        self.hidden_above = update.state.visible_range.start > 0
+        self.hidden_below = update.state.visible_range.end < visible.size()
+        self.viewport = update.state.viewport_height
+      },
+      on_page: fn(direction: Int) {
+        let step = match self.viewport > 1 {
+          true => self.viewport - 1,
+          false => 1,
+        }
+        let _ = self.list.current.map(fn(list) {
+          list.scroll_by(direction * step)
+        })
+      },
+    }
+  }
+}
+
+impl cui::Component for Picker {
+  fn mut render() cui::View {
+    // Refresh parent-owned inputs while retaining picker-owned query,
+    // selection, hover, viewport, and focus state.
+    self.props.themes = self.source.themes
+    self.props.catalog = self.source.catalog
+    self.props.tree = self.source.tree
+    // The selection must stay visible; a tree search can select a row the
+    // browsing catalog hides under a collapsed parent.
+    mut selected_exists = false
+    for item in items(self.props) {
+      if item.key == self.props.selection {
+        selected_exists = true
+      }
+    }
+    if not selected_exists {
+      let visible = items(self.props)
+      mut initial_exists = false
+      for item in visible {
+        if item.key == self.source.initial_selection and not inert(item) {
+          initial_exists = true
+        }
+      }
+      self.props.selection = match initial_exists {
+        true => self.source.initial_selection,
+        false => first_enabled(visible),
+      }
+    }
+    self.props.placeholder = self.source.placeholder
+    self.props.on_activate = self.source.on_activate
+    self.title = self.source.title
+    self.footer = self.source.footer
+    self.dismiss = self.source.dismiss
+    self.override = self.source.override
+    self.remove = self.source.remove
+    self.rename = self.source.rename
+    self.toggle = self.source.toggle
+    let props = self.view_props()
+    let navigation = navigation(props)
+    let commands = mut List::new<keymap::Command>()
+    commands.push(navigation.up)
+    commands.push(navigation.down)
+    let bindings = mut List::new<keymap::Binding>()
+    bindings.push(
+      keymap::binding(keymap::key("up"), navigation.up.with(), keymap::Trigger::press_or_repeat),
+    )
+    bindings.push(
+      keymap::binding(
+        keymap::key("down"),
+        navigation.down.with(),
+        keymap::Trigger::press_or_repeat,
+      ),
+    )
+    match self.toggle {
+      callback => {
+        let collapse = keymap::simple_command("palette.collapse", "Collapse", fn() Bool {
+          if strings::TrimSpace(self.props.query) == "" {
+            callback(self.props.selection, false)
+          }
+          true
+        })
+        let expand = keymap::simple_command("palette.expand", "Expand", fn() Bool {
+          if strings::TrimSpace(self.props.query) == "" {
+            callback(self.props.selection, true)
+          }
+          true
+        })
+        commands.push(collapse)
+        commands.push(expand)
+        bindings.push(keymap::binding(keymap::key("left"), collapse.with()))
+        bindings.push(keymap::binding(keymap::key("right"), expand.with()))
+      },
+      _ => (),
+    }
+    match self.remove {
+      callback => {
+        let command = keymap::simple_command("palette.remove", "Delete", fn() Bool {
+          callback(self.props.selection)
+          true
+        })
+        commands.push(command)
+        bindings.push(keymap::binding(keymap::key("d", ctrl: true), command.with()))
+      },
+      _ => (),
+    }
+    match self.rename {
+      callback => {
+        let command = keymap::simple_command("palette.rename", "Rename", fn() Bool {
+          callback(self.props.selection)
+          true
+        })
+        commands.push(command)
+        bindings.push(keymap::binding(keymap::key("r", ctrl: true), command.with()))
+      },
+      _ => (),
+    }
+    match self.source.refresh {
+      callback => {
+        let command = keymap::simple_command("palette.refresh", "Refresh", fn() Bool {
+          callback()
+          true
+        })
+        commands.push(command)
+        bindings.push(keymap::binding(keymap::key("r", ctrl: true), command.with()))
+      },
+      _ => (),
+    }
+    match self.override {
+      callback => {
+        let command = keymap::simple_command("palette.override", "Override", fn() Bool {
+          callback(self.props.selection)
+          true
+        })
+        commands.push(command)
+        bindings.push(keymap::binding(keymap::key("o", ctrl: true), command.with()))
+      },
+      _ => (),
+    }
+    let footer_text = match self.source.error != "" {
+      true => self.source.error,
+      false => self.footer,
+    }
+    let footer_color = match self.source.error != "" {
+      true => self.props.themes.current().danger_text,
+      false => self.props.themes.current().muted,
+    }
+    let footer = match footer_text == "" {
+      true => Maybe::new<cui::View>(),
+      false => {
+        Maybe::new(
+          cui::box(
+            [cui::text(footer_text, text_style: ui::text_style(foreground: footer_color))],
+            styles: ui::style(
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(1),
+                bottom: ui::cells(0),
+                left: ui::cells(1),
+              },
+            ),
+          ),
+        )
+      },
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: self.source.placement.or(modal::Placement::picker),
+        title: self.title,
+        meta: "",
+        header: header(props, Maybe::new<Bool>(), Maybe::new<mut cui::InputRef>()),
+        body: body(props, self.viewport_props()),
+        footer: footer,
+        autofocus: false,
+        dismiss: self.dismiss,
+        commands: Maybe::new(commands.@),
+        bindings: Maybe::new(bindings.@),
+      },
+    )
+  }
+}
+
+private fn overflow_row(props: Props, key: Str, direction: Int, on_page: fn(Int)) cui::View {
+  cui::box(
+    [cui::text("⋯", text_style: ui::text_style(foreground: props.themes.current().muted))],
+    key: "palette.overflow.{key}",
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      padding: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(1),
+        bottom: ui::cells(0),
+        left: ui::cells(1),
+      },
+      background: props.themes.current().background,
+    ),
+    on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+      if received.event_type == event::MouseEventType::up and received.button == event::MouseButton::left {
+        on_page(direction)
+        received.prevent_default()
+        received.stop_propagation()
+      }
+    },
+  )
+}
+
+private fn is_current(item: Item) Bool {
+  mut current = false
+  for term in item.search_terms {
+    if term == current_marker {
+      current = true
+    }
+  }
+  current
+}
+
+private fn row(props: Props, item: Item, columns: Columns) cui::View {
+  let active = item.key == props.selection
+  let hovered = item.key == props.hovered
+  let colors = props.themes.current()
+  let disabled = inert(item)
+  let fill = match {
+    active and disabled => colors.picker_disabled,
+    active => colors.picker_selected,
+    hovered and not disabled => colors.picker_hovered,
+    _ => colors.background,
+  }
+  // Explorer rows identify the attached session with the primary text token;
+  // selection still controls only the row fill and gutter.
+  let label_color = match disabled {
+    true => colors.disabled,
+    false => {
+      match is_current(item) {
+        true => colors.primary,
+        false => colors.foreground,
+      }
+    },
+  }
+  let description = match item.disabled_reason == "" {
+    true => item.description,
+    false => "⊘ {item.disabled_reason}",
+  }
+  let cells = mut List::new<cui::View>()
+  cells.push(
+    cui::text(
+      match active {
+        true => "▌",
+        false => " ",
+      },
+      text_style: ui::text_style(foreground: colors.primary),
+    ),
+  )
+  if columns.status {
+    cells.push(status_cell(props.themes, item.status))
+  }
+  cells.push(
+    cui::box(
+      [
+        cui::text(
+          item.label,
+          text_style: ui::text_style(foreground: label_color),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      ],
+      styles: label_column(columns),
+    ),
+  )
+  cells.push(
+    cui::box(
+      [
+        cui::text(
+          item.hint,
+          text_style: ui::text_style(foreground: colors.muted),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      ],
+      styles: hint_column(columns),
+    ),
+  )
+  cells.push(
+    cui::text(
+      description,
+      styles: description_column(columns),
+      text_style: ui::text_style(foreground: colors.muted),
+      wrap: ui::TextWrap::none,
+      overflow: ui::TextOverflow::ellipsis,
+    ),
+  )
+  cells.push(
+    cui::box(
+      [
+        cui::text(
+          item.meta,
+          text_style: ui::text_style(foreground: colors.muted),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      ],
+      styles: meta_column(columns, 2),
+    ),
+  )
+  cui::box(
+    cells.@,
+    styles: ui::style(
+      background: fill,
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+    ),
+    on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+      match received.event_type {
+        event::MouseEventType::over => props.on_hover_change(item.key),
+        event::MouseEventType::move => props.on_hover_change(item.key),
+        event::MouseEventType::out => {
+          if props.hovered == item.key {
+            props.on_hover_change("")
+          }
+        },
+        event::MouseEventType::up => {
+          if received.button == event::MouseButton::left {
+            props.on_selection_change(item.key)
+            if not disabled {
+              props.on_activate(item)
+            }
+            received.prevent_default()
+          }
+        },
+        _ => (),
+      }
+    },
+  )
+}
+
+// One row's status column: its icon and a cell of space, or blank cells.
+private fn status_cell(themes: theme::Context, value: status::Status?) cui::View {
+  let icon: [cui::View] = match value {
+    shown => [status::icon(themes, shown)],
+    _ => [],
+  }
+  cui::box(
+    icon,
+    styles: ui::style(
+      width: ui::cells(2),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+    ),
+  )
+}
+
+struct Navigation {
+  up: keymap::SimpleCommand,
+  down: keymap::SimpleCommand,
+}
+
+fn navigation(props: Props) Navigation {
+  Navigation{
+    up: keymap::simple_command("palette.up", "Previous", fn() Bool {
+      move(props, -1)
+      true
+    }),
+    down: keymap::simple_command("palette.down", "Next", fn() Bool {
+      move(props, 1)
+      true
+    }),
+  }
+}
+
+fn commands(navigation: Navigation) [keymap::Command] {
+  let commands: [keymap::Command] = [navigation.up, navigation.down]
+  commands
+}
+
+fn bindings(navigation: Navigation) [keymap::Binding] {
+  [
+    keymap::binding(keymap::key("up"), navigation.up.with(), keymap::Trigger::press_or_repeat),
+    keymap::binding(keymap::key("down"), navigation.down.with(), keymap::Trigger::press_or_repeat),
+  ]
+}
+
+private fn move(props: Props, delta: Int) {
+  let visible = items(props)
+  if visible.size() != 0 {
+    mut index = 0
+    for item, current in visible {
+      if item.key == props.selection {
+        index = current
+      }
+    }
+    index = (index + delta + visible.size()) % visible.size()
+    props.on_selection_change(visible.at(index).expect("palette item").key)
+  }
+}

@@ -1,0 +1,307 @@
+use ard/testing
+
+use cooper/event
+use cooper/theme as ctheme
+use cooper/ui
+use go:github.com/akonwi/kit/internal/theme as kittheme
+use kit/tui/theme
+
+// Expected values follow the vaxis client's theme adapter: Kit's linear wash
+// for user turns (tintUIColor) and its token projection (projectColor).
+
+fn dark() ctheme::Theme {
+  ctheme::from_terminal(
+    ctheme::TerminalColors{
+      foreground: Maybe::new(ui::rgb(216, 222, 233)),
+      background: Maybe::new(ui::rgb(40, 44, 52)),
+      palette: [
+        Maybe::new<ui::Color>(),
+        Maybe::new(ui::rgb(224, 108, 117)),
+        Maybe::new(ui::rgb(152, 195, 121)),
+        Maybe::new(ui::rgb(229, 192, 123)),
+        Maybe::new(ui::rgb(97, 175, 239)),
+        Maybe::new(ui::rgb(198, 120, 221)),
+        Maybe::new(ui::rgb(86, 182, 194)),
+        Maybe::new<ui::Color>(),
+      ],
+    },
+  )
+}
+
+fn check(name: Str, got: ui::Color, want: ui::Color) Void!Str {
+  testing::assert(
+    got.red == want.red and got.green == want.green and got.blue == want.blue and got.terminal_default == want.terminal_default,
+    "{name}: got rgb({got.red}, {got.green}, {got.blue}) default={got.terminal_default}, want rgb({want.red}, {want.green}, {want.blue}) default={want.terminal_default}",
+  )
+}
+
+test fn the_system_theme_paints_terminal_defaults_and_derived_tones() Void!Str {
+  let colors = theme::resolve(kittheme::Definition{}, dark())
+  try check("background", colors.background, ui::terminal_default())
+  try check("foreground", colors.foreground, ui::terminal_default())
+  try check("border", colors.border, ui::rgb(96, 101, 110))
+  // vaxis's selectable-text style keeps the terminal foreground over this
+  // terminal-derived selection fill.
+  try check("selection", colors.selection, ui::rgb(52, 102, 143))
+  try check("muted", colors.muted, ui::rgb(122, 127, 137))
+  try check("disabled", colors.disabled, ui::rgb(96, 101, 110))
+  try check("primary_text", colors.primary_text, ui::rgb(118, 187, 245))
+  try check("surface", colors.surface, ui::rgb(47, 52, 60))
+  try check("surface_raised", colors.surface_raised, ui::rgb(58, 63, 71))
+  try check("surface_hovered", colors.surface_hovered, ui::rgb(58, 63, 71))
+  try check("surface_pressed", colors.surface_pressed, ui::rgb(40, 44, 52))
+  // 18% of the primary text color over the surface in a dark theme.
+  check("user_fill", colors.user_fill, ui::rgb(60, 76, 93))
+}
+
+test fn the_system_theme_resolves_every_shared_syntax_role() Void!Str {
+  let colors = theme::system()
+  for role in kittheme::SyntaxRoles() {
+    try testing::assert(colors.syntax_palette.get(role).is_some(), "syntax role {role} is resolved")
+  }
+  testing::pass()
+}
+
+test fn selection_copy_pulse_fades_from_selection_to_terminal_background() Void!Str {
+  let colors = theme::resolve(kittheme::Definition{}, dark())
+  try check("copy pulse start", theme::selection_pulse(colors, 1.0), ui::rgb(49, 89, 123))
+  check("copy pulse end", theme::selection_pulse(colors, 0.0), colors.selection)
+}
+
+test fn shared_theme_context_updates_one_store_and_revision() Void!Str {
+  let shared = theme::store(theme::system())
+  let first = mut theme::context(shared)
+  let second = theme::context(shared)
+  let next = theme::resolve(kittheme::Definition{}, dark())
+  first.replace(next)
+  try testing::assert(second.revision() == 1, "theme revision is shared")
+  check("shared primary", second.current().primary, next.primary)
+}
+
+test fn dark_primary_hover_lifts_a_custom_picker_fill() Void!Str {
+  let tokens = mut Map::new<kittheme::Color>()
+  tokens.set(
+    kittheme::TokenPickerFocusedBackground,
+    kittheme::Color{
+      R: 40,
+      G: 80,
+      B: 120,
+      A: 255,
+    },
+  )
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
+  try check("primary", colors.primary, ui::rgb(40, 80, 120))
+  check("primary hovered", colors.primary_hovered, ui::rgb(68, 103, 138))
+}
+
+test fn accent_text_is_the_terminal_magenta_unless_the_theme_sets_its_accent() Void!Str {
+  // The palette's magenta, rgb(198, 120, 221), lifted for contrast on the
+  // dark background, as vaxis's AccentText.
+  try check(
+    "accent_text",
+    theme::resolve(kittheme::Definition{}, dark()).accent_text,
+    ui::rgb(209, 139, 230),
+  )
+  let tokens = mut Map::new<kittheme::Color>()
+  tokens.set(
+    kittheme::TokenBorderAccent,
+    kittheme::Color{
+      R: 230,
+      G: 150,
+      B: 60,
+      A: 255,
+    },
+  )
+  // As in the vaxis client, the theme's accent sets both accent-colored and
+  // primary text.
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
+  try check("accent_text", colors.accent_text, ui::rgb(230, 150, 60))
+  check("primary_text", colors.primary_text, ui::rgb(230, 150, 60))
+}
+
+test fn translucent_tokens_blend_over_the_background() Void!Str {
+  let tokens = mut Map::new<kittheme::Color>()
+  tokens.set(
+    kittheme::TokenBorderDefault,
+    kittheme::Color{
+      R: 255,
+      G: 255,
+      B: 255,
+      A: 128,
+    },
+  )
+  tokens.set(
+    kittheme::TokenTextMuted,
+    kittheme::Color{
+      R: 10,
+      G: 20,
+      B: 30,
+      A: 255,
+    },
+  )
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
+  try check("border", colors.border, ui::rgb(148, 150, 154))
+  try check("muted", colors.muted, ui::rgb(10, 20, 30))
+  check("disabled", colors.disabled, ui::rgb(96, 101, 110))
+}
+
+fn light() ctheme::Theme {
+  ctheme::from_terminal(
+    ctheme::TerminalColors{
+      foreground: Maybe::new(ui::rgb(40, 44, 52)),
+      background: Maybe::new(ui::rgb(250, 250, 250)),
+      palette: [
+        Maybe::new<ui::Color>(),
+        Maybe::new(ui::rgb(228, 86, 73)),
+        Maybe::new(ui::rgb(80, 161, 79)),
+        Maybe::new(ui::rgb(193, 132, 1)),
+        Maybe::new(ui::rgb(64, 120, 242)),
+        Maybe::new(ui::rgb(166, 38, 164)),
+        Maybe::new(ui::rgb(1, 132, 188)),
+        Maybe::new<ui::Color>(),
+      ],
+    },
+  )
+}
+
+// The muted text color of the committed test theme.
+fn cool() kittheme::Color {
+  kittheme::Color{
+    R: 10,
+    G: 20,
+    B: 30,
+    A: 255,
+  }
+}
+
+// The muted text color of the previewed test theme.
+fn warm() kittheme::Color {
+  kittheme::Color{
+    R: 200,
+    G: 100,
+    B: 50,
+    A: 255,
+  }
+}
+
+// A user theme that overrides only the muted text color.
+fn muted_override(muted: kittheme::Color) kittheme::Definition {
+  let tokens = mut Map::new<kittheme::Color>()
+  tokens.set(kittheme::TokenTextMuted, muted)
+  kittheme::Definition{Tokens: tokens.@}
+}
+
+fn bound_owner(themes: theme::Context, terminal: ctheme::Theme) mut theme::Owner {
+  let owner = theme::owner(themes, "committed", muted_override(cool()))
+  owner.bind(
+    fn(action: fn()) Void!event::DispatchError {
+      action()
+      Result::ok(())
+    },
+    terminal,
+  )
+  owner
+}
+
+test fn canceling_a_theme_preview_restores_the_committed_theme() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let owner = bound_owner(themes, dark())
+  owner.request_preview(muted_override(warm()))
+  try check("previewed muted", themes.current().muted, ui::rgb(200, 100, 50))
+  owner.request_cancel()
+  try check("restored muted", themes.current().muted, ui::rgb(10, 20, 30))
+  testing::assert(owner.committed_name == "committed", "the committed name is unchanged")
+}
+
+test fn a_committed_theme_survives_a_later_cancel() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let owner = bound_owner(themes, dark())
+  owner.request_preview(muted_override(warm()))
+  owner.request_commit("warm", muted_override(warm()))
+  owner.request_cancel()
+  try check("committed muted", themes.current().muted, ui::rgb(200, 100, 50))
+  testing::assert(owner.committed_name == "warm", "the committed name is adopted")
+}
+
+test fn a_terminal_theme_change_repaints_the_open_preview() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let owner = bound_owner(themes, dark())
+  owner.request_preview(muted_override(warm()))
+  owner.request_terminal(light())
+  let expected = theme::resolve(muted_override(warm()), light())
+  try check("preview muted", themes.current().muted, ui::rgb(200, 100, 50))
+  try check("terminal-derived border", themes.current().border, expected.border)
+  owner.request_cancel()
+  let restored = theme::resolve(muted_override(cool()), light())
+  try check("restored muted", themes.current().muted, ui::rgb(10, 20, 30))
+  check("restored against the new terminal", themes.current().border, restored.border)
+}
+
+struct Queue {
+  actions: [fn()],
+}
+
+test fn theme_requests_wait_for_the_bound_dispatch() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let queue = mut Queue{actions: []}
+  let owner = theme::owner(themes, "committed", muted_override(cool()))
+  owner.bind(
+    fn(action: fn()) Void!event::DispatchError {
+      queue.actions.push(action)
+      Result::ok(())
+    },
+    dark(),
+  )
+  let before = themes.revision()
+  owner.request_preview(muted_override(warm()))
+  try testing::assert(themes.revision() == before, "the preview waits for dispatch")
+  for action in queue.actions {
+    action()
+  }
+  check("dispatched preview", themes.current().muted, ui::rgb(200, 100, 50))
+}
+
+fn token(colors: theme::Theme, role: Str) ui::Color {
+  theme::token_color(colors, role).or(ui::rgb(1, 2, 3))
+}
+
+test fn every_token_role_resolves_from_the_terminal_theme() Void!Str {
+  let colors = theme::resolve(kittheme::Definition{}, dark())
+  for role in kittheme::TokenRoles() {
+    try testing::assert(theme::token_color(colors, role).is_some(), "{role} is resolved")
+  }
+  try check("toolText", token(colors, kittheme::TokenToolText), colors.success_text)
+  try check("textMuted", token(colors, kittheme::TokenTextMuted), colors.muted)
+  try check("errorText", token(colors, kittheme::TokenErrorText), colors.danger_text)
+  try check("diffAddedBg", token(colors, kittheme::TokenDiffAddedBackground), colors.diff_added)
+  testing::assert(theme::token_color(colors, "brandText").is_none(), "an unknown role is unset")
+}
+
+test fn user_tokens_replace_roles_and_blend_over_their_backdrop() Void!Str {
+  let tokens = mut Map::new<kittheme::Color>()
+  tokens.set(kittheme::TokenToolText, cool())
+  tokens.set(
+    kittheme::TokenPickerBackground,
+    kittheme::Color{
+      R: 0,
+      G: 0,
+      B: 0,
+      A: 255,
+    },
+  )
+  // Picker text blends over the picker background, not the terminal's.
+  tokens.set(
+    kittheme::TokenPickerItemText,
+    kittheme::Color{
+      R: 255,
+      G: 255,
+      B: 255,
+      A: 128,
+    },
+  )
+  tokens.set("brandText", warm())
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
+  try check("toolText", token(colors, kittheme::TokenToolText), ui::rgb(10, 20, 30))
+  try check("pickerItemText", token(colors, kittheme::TokenPickerItemText), ui::rgb(128, 128, 128))
+  check("brandText", token(colors, "brandText"), ui::rgb(200, 100, 50))
+}

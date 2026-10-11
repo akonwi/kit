@@ -1,0 +1,262 @@
+use ard/async
+
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use kit/tui/modal
+use kit/tui/palette
+use kit/tui/subagents
+use kit/tui/theme
+
+// The `/subagents` picker lists the session's agents and opens a started
+// agent's conversation. Ctrl+D asks to dismiss the selected agent's
+// conversation; a conversation tab's Dismiss opens the same question alone.
+
+struct Props {
+  themes: theme::Context,
+  roster: subagents::Roster,
+  // The session's configuration, shown for agents without their own.
+  session_model: Str,
+  session_thinking: Str,
+  // A conversation to ask about dismissing at once, or empty for the list.
+  // Cancelling that question closes the picker.
+  confirm: Str,
+  dismiss: keymap::SimpleCommand,
+  // Opens the conversation with the ID.
+  open: fn(Str),
+  // Dismisses the conversation with the ID and generation. It blocks, so it
+  // runs off the UI thread.
+  remove: fn(Str, Uint64) Void!Error,
+}
+
+struct Picker {
+  props: mut Props,
+  // The conversation whose dismissal is being confirmed, and its agent.
+  confirming: Str,
+  confirming_name: Str,
+  confirming_generation: Uint64,
+  pending: Bool,
+  error: Str,
+  context: cui::Context?,
+}
+
+fn view(props: Props) cui::View {
+  cui::child(new, props)
+}
+
+private fn new(props: mut Props) mut Picker {
+  let picker = mut Picker{
+    props: props,
+    confirming: "",
+    confirming_name: "",
+    confirming_generation: 0,
+    pending: false,
+    error: "",
+    context: Maybe::new<cui::Context>(),
+  }
+  picker.ask(props.confirm)
+  picker
+}
+
+impl cui::Lifecycle for Picker {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl Picker {
+  // Asks to dismiss the conversation with the ID, if it is still retained.
+  private fn mut ask(id: Str) {
+    match subagents::conversation(self.props.roster, id) {
+      conversation => {
+        self.confirming = conversation.ID
+        self.confirming_name = conversation.AgentName
+        self.confirming_generation = conversation.Generation
+        self.pending = false
+        self.error = ""
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut request(change: fn()) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(change)
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut cancel() Bool {
+    if not self.pending {
+      match self.props.confirm == "" {
+        true => {
+          self.request(fn() {
+            self.confirming = ""
+            self.error = ""
+          })
+        },
+        false => {
+          let _ = self.props.dismiss.invoke()
+        },
+      }
+    }
+    true
+  }
+
+  private fn mut confirm() Bool {
+    match self.context {
+      context => {
+        if self.confirming != "" and not self.pending {
+          let id = self.confirming
+          let generation = self.confirming_generation
+          let remove = self.props.remove
+          let dispatch = context.dispatch
+          self.pending = true
+          self.error = ""
+          async::start(fn() {
+            let result = remove(id, generation)
+            let _ = dispatch(fn() {
+              self.pending = false
+              match result {
+                ok(_) => {
+                  match self.props.confirm == "" {
+                    true => { self.confirming = "" },
+                    false => {
+                      let _ = self.props.dismiss.invoke()
+                    },
+                  }
+                },
+                err(failure) => { self.error = failure.error() },
+              }
+            })
+          })
+        }
+      },
+      _ => (),
+    }
+    true
+  }
+
+  private fn mut confirmation() cui::View {
+    let colors = self.props.themes.current()
+    let cancel = keymap::simple_command("subagents.dismiss.cancel", "Cancel dismiss", fn() Bool {
+      self.cancel()
+    })
+    let confirm = keymap::simple_command(
+      "subagents.dismiss.confirm",
+      "Dismiss subagent",
+      fn() Bool {
+        self.confirm()
+      },
+    )
+    let lines = mut List::new<cui::View>()
+    lines.push(
+      cui::text(
+        match self.pending {
+          true => "Dismissing \"{self.confirming_name}\"…",
+          false => {
+            "Dismiss \"{self.confirming_name}\"? Active and queued work will be aborted. This cannot be undone."
+          },
+        },
+        text_style: ui::text_style(foreground: colors.danger_text),
+      ),
+    )
+    if self.error != "" {
+      lines.push(cui::text(" "))
+      lines.push(
+        cui::text(
+          "Dismiss failed: {self.error}",
+          text_style: ui::text_style(foreground: colors.danger_text),
+        ),
+      )
+    }
+    let hint = match {
+      self.pending => "",
+      self.error != "" => "enter retry · esc cancel",
+      _ => "enter confirm · esc cancel",
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::picker,
+        title: "Subagents",
+        meta: "",
+        header: [],
+        body: cui::box(
+          lines.@,
+          styles: ui::style(
+            flex_grow: 1.0,
+            flex_direction: ui::FlexDirection::column,
+            padding: ui::Edges{
+              top: ui::cells(1),
+              right: ui::cells(1),
+              bottom: ui::cells(1),
+              left: ui::cells(1),
+            },
+          ),
+        ),
+        footer: Maybe::new(
+          cui::box(
+            [cui::text(hint, text_style: ui::text_style(foreground: colors.muted))],
+            styles: ui::style(
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(1),
+                bottom: ui::cells(0),
+                left: ui::cells(1),
+              },
+            ),
+          ),
+        ),
+        autofocus: true,
+        dismiss: cancel,
+        commands: Maybe::new([confirm]),
+        bindings: Maybe::new([keymap::binding(keymap::key("return"), confirm.with())]),
+      },
+    )
+  }
+}
+
+impl cui::Component for Picker {
+  fn mut render() cui::View {
+    match self.confirming != "" {
+      true => self.confirmation(),
+      false => {
+        let roster = self.props.roster
+        cui::child(
+          palette::new_picker,
+          palette::PickerProps{
+            themes: self.props.themes,
+            catalog: subagents::catalog(roster, self.props.session_model, self.props.session_thinking),
+            placeholder: "Search subagents…",
+            initial_selection: "",
+            title: "Subagents",
+            footer: "enter open · ctrl+d dismiss",
+            error: "",
+            dismiss: self.props.dismiss,
+            override: Maybe::new<fn(Str)>(),
+            remove: Maybe::new(fn(name: Str) {
+              let id = subagents::conversation_of(roster, name)
+              self.request(fn() {
+                self.ask(id)
+              })
+            }),
+            empty: Maybe::new("No subagents are defined"),
+            on_query_change: fn(query: Str) {},
+            on_selection_change: fn(selected: Str) {},
+            on_activate: fn(item: palette::Item) {
+              let id = subagents::conversation_of(roster, item.key)
+              if id != "" {
+                self.props.open(id)
+              }
+            },
+          },
+        )
+      },
+    }
+  }
+}

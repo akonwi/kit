@@ -1,0 +1,2615 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use cooper/ui
+use go:kit/ffi/sessionbridge
+use kit/tui/attachments
+use kit/tui/image_preview
+use kit/tui/theme
+use kit/tui/transcript
+use kit/tui/transcript_pane
+use go:strings
+
+struct Model {
+  messages: [transcript::Message],
+  scope_id: Int,
+  control: mut transcript_pane::Control,
+  history: transcript_pane::History,
+  // Earlier-page requests the pane made while the owner was idle.
+  requests: Int,
+  // The expanded image, its loaded previews, and the images toggled and
+  // opened, in order.
+  expanded: Str,
+  previews: [Str: image_preview::Preview],
+  toggled: [Str],
+  opened: [Str],
+  // Bash rows whose output is folded.
+  folded: [Str: Bool],
+  // Plugin messages shown in full, by turn ID.
+  expanded_plugins: [Str: Bool],
+  // Work chips opened or closed by a click, by work key.
+  open_work: [Str: Bool],
+  // The selected tool row, as the attachment holds it.
+  selected_tool: Str,
+  // Tool rows whose output is shown.
+  open_output: [Str: Bool],
+  // Images whose previews were requested for showing, in order.
+  requested: [Str],
+}
+
+// Every message is shown; there is no earlier history.
+fn complete() transcript_pane::History {
+  transcript_pane::History{
+    more: false,
+    loading: false,
+    failure: "",
+  }
+}
+
+fn more_history() transcript_pane::History {
+  transcript_pane::History{
+    more: true,
+    loading: false,
+    failure: "",
+  }
+}
+
+struct HostProps {
+  model: mut Model,
+  themes: theme::Context,
+}
+
+// Hosts the transcript pane the way the shell does: the host supplies
+// projected messages and the attachment scope, and keeps the pane's control.
+struct Host {
+  model: mut Model,
+  themes: theme::Context,
+  // User messages whose annotations are expanded.
+  expanded_notes: [Str: Bool],
+}
+
+fn host(props: mut HostProps) mut Host {
+  (mut Host{
+    model: props.model,
+    themes: props.themes,
+    expanded_notes: [:],
+  })
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    transcript_pane::pane(
+      transcript_pane::Props{
+        themes: self.themes,
+        messages: self.model.messages,
+        control: self.model.control,
+        history: self.model.history,
+        images: transcript_pane::Images{
+          expanded: self.model.expanded,
+          preview: fn(id: Str) image_preview::Preview? {
+            self.model.previews.get(id)
+          },
+          toggle: fn(id: Str) {
+            self.model.toggled.push(id)
+          },
+          open: fn(id: Str) {
+            self.model.opened.push(id)
+          },
+          request: fn(id: Str) {
+            self.model.requested.push(id)
+          },
+        },
+        bash: transcript_pane::Bash{
+          folded: self.model.folded,
+          toggle: fn(id: Str) {
+            self.model.folded.set(id, not self.model.folded.get(id).or(false))
+          },
+        },
+        notes: transcript_pane::Notes{
+          expanded: self.expanded_notes,
+          toggle: fn(id: Str) {
+            self.expanded_notes.set(id, not self.expanded_notes.get(id).or(false))
+          },
+        },
+        plugins: transcript_pane::Plugins{
+          expanded: self.model.expanded_plugins,
+          toggle: fn(turn_id: Str) {
+            self.model.expanded_plugins.set(turn_id, not self.model.expanded_plugins.get(turn_id).or(false))
+          },
+        },
+        work: transcript_pane::Work{
+          open: self.model.open_work,
+          toggle: fn(key: Str, open: Bool) {
+            for other in self.model.open_work.keys() {
+              self.model.open_work.set(other, false)
+            }
+            self.model.open_work.set(key, not open)
+            self.model.selected_tool = ""
+            self.model.open_output = [:]
+          },
+          selected: self.model.selected_tool,
+          select_tool: fn(key: Str) {
+            self.model.selected_tool = key
+          },
+          outputs: self.model.open_output,
+          servers: [],
+          toggle_output: fn(key: Str) {
+            self.model.open_output.set(key, not self.model.open_output.get(key).or(false))
+          },
+        },
+        load_older: fn() {
+          // Like the attachment, an owner already loading ignores requests.
+          let model = self.model
+          if not model.history.loading {
+            model.requests =+ 1
+            model.history = transcript_pane::History{
+              more: true,
+              loading: true,
+              failure: "",
+            }
+          }
+        },
+      },
+      self.model.scope_id,
+    )
+  }
+}
+
+fn replies(count: Int) [transcript::Message] {
+  let messages = mut List::new<protocol::TranscriptMessage>()
+  mut index = 1
+  while index <= count {
+    messages.push(
+      protocol::TranscriptMessage{
+        ID: "reply-{index}",
+        Role: "assistant",
+        Content: [protocol::TextBlock("reply {index}")],
+      },
+    )
+    index =+ 1
+  }
+  transcript::project(messages.@)
+}
+
+fn identified_message(id: Str, role: transcript::Role, text: Str, pending: Bool) transcript::Message {
+  transcript::Message{
+    id: id,
+    turn_id: "turn-1",
+    sequence: 0,
+    role: role,
+    text: text,
+    thinking: "",
+    tool_call_id: "",
+    tool_name: "",
+    tool_calls: [],
+    tool_state: transcript::ToolState::none,
+    error_message: "",
+    is_error: false,
+    aborted: false,
+    pending: pending,
+    attachments: [],
+    annotations: [],
+    bash: Maybe::new<sessionbridge::Bash>(),
+    plugin_id: "",
+    details: "",
+    output_truncated: false,
+    details_omitted: false,
+  }
+}
+
+fn message(role: transcript::Role, text: Str, pending: Bool) transcript::Message {
+  identified_message("message:{text}", role, text, pending)
+}
+
+fn position(text: Str, needle: Str) [Int] {
+  let lines = strings::Split(text, "\n")
+  mut found_x = -1
+  mut found_y = -1
+  mut row = 0
+  for value in lines {
+    let column = strings::Index(value, needle)
+    if found_x < 0 and column >= 0 {
+      found_x = column
+      found_y = row
+    }
+    row =+ 1
+  }
+  [found_x, found_y]
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn render(count: Int) [Str] {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: replies(count),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  rows(terminal)
+}
+
+test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: [],
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  renderer.update(fn() {
+    model.messages = [
+      transcript::Message{
+        id: "",
+        turn_id: "",
+        sequence: 0,
+        role: transcript::Role::user,
+        text: "test message",
+        thinking: "",
+        tool_call_id: "",
+        tool_name: "",
+        tool_calls: [],
+        tool_state: transcript::ToolState::none,
+        error_message: "",
+        is_error: false,
+        aborted: false,
+        pending: false,
+        attachments: [],
+        annotations: [],
+        bash: Maybe::new<sessionbridge::Bash>(),
+        plugin_id: "",
+        details: "",
+        output_truncated: false,
+        details_omitted: false,
+      },
+    ]
+  })
+  terminal.flush()
+  testing::assert(
+    terminal.frame().text().contains("test message"),
+    "optimistic user message renders before server reconciliation",
+  )
+}
+
+test fn pending_assistant_prose_is_revealed_only_after_completion() Void!Str {
+  let terminal = headless::new(40, 8)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: [
+      message(transcript::Role::user, "Explain this", false),
+      message(transcript::Role::assistant, "**partial", true),
+    ],
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try testing::assert(
+    terminal.frame().text().contains("Explain this"),
+    "the submitted prompt remains visible while assistant prose is pending",
+  )
+  try testing::assert(
+    not terminal.frame().text().contains("**partial"),
+    "pending assistant prose must stay out of the transcript",
+  )
+
+  renderer.update(fn() {
+    model.messages = [
+      message(transcript::Role::user, "Explain this", false),
+      message(transcript::Role::assistant, "**Complete** answer", false),
+    ]
+  })
+  terminal.flush()
+  try testing::assert(
+    terminal.frame().text().contains("Complete answer"),
+    "the completed assistant prose is revealed atomically",
+  )
+  testing::assert(
+    not terminal.frame().text().contains("**Complete**"),
+    "completed assistant prose renders as Markdown",
+  )
+}
+
+test fn opening_a_long_transcript_shows_its_latest_message() Void!Str {
+  // The scrollbar thumb rests at the bottom of the track.
+  expect_rows(
+    render(8),
+    [
+      " reply 6                     │",
+      "                             │",
+      " reply 7                     │",
+      "                             │",
+      " reply 8                     │",
+      "                             ┃",
+    ],
+  )
+}
+
+test fn a_short_transcript_rests_on_the_composer() Void!Str {
+  expect_rows(render(2), ["", "", " reply 1", "", " reply 2", ""])
+}
+
+test fn virtual_list_updates_report_when_the_latest_message_leaves_view() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: replies(8),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      " reply 6                     │",
+      "                             │",
+      " reply 7                     │",
+      "                             │",
+      " reply 8                     │",
+      "                             ┃",
+    ],
+  )
+  let list = model.control.list.current.expect("transcript list")
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_edge(cui::ScrollEdge::start, sticky: false)
+  })
+  // Committed visibility is reported while painting; its state change renders
+  // on the following frame.
+  terminal.flush()
+  terminal.flush()
+  testing::assert(
+    terminal.frame().text().contains("↓ Latest"),
+    "the committed update offers a return to the latest reply",
+  )
+}
+
+test fn a_transcript_at_its_end_follows_new_messages() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: replies(8),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  renderer.update(fn() {
+    model.messages = replies(9)
+  })
+  terminal.flush()
+  expect_rows(
+    rows(terminal),
+    [
+      " reply 7                     │",
+      "                             │",
+      " reply 8                     │",
+      "                             │",
+      " reply 9                     │",
+      "                             ┃",
+    ],
+  )
+}
+
+// The reply fits when it arrives, so the transcript follows it. Reflow that
+// later makes it taller than the viewport is growth, not an arrival, and keeps
+// following its end.
+test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
+  let terminal = headless::new(42, 12)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let messages = mut List::new<transcript::Message>()
+  for item in replies(5) {
+    messages.push(item)
+  }
+  messages.push(
+    identified_message(
+      "growing-tail",
+      transcript::Role::assistant,
+      "**Final reply** starts here and has enough prose to wrap repeatedly when the transcript becomes narrow.\n\n- first detail\n- second detail\n\nTAIL sentinel",
+      false,
+    ),
+  )
+  let model = mut Model{
+    messages: messages.@,
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let list = model.control.list.current.expect("transcript list")
+  settle(terminal)
+  try testing::assert(list.is_following_edge(), "transcript initially follows its tail")
+  try testing::assert(terminal.frame().text().contains("TAIL sentinel"), "wide tail is visible")
+
+  terminal.resize(20, 12)
+  terminal.flush()
+  try testing::assert(list.is_following_edge(), "Markdown reflow preserves sticky following")
+  try testing::assert(list.last_item_visible(), "committed state keeps latest visible")
+  try testing::assert(
+    terminal.frame().text().contains("TAIL sentinel"),
+    "narrow reflow stays pinned to the final content",
+  )
+
+  terminal.resize(42, 12)
+  terminal.flush()
+  testing::assert(
+    list.is_following_edge() and list.last_item_visible() and terminal.frame().text().contains("TAIL sentinel"),
+    "wider reflow remains pinned to the same tail",
+  )
+}
+
+test fn scrolled_transcript_preserves_its_keyed_reading_anchor_during_reflow() Void!Str {
+  let terminal = headless::new(44, 8)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let messages = mut List::new<transcript::Message>()
+  mut index = 1
+  while index <= 16 {
+    messages.push(
+      identified_message(
+        "anchored-{index}",
+        transcript::Role::assistant,
+        "**reply {index}** carries a long explanation that changes height when the viewport narrows.",
+        false,
+      ),
+    )
+    index =+ 1
+  }
+  let model = mut Model{
+    messages: messages.@,
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let list = model.control.list.current.expect("transcript list")
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_key("anchored-8", cui::ScrollAlignment::start)
+  })
+  terminal.flush()
+  let wide_position = position(terminal.frame().text(), "reply 8")
+  try testing::assert(wide_position.at(1).or(-1) == 1, "keyed row begins at the reading anchor")
+
+  terminal.resize(22, 8)
+  terminal.flush()
+  let narrow_position = position(terminal.frame().text(), "reply 8")
+  try testing::assert(not list.is_following_edge(), "reflow does not repin a scrolled transcript")
+  try testing::assert(
+    narrow_position.at(1).or(-1) == 1,
+    "narrow reflow preserves the keyed intra-row anchor",
+  )
+  try testing::assert(
+    terminal.frame().text().contains("↓ Latest"),
+    "committed latest state remains out of view",
+  )
+
+  terminal.resize(44, 8)
+  terminal.flush()
+  testing::assert(
+    position(terminal.frame().text(), "reply 8").at(1).or(-1) == 1,
+    "wide reflow restores the same keyed reading anchor",
+  )
+}
+
+test fn markdown_selection_survives_transcript_reflow() Void!Str {
+  let terminal = headless::new(42, 7)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: [
+      identified_message(
+        "selected-markdown",
+        transcript::Role::assistant,
+        "A **selectable** phrase remains stable while this surrounding sentence wraps.",
+        false,
+      ),
+    ],
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let target = position(terminal.frame().text(), "selectable")
+  terminal.double_click(target.at(0).or(-1), target.at(1).or(-1))
+  terminal.flush()
+  try testing::assert(
+    terminal.selection().expect("wide Markdown selection").selected_text == "selectable",
+    "selection uses rendered Markdown text",
+  )
+
+  terminal.resize(20, 7)
+  terminal.flush()
+  try testing::assert(
+    terminal.selection().expect("narrow Markdown selection").selected_text == "selectable",
+    "selection source range survives narrow reflow",
+  )
+
+  terminal.resize(42, 7)
+  terminal.flush()
+  testing::assert(
+    terminal.selection().expect("restored Markdown selection").selected_text == "selectable",
+    "selection survives restoring the original width",
+  )
+}
+
+test fn selected_transcript_row_remains_retained_when_height_growth_moves_it_offscreen() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: replies(12),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let list = model.control.list.current.expect("transcript list")
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_key("reply-5", cui::ScrollAlignment::start)
+  })
+  terminal.flush()
+  let selected = position(terminal.frame().text(), "reply 7")
+  terminal.double_click(selected.at(0).or(-1), selected.at(1).or(-1))
+  terminal.flush()
+  try testing::assert(
+    terminal.selection().expect("selected reply").selected_text == "reply",
+    "reply is selected",
+  )
+
+  renderer.update(fn() {
+    let changed = mut model.messages.at(4).expect("reply 5")
+    changed.text = "Expanded anchor\n\nline two\n\nline three\n\nline four\n\nline five\n\nline six"
+    model.messages.set(4, changed.@)
+  })
+  terminal.flush()
+  try testing::assert(list.mounted_count() < 10, "selected endpoint pin keeps virtualization bounded")
+  try testing::assert(
+    terminal.selection().expect("offscreen retained reply").selected_text == "",
+    "offscreen selected row contributes no clipped text",
+  )
+
+  renderer.update(fn() {
+    let _ = list.scroll_to_key("reply-7", cui::ScrollAlignment::start)
+  })
+  terminal.flush()
+  testing::assert(
+    terminal.selection().expect("restored selected reply").selected_text == "reply",
+    "returning to the retained transcript row restores selection",
+  )
+}
+
+test fn the_latest_control_returns_a_scrolled_transcript_to_its_tail() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: replies(8),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let list = model.control.list.current.expect("transcript list")
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_edge(cui::ScrollEdge::start, sticky: false)
+  })
+  terminal.flush()
+  terminal.flush()
+  let button = position(terminal.frame().text(), "↓ Latest")
+  try testing::assert(button.at(1).or(-1) >= 0, "a scrolled transcript offers the latest reply")
+
+  terminal.mouse_move(button.at(0).or(-1) + 1, button.at(1).or(-1))
+  terminal.mouse_down(button.at(0).or(-1) + 1, button.at(1).or(-1))
+  terminal.mouse_up(button.at(0).or(-1) + 1, button.at(1).or(-1))
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(list.is_following_edge(), "returning to the latest reply resumes following")
+  // Every row has now been measured, so the thumb reflects exact content height.
+  expect_rows(
+    rows(terminal),
+    [
+      " reply 6                     │",
+      "                             │",
+      " reply 7                     │",
+      "                             │",
+      " reply 8                     ┃",
+      "                             ┃",
+    ],
+  )
+}
+
+test fn a_new_attachment_scope_remounts_the_transcript_at_its_tail() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: replies(8),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let first = model.control.list.current.expect("first transcript list")
+  renderer.update(fn() {
+    first.stop_following()
+    let _ = first.scroll_to_edge(cui::ScrollEdge::start, sticky: false)
+  })
+  terminal.flush()
+
+  renderer.update(fn() {
+    model.scope_id = 2
+    model.control = transcript_pane::control()
+  })
+  terminal.flush()
+  terminal.flush()
+  let second = model.control.list.current.expect("second transcript list")
+  try testing::assert(second.is_following_edge(), "the reattached transcript follows its tail")
+  expect_rows(
+    rows(terminal),
+    [
+      " reply 6                     │",
+      "                             │",
+      " reply 7                     │",
+      "                             │",
+      " reply 8                     │",
+      "                             ┃",
+    ],
+  )
+}
+
+// A reply of `count` numbered paragraphs, each one row with a gap row between.
+fn tall_reply(id: Str, count: Int) transcript::Message {
+  let paragraphs = mut List::new<Str>()
+  mut index = 1
+  while index <= count {
+    paragraphs.push("{id} line {index}")
+    index =+ 1
+  }
+  let source = paragraphs.@
+  identified_message(id, transcript::Role::assistant, strings::Join(mut source, "\n\n"), false)
+}
+
+fn mount_messages(terminal: headless::TestApp, model: mut Model) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+}
+
+// Settles the reply's one-frame alignment: its tail paints, the committed
+// update aligns it, and the next update confirms whether it fits.
+fn settle(terminal: headless::TestApp) {
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+}
+
+test fn attaching_opens_a_tall_final_reply_at_its_start() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: [message(transcript::Role::user, "Explain", false), tall_reply("answer", 5)],
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      "                             │",
+      " answer line 1               │",
+      "                             ┃",
+      " answer line 2               ┃",
+      "                             │",
+      " answer line 3               │",
+    ],
+  )
+  testing::assert(
+    not model.control.list.current.expect("transcript list").is_following_edge(),
+    "reading the reply's start stops following the end",
+  )
+}
+
+test fn a_tall_reply_arriving_at_the_end_opens_at_its_start() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: replies(4),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  renderer.update(fn() {
+    let next = mut List::new<transcript::Message>()
+    for item in replies(4) {
+      next.push(item)
+    }
+    next.push(message(transcript::Role::user, "Explain", false))
+    next.push(tall_reply("answer", 5))
+    model.messages = next.@
+  })
+  settle(terminal)
+  let shown = rows(terminal)
+  try testing::assert(
+    shown.at(1).or("").starts_with(" answer line 1"),
+    "the reply's first line is at the top:\n{strings::Join(mut shown, "\n")}",
+  )
+  testing::assert(
+    not model.control.list.current.expect("transcript list").is_following_edge(),
+    "reading the reply's start stops following the end",
+  )
+}
+
+test fn a_reply_that_fits_keeps_following_the_end() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: replies(4),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  renderer.update(fn() {
+    model.messages = replies(5)
+  })
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      " reply 3                     │",
+      "                             │",
+      " reply 4                     │",
+      "                             ┃",
+      " reply 5                     ┃",
+      "                             ┃",
+    ],
+  )
+  testing::assert(
+    model.control.list.current.expect("transcript list").is_following_edge(),
+    "a reply that fits resumes following",
+  )
+}
+
+test fn a_tall_reply_arriving_while_scrolled_away_leaves_the_view_alone() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: replies(8),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  let list = model.control.list.current.expect("transcript list")
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_key("reply-2", cui::ScrollAlignment::start)
+  })
+  settle(terminal)
+  let before = rows(terminal)
+  renderer.update(fn() {
+    let next = mut List::new<transcript::Message>()
+    for item in replies(8) {
+      next.push(item)
+    }
+    next.push(tall_reply("answer", 5))
+    model.messages = next.@
+  })
+  settle(terminal)
+  let after = rows(terminal)
+  testing::assert(
+    after.at(1).or("") == before.at(1).or("") and after.at(1).or("").starts_with(" reply 2"),
+    "the reading position is kept:\n{strings::Join(mut after, "\n")}",
+  )
+}
+
+test fn a_tall_prompt_follows_the_end() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: replies(2),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  renderer.update(fn() {
+    let next = mut List::new<transcript::Message>()
+    for item in replies(2) {
+      next.push(item)
+    }
+    next.push(
+      message(
+        transcript::Role::user,
+        "first prompt line\nsecond\nthird\nfourth\nfifth\nsixth\nPROMPT END",
+        false,
+      ),
+    )
+    model.messages = next.@
+  })
+  settle(terminal)
+  let shown = rows(terminal)
+  try testing::assert(
+    strings::Join(mut shown, "\n").contains("PROMPT END"),
+    "a submitted prompt shows its end:\n{strings::Join(mut shown, "\n")}",
+  )
+  testing::assert(
+    model.control.list.current.expect("transcript list").is_following_edge(),
+    "the transcript keeps following",
+  )
+}
+
+// Replies numbered first through last, as one transcript page.
+fn reply_range(first: Int, last: Int) [transcript::Message] {
+  let messages = mut List::new<protocol::TranscriptMessage>()
+  mut index = first
+  while index <= last {
+    messages.push(
+      protocol::TranscriptMessage{
+        ID: "reply-{index}",
+        Role: "assistant",
+        Content: [protocol::TextBlock("reply {index}")],
+      },
+    )
+    index =+ 1
+  }
+  transcript::project(messages.@)
+}
+
+fn join(head: [transcript::Message], tail: [transcript::Message]) [transcript::Message] {
+  let joined = mut List::new<transcript::Message>()
+  for message in head {
+    joined.push(message)
+  }
+  for message in tail {
+    joined.push(message)
+  }
+  joined.@
+}
+
+fn mount_history(terminal: headless::TestApp, model: mut Model) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+}
+
+test fn a_first_page_too_short_to_fill_the_view_loads_earlier_history() Void!Str {
+  let terminal = headless::new(36, 8)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: reply_range(9, 10),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: more_history(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = mount_history(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(model.requests == 1, "{model.requests} requests")
+  try expect_rows(
+    rows(terminal),
+    ["", "", " ⠋ Loading earlier messages…", "", " reply 9", "", " reply 10", ""],
+  )
+
+  // The final page arrives: the status row is gone once nothing is left.
+  renderer.update(fn() {
+    model.messages = join(reply_range(7, 8), model.messages)
+    model.history = complete()
+  })
+  terminal.flush()
+  // The page fills the view, so the scrollbar appears beside it.
+  expect_rows(
+    content_rows(terminal),
+    [" reply 7", "", " reply 8", "", " reply 9", "", " reply 10", ""],
+  )
+}
+
+test fn earlier_history_loads_within_forty_rows_of_the_top() Void!Str {
+  let terminal = headless::new(36, 10)
+  defer terminal.destroy()
+  // Thirty two-row replies under a two-row status. Rows not yet measured
+  // count at the list's four-row estimate, so each position below lands on
+  // the same side of the 40-row threshold whether or not it is measured.
+  let model = mut Model{
+    messages: reply_range(1, 30),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: more_history(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = mount_history(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(model.requests == 0, "at the end: {model.requests} requests")
+
+  let list = model.control.list.current.expect("transcript list")
+  // reply-25 starts between 50 and 98 rows from the top.
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_key("reply-25", alignment: cui::ScrollAlignment::start)
+  })
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(model.requests == 0, "well below the top: {model.requests} requests")
+  // reply-10 starts between 20 and 38 rows from the top.
+  renderer.update(fn() {
+    let _ = list.scroll_to_key("reply-10", alignment: cui::ScrollAlignment::start)
+  })
+  terminal.flush()
+  terminal.flush()
+  testing::assert(model.requests == 1, "near the top: {model.requests} requests")
+}
+
+test fn a_prepended_page_keeps_the_reading_position() Void!Str {
+  let terminal = headless::new(36, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: reply_range(11, 40),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: more_history(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = mount_history(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  let list = model.control.list.current.expect("transcript list")
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_key("reply-20", alignment: cui::ScrollAlignment::start)
+  })
+  terminal.flush()
+  terminal.flush()
+  let before = content_rows(terminal)
+  try testing::assert(
+    before.at(1).or("") == " reply 20",
+    "reading from reply 20:\n{strings::Join(mut before, "\n")}",
+  )
+
+  renderer.update(fn() {
+    model.messages = join(reply_range(1, 10), model.messages)
+    model.history = complete()
+  })
+  terminal.flush()
+  terminal.flush()
+  expect_rows(content_rows(terminal), before)
+}
+
+// Rows without the scrollbar column, whose thumb moves as content is added.
+fn content_rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    let without_track = strings::TrimSuffix(strings::TrimRight(row, " "), "│")
+    trimmed.push(strings::TrimRight(strings::TrimSuffix(without_track, "┃"), " "))
+  }
+  trimmed.@
+}
+
+test fn a_failed_page_pauses_loading_until_retried() Void!Str {
+  let terminal = headless::new(48, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: reply_range(9, 10),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: transcript_pane::History{
+      more: true,
+      loading: false,
+      failure: "connection refused",
+    },
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = mount_history(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(model.requests == 0, "a failure pauses loading: {model.requests} requests")
+  let text = terminal.frame().text()
+  let retry = position(text, "Could not load earlier messages · retry")
+  try testing::assert(retry.at(1).or(-1) >= 0, "the status offers a retry:\n{text}")
+
+  terminal.mouse_move(retry.at(0).or(-1) + 2, retry.at(1).or(-1))
+  terminal.mouse_down(retry.at(0).or(-1) + 2, retry.at(1).or(-1))
+  terminal.mouse_up(retry.at(0).or(-1) + 2, retry.at(1).or(-1))
+  terminal.flush()
+  testing::assert(model.requests == 1, "retry requests the page: {model.requests} requests")
+}
+
+test fn a_page_prepended_at_the_very_top_keeps_the_oldest_message_in_place() Void!Str {
+  let terminal = headless::new(36, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: reply_range(11, 40),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: transcript_pane::History{
+      more: true,
+      loading: true,
+      failure: "",
+    },
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = mount_history(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  let list = model.control.list.current.expect("transcript list")
+  renderer.update(fn() {
+    let _ = list.scroll_to_edge(cui::ScrollEdge::start, sticky: false)
+  })
+  terminal.flush()
+  terminal.flush()
+  try expect_rows(
+    content_rows(terminal),
+    [
+      "",
+      " ⠋ Loading earlier messages…",
+      "",
+      " reply 11",
+      "                          ↓ Latest",
+      " reply 12",
+    ],
+  )
+
+  // More history remains, so the status row stays above the new page.
+  renderer.update(fn() {
+    model.messages = join(reply_range(1, 10), model.messages)
+    model.history = transcript_pane::History{
+      more: true,
+      loading: true,
+      failure: "",
+    }
+  })
+  terminal.flush()
+  terminal.flush()
+  expect_rows(
+    content_rows(terminal),
+    ["", " reply 11", "", " reply 12", "                          ↓ Latest", " reply 13"],
+  )
+}
+
+test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
+  let terminal = headless::new(30, 11)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let with_text = mut identified_message("user-1", transcript::Role::user, "look at these", false)
+  with_text.attachments = [
+    transcript::Attachment{
+      id: "attachment-1",
+      image: true,
+      filename: "shot.png",
+    },
+    transcript::Attachment{
+      id: "attachment-2",
+      image: false,
+      filename: "notes.txt",
+    },
+  ]
+  let only_file = mut identified_message("user-2", transcript::Role::user, "", false)
+  only_file.attachments = [
+    transcript::Attachment{
+      id: "attachment-3",
+      image: false,
+      filename: "only.txt",
+    },
+  ]
+  let model = mut Model{
+    messages: [with_text.@, only_file.@],
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ │",
+      "   look at these             ┃",
+      "                             ┃",
+      "   📎 shot.png               ┃",
+      "   📎 notes.txt              ┃",
+      " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ┃",
+      "                             ┃",
+      " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ ┃",
+      "   📎 only.txt               ┃",
+      " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ┃",
+      "                             ┃",
+    ],
+  )
+  let colors = theme::context(theme::store(theme::system())).current()
+  let glyph = terminal.frame().cell(3, 3).expect("glyph")
+  let name = terminal.frame().cell(6, 3).expect("name")
+  let same = fn(left: ui::Color?, right: ui::Color) Bool {
+    match left {
+      color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+      _ => false,
+    }
+  }
+  try testing::assert(glyph.grapheme == attachments::glyph, "each file is marked like its chip")
+  testing::assert(
+    name.grapheme == "s" and same(name.style.foreground, colors.primary_text) and same(name.style.background, colors.user_fill),
+    "the name is primary text on the wash",
+  )
+}
+
+fn image_message() transcript::Message {
+  let message = mut identified_message("user-1", transcript::Role::user, "", false)
+  message.attachments = [
+    transcript::Attachment{
+      id: "attachment-1",
+      image: true,
+      filename: "shot.png",
+    },
+    transcript::Attachment{
+      id: "attachment-2",
+      image: true,
+      filename: "other.png",
+    },
+  ]
+  message.@
+}
+
+fn red_preview() image_preview::Preview {
+  let bytes = mut List::new<Byte>()
+  mut index = 0
+  while index < 32 {
+    bytes.push(Byte::from(255))
+    bytes.push(Byte::from(0))
+    bytes.push(Byte::from(0))
+    bytes.push(Byte::from(255))
+    index =+ 1
+  }
+  image_preview::Preview{
+    stage: image_preview::Stage::ready,
+    image: Maybe::new(ui::image_rgba(8, 4, bytes.@, Maybe::new<ui::Color>())),
+    failure: "",
+  }
+}
+
+test fn an_expanded_image_shows_its_preview_below_its_row() Void!Str {
+  let terminal = headless::new(40, 18)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: [image_message()],
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "attachment-1",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄",
+      "   📎 shot.png",
+      "   loading preview…",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "   📎 other.png",
+      " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+      "",
+    ],
+  )
+
+  renderer.update(fn() {
+    model.previews.set("attachment-1", red_preview())
+  })
+  terminal.flush()
+  let image_rows = rows(terminal)
+  let painted = "   " + strings::Repeat("▀", 33)
+  try testing::assert(
+    image_rows.at(5).or("") == painted and image_rows.at(12).or("") == painted and image_rows.at(4).or("") == "" and image_rows.at(13).or("") == "",
+    "a 2:1 image narrowed to the wash keeps its shape, centred in the reserved rows:\n{strings::Join(mut image_rows, "|\n")}",
+  )
+  try testing::assert(
+    terminal.frame().text().contains("📎 other.png"),
+    "loading does not move the next row",
+  )
+
+  terminal.click(4, 8)
+  terminal.flush()
+  terminal.click(8, 15)
+  terminal.flush()
+  testing::assert(
+    model.opened.size() == 1 and model.opened.at(0).or("") == "attachment-1" and model.toggled.size() == 1 and model.toggled.at(0).or("") == "attachment-2",
+    "clicking the image opens it and clicking a row toggles it",
+  )
+}
+
+fn bash_row(id: Str, command: Str, status: Str, exit_code: Int, output: Str) transcript::Message {
+  transcript::bash_message(
+    sessionbridge::Bash{
+      ID: id,
+      Command: command,
+      Status: status,
+      ExitCode: exit_code,
+      HasExitCode: status == "completed",
+      TimedOut: false,
+      Exclude: false,
+      Output: output,
+    },
+  )
+}
+
+fn bash_model(messages: [transcript::Message]) mut Model {
+  (mut Model{
+    messages: messages,
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  })
+}
+
+fn same_color(left: ui::Color?, right: ui::Color) Bool {
+  match left {
+    color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+    _ => false,
+  }
+}
+
+test fn bash_runs_show_their_outcome_command_and_output_beside_a_rule() Void!Str {
+  let terminal = headless::new(32, 12)
+  defer terminal.destroy()
+  let model = bash_model(
+    [
+      bash_row("bash_1", "ls", "completed", 0, "a.txt\nb.txt"),
+      bash_row("bash_2", "false", "completed", 1, ""),
+      bash_row("bash_3", "make", "aborted", 0, "aborted by user"),
+    ],
+  )
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      " │ ✓ ls                      ▾",
+      " │   a.txt",
+      " │   b.txt",
+      "",
+      " │ ✗ false",
+      "",
+      " │ ⊘ make                    ▾",
+      " │   aborted by user",
+      "",
+    ],
+  )
+  let colors = theme::context(theme::store(theme::system())).current()
+  let frame = terminal.frame()
+  try testing::assert(
+    same_color(frame.cell(1, 5).expect("rule").style.foreground, colors.success_text),
+    "the rule spans the run in the success color",
+  )
+  try testing::assert(
+    same_color(frame.cell(3, 3).expect("check").style.foreground, colors.success_text),
+    "exit code zero succeeds",
+  )
+  try testing::assert(
+    same_color(frame.cell(3, 7).expect("cross").style.foreground, colors.danger_text),
+    "another exit code fails",
+  )
+  try testing::assert(
+    same_color(frame.cell(3, 9).expect("stopped").style.foreground, colors.muted),
+    "a stopped run is muted",
+  )
+  testing::assert(
+    same_color(frame.cell(5, 3).expect("command").style.foreground, colors.foreground) and same_color(frame.cell(5, 4).expect("output").style.foreground, colors.muted),
+    "the command is plain and its output muted",
+  )
+}
+
+test fn a_running_command_shows_a_spinner_and_no_output() Void!Str {
+  let terminal = headless::new(32, 4)
+  defer terminal.destroy()
+  let model = bash_model([bash_row("bash_1", "sleep 5", "running", 0, "")])
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  // The first spinner frame.
+  try expect_rows(rows(terminal), ["", "", " │ ⠋ sleep 5", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  testing::assert(
+    same_color(terminal.frame().cell(3, 2).expect("spinner").style.foreground, colors.success_text),
+    "the spinner uses the success color",
+  )
+}
+
+test fn clicking_a_finished_command_folds_its_output() Void!Str {
+  let terminal = headless::new(32, 6)
+  defer terminal.destroy()
+  let model = bash_model([bash_row("bash_1", "ls", "completed", 0, "a.txt\nb.txt")])
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  terminal.click(10, 2)
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", "", "", "", " │ ✓ ls                      ▸", ""])
+  terminal.click(10, 4)
+  settle(terminal)
+  expect_rows(
+    rows(terminal),
+    ["", "", " │ ✓ ls                      ▾", " │   a.txt", " │   b.txt", ""],
+  )
+}
+
+test fn long_output_shows_its_first_lines_and_counts_the_rest() Void!Str {
+  let terminal = headless::new(32, 24)
+  defer terminal.destroy()
+  let lines = mut List::new<Str>()
+  mut index = 1
+  while index <= 25 {
+    lines.push("line {index}")
+    index =+ 1
+  }
+  let model = bash_model([bash_row("bash_1", "seq 25", "completed", 0, strings::Join(lines, "\n"))])
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  let expected = mut List::new<Str>()
+  for row in ["", "", "", " │ ✓ seq 25                  ▾"] {
+    expected.push(row)
+  }
+  mut line = 1
+  while line <= 18 {
+    expected.push(" │   line {line}")
+    line =+ 1
+  }
+  expected.push(" │   … (7 more lines)")
+  expected.push("")
+  expect_rows(rows(terminal), expected.@)
+}
+
+fn plugin_message(text: Str) [transcript::Message] {
+  transcript::project(
+    [
+      protocol::TranscriptMessage{
+        ID: "pluginmsg_1",
+        TurnID: "turn_1",
+        Sequence: Int64::from(1),
+        Role: "context",
+        BoundaryID: "pluginmsg_1",
+        BoundaryKind: protocol::PluginMessageBoundaryKind,
+        BoundarySource: "autoresearch",
+        Content: [protocol::TextBlock(text)],
+      },
+    ],
+  )
+}
+
+let plugin_text = "Continue the experiment loop.\n\nLog each result before the next run."
+
+test fn a_plugin_message_collapses_to_one_row_naming_its_plugin() Void!Str {
+  let terminal = headless::new(60, 3)
+  defer terminal.destroy()
+  let model = bash_model(plugin_message(plugin_text))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", " ◆ autoresearch · Continue the experiment loop. ▸", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  let frame = terminal.frame()
+  try testing::assert(
+    same_color(frame.cell(1, 1).expect("diamond").style.foreground, colors.accent_text) and same_color(frame.cell(3, 1).expect("plugin").style.foreground, colors.accent_text),
+    "the plugin is named in the accent color",
+  )
+  testing::assert(
+    same_color(frame.cell(16, 1).expect("separator").style.foreground, colors.muted) and same_color(frame.cell(18, 1).expect("summary").style.foreground, colors.muted) and same_color(frame.cell(48, 1).expect("indicator").style.foreground, colors.muted),
+    "the summary is muted",
+  )
+}
+
+test fn a_single_line_plugin_message_does_not_expand() Void!Str {
+  let terminal = headless::new(60, 3)
+  defer terminal.destroy()
+  let model = bash_model(plugin_message("  Continue the **experiment** loop.\n"))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", " ◆ autoresearch · Continue the experiment loop.", ""])
+  terminal.click(20, 1)
+  settle(terminal)
+  try testing::assert(not model.expanded_plugins.get("turn_1").or(false), "a click does not expand it")
+  expect_rows(rows(terminal), ["", " ◆ autoresearch · Continue the experiment loop.", ""])
+}
+
+test fn a_single_line_too_long_for_the_row_keeps_the_toggle() Void!Str {
+  let terminal = headless::new(40, 4)
+  defer terminal.destroy()
+  let model = bash_model(plugin_message("Continue the experiment loop."))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", "", " ◆ autoresearch · Continue the expe… ▸", ""])
+  terminal.click(20, 2)
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    ["", " ◆ autoresearch · Continue the expe… ▾", "   │ Continue the experiment loop.", ""],
+  )
+  // Once the line fits, it is shown whole without a toggle.
+  terminal.resize(60, 4)
+  settle(terminal)
+  expect_rows(rows(terminal), ["", "", " ◆ autoresearch · Continue the experiment loop.", ""])
+}
+
+// Rows get the terminal width less the padding on each side and the
+// scrollbar column.
+test fn a_plugin_message_summary_is_cut_to_the_row() Void!Str {
+  let terminal = headless::new(35, 3)
+  defer terminal.destroy()
+  let model = bash_model(plugin_message(plugin_text))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  expect_rows(rows(terminal), ["", " ◆ autoresearch · Continue the… ▸", ""])
+}
+
+test fn a_plugin_message_summary_drops_markdown_syntax() Void!Str {
+  let terminal = headless::new(70, 3)
+  defer terminal.destroy()
+  let model = bash_model(
+    plugin_message("Read `autoresearch.md` and **log** each result.\n\nThen continue."),
+  )
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  expect_rows(
+    rows(terminal),
+    ["", " ◆ autoresearch · Read autoresearch.md and log each result. ▸", ""],
+  )
+}
+
+test fn clicking_a_plugin_message_shows_it_in_full_beneath_a_rule() Void!Str {
+  let terminal = headless::new(51, 6)
+  defer terminal.destroy()
+  let model = bash_model(plugin_message(plugin_text))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  terminal.click(20, 4)
+  settle(terminal)
+  try testing::assert(model.expanded_plugins.get("turn_1").or(false), "the turn's message is expanded")
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      " ◆ autoresearch · Continue the experiment loop. ▾",
+      "   │ Continue the experiment loop.",
+      "   │",
+      "   │ Log each result before the next run.",
+      "",
+    ],
+  )
+  let colors = theme::context(theme::store(theme::system())).current()
+  let frame = terminal.frame()
+  try testing::assert(
+    same_color(frame.cell(3, 3).expect("rule").style.foreground, colors.border),
+    "the rule uses the border color",
+  )
+  try testing::assert(
+    same_color(frame.cell(5, 2).expect("body").style.foreground, colors.muted),
+    "the full message is muted",
+  )
+  terminal.click(20, 1)
+  settle(terminal)
+  expect_rows(
+    rows(terminal),
+    ["", "", "", "", " ◆ autoresearch · Continue the experiment loop. ▸", ""],
+  )
+}
+
+// A reply that calls tools and the calls' results, in turn turn_id.
+fn tool_run(turn_id: Str, states: [transcript::ToolState]) [transcript::Message] {
+  let messages = mut List::new<transcript::Message>()
+  let calls = mut List::new<transcript::ToolCall>()
+  for state, index in states {
+    let call = mut transcript::tool_call("{turn_id}-call-{index}", "read")
+    call.arguments = "{{\"path\":\"src/{index}.go\"}}"
+    calls.push(call.@)
+  }
+  let reply = mut transcript::message("{turn_id}-reply", turn_id, transcript::Role::assistant)
+  reply.tool_calls = calls.@
+  messages.push(reply.@)
+  for state, index in states {
+    let result = mut transcript::message(
+      "{turn_id}-result-{index}",
+      turn_id,
+      transcript::Role::tool,
+    )
+    result.tool_call_id = "{turn_id}-call-{index}"
+    result.tool_name = "read"
+    result.tool_state = state
+    result.text = "one\ntwo"
+    messages.push(result.@)
+  }
+  messages.@
+}
+
+fn states(state: transcript::ToolState, count: Int) [transcript::ToolState] {
+  let result = mut List::new<transcript::ToolState>()
+  mut index = 0
+  while index < count {
+    result.push(state)
+    index =+ 1
+  }
+  result.@
+}
+
+test fn a_finished_run_of_tool_calls_is_one_chip_counting_failures() Void!Str {
+  let terminal = headless::new(40, 4)
+  defer terminal.destroy()
+  let model = bash_model(
+    tool_run(
+      "t1",
+      [
+        transcript::ToolState::completed,
+        transcript::ToolState::failed,
+        transcript::ToolState::completed,
+      ],
+    ),
+  )
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", "", " ▸ 3 tool calls · 1 failed", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  try testing::assert(
+    same_color(terminal.frame().cell(1, 2).expect("glyph").style.foreground, colors.muted),
+    "the chip is muted",
+  )
+  testing::assert(
+    same_color(
+      terminal.frame().cell(18, 2).expect("failures").style.foreground,
+      colors.danger_text,
+    ),
+    "failures use the danger color",
+  )
+}
+
+test fn clicking_a_chip_opens_its_tool_rows_and_closes_the_other_chip() Void!Str {
+  let terminal = headless::new(70, 8)
+  defer terminal.destroy()
+  let first = tool_run("t1", [transcript::ToolState::completed])
+  let second = tool_run("t2", states(transcript::ToolState::completed, 2))
+  let model = bash_model(join(first, second))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", "", "", "", " ▸ 1 tool call", "", " ▸ 2 tool calls", ""])
+  terminal.click(3, 4)
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      " ▾ 1 tool call",
+      "     Read file           src/0.go:1–2",
+      "",
+      " ▸ 2 tool calls",
+      "",
+    ],
+  )
+  terminal.click(3, 6)
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      " ▸ 1 tool call",
+      "",
+      " ▾ 2 tool calls",
+      "     Read file           src/0.go:1–2",
+      "     Read file           src/1.go:1–2",
+      "",
+    ],
+  )
+  terminal.click(3, 4)
+  settle(terminal)
+  expect_rows(rows(terminal), ["", "", "", "", " ▸ 1 tool call", "", " ▸ 2 tool calls", ""])
+}
+
+test fn a_running_run_opens_on_its_own_until_it_has_six_calls() Void!Str {
+  let terminal = headless::new(70, 12)
+  defer terminal.destroy()
+  let model = bash_model(
+    tool_run("t1", [transcript::ToolState::completed, transcript::ToolState::running]),
+  )
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      " ▾ 2 tool calls",
+      "     Read file           src/0.go:1–2",
+      "   ⠋ Read file           src/1.go",
+      "",
+    ],
+  )
+  // A sixth call closes it; the spinner shows the run working.
+  renderer.update(fn() {
+    let calls = states(transcript::ToolState::completed, 5)
+    let running = mut calls
+    running.push(transcript::ToolState::running)
+    model.messages = tool_run("t1", running.@)
+  })
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", "", "", " ⠋ 6 tool calls", ""])
+  // A click overrides opening on its own, either way.
+  terminal.click(3, 10)
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      " ▾ 6 tool calls",
+      "     Read file           src/0.go:1–2",
+      "     Read file           src/1.go:1–2",
+      "     Read file           src/2.go:1–2",
+      "     Read file           src/3.go:1–2",
+      "     Read file           src/4.go:1–2",
+      "   ⠋ Read file           src/5.go",
+      "",
+    ],
+  )
+  terminal.click(3, 4)
+  settle(terminal)
+  expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", "", "", " ⠋ 6 tool calls", ""])
+}
+
+test fn an_open_chip_lists_thinking_before_each_messages_tool_rows() Void!Str {
+  let terminal = headless::new(70, 10)
+  defer terminal.destroy()
+  let reply = mut transcript::message("t1-reply", "t1", transcript::Role::assistant)
+  reply.thinking = "Read the *parser* first."
+  reply.tool_calls = [transcript::tool_call("c1", "read"), transcript::tool_call("c2", "grep")]
+  let read = mut reply.tool_calls.at(0).expect("read")
+  read.arguments = "{{\"path\":\"tokenize.go\"}}"
+  let search = mut reply.tool_calls.at(1).expect("search")
+  search.arguments = "{{\"pattern\":\"Token\"}}"
+  reply.tool_calls = [read.@, search.@]
+  let result = mut transcript::message("t1-result", "t1", transcript::Role::tool)
+  result.tool_call_id = "c1"
+  result.tool_name = "read"
+  result.tool_state = transcript::ToolState::completed
+  result.text = "package parser"
+  let model = bash_model([reply.@, result.@])
+  model.open_work = ["work:t1:c1": true]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      "",
+      " ▾ 2 tool calls",
+      "   Read the parser first.",
+      "     Read file           tokenize.go:1–1",
+      "   ⠋ Search              Token in .",
+      "",
+    ],
+  )
+  let colors = theme::context(theme::store(theme::system())).current()
+  let cell = terminal.frame().cell(3, 6).expect("thinking")
+  testing::assert(
+    same_color(cell.style.foreground, colors.muted) and cell.style.italic,
+    "thinking is muted italic",
+  )
+}
+
+test fn clicking_a_tool_row_selects_it_and_shows_or_hides_its_output() Void!Str {
+  let terminal = headless::new(70, 9)
+  defer terminal.destroy()
+  let model = bash_model(tool_run("t1", states(transcript::ToolState::completed, 2)))
+  model.open_work = ["work:t1:t1-call-0": true]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  let first = "     Read file           src/0.go:1–2"
+  let second = "     Read file           src/1.go:1–2"
+  try expect_rows(rows(terminal), ["", "", "", "", "", " ▾ 2 tool calls", first, second, ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  let filled = fn(column: Int, row: Int, color: ui::Color) Bool {
+    same_color(terminal.frame().cell(column, row).expect("cell").style.background, color)
+  }
+  // Nothing is selected until a row is clicked.
+  try testing::assert(not filled(5, 6, colors.surface_pressed), "no row starts selected")
+  // A click selects the row and shows its output.
+  terminal.click(5, 7)
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    ["", "", "", " ▾ 2 tool calls", first, second, "      one", "      two", ""],
+  )
+  try testing::assert(model.selected_tool == "t1:t1-call-1", "selected {model.selected_tool}")
+  // The selected row is filled across, around its summary chip.
+  try testing::assert(filled(3, 5, colors.surface_pressed), "the row's start is filled")
+  try testing::assert(filled(5, 5, colors.surface_pressed), "the title is filled")
+  try testing::assert(filled(60, 5, colors.surface_pressed), "the row's end is filled")
+  try testing::assert(filled(25, 5, colors.surface), "the summary keeps its chip")
+  try testing::assert(not filled(5, 4, colors.surface_pressed), "the other row is not")
+  // The output is on the surface fill, under the title.
+  try testing::assert(filled(5, 6, colors.surface), "the well starts under the title")
+  // Clicking another row moves the selection and shows its output too.
+  terminal.click(5, 4)
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    ["", " ▾ 2 tool calls", first, "      one", "      two", second, "      one", "      two", ""],
+  )
+  try testing::assert(filled(5, 2, colors.surface_pressed), "a click moves the selection")
+  try testing::assert(not filled(5, 5, colors.surface_pressed), "from the row selected before")
+  // Clicking it again hides its output; it stays selected.
+  terminal.click(5, 2)
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    ["", "", "", " ▾ 2 tool calls", first, second, "      one", "      two", ""],
+  )
+  try testing::assert(filled(5, 4, colors.surface_pressed), "the row stays selected")
+  // Closing the chip clears the selection and closes every well.
+  terminal.click(3, 3)
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", "", "", "", "", "", "", " ▸ 2 tool calls", ""])
+  terminal.click(3, 7)
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", "", "", "", "", " ▾ 2 tool calls", first, second, ""])
+  try testing::assert(not filled(5, 6, colors.surface_pressed), "the reopened chip has no selection")
+  testing::assert(model.selected_tool == "", "selected {model.selected_tool}")
+}
+
+fn numbered(count: Int) Str {
+  let lines = mut List::new<Str>()
+  mut index = 1
+  while index <= count {
+    lines.push("line {index}")
+    index =+ 1
+  }
+  strings::Join(lines, "\n")
+}
+
+test fn long_output_scrolls_in_its_well_and_counts_its_lines() Void!Str {
+  let terminal = headless::new(70, 20)
+  defer terminal.destroy()
+  let messages = mut tool_run("t1", [transcript::ToolState::completed])
+  let result = mut messages.at(1).expect("result")
+  result.text = numbered(30)
+  result.output_truncated = true
+  messages.set(1, result.@)
+  let model = bash_model(messages.@)
+  model.open_work = ["work:t1:t1-call-0": true]
+  model.selected_tool = "t1:t1-call-0"
+  model.open_output = ["t1:t1-call-0": true]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  let shown = rows(terminal)
+  try expect_rows(
+    shown,
+    [
+      "",
+      "",
+      " ▾ 1 tool call",
+      "     Read file           src/0.go:1–30",
+      "      line 1                                                       ┃",
+      "      line 2                                                       ┃",
+      "      line 3                                                       ┃",
+      "      line 4                                                       ┃",
+      "      line 5                                                       ┃",
+      "      line 6                                                       ┃",
+      "      line 7                                                       │",
+      "      line 8                                                       │",
+      "      line 9                                                       │",
+      "      line 10                                                      │",
+      "      line 11                                                      │",
+      "      line 12                                                      │",
+      "      line 13                                                      │",
+      "      line 14                                                      │",
+      "                                        30 lines · output truncated",
+      "",
+    ],
+  )
+  // The wheel scrolls the well.
+  terminal.scroll(10, 8, 3)
+  settle(terminal)
+  let scrolled = rows(terminal)
+  try testing::assert(
+    strings::HasPrefix(scrolled.at(4).or(""), "      line 4 "),
+    "the well scrolled: {scrolled.at(4).or("")}",
+  )
+  testing::assert(scrolled.at(3).or("") == shown.at(3).or(""), "the transcript stayed")
+}
+
+test fn the_wheel_scrolls_the_transcript_at_a_wells_edge() Void!Str {
+  let terminal = headless::new(70, 10)
+  defer terminal.destroy()
+  let messages = mut tool_run("t1", [transcript::ToolState::completed])
+  let result = mut messages.at(1).expect("result")
+  result.text = numbered(30)
+  messages.set(1, result.@)
+  let model = bash_model(messages.@)
+  model.open_work = ["work:t1:t1-call-0": true]
+  model.selected_tool = "t1:t1-call-0"
+  model.open_output = ["t1:t1-call-0": true]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  // The transcript ends at the well's footer, whose start is above the view.
+  let shown = rows(terminal)
+  try testing::assert(
+    strings::HasPrefix(shown.at(0).or(""), "      line 7 "),
+    "top: {shown.at(0).or("")}",
+  )
+  try testing::assert(strings::Contains(shown.at(8).or(""), "30 lines"), "footer: {shown.at(8).or("")}")
+  // Already at its start, the well passes the wheel up to the transcript.
+  terminal.scroll(10, 3, -3)
+  settle(terminal)
+  let scrolled = rows(terminal)
+  testing::assert(
+    strings::HasPrefix(scrolled.at(3).or(""), "      line 7 "),
+    "the transcript scrolled:\n{strings::Join(mut scrolled, "|\n")}",
+  )
+  testing::pass()
+}
+
+test fn a_running_calls_output_follows_its_end_as_it_streams() Void!Str {
+  let terminal = headless::new(70, 20)
+  defer terminal.destroy()
+  let messages = mut tool_run("t1", [transcript::ToolState::running])
+  let result = mut messages.at(1).expect("result")
+  result.text = numbered(20)
+  messages.set(1, result.@)
+  let model = bash_model(messages.@)
+  model.open_work = ["work:t1:t1-call-0": true]
+  model.selected_tool = "t1:t1-call-0"
+  model.open_output = ["t1:t1-call-0": true]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  let first = rows(terminal)
+  try testing::assert(
+    strings::HasPrefix(first.at(4).or(""), "      line 7 "),
+    "top: {first.at(4).or("")}",
+  )
+  try testing::assert(
+    strings::HasPrefix(first.at(17).or(""), "      line 20 "),
+    "end: {first.at(17).or("")}",
+  )
+  renderer.update(fn() {
+    let grown = mut model.messages
+    let streaming = mut grown.at(1).expect("result")
+    streaming.text = numbered(25)
+    grown.set(1, streaming.@)
+    model.messages = grown.@
+  })
+  settle(terminal)
+  let later = rows(terminal)
+  testing::assert(
+    strings::HasPrefix(later.at(17).or(""), "      line 25 "),
+    "end: {later.at(17).or("")}",
+  )
+}
+
+test fn a_well_without_output_says_so() Void!Str {
+  let terminal = headless::new(70, 8)
+  defer terminal.destroy()
+  let messages = mut tool_run(
+    "t1",
+    [transcript::ToolState::completed, transcript::ToolState::running],
+  )
+  for index in [1, 2] {
+    let result = mut messages.at(index).expect("result")
+    result.text = ""
+    messages.set(index, result.@)
+  }
+  let model = bash_model(messages.@)
+  model.open_work = ["work:t1:t1-call-0": true]
+  model.open_output = ["t1:t1-call-0": true, "t1:t1-call-1": true]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      " ▾ 2 tool calls",
+      "     Read file           src/0.go · empty",
+      "      No output",
+      "   ⠋ Read file           src/1.go",
+      "      Waiting for output…",
+      "",
+    ],
+  )
+}
+
+fn titled_run(names: [Str]) [transcript::Message] {
+  let reply = mut transcript::message("t1-reply", "t1", transcript::Role::assistant)
+  let calls = mut List::new<transcript::ToolCall>()
+  let messages = mut List::new<transcript::Message>()
+  for name, index in names {
+    let call = mut transcript::tool_call("c{index}", name)
+    call.arguments = "{{\"path\":\"a.go\"}}"
+    calls.push(call.@)
+  }
+  reply.tool_calls = calls.@
+  messages.push(reply.@)
+  for name, index in names {
+    let result = mut transcript::message("t1-result-{index}", "t1", transcript::Role::tool)
+    result.tool_call_id = "c{index}"
+    result.tool_name = name
+    result.tool_state = transcript::ToolState::completed
+    result.text = "done"
+    messages.push(result.@)
+  }
+  messages.@
+}
+
+test fn a_chips_rows_share_a_title_column_as_wide_as_their_longest_title() Void!Str {
+  let terminal = headless::new(80, 5)
+  defer terminal.destroy()
+  let model = bash_model(titled_run(["read", "kit__inspect_workspace_state"]))
+  model.open_work = ["work:t1:c0": true]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      " ▾ 2 tool calls",
+      "     Read file                a.go:1–1",
+      "     Inspect Workspace State  kit",
+      "",
+    ],
+  )
+}
+
+test fn a_title_column_stops_growing_at_its_widest() Void!Str {
+  let terminal = headless::new(80, 5)
+  defer terminal.destroy()
+  let model = bash_model(titled_run(["read", "kit__reconcile_every_pending_workspace_change"]))
+  model.open_work = ["work:t1:c0": true]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      " ▾ 2 tool calls",
+      "     Read file                         a.go:1–1",
+      "     Reconcile Every Pending Workspac  kit",
+      "",
+    ],
+  )
+}
+
+fn shown_image_run(caption: Str) [transcript::Message] {
+  let reply = mut transcript::message("t1-reply", "t1", transcript::Role::assistant)
+  let call = mut transcript::tool_call("c0", "show_image")
+  call.arguments = "{{\"path\":\"shots/home.png\"}}"
+  reply.tool_calls = [call.@]
+  let result = mut transcript::message("t1-result-0", "t1", transcript::Role::tool)
+  result.tool_call_id = "c0"
+  result.tool_name = "show_image"
+  result.tool_state = transcript::ToolState::completed
+  result.text = "Image displayed successfully."
+  result.details = "{{\"presentation\":\"transcript-image\",\"attachmentId\":\"attachment_home\",\"filename\":\"home.png\",\"mediaType\":\"image/png\",\"width\":800,\"height\":600,\"caption\":\"{caption}\"}}"
+  [reply.@, result.@]
+}
+
+test fn a_shown_image_loads_below_its_closed_chip_with_its_caption() Void!Str {
+  let terminal = headless::new(60, 18)
+  defer terminal.destroy()
+  let model = bash_model(shown_image_run("Home screen after the redesign"))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  // The preview's 12 rows are reserved while it loads.
+  let expected = mut List::new<Str>()
+  for row in ["", "", " ▸ 1 tool call", "", "   loading preview…"] {
+    expected.push(row)
+  }
+  for _ in 1..11 {
+    expected.push("")
+  }
+  expected.push("   Home screen after the redesign")
+  expected.push("")
+  try expect_rows(rows(terminal), expected.@)
+  let requested = strings::Join(mut model.requested, ",")
+  testing::assert(
+    requested == "attachment_home",
+    "the preview is requested once shown: {requested}",
+  )
+}
+
+test fn a_loaded_shown_image_paints_and_opens_when_clicked() Void!Str {
+  let terminal = headless::new(60, 18)
+  defer terminal.destroy()
+  let model = bash_model(shown_image_run(""))
+  model.previews = ["attachment_home": red_preview()]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  let shown = rows(terminal)
+  // Without a caption, the image ends the run.
+  let painted = "   " + strings::Repeat("▀", 48)
+  try testing::assert(
+    shown.at(3).or("") == " ▸ 1 tool call" and shown.at(4).or("") == "" and shown.at(5).or("") == painted and shown.at(16).or("") == painted and shown.at(17).or("") == "",
+    "the image fills its rows below the chip:\n{strings::Join(mut shown, "|\n")}",
+  )
+  terminal.click(10, 8)
+  settle(terminal)
+  testing::assert(
+    model.opened.size() == 1 and model.opened.at(0).or("") == "attachment_home",
+    "clicking the image opens it",
+  )
+}
+
+test fn thinking_no_run_takes_in_shows_muted_and_italic() Void!Str {
+  let terminal = headless::new(40, 4)
+  defer terminal.destroy()
+  let thought = mut transcript::message("a0", "t1", transcript::Role::assistant)
+  thought.thinking = "Nothing *left* to change."
+  let model = bash_model([thought.@])
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", "", " Nothing left to change.", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  let cell = terminal.frame().cell(1, 2).expect("thinking")
+  testing::assert(
+    same_color(cell.style.foreground, colors.muted) and cell.style.italic,
+    "thinking is muted italic",
+  )
+}
+
+test fn sent_annotations_expand_from_one_row() Void!Str {
+  let terminal = headless::new(40, 16)
+  defer terminal.destroy()
+  let sent = mut identified_message("user-1", transcript::Role::user, "tighten these", false)
+  sent.annotations = [
+    sessionbridge::Annotation{
+      ID: Uint64::from(1),
+      Kind: "file",
+      Path: "tui/shell.ard",
+      StartLine: 3,
+      EndLine: 6,
+      Body: "Keep the cursor visible.",
+      Preview: "one\ntwo\nthree\nfour",
+    },
+    sessionbridge::Annotation{
+      ID: Uint64::from(2),
+      Kind: "diff",
+      Side: "old",
+      Path: "main.go",
+      StartLine: 9,
+      EndLine: 9,
+      Body: "Why?",
+      Preview: "x := 1",
+    },
+  ]
+  let model = mut Model{
+    messages: [sent.@],
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+  }
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  let collapsed = shown_rows(terminal)
+  try expect_rows(
+    collapsed,
+    [
+      " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄",
+      "   tighten these",
+      "",
+      "   🗨️ 2 annotations ▸",
+      " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+      "",
+    ],
+  )
+  terminal.click(6, 16 - collapsed.size() + 3)
+  settle(terminal)
+  expect_rows(
+    shown_rows(terminal),
+    [
+      " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ │",
+      "   tighten these                       ┃",
+      "                                       ┃",
+      "   🗨️ 2 annotations ▾                  ┃",
+      "                                       ┃",
+      "   ▎ tui/shell.ard:3–6                 ┃",
+      "   ▎   one                             ┃",
+      "   ▎   two                             ┃",
+      "   ▎   three …                         ┃",
+      "   ▎ Keep the cursor visible.          ┃",
+      "                                       ┃",
+      "   ▎ main.go −9                        ┃",
+      "   ▎   x := 1                          ┃",
+      "   ▎ Why?                              ┃",
+      " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ┃",
+      "                                       ┃",
+    ],
+  )
+}
+
+// The rows from the first that shows anything.
+fn shown_rows(terminal: headless::TestApp) [Str] {
+  let all = rows(terminal)
+  let kept = mut List::new<Str>()
+  for row in all {
+    if kept.size() > 0 or row != "" {
+      kept.push(row)
+    }
+  }
+  kept.@
+}

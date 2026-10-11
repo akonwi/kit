@@ -1,0 +1,173 @@
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/ui
+use kit/tui/theme
+
+// Placement selects a bounded dialog position appropriate to its interaction.
+enum Placement {
+  // Fills a bounded region, such as an inline app's rows, at picker width.
+  centered,
+  picker,
+  region,
+}
+
+// Dialog describes a framed modal surface. The shell owns whether it is mounted
+// and its focus-restoration policy; this module owns the barrier, frame, and
+// Escape binding.
+struct Dialog {
+  placement: Placement,
+  title: Str,
+  meta: Str,
+  // Header contains direct panel children between title spacing and the
+  // flexible body. Pickers use it for their search field and divider.
+  header: [cui::View],
+  body: cui::View,
+  footer: cui::View?,
+  // autofocus is a fallback for dialogs without an autofocusable descendant.
+  autofocus: Bool,
+  dismiss: keymap::SimpleCommand,
+  // Optional key bindings owned by the panel so they apply while focus rests
+  // in any of its descendants, such as a picker's search input.
+  commands: [keymap::Command]?,
+  bindings: [keymap::Binding]?,
+}
+
+// dialog renders a transparent input barrier and one bounded dialog above it.
+// It is intended as a root-shell child, so its absolute layer fills the viewport.
+fn dialog(themes: theme::Context, spec: Dialog) cui::View {
+  let colors = themes.current()
+  cui::box(
+    [
+      cui::box(
+        [],
+        key: "modal.barrier",
+        styles: ui::style(
+          position: ui::Position::absolute,
+          top: ui::cells(0),
+          right: ui::cells(0),
+          bottom: ui::cells(0),
+          left: ui::cells(0),
+          z_index: 100,
+        ),
+        on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+          received.prevent_default()
+        },
+      ),
+      panel(colors, spec),
+    ],
+    key: "modal.layer",
+    styles: ui::style(
+      position: ui::Position::absolute,
+      top: ui::cells(0),
+      right: ui::cells(0),
+      bottom: ui::cells(0),
+      left: ui::cells(0),
+      z_index: 100,
+    ),
+  )
+}
+
+private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
+  let focus_owner = match spec.autofocus {
+    true => "panel",
+    false => "descendant",
+  }
+  let commands = mut List::new<keymap::Command>()
+  commands.push(spec.dismiss)
+  for command in spec.commands.or([]) {
+    commands.push(command)
+  }
+  let dismiss_binding = keymap::binding(keymap::key("escape"), spec.dismiss.with())
+  let panel_bindings = mut List::new<keymap::Binding>()
+  panel_bindings.push(dismiss_binding)
+  for binding in spec.bindings.or([]) {
+    panel_bindings.push(binding)
+  }
+  let header = cui::box(
+    [
+      cui::text(
+        spec.title,
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        text_style: ui::text_style(bold: true),
+        overflow: ui::TextOverflow::ellipsis,
+      ),
+      cui::text(spec.meta, text_style: ui::text_style(foreground: colors.muted)),
+    ],
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::row,
+      flex_shrink: 0.0,
+      padding: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(1),
+        bottom: ui::cells(0),
+        left: ui::cells(1),
+      },
+    ),
+  )
+  let content = mut List::new<cui::View>()
+  // Pickers whose search field is their header omit a redundant title row.
+  // Titled dialogs retain their structural header divider here.
+  if spec.title != "" or spec.meta != "" {
+    content.push(header)
+    content.push(cui::divider())
+  }
+  for child in spec.header {
+    content.push(child)
+  }
+  content.push(spec.body)
+  match spec.footer {
+    footer => {
+      content.push(cui::divider())
+      content.push(footer)
+    },
+    _ => (),
+  }
+  cui::box(
+    // Distinguish modal kinds so replacing a focused picker with a passive
+    // dialog remounts its focus owner and applies autofocus again.
+    // A modal owns Escape even while a descendant search input is focused.
+    // Application scope plus the elevated priority prevents the input's local
+    // key layer from delaying dismissal during reconciliation.
+    content.@,
+    key: "modal.panel.{spec.title}.{focus_owner}",
+    autofocus: spec.autofocus,
+    styles: panel_style(colors, spec.placement),
+    commands: commands.@,
+    bindings: panel_bindings.@,
+    binding_scope: keymap::ScopeMode::application,
+    binding_priority: 100,
+  )
+}
+
+private fn panel_style(colors: theme::Theme, placement: Placement) ui::Style {
+  let width = match placement {
+    Placement::centered => ui::percent(70.0),
+    _ => ui::percent(80.0),
+  }
+  let top = match placement {
+    Placement::picker => ui::percent(25.0),
+    Placement::centered => ui::percent(33.0),
+    Placement::region => ui::cells(0),
+  }
+  let height = match placement {
+    Placement::picker => ui::cells(20),
+    Placement::centered => ui::undefined(),
+    Placement::region => ui::percent(100.0),
+  }
+  ui::style(
+    position: ui::Position::absolute,
+    top: top,
+    width: width,
+    align_self: ui::Align::center,
+    height: height,
+    min_width: ui::cells(48),
+    max_width: ui::cells(96),
+    flex_direction: ui::FlexDirection::column,
+    background: colors.background,
+    foreground: colors.foreground,
+    border: ui::Border::single,
+    border_color: colors.border,
+    z_index: 101,
+  )
+}

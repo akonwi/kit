@@ -1,0 +1,567 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use go:kit/ffi/footer as footerlayout
+use go:kit/ffi/sessionbridge
+use kit/tui/attachments
+use kit/tui/chrome
+use kit/tui/theme
+use go:strings
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn render(width: Int, height: Int, view: cui::View) [Str] {
+  let terminal = headless::new(width, height)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    cui::box(
+      [view],
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        flex_direction: ui::FlexDirection::column,
+      ),
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  rows(terminal)
+}
+
+fn noop(id: Str) keymap::SimpleCommand {
+  keymap::simple_command(id, id, fn() Bool {
+    true
+  })
+}
+
+fn header_for(session: protocol::SessionInfo?, tokens: Int, window: Int) cui::View {
+  chrome::header(
+    theme::context(theme::store(theme::system())),
+    chrome::Header{
+      session: session,
+      context_tokens: tokens,
+      context_window: window,
+      rename: noop("rename"),
+      model: noop("model"),
+      thinking: noop("thinking"),
+      debug: noop("debug"),
+    },
+  )
+}
+
+// Session name, model, and thinking level are compact buttons with one cell of
+// padding on each side.
+test fn header_shows_session_identity_configuration_and_context_usage() Void!Str {
+  let session = protocol::SessionInfo{
+    ID: "session-1",
+    Name: "Release notes",
+    Model: "openai-codex/gpt-5.6-sol",
+    ThinkingLevel: "high",
+  }
+  expect_rows(
+    render(60, 1, header_for(Maybe::new(session), 110000, 272000)),
+    ["  Release notes               GPT 5.6 Sol   (high)  ·  40%"],
+  )
+}
+
+// The header's buttons are ghost buttons: unfilled until hovered.
+test fn header_buttons_fill_only_when_hovered() Void!Str {
+  let session = protocol::SessionInfo{
+    ID: "session-1",
+    Name: "Release notes",
+    Model: "openai-codex/gpt-5.6-sol",
+    ThinkingLevel: "high",
+  }
+  let terminal = headless::new(60, 1)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, header_for(Maybe::new(session), 110000, 272000))
+  defer renderer.destroy()
+  terminal.flush()
+  for column in [3, 32, 46, 57] {
+    let resting = terminal.frame().cell(column, 0).expect("header button").style.background
+    try testing::assert(resting.is_none(), "the button at column {column} is unfilled at rest")
+  }
+  terminal.mouse_move(32, 0)
+  terminal.flush()
+  let hovered = terminal.frame().cell(32, 0).expect("hovered model").style.background
+  let fill = theme::system().surface_hovered
+  testing::assert(
+    match hovered {
+      color => color.red == fill.red and color.green == fill.green and color.blue == fill.blue,
+      _ => false,
+    },
+    "hovering the model fills it",
+  )
+}
+
+test fn header_without_a_session_shows_the_product_name() Void!Str {
+  expect_rows(render(40, 1, header_for(Maybe::new<protocol::SessionInfo>(), 0, 0)), [" kit"])
+}
+
+test fn footer_shows_the_location_on_the_right() Void!Str {
+  expect_rows(
+    render(
+      40,
+      1,
+      chrome::footer(
+        theme::context(theme::store(theme::system())),
+        "",
+        "",
+        chrome::location_only("~/kit"),
+      ),
+    ),
+    ["                                  ~/kit"],
+  )
+}
+
+fn pull_request_location() footerlayout::Location {
+  footerlayout::Location{
+    Text: "~/very/long/project (feature* · PR #8)",
+    Base: "~/very/long/project",
+    LinkText: "PR #8",
+    URL: "https://github.com/akonwi/kit/pull/8",
+  }
+}
+
+fn plugin_items(texts: [Str]) protocol::PluginFooter {
+  let items = mut List::new<protocol::PluginFooterItem>()
+  for text in texts {
+    items.push(
+      protocol::PluginFooterItem{
+        ID: "demo.{text}",
+        Content: [
+          protocol::PluginFooterSegment{Text: text, Style: protocol::PluginFooterStyle{FG: "toolText", Bold: true}},
+        ],
+      },
+    )
+  }
+  protocol::PluginFooter{Items: items.@}
+}
+
+fn footer_with(right: chrome::Right) cui::View {
+  chrome::footer(theme::context(theme::store(theme::system())), "", "", right)
+}
+
+// The column of the first cell of text in row 0, or -1.
+fn column_of(terminal: headless::TestApp, text: Str) Int {
+  let row = rows(terminal).at(0).or("")
+  let index = strings::Index(row, text)
+  match index < 0 {
+    true => -1,
+    false => strings::Split(row.slice(0, index).or(""), "").size(),
+  }
+}
+
+test fn the_footer_shows_git_status_and_links_only_the_pull_request() Void!Str {
+  let terminal = headless::new(60, 1)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    footer_with(chrome::Right{location: pull_request_location(), plugin: protocol::PluginFooter{}}),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(rows(terminal), ["                     ~/very/long/project (feature* · PR #8)"])
+  let link = column_of(terminal, "PR #8")
+  let branch = column_of(terminal, "feature")
+  let linked = terminal.frame().cell(link + 2, 0).expect("link cell")
+  let plain = terminal.frame().cell(branch, 0).expect("branch cell")
+  try testing::assert(
+    linked.hyperlink.or("") == "https://github.com/akonwi/kit/pull/8" and linked.style.underline,
+    "the pull-request label is an underlined link",
+  )
+  try testing::assert(plain.hyperlink.is_none() and not plain.style.underline, "the branch is plain text")
+  terminal.click(branch, 0)
+  terminal.click(link + 2, 0)
+  terminal.flush()
+  let opened = terminal.opened_urls()
+  testing::assert(
+    opened.size() == 1 and opened.at(0).or("") == "https://github.com/akonwi/kit/pull/8",
+    "only the label opens the pull request: {opened.size()}",
+  )
+}
+
+test fn plugin_items_follow_the_location_in_their_theme_roles() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let terminal = headless::new(60, 1)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    chrome::footer(
+      themes,
+      "",
+      "",
+      chrome::Right{location: footerlayout::Location{Text: "~/kit"}, plugin: plugin_items(["Ready"])},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(rows(terminal), ["                                              ~/kit · Ready"])
+  let style = terminal.frame().cell(column_of(terminal, "Ready"), 0).expect("item cell").style
+  let color = style.foreground.expect("item color")
+  let tool = themes.current().success_text
+  testing::assert(
+    style.bold and color.red == tool.red and color.green == tool.green and color.blue == tool.blue,
+    "the item is bold in the toolText role",
+  )
+}
+
+test fn a_narrow_footer_keeps_git_status_and_counts_hidden_items() Void!Str {
+  // The right side is two thirds of the row inside its padding.
+  try expect_rows(
+    render(
+      30,
+      1,
+      footer_with(chrome::Right{location: pull_request_location(), plugin: protocol::PluginFooter{}}),
+    ),
+    ["           (feature* · PR #8)"],
+  )
+  try expect_rows(
+    render(
+      50,
+      1,
+      footer_with(
+        chrome::Right{location: pull_request_location(), plugin: plugin_items(["Very long status", "Second"])},
+      ),
+    ),
+    ["                    (feature* · PR #8) · … 2 more"],
+  )
+  let hidden = protocol::PluginFooter{LocationHidden: true}
+  expect_rows(
+    render(40, 1, footer_with(chrome::Right{location: pull_request_location(), plugin: hidden})),
+    [""],
+  )
+}
+
+test fn a_connection_problem_replaces_the_session_status() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let footer = chrome::footer(
+    themes,
+    "Restart Kit to reconnect",
+    "Reconnecting activity…",
+    chrome::location_only("~/kit"),
+  )
+  try expect_rows(
+    render(80, 1, footer),
+    [" Restart Kit to reconnect                                                 ~/kit"],
+  )
+  let terminal = headless::new(80, 1)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, footer)
+  defer renderer.destroy()
+  terminal.flush()
+  let color = terminal.frame().cell(
+    1,
+    0,
+  ).expect("footer status").style.foreground.expect("status color")
+  let warning = themes.current().warning_text
+  testing::assert(
+    color.red == warning.red and color.green == warning.green and color.blue == warning.blue,
+    "the connection problem uses the warning color",
+  )
+}
+
+test fn turn_recovery_shows_in_muted_text() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let footer = chrome::footer(
+    themes,
+    "",
+    "Syncing final transcript…",
+    chrome::location_only("~/kit"),
+  )
+  try expect_rows(
+    render(80, 1, footer),
+    [" Syncing final transcript…                                                ~/kit"],
+  )
+  let terminal = headless::new(80, 1)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, footer)
+  defer renderer.destroy()
+  terminal.flush()
+  let color = terminal.frame().cell(
+    1,
+    0,
+  ).expect("footer status").style.foreground.expect("status color")
+  let muted = themes.current().muted
+  testing::assert(
+    color.red == muted.red and color.green == muted.green and color.blue == muted.blue,
+    "recovery uses the muted color",
+  )
+}
+
+test fn queued_follow_ups_show_how_to_restore_them() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let status = chrome::session_status("", 2)
+  try testing::assert(status == "2 queued · ↑ restore", status)
+  expect_rows(
+    render(80, 1, chrome::footer(themes, "", status, chrome::location_only("~/kit"))),
+    [" 2 queued · ↑ restore                                                     ~/kit"],
+  )
+}
+
+test fn turn_recovery_outranks_queued_follow_ups() Void!Str {
+  try testing::assert(
+    chrome::session_status("Reconnecting activity…", 2) == "Reconnecting activity…",
+    "recovery is shown",
+  )
+  testing::assert(chrome::session_status("", 0) == "", "nothing is queued")
+}
+
+test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  try expect_rows(
+    render(
+      40,
+      4,
+      chrome::pending_row(
+        themes,
+        chrome::Pending{
+          status: true,
+          notice: "",
+          activity: "",
+          follow_ups: protocol::FollowUpQueue{
+            Count: 3,
+            Previews: ["one", "two", "three"],
+            AnnotationIDs: [],
+          },
+          attachments: [],
+          annotations: [],
+          rejecting_model: "",
+          remove_attachment: fn(index: Int) {},
+          open_annotation: fn(annotation: sessionbridge::Annotation) {},
+          remove_annotation: fn(id: Uint64) {},
+        },
+      ),
+    ),
+    ["", " Follow-up 1: one", " Follow-up 2: two", " Follow-up 3: three"],
+  )
+  expect_rows(
+    render(
+      40,
+      4,
+      chrome::pending_row(
+        themes,
+        chrome::Pending{
+          status: true,
+          notice: "Prompt did not start a turn",
+          activity: "Thinking",
+          follow_ups: protocol::FollowUpQueue{
+            Count: 5,
+            Previews: ["one", "two", "three"],
+            AnnotationIDs: [],
+          },
+          attachments: [],
+          annotations: [],
+          rejecting_model: "",
+          remove_attachment: fn(index: Int) {},
+          open_annotation: fn(annotation: sessionbridge::Annotation) {},
+          remove_annotation: fn(id: Uint64) {},
+        },
+      ),
+    ),
+    [
+      " Prompt did not start a turn",
+      " Follow-up 1: one",
+      " Follow-up 2: two",
+      " +3 more follow-ups",
+    ],
+  )
+}
+
+fn color_at(terminal: headless::TestApp, x: Int, y: Int) ui::Color {
+  terminal.frame().cell(x, y).expect("cell").style.foreground.expect("foreground")
+}
+
+fn same(left: ui::Color, right: ui::Color) Bool {
+  left.red == right.red and left.green == right.green and left.blue == right.blue
+}
+
+fn staged(rejecting_model: Str, removed: mut [Int]) chrome::Pending {
+  let failed = mut attachments::uploading(3, "/tmp/big.log", "text/plain")
+  failed.uploading = false
+  failed.failure = "too large"
+  chrome::Pending{
+    status: true,
+    notice: "",
+    activity: "",
+    follow_ups: protocol::FollowUpQueue{Count: 0},
+    annotations: [],
+    attachments: [
+      attachments::uploaded(
+        protocol::AttachmentInfo{
+          ID: "attachment-1",
+          Filename: "screenshot.png",
+          MediaType: "image/png",
+        },
+      ),
+      attachments::uploading(2, "/tmp/notes.txt", "text/plain"),
+      failed.@,
+    ],
+    rejecting_model: rejecting_model,
+    remove_attachment: fn(index: Int) {
+      removed.push(index)
+    },
+    open_annotation: fn(annotation: sessionbridge::Annotation) {},
+    remove_annotation: fn(id: Uint64) {},
+  }
+}
+
+test fn staged_files_are_chips_that_wrap() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let removed = mut List::new<Int>()
+  let terminal = headless::new(44, 4)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, chrome::pending_row(themes, staged("", removed)))
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    ["", "  📎 screenshot.png ×   📎 notes.txt ⠋ ×", "  📎 big.log ×", ""],
+  )
+  let colors = themes.current()
+  let cell = fn(x: Int, y: Int) ui::TextStyle {
+    terminal.frame().cell(x, y).expect("cell").style
+  }
+  let is = fn(color: ui::Color?, expected: ui::Color) Bool {
+    match color {
+      value => same(value, expected),
+      _ => false,
+    }
+  }
+  try testing::assert(
+    is(cell(1, 1).background, colors.surface) and is(cell(21, 1).background, colors.surface),
+    "a chip is filled from its glyph through its ×",
+  )
+  try testing::assert(not is(cell(22, 1).background, colors.surface), "chips are separated by a gap")
+  try testing::assert(is(cell(5, 1).foreground, colors.foreground), "an uploaded file")
+  try testing::assert(is(cell(27, 1).foreground, colors.muted), "an upload in progress")
+  try testing::assert(is(cell(5, 2).foreground, colors.danger_text), "a failed upload")
+  try testing::assert(is(cell(20, 1).foreground, colors.muted), "a muted ×")
+
+  terminal.click(39, 1)
+  terminal.flush()
+  testing::assert(
+    removed.size() == 1 and removed.at(0).or(-1) == 1,
+    "each chip's × removes that file: {removed.size()}",
+  )
+}
+
+test fn a_staged_image_the_model_cannot_receive_is_a_warning() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let removed = mut List::new<Int>()
+  let terminal = headless::new(60, 2)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, chrome::pending_row(themes, staged("GPT 5.6 Sol", removed)))
+  defer renderer.destroy()
+  terminal.flush()
+  let colors = themes.current()
+  let image = terminal.frame().cell(5, 1).expect("image").style.foreground.expect("color")
+  let text = terminal.frame().cell(27, 1).expect("text").style.foreground.expect("color")
+  testing::assert(
+    same(image, colors.warning_text) and same(text, colors.muted),
+    "only the image is a warning",
+  )
+}
+
+private fn annotation(id: Int, path: Str, start: Int, end: Int) sessionbridge::Annotation {
+  sessionbridge::Annotation{
+    ID: Uint64::fit(id),
+    Kind: "file",
+    WorkspaceID: "workspace-a",
+    Path: path,
+    FileRevision: "rev-1",
+    StartLine: start,
+    EndLine: end,
+  }
+}
+
+test fn annotations_are_chips_that_open_and_remove() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let opened = mut List::new<Int>()
+  let removed = mut List::new<Uint64>()
+  let stale = mut annotation(4, "tui/shell.ard", 120, 120)
+  stale.Stale = true
+  let diff = mut annotation(5, "tui/diff_pane.ard", 941, 941)
+  diff.Kind = "diff"
+  diff.Side = "old"
+  let terminal = headless::new(60, 3)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    chrome::pending_row(
+      themes,
+      chrome::Pending{
+        status: false,
+        notice: "",
+        activity: "",
+        follow_ups: protocol::FollowUpQueue{Count: 0},
+        attachments: [],
+        annotations: [annotation(3, "tui/diff_pane.ard", 939, 941), diff.@, stale.@],
+        rejecting_model: "",
+        remove_attachment: fn(index: Int) {},
+        open_annotation: fn(opened_annotation: sessionbridge::Annotation) {
+          opened.push(opened_annotation.StartLine)
+        },
+        remove_annotation: fn(id: Uint64) {
+          removed.push(id)
+        },
+      },
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "  🗨️ diff_pane.ard:939–941 ×   🗨️ diff_pane.ard −941 ×",
+      "  🗨️ shell.ard:120 · stale ×",
+      "",
+    ],
+  )
+  let colors = themes.current()
+  try testing::assert(same(color_at(terminal, 6, 1), colors.warning_text), "a stale one is a warning")
+  try testing::assert(same(color_at(terminal, 6, 0), colors.foreground), "a current one is not")
+  terminal.click(6, 0)
+  terminal.flush()
+  try testing::assert(opened.size() == 1 and opened.at(0).or(0) == 939, "a click opens its lines")
+  terminal.click(27, 0)
+  terminal.flush()
+  testing::assert(
+    removed.size() == 1 and removed.at(0).or(Uint64::from(0)) == Uint64::from(3),
+    "its × removes it",
+  )
+}

@@ -1,0 +1,819 @@
+use ard/testing
+
+use go:api/contract as protocol
+use go:kit/ffi/sessionbridge
+use kit/tui/transcript
+use go:strings
+
+// Numbers events 1, 2, 3, … in order, as one server stream would.
+fn sequenced(events: [sessionbridge::Event]) [sessionbridge::Event] {
+  let numbered = mut List::new<sessionbridge::Event>()
+  mut next: Int64 = 1
+  for event in events {
+    let copy = mut event
+    copy.Sequence = next
+    numbered.push(copy.@)
+    next =+ 1
+  }
+  numbered.@
+}
+
+fn event(kind: Str) sessionbridge::Event {
+  sessionbridge::Event{Kind: kind, TurnID: "turn-1"}
+}
+
+fn text_delta(delta: Str) sessionbridge::Event {
+  sessionbridge::Event{
+    Kind: "assistant.text.delta",
+    TurnID: "turn-1",
+    MessageID: "assistant-1",
+    ContentIndex: 0,
+    Delta: delta,
+  }
+}
+
+fn assistant_started() sessionbridge::Event {
+  sessionbridge::Event{
+    Kind: "assistant.started",
+    TurnID: "turn-1",
+    MessageID: "assistant-1",
+  }
+}
+
+fn describe(messages: [transcript::Message]) Str {
+  mut out = ""
+  for message in messages {
+    let role = match message.role {
+      transcript::Role::user => "user",
+      transcript::Role::assistant => "assistant",
+      transcript::Role::tool => "tool",
+      transcript::Role::bash => "bash",
+      transcript::Role::plugin => "plugin",
+      transcript::Role::other => "other",
+    }
+    out = out + "[{role} {message.id} {message.text}]"
+  }
+  out
+}
+
+test fn a_streamed_reply_replaces_the_submitted_prompt_and_settles() Void!Str {
+  let live = mut transcript::live()
+  live.submit("hi", [])
+  try testing::assert(live.activity == "Working…", "submission shows activity")
+  let stream = sequenced(
+    [
+      event("turn.started"),
+      sessionbridge::Event{
+        Kind: "user.message.added",
+        TurnID: "turn-1",
+        Text: "hi",
+      },
+      assistant_started(),
+      text_delta("Hel"),
+      text_delta("lo"),
+      sessionbridge::Event{
+        Kind: "assistant.completed",
+        TurnID: "turn-1",
+        MessageID: "assistant-1",
+        Text: "Hello!",
+      },
+      event("turn.completed"),
+    ],
+  )
+  let _ = live.apply(stream.slice(end: 5).expect("streaming prefix").to_list())
+  try testing::assert(
+    describe(live.messages) == "[user live-user:turn-1 hi][assistant assistant-1 Hello]",
+    describe(live.messages),
+  )
+  try testing::assert(live.messages.at(1).expect("assistant").pending, "streaming reply is pending")
+  let follow = live.apply(stream)
+  try testing::assert(follow, "completion asks a pinned view to follow")
+  try testing::assert(
+    describe(live.messages) == "[user live-user:turn-1 hi][assistant assistant-1 Hello!]",
+    describe(live.messages),
+  )
+  try testing::assert(not live.messages.at(1).expect("assistant").pending, "completed reply settles")
+  testing::assert(live.activity == "", "finished run clears activity")
+}
+
+test fn a_watched_turn_from_another_client_shows_its_prompt_and_thinking() Void!Str {
+  let live = mut transcript::live()
+  let batch = sequenced(
+    [
+      event("turn.started"),
+      sessionbridge::Event{
+        Kind: "user.message.added",
+        TurnID: "turn-1",
+        Text: "commit",
+      },
+      sessionbridge::Event{
+        Kind: "assistant.thinking.delta",
+        TurnID: "turn-1",
+        MessageID: "assistant-1",
+        ContentIndex: 0,
+        Delta: "Reviewing changes\nCreating the commit",
+      },
+    ],
+  )
+  let _ = live.apply(batch)
+  try testing::assert(
+    describe(live.messages) == "[user live-user:turn-1 commit][assistant assistant-1 ]",
+    describe(live.messages),
+  )
+  testing::assert(
+    live.activity == "Creating the commit",
+    "remote thinking updates the shared working UX",
+  )
+}
+
+test fn a_plugin_message_starts_its_turn_in_place_of_a_prompt() Void!Str {
+  let live = mut transcript::live()
+  let plugin = sessionbridge::Event{
+    Kind: "plugin.message.added",
+    TurnID: "turn-1",
+    PluginID: "autoresearch",
+    Text: "Continue the experiment loop.",
+  }
+  let _ = live.apply(sequenced([event("turn.started"), plugin]))
+  try testing::assert(
+    describe(live.messages) == "[plugin live-plugin:turn-1 Continue the experiment loop.]",
+    describe(live.messages),
+  )
+  try testing::assert(
+    live.messages.at(0).expect("plugin row").plugin_id == "autoresearch",
+    "the row names its plugin",
+  )
+  try testing::assert(live.activity == "Working…", "the turn shows activity")
+  // A replayed copy from a reconnected stream adds no second row.
+  let replayed = mut plugin
+  replayed.Sequence = 3
+  let _ = live.apply([replayed.@])
+  testing::assert(live.messages.size() == 1, "one row per turn")
+}
+
+test fn a_persisted_plugin_message_projects_with_its_plugin() Void!Str {
+  let projected = transcript::project(
+    [
+      protocol::TranscriptMessage{
+        ID: "pluginmsg_1",
+        TurnID: "turn-1",
+        Role: "context",
+        BoundaryKind: protocol::PluginMessageBoundaryKind,
+        BoundarySource: "autoresearch",
+        Content: [protocol::TextBlock("Continue the experiment loop.")],
+      },
+    ],
+  )
+  try testing::assert(
+    describe(projected) == "[plugin pluginmsg_1 Continue the experiment loop.]",
+    describe(projected),
+  )
+  testing::assert(
+    projected.at(0).expect("plugin row").plugin_id == "autoresearch",
+    "the plugin is kept",
+  )
+}
+
+test fn watched_batches_reconcile_the_user_of_a_queued_successor() Void!Str {
+  let live = mut transcript::live()
+  let _ = live.apply(
+    sequenced(
+      [
+        event("turn.started"),
+        sessionbridge::Event{
+          Kind: "user.message.added",
+          TurnID: "turn-1",
+          Text: "first",
+        },
+        event("turn.completed"),
+        sessionbridge::Event{Kind: "turn.started", TurnID: "turn-2"},
+        sessionbridge::Event{
+          Kind: "user.message.added",
+          TurnID: "turn-2",
+          Text: "next",
+        },
+      ],
+    ),
+  )
+  try testing::assert(
+    describe(live.messages) == "[user live-user:turn-1 first][user live-user:turn-2 next]",
+    describe(live.messages),
+  )
+  testing::assert(live.activity == "Working…", "the queued successor remains active")
+}
+
+test fn active_turn_blocks_snapshots_after_the_user_event_claims_the_prompt() Void!Str {
+  let live = mut transcript::live()
+  live.submit("hi", [])
+  try testing::assert(live.blocks_snapshot_replacement(), "new local prompt blocks stale snapshots")
+  let _ = live.apply(
+    sequenced(
+      [
+        sessionbridge::Event{
+          Kind: "user.message.added",
+          TurnID: "turn-1",
+          Text: "hi",
+        },
+      ],
+    ),
+  )
+  testing::assert(
+    live.blocks_snapshot_replacement(),
+    "durable user identity must not let an active snapshot erase the live tail",
+  )
+}
+
+test fn a_submitted_prompt_keeps_its_attachments_when_the_server_confirms_it() Void!Str {
+  let live = mut transcript::live()
+  live.submit(
+    "look",
+    [
+      transcript::Attachment{
+        id: "attachment-1",
+        image: true,
+        filename: "shot.png",
+      },
+    ],
+  )
+  let _ = live.apply(
+    sequenced(
+      [
+        sessionbridge::Event{
+          Kind: "user.message.added",
+          TurnID: "turn-1",
+          Text: "look",
+        },
+      ],
+    ),
+  )
+  let user = live.messages.at(0).expect("user")
+  testing::assert(
+    user.turn_id == "turn-1" and user.attachments.size() == 1 and user.attachments.at(0).expect("file").filename == "shot.png",
+    "the confirmed prompt still lists its file",
+  )
+}
+
+test fn replayed_events_are_ignored() Void!Str {
+  let live = mut transcript::live()
+  let stream = sequenced([assistant_started(), text_delta("one"), text_delta(" two")])
+  let _ = live.apply(stream.slice(end: 2).expect("first batch").to_list())
+  let _ = live.apply(stream.slice(start: 1).expect("overlapping batch").to_list())
+  let text = live.messages.at(0).expect("assistant").text
+  testing::assert(text == "one two", text)
+}
+
+// Places events on one server stream from `start`.
+fn on_stream(stream_id: Str, start: Int, events: [sessionbridge::Event]) [sessionbridge::Event] {
+  let placed = mut List::new<sessionbridge::Event>()
+  mut next = Int64::from(start)
+  for event in events {
+    let copy = mut event
+    copy.StreamID = stream_id
+    copy.Sequence = next
+    placed.push(copy.@)
+    next =+ 1
+  }
+  placed.@
+}
+
+test fn a_replacement_stream_continues_the_live_turn_and_ignores_the_replaced_one() Void!Str {
+  let live = mut transcript::live()
+  let _ = live.apply(
+    on_stream("stream-a", 1, [event("turn.started"), assistant_started(), text_delta("one")]),
+  )
+  live.adopt_stream(
+    protocol::SessionSnapshot{
+      ActiveTurnID: "turn-1",
+      EventStreamID: "stream-b",
+      EventCursor: 0,
+      EventReplayAvailable: false,
+    },
+  )
+  // The replaced stream's in-flight delta must not land after the switch.
+  let _ = live.apply(on_stream("stream-a", 4, [text_delta(" stale")]))
+  let _ = live.apply(on_stream("stream-b", 1, [text_delta(" two")]))
+  let text = live.messages.at(0).expect("assistant").text
+  try testing::assert(text == "one two", "renumbered events continue the reply: {text}")
+  testing::assert(live.activity != "", "the turn remains active")
+}
+
+test fn streamed_thinking_shows_its_latest_line_as_activity() Void!Str {
+  let live = mut transcript::live()
+  let thinking = sessionbridge::Event{
+    Kind: "assistant.thinking.delta",
+    TurnID: "turn-1",
+    MessageID: "assistant-1",
+    ContentIndex: 0,
+    Delta: "Reading files\nPlanning the change\n",
+  }
+  let follow = live.apply(sequenced([thinking]))
+  try testing::assert(follow, "thinking asks a pinned view to follow")
+  try testing::assert(live.activity == "Planning the change", live.activity)
+  testing::assert(
+    live.messages.at(0).expect("assistant").thinking == "Reading files\nPlanning the change\n",
+    "thinking is kept",
+  )
+}
+
+test fn tools_attach_to_their_turn_and_unrun_plans_settle_at_run_end() Void!Str {
+  let live = mut transcript::live()
+  let _ = live.apply(
+    sequenced(
+      [
+        sessionbridge::Event{
+          Kind: "tool.planned",
+          TurnID: "turn-1",
+          ToolCallID: "call-1",
+          ToolName: "read",
+        },
+        sessionbridge::Event{
+          Kind: "tool.planned",
+          TurnID: "turn-1",
+          ToolCallID: "call-2",
+          ToolName: "bash",
+        },
+        sessionbridge::Event{
+          Kind: "tool.completed",
+          TurnID: "turn-1",
+          ToolCallID: "call-1",
+          ToolName: "read",
+          Content: [sessionbridge::Content{Kind: "text", Text: "file body"}],
+        },
+        event("turn.completed"),
+      ],
+    ),
+  )
+  try testing::assert(
+    describe(live.messages) == "[assistant live-assistant:call-1 ][tool live-tool:call-1 file body][tool live-tool:call-2 ]",
+    describe(live.messages),
+  )
+  try testing::assert(
+    live.messages.at(0).expect("assistant").tool_calls.size() == 2,
+    "both calls belong to the turn's assistant",
+  )
+  try testing::assert(
+    live.messages.at(1).expect("read").tool_state == transcript::ToolState::completed,
+    "completed tool",
+  )
+  testing::assert(
+    live.messages.at(2).expect("bash").tool_state == transcript::ToolState::not_run,
+    "unrun plan settles",
+  )
+}
+
+fn output(text: Str) sessionbridge::Event {
+  sessionbridge::Event{
+    Kind: "tool.output.delta",
+    TurnID: "turn-1",
+    ToolCallID: "call-1",
+    ToolName: "bash",
+    Content: [sessionbridge::Content{Kind: "text", Text: text}],
+  }
+}
+
+test fn a_running_tool_streams_its_output_until_the_result_replaces_it() Void!Str {
+  let live = mut transcript::live()
+  let _ = live.apply(
+    sequenced(
+      [
+        sessionbridge::Event{
+          Kind: "tool.started",
+          TurnID: "turn-1",
+          ToolCallID: "call-1",
+          ToolName: "bash",
+          Arguments: "{{\"command\":\"make\"}}",
+        },
+        output("building\n"),
+        output("linking\n"),
+      ],
+    ),
+  )
+  let running = live.messages.at(1).expect("bash")
+  try testing::assert(running.text == "building\nlinking\n", running.text)
+  try testing::assert(running.tool_state == transcript::ToolState::running, "still running")
+  let _ = live.apply(
+    [
+      sessionbridge::Event{
+        Kind: "tool.completed",
+        Sequence: 4,
+        TurnID: "turn-1",
+        ToolCallID: "call-1",
+        ToolName: "bash",
+        Content: [sessionbridge::Content{Kind: "text", Text: "built"}],
+        ContentTruncated: true,
+        DetailsOmitted: true,
+      },
+    ],
+  )
+  let done = live.messages.at(1).expect("bash")
+  try testing::assert(done.text == "built", done.text)
+  testing::assert(done.output_truncated and done.details_omitted, "the result's cuts are kept")
+}
+
+test fn streamed_output_stops_at_the_live_limit() Void!Str {
+  let live = mut transcript::live()
+  let _ = live.apply(sequenced([output(strings::Repeat("é", 31000)), output("more")]))
+  let running = live.messages.at(1).expect("bash")
+  try testing::assert(running.output_truncated, "the output is marked cut")
+  testing::assert(running.text == strings::Repeat("é", 30720), "kept {running.text.size()} bytes")
+}
+
+test fn projection_skips_empty_messages_and_marks_tool_results() Void!Str {
+  let projected = transcript::project(
+    [
+      protocol::TranscriptMessage{ID: "empty", Role: "assistant"},
+      protocol::TranscriptMessage{
+        ID: "user-1",
+        Role: "user",
+        Content: [protocol::TextBlock("question")],
+      },
+      protocol::TranscriptMessage{
+        ID: "failed",
+        Role: "assistant",
+        ErrorMessage: "provider unavailable",
+      },
+      protocol::TranscriptMessage{
+        ID: "tool-1",
+        Role: "tool",
+        ToolName: "bash",
+        IsError: true,
+      },
+    ],
+  )
+  try testing::assert(
+    describe(projected) == "[user user-1 question][assistant failed provider unavailable][tool tool-1 ]",
+    describe(projected),
+  )
+  testing::assert(
+    projected.at(2).expect("tool").tool_state == transcript::ToolState::failed,
+    "failed tool result",
+  )
+}
+
+test fn a_prompt_command_message_reads_as_its_invocation() Void!Str {
+  let projected = transcript::project(
+    [
+      protocol::TranscriptMessage{
+        ID: "message_command",
+        TurnID: "turn-1",
+        Role: "user",
+        Content: [
+          protocol::NewTranscriptContent(
+            protocol::PromptCommandContent{
+              Name: "claude-fix",
+              Arguments: "123 high",
+              Source: protocol::PromptCommandSourceClaudeProject,
+              Text: "Pretend to fix issue #123 at high priority.",
+            },
+          ),
+        ],
+      },
+    ],
+  )
+  testing::assert(
+    describe(projected) == "[user message_command /claude-fix 123 high]",
+    describe(projected),
+  )
+}
+
+test fn user_attachments_project_as_labels() Void!Str {
+  let projected = transcript::project(
+    [
+      protocol::TranscriptMessage{
+        ID: "user-1",
+        Role: "user",
+        Content: [
+          protocol::TextBlock("look"),
+          protocol::NewTranscriptContent(
+            protocol::ImageContent{
+              Filename: "shot.png",
+              MediaType: "image/png",
+              AttachmentID: "attachment-1",
+            },
+          ),
+          protocol::NewTranscriptContent(
+            protocol::FileContent{
+              Filename: "notes.txt",
+              MediaType: "text/plain",
+              AttachmentID: "attachment-2",
+            },
+          ),
+        ],
+      },
+      protocol::TranscriptMessage{
+        ID: "user-2",
+        Role: "user",
+        Content: [
+          protocol::NewTranscriptContent(
+            protocol::FileContent{
+              Filename: "only.txt",
+              MediaType: "text/plain",
+              AttachmentID: "attachment-3",
+            },
+          ),
+        ],
+      },
+    ],
+  )
+  let first = projected.at(0).expect("first")
+  try testing::assert(first.text == "look" and first.attachments.size() == 2, "text and two files")
+  try testing::assert(
+    first.attachments.at(0).expect("image").image and first.attachments.at(0).expect("image").filename == "shot.png" and first.attachments.at(0).expect("image").id == "attachment-1",
+    "the image",
+  )
+  try testing::assert(
+    (not first.attachments.at(1).expect("file").image) and first.attachments.at(1).expect("file").filename == "notes.txt",
+    "the file",
+  )
+  testing::assert(
+    projected.size() == 2 and projected.at(1).expect("second").attachments.size() == 1,
+    "a message of only attachments is kept",
+  )
+}
+
+// Persisted user messages named by ID at the given session sequences.
+fn persisted(ids: [Str], sequences: [Int]) [transcript::Message] {
+  let source = mut List::new<protocol::TranscriptMessage>()
+  mut index = 0
+  while index < ids.size() {
+    let id = ids.at(index).expect("message id")
+    source.push(
+      protocol::TranscriptMessage{
+        ID: id,
+        TurnID: "turn-{id}",
+        Sequence: Int64::from(sequences.at(index).expect("message sequence")),
+        Role: "user",
+        Content: [protocol::TextBlock(id)],
+      },
+    )
+    index =+ 1
+  }
+  transcript::project(source.@)
+}
+
+fn ids(messages: [transcript::Message]) Str {
+  let result = mut List::new<Str>()
+  for message in messages {
+    result.push("{message.id}@{message.sequence}")
+  }
+  mut joined = ""
+  for value in result {
+    joined = match joined == "" {
+      true => value,
+      false => "{joined} {value}",
+    }
+  }
+  joined
+}
+
+test fn an_overlapping_snapshot_keeps_loaded_history_in_front() Void!Str {
+  let loaded = persisted(["a", "b", "c", "d"], [1, 2, 3, 4])
+  let merged = transcript::merge_snapshot(loaded, persisted(["c", "d", "e"], [3, 4, 5]))
+  try testing::assert(merged.preserved, "history is preserved")
+  testing::assert(ids(merged.messages) == "a@1 b@2 c@3 d@4 e@5", ids(merged.messages))
+}
+
+test fn a_snapshot_that_does_not_line_up_replaces_loaded_history() Void!Str {
+  let loaded = persisted(["a", "b", "c"], [1, 2, 3])
+  // After compaction, a new message reuses a sequence that held another ID.
+  let compacted = transcript::merge_snapshot(loaded, persisted(["summary", "c"], [2, 3]))
+  try testing::assert(not compacted.preserved, "conflicting sequence replaces")
+  try testing::assert(ids(compacted.messages) == "summary@2 c@3", ids(compacted.messages))
+  let unrelated = transcript::merge_snapshot(loaded, persisted(["x", "y"], [7, 8]))
+  try testing::assert(not unrelated.preserved, "no overlap replaces")
+  testing::assert(ids(unrelated.messages) == "x@7 y@8", ids(unrelated.messages))
+}
+
+test fn earlier_pages_prepend_and_reject_overlap() Void!Str {
+  let shown = persisted(["c", "d"], [3, 4])
+  let merged = try transcript::prepend_history(persisted(["a", "b"], [1, 2]), shown) -> failure {
+    Result::err("unexpected rejection: {failure}")
+  }
+  try testing::assert(ids(merged) == "a@1 b@2 c@3 d@4", ids(merged))
+  let repeated = transcript::prepend_history(persisted(["b", "c"], [2, 3]), shown)
+  testing::assert(repeated.is_err(), "a repeated message is rejected")
+}
+
+// Builders for grouping tests. A reply that calls tools, a tool result, and
+// a user prompt, each in turn_id.
+fn reply(id: Str, turn_id: Str, text: Str, calls: [Str]) transcript::Message {
+  let built = mut transcript::message(id, turn_id, transcript::Role::assistant)
+  built.text = text
+  let listed = mut List::new<transcript::ToolCall>()
+  for call in calls {
+    listed.push(transcript::tool_call(call, "read"))
+  }
+  built.tool_calls = listed.@
+  built.@
+}
+
+fn result(call: Str, turn_id: Str, state: transcript::ToolState) transcript::Message {
+  let built = mut transcript::message("result-{call}", turn_id, transcript::Role::tool)
+  built.tool_call_id = call
+  built.tool_name = "read"
+  built.tool_state = state
+  built.@
+}
+
+fn prompt(id: Str, turn_id: Str) transcript::Message {
+  let built = mut transcript::message(id, turn_id, transcript::Role::user)
+  built.text = id
+  built.@
+}
+
+// Rows as `id` for messages and `key calls/failed[ running]` for work.
+fn describe_rows(rows: [transcript::Row]) Str {
+  mut out = ""
+  for row in rows {
+    let shown = match row.work {
+      work => {
+        let running = match work.running {
+          true => " running",
+          false => "",
+        }
+        "{work.key} {work.calls}/{work.failed}{running}"
+      },
+      _ => row.message.id,
+    }
+    out = match out == "" {
+      true => shown,
+      false => "{out} | {shown}",
+    }
+  }
+  out
+}
+
+test fn a_turns_tool_calls_group_after_the_prose_that_introduced_them() Void!Str {
+  let completed = transcript::ToolState::completed
+  let rows = transcript::rows(
+    [
+      // A reply that only calls tools continues the run.
+      prompt("ask", "t1"),
+      reply("a1", "t1", "Let me look.", ["c1", "c2"]),
+      result("c1", "t1", completed),
+      result("c2", "t1", transcript::ToolState::failed),
+      reply("a2", "t1", "", ["c3"]),
+      result("c3", "t1", completed),
+      reply("a3", "t1", "Found it.", []),
+    ],
+  )
+  testing::assert(describe_rows(rows) == "ask | a1 | work:t1:c1 3/1 | a3", describe_rows(rows))
+}
+
+test fn prose_and_new_turns_start_new_runs() Void!Str {
+  let completed = transcript::ToolState::completed
+  let rows = transcript::rows(
+    [
+      reply("a1", "t1", "", ["c1"]),
+      result("c1", "t1", completed),
+      reply("a2", "t1", "Next, the tests.", ["c2"]),
+      result("c2", "t1", completed),
+      reply("b1", "t2", "", ["d1"]),
+      result("d1", "t2", completed),
+    ],
+  )
+  testing::assert(
+    describe_rows(rows) == "work:t1:c1 1/0 | a2 | work:t1:c2 1/0 | work:t2:d1 1/0",
+    describe_rows(rows),
+  )
+}
+
+test fn a_run_is_running_until_its_calls_finish_unless_the_turn_was_aborted() Void!Str {
+  let running = transcript::rows(
+    [
+      reply("a1", "t1", "", ["c1", "c2"]),
+      result("c1", "t1", transcript::ToolState::completed),
+      result("c2", "t1", transcript::ToolState::running),
+    ],
+  )
+  try testing::assert(describe_rows(running) == "work:t1:c1 2/0 running", describe_rows(running))
+
+  let stopped = reply("a2", "t1", "Stopped.", [])
+  let aborted = mut stopped
+  aborted.aborted = true
+  let rows = transcript::rows(
+    [reply("a1", "t1", "", ["c1"]), result("c1", "t1", transcript::ToolState::planned), aborted.@],
+  )
+  testing::assert(describe_rows(rows) == "work:t1:c1 1/0 | a2", describe_rows(rows))
+}
+
+test fn a_live_run_keeps_its_key_when_the_turn_is_persisted() Void!Str {
+  let live = transcript::rows(
+    [
+      reply("live-assistant:c1", "t1", "", ["c1"]),
+      result("c1", "t1", transcript::ToolState::running),
+    ],
+  )
+  let persisted = transcript::rows(
+    [reply("msg-9", "t1", "", ["c1"]), result("c1", "t1", transcript::ToolState::completed)],
+  )
+  testing::assert(
+    live.at(0).expect("live").work.expect("work").key == persisted.at(0).expect("persisted").work.expect("work").key,
+    "the run keeps its key",
+  )
+}
+
+// Steps as `thinking:<text>` and `<call>:<state>`.
+fn describe_steps(work: transcript::Work) Str {
+  mut out = ""
+  for step in work.steps {
+    let shown = match step.result {
+      result => {
+        let state = match result.tool_state {
+          transcript::ToolState::planned => "planned",
+          transcript::ToolState::running => "running",
+          transcript::ToolState::completed => "completed",
+          transcript::ToolState::failed => "failed",
+          transcript::ToolState::not_run => "not run",
+          transcript::ToolState::none => "none",
+        }
+        "{result.tool_call_id}:{state}"
+      },
+      _ => "thinking:{step.thinking}",
+    }
+    out = match out == "" {
+      true => shown,
+      false => "{out} | {shown}",
+    }
+  }
+  out
+}
+
+fn thinking(message: transcript::Message, text: Str) transcript::Message {
+  let built = mut message
+  built.thinking = text
+  built.@
+}
+
+test fn a_run_lists_each_messages_thinking_before_its_calls() Void!Str {
+  let completed = transcript::ToolState::completed
+  let rows = transcript::rows(
+    [
+      // Thinking alone stays in the run.
+      thinking(reply("a1", "t1", "Let me look.", ["c1", "c2"]), "Read it first."),
+      result("c1", "t1", completed),
+      result("c2", "t1", completed),
+      thinking(reply("a2", "t1", "", []), "That file is generated."),
+      thinking(reply("a3", "t1", "", ["c3"]), "Check the template."),
+      result("c3", "t1", transcript::ToolState::failed),
+    ],
+  )
+  try testing::assert(describe_rows(rows) == "a1 | work:t1:c1 3/1", describe_rows(rows))
+  let work = rows.at(1).expect("work").work.expect("run")
+  testing::assert(
+    describe_steps(work) == "thinking:Read it first. | c1:completed | c2:completed | thinking:That file is generated. | thinking:Check the template. | c3:failed",
+    describe_steps(work),
+  )
+}
+
+test fn calls_without_results_are_planned_or_not_run_after_an_abort() Void!Str {
+  let open = transcript::rows(
+    [reply("a1", "t1", "", ["c1", "c2"]), result("c1", "t1", transcript::ToolState::running)],
+  )
+  try testing::assert(
+    describe_steps(open.at(0).expect("run").work.expect("work")) == "c1:running | c2:planned",
+    describe_steps(open.at(0).expect("run").work.expect("work")),
+  )
+  let stopped = mut reply("a2", "t1", "Stopped.", [])
+  stopped.aborted = true
+  let aborted = transcript::rows([reply("a1", "t1", "", ["c1"]), stopped.@])
+  testing::assert(
+    describe_steps(aborted.at(0).expect("run").work.expect("work")) == "c1:not run",
+    describe_steps(aborted.at(0).expect("run").work.expect("work")),
+  )
+}
+
+fn thought(id: Str, turn_id: Str, thinking: Str) transcript::Message {
+  let built = mut reply(id, turn_id, "", [])
+  built.thinking = thinking
+  built.@
+}
+
+test fn thinking_before_a_run_leads_it_and_otherwise_shows_on_its_own() Void!Str {
+  let leading = transcript::rows(
+    [
+      thought("a0", "t1", "Check the parser."),
+      reply("a1", "t1", "", ["c1"]),
+      result("c1", "t1", transcript::ToolState::completed),
+    ],
+  )
+  try testing::assert(describe_rows(leading) == "work:t1:c1 1/0", describe_rows(leading))
+  try testing::assert(
+    describe_steps(leading.at(0).expect("run").work.expect("work")) == "thinking:Check the parser. | c1:completed",
+    describe_steps(leading.at(0).expect("run").work.expect("work")),
+  )
+  let alone = transcript::rows(
+    [prompt("p1", "t1"), thought("a0", "t1", "Nothing to do."), prompt("p2", "t2")],
+  )
+  try testing::assert(describe_rows(alone) == "p1 | a0 | p2", describe_rows(alone))
+  // Another turn's run does not take it.
+  let separate = transcript::rows([thought("a0", "t1", "Done."), reply("a1", "t2", "", ["c1"])])
+  try testing::assert(describe_rows(separate) == "a0 | work:t2:c1 1/0", describe_rows(separate))
+  let streaming = mut thought("a0", "t1", "Still thinking")
+  streaming.pending = true
+  let live = transcript::rows([prompt("p1", "t1"), streaming.@])
+  testing::assert(
+    describe_rows(live) == "p1",
+    "streaming thinking is the turn's activity: {describe_rows(live)}",
+  )
+}

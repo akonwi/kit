@@ -1,0 +1,164 @@
+use ard/testing
+
+use go:api
+use go:api/contract as protocol
+use go:context
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use go:kit/ffi/contextbridge
+use kit/tui
+use kit/tui/modal
+use kit/tui/sessions
+use kit/tui/theme
+use go:strings
+
+fn key(name: Str) mut event::KeyEvent {
+  event::key(
+    name,
+    "",
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: false,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+struct Outcome {
+  chosen: Str,
+  dismissed: Int,
+}
+
+fn listed() [protocol::SessionInfo] {
+  [
+    protocol::SessionInfo{
+      ID: "session_a",
+      Name: "Release notes",
+      CWD: "/tmp/kit",
+    },
+    protocol::SessionInfo{
+      ID: "session_b",
+      Name: "Fix the flaky test",
+      CWD: "/tmp/kit",
+    },
+  ]
+}
+
+// Mounts the explorer as `kit sessions` does: filling its rows and choosing
+// a session by ID.
+fn mount(terminal: headless::TestApp, outcome: mut Outcome) cui::Renderer {
+  let dismiss = keymap::simple_command("sessions.dismiss", "Close", fn() Bool {
+    outcome.dismissed =+ 1
+    true
+  })
+  cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    cui::box(
+      [
+        cui::child(
+          sessions::new,
+          sessions::Props{
+            themes: theme::context(theme::store(theme::system())),
+            client: mut api::Client{},
+            lifetime: contextbridge::WithCancel(context::Background()),
+            current_session_id: "",
+            dismiss: dismiss,
+            renamed: fn(session: protocol::SessionInfo) {},
+            applied: fn(session: mut api::Session, snapshot: protocol::SessionSnapshot) {},
+            choose: fn(id: Str) {
+              outcome.chosen = id
+            },
+            listed: listed(),
+            placement: modal::Placement::region,
+          },
+        ),
+      ],
+      styles: ui::style(width: ui::percent(100.0), height: ui::percent(100.0)),
+    ),
+  )
+}
+
+test fn the_session_picker_fills_its_rows_and_returns_the_chosen_session() Void!Str {
+  let height = tui::picker_height(Maybe::new(listed()))
+  let terminal = headless::new(60, height)
+  defer terminal.destroy()
+  let outcome = mut Outcome{chosen: "", dismissed: 0}
+  let renderer = mount(terminal, outcome)
+  defer renderer.destroy()
+  terminal.flush()
+  // The explorer fills the picker's rows at picker width, centered.
+  try expect_rows(
+    rows(terminal),
+    [
+      "      ┌──────────────────────────────────────────────┐",
+      "      │ Sessions                                     │",
+      "      ├──────────────────────────────────────────────┤",
+      "      │ Search sessions…                             │",
+      "      ├──────────────────────────────────────────────┤",
+      "      │▌Release notes      /tmp/kit         unknown  │",
+      "      │ Fix the flaky te…  /tmp/kit         unknown  │",
+      "      ├──────────────────────────────────────────────┤",
+      "      │ ctrl+r rename · ctrl+d delete                │",
+      "      └──────────────────────────────────────────────┘",
+    ],
+  )
+  terminal.key(key("down"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(outcome.chosen == "session_b", "chose {outcome.chosen}")
+}
+
+test fn the_session_picker_is_between_ten_and_twenty_rows() Void!Str {
+  try testing::assert(tui::picker_height(Maybe::new<[protocol::SessionInfo]>()) == 10, "a failed list")
+  try testing::assert(tui::picker_height(Maybe::new(listed())) == 10, "two sessions")
+  let eleven = mut List::new<protocol::SessionInfo>()
+  for index in 0..10 {
+    eleven.push(protocol::SessionInfo{ID: "session_{index}"})
+  }
+  try testing::assert(tui::picker_height(Maybe::new(eleven.@)) == 19, "eleven sessions and the frame")
+  let many = mut List::new<protocol::SessionInfo>()
+  for index in 0..30 {
+    many.push(protocol::SessionInfo{ID: "session_{index}"})
+  }
+  testing::assert(tui::picker_height(Maybe::new(many.@)) == 20, "many sessions")
+}
+
+test fn escape_dismisses_the_session_picker() Void!Str {
+  let terminal = headless::new(60, 10)
+  defer terminal.destroy()
+  let outcome = mut Outcome{chosen: "", dismissed: 0}
+  let renderer = mount(terminal, outcome)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.key(key("escape"))
+  terminal.flush()
+  testing::assert(outcome.dismissed == 1 and outcome.chosen == "", "dismissed without a choice")
+}

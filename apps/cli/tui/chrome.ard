@@ -1,0 +1,554 @@
+use go:api/contract as protocol
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use go:kit/ffi/footer as footerlayout
+use go:kit/ffi/sessionbridge
+use kit/tui/annotations
+use kit/tui/attachments
+use kit/tui/controls
+use kit/tui/format
+use kit/tui/layout
+use kit/tui/markdown
+use kit/tui/spinner
+use kit/tui/theme
+use go:strings
+
+// Shell chrome: the header, footer, and pending rows around the workspace.
+// These are pure projections of their inputs. Actions arrive as commands owned
+// by the caller, so chrome never decides which dialog opens.
+
+// Header projects the attached session's identity, configuration, and
+// context usage. Without a session it shows the product name.
+struct Header {
+  session: protocol::SessionInfo?,
+  context_tokens: Int,
+  context_window: Int,
+  rename: keymap::SimpleCommand,
+  model: keymap::SimpleCommand,
+  thinking: keymap::SimpleCommand,
+  debug: keymap::SimpleCommand,
+}
+
+fn header(themes: theme::Context, spec: Header) cui::View {
+  let colors = themes.current()
+  let left = mut List::new<cui::View>()
+  let right = mut List::new<cui::View>()
+  match spec.session {
+    session => {
+      left.push(
+        controls::button(
+          themes,
+          format::session_name(session),
+          spec.rename,
+          variant: controls::ButtonVariant::ghost,
+          compact: true,
+          focusable: false,
+          styles: ui::style(flex_shrink: 0.0),
+        ),
+      )
+      right.push(
+        controls::button(
+          themes,
+          format::model_name(session.Model),
+          spec.model,
+          variant: controls::ButtonVariant::ghost,
+          compact: true,
+          focusable: false,
+          styles: ui::style(flex_shrink: 0.0),
+        ),
+      )
+      let thinking_level = strings::TrimSpace(session.ThinkingLevel)
+      if thinking_level != "" {
+        right.push(cui::text(" ", wrap: ui::TextWrap::none))
+        right.push(
+          controls::button(
+            themes,
+            "({thinking_level})",
+            spec.thinking,
+            variant: controls::ButtonVariant::ghost,
+            compact: true,
+            focusable: false,
+            styles: ui::style(flex_shrink: 0.0),
+          ),
+        )
+      }
+      match format::context_percentage(spec.context_tokens, spec.context_window) {
+        percentage => {
+          let tone = match percentage > 90 {
+            true => colors.danger_text,
+            false => {
+              match percentage >= 80 {
+                true => colors.warning_text,
+                false => colors.muted,
+              }
+            },
+          }
+          right.push(cui::text(" · ", text_style: ui::text_style(foreground: colors.muted)))
+          right.push(
+            controls::button(
+              themes,
+              "{percentage}%",
+              spec.debug,
+              variant: controls::ButtonVariant::ghost,
+              compact: true,
+              focusable: false,
+              foreground: tone,
+              styles: ui::style(flex_shrink: 0.0),
+            ),
+          )
+        },
+        _ => (),
+      }
+    },
+    _ => left.push(layout::line("kit", ui::text_style())),
+  }
+  cui::box(
+    [
+      cui::box(left.@, styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0))),
+      cui::box(
+        right.@,
+        styles: ui::style(
+          flex_grow: 2.0,
+          flex_basis: ui::cells(0),
+          flex_direction: ui::FlexDirection::row,
+          justify_content: ui::Justify::end,
+        ),
+      ),
+    ],
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+      padding: layout::inset(),
+    ),
+  )
+}
+
+// The footer's session status: the active turn's stream recovery, which
+// outranks the queue that turn would drain, else the queued follow-ups.
+fn session_status(recovery: Str, follow_ups: Int) Str {
+  match {
+    recovery != "" => recovery,
+    follow_ups > 0 => "{follow_ups} queued · ↑ restore",
+    _ => "",
+  }
+}
+
+// Right is the footer's right side: the working directory with its Git
+// status, and plugin items.
+struct Right {
+  location: footerlayout::Location,
+  plugin: protocol::PluginFooter,
+}
+
+// A right side showing only text, as before a session attaches.
+fn location_only(text: Str) Right {
+  Right{location: footerlayout::Location{Text: text}, plugin: protocol::PluginFooter{}}
+}
+
+// footer shows the session's connection problem or, without one, its status
+// on the left, and the working location with plugin items on the right.
+fn footer(themes: theme::Context, connection: Str, status: Str, right: Right) cui::View {
+  let colors = themes.current()
+  let shown = match connection != "" {
+    true => connection,
+    false => status,
+  }
+  let tone = match connection != "" {
+    true => colors.warning_text,
+    false => colors.muted,
+  }
+  cui::box(
+    [
+      cui::box(
+        [layout::line(shown, ui::text_style(foreground: tone))],
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+      ),
+      cui::child(new_right_side, RightProps{themes: themes, right: right}, key: "footer.right"),
+    ],
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+      padding: layout::inset(),
+    ),
+  )
+}
+
+private struct RightProps {
+  themes: theme::Context,
+  right: Right,
+}
+
+// The right side fits its content to the width it measures after each
+// layout, before drawing, as the vaxis client does (`ffi/footer`).
+private struct RightSide {
+  props: mut RightProps,
+  frame: mut cui::BoxRef,
+  width: Int,
+}
+
+private fn new_right_side(props: mut RightProps) mut RightSide {
+  (mut RightSide{
+    props: props,
+    frame: cui::box_ref(),
+    width: 0,
+  })
+}
+
+impl cui::Lifecycle for RightSide {
+  fn mut mounted(context: cui::Context) {
+    let _ = context.internal_layout(fn() Bool {
+      self.measure()
+    })
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl RightSide {
+  // Records the measured width. Returns whether it changed.
+  private fn mut measure() Bool {
+    match self.frame.current {
+      frame => {
+        let width = frame.layout().local.width
+        let changed = width != self.width
+        self.width = width
+        changed
+      },
+      _ => false,
+    }
+  }
+}
+
+impl cui::Component for RightSide {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let right = self.props.right
+    let spans = mut List::new<ui::Span>()
+    for span in footerlayout::Spans(right.plugin, right.location, self.width) {
+      spans.push(footer_span(colors, span))
+    }
+    cui::box(
+      [
+        cui::text(ui::styled_text(spans.@), wrap: ui::TextWrap::none, overflow: ui::TextOverflow::clip),
+      ],
+      ref: self.frame,
+      styles: ui::style(
+        flex_grow: 2.0,
+        flex_basis: ui::cells(0),
+        flex_direction: ui::FlexDirection::row,
+        justify_content: ui::Justify::end,
+        overflow: ui::Overflow::hidden,
+      ),
+    )
+  }
+}
+
+// Location text is muted, and its pull-request label is an underlined link
+// that opens on click. Plugin text uses its theme roles over muted.
+private fn footer_span(colors: theme::Theme, span: footerlayout::Span) ui::Span {
+  match {
+    span.Item => {
+      let style = span.Style
+      ui::span(
+        span.Text,
+        style: ui::span_style(
+          foreground: theme::token_color(colors, style.FG).or(colors.muted),
+          background: theme::token_color(colors, style.BG),
+          bold: style.Bold,
+          dim: style.Dim,
+          italic: style.Italic,
+          underline: style.Underline,
+          strike: style.Strikethrough,
+        ),
+      )
+    },
+    span.URL != "" => {
+      ui::span(
+        span.Text,
+        link: span.URL,
+        style: ui::span_style(foreground: colors.muted, underline: true),
+      )
+    },
+    _ => ui::span(span.Text, style: ui::span_style(foreground: colors.muted)),
+  }
+}
+
+// Pending projects the attachment's status line, queued follow-ups, and the
+// files and annotations waiting for the next prompt. A notice takes
+// precedence over activity.
+struct Pending {
+  // Whether the status line and follow-ups are shown, as on the Agent tab,
+  // or only the chips.
+  status: Bool,
+  notice: Str,
+  activity: Str,
+  follow_ups: protocol::FollowUpQueue,
+  attachments: [attachments::Staged],
+  annotations: [sessionbridge::Annotation],
+  // The session's model name when it cannot receive images.
+  rejecting_model: Str,
+  // Removes the staged file at an index.
+  remove_attachment: fn(Int),
+  // Opens an annotation's lines, and deletes one.
+  open_annotation: fn(sessionbridge::Annotation),
+  remove_annotation: fn(Uint64),
+}
+
+// Whether the row shows anything without its status line.
+fn has_chips(spec: Pending) Bool {
+  spec.attachments.size() > 0 or spec.annotations.size() > 0
+}
+
+// pending_row shows the status line followed by up to three follow-up
+// previews (when more are queued, two previews and a remainder line), then
+// the staged files and annotations as chips that wrap onto further rows.
+fn pending_row(themes: theme::Context, spec: Pending) cui::View {
+  let rows = mut List::new<cui::View>()
+  if spec.status {
+    for row in status_rows(themes, spec) {
+      rows.push(row)
+    }
+  }
+  if has_chips(spec) {
+    let chips = mut List::new<cui::View>()
+    for item, index in spec.attachments {
+      chips.push(attachment_chip(themes, item, index, spec.rejecting_model, spec.remove_attachment))
+    }
+    for annotation in spec.annotations {
+      chips.push(annotation_chip(themes, annotation, spec.open_annotation, spec.remove_annotation))
+    }
+    rows.push(
+      cui::box(
+        chips.@,
+        styles: ui::style(flex_direction: ui::FlexDirection::row, flex_wrap: ui::FlexWrap::wrap),
+      ),
+    )
+  }
+  cui::box(
+    rows.@,
+    styles: ui::style(
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::column,
+      padding: layout::inset(),
+    ),
+  )
+}
+
+private fn status_rows(themes: theme::Context, spec: Pending) [cui::View] {
+  let colors = themes.current()
+  let content = match spec.notice != "" {
+    true => layout::line(spec.notice, ui::text_style(foreground: colors.danger_text)),
+    false => {
+      match spec.activity != "" {
+        true => pending_activity(themes, spec.activity),
+        false => layout::line("", ui::text_style(foreground: colors.muted)),
+      }
+    },
+  }
+  let rows = mut List::new<cui::View>()
+  rows.push(content)
+  let maximum = match spec.follow_ups.Count > 3 {
+    true => 2,
+    false => 3,
+  }
+  mut visible = 0
+  for preview, index in spec.follow_ups.Previews {
+    if index < maximum {
+      rows.push(
+        layout::line("Follow-up {index + 1}: {preview}", ui::text_style(foreground: colors.muted)),
+      )
+      visible = visible + 1
+    }
+  }
+  if spec.follow_ups.Count > visible {
+    rows.push(
+      layout::line(
+        "+{spec.follow_ups.Count - visible} more follow-ups",
+        ui::text_style(foreground: colors.muted),
+      ),
+    )
+  }
+  rows.@
+}
+
+// One annotation as a chip: the glyph, file and lines, which open them, and
+// a × that deletes it. A stale one, whose file has changed, is a warning.
+private fn annotation_chip(
+  themes: theme::Context,
+  annotation: sessionbridge::Annotation,
+  open: fn(sessionbridge::Annotation),
+  remove: fn(Uint64),
+) cui::View {
+  let colors = themes.current()
+  let id = annotation.ID
+  let label = match annotation.Stale {
+    true => "{annotations::glyph} {annotations::label(annotation)} · stale",
+    false => "{annotations::glyph} {annotations::label(annotation)}",
+  }
+  let show = keymap::simple_command("annotation.open", "Open annotation", fn() Bool {
+    open(annotation)
+    true
+  })
+  let close = keymap::simple_command("annotation.remove", "Remove annotation", fn() Bool {
+    remove(id)
+    true
+  })
+  cui::box(
+    [
+      controls::button(
+        themes,
+        label,
+        show,
+        variant: controls::ButtonVariant::secondary,
+        compact: true,
+        focusable: false,
+        trailing_padding: 0,
+        foreground: match annotation.Stale {
+          true => colors.warning_text,
+          false => colors.foreground,
+        },
+      ),
+      controls::button(
+        themes,
+        "×",
+        close,
+        variant: controls::ButtonVariant::secondary,
+        compact: true,
+        focusable: false,
+        foreground: colors.muted,
+      ),
+    ],
+    key: "annotation-{id}",
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::row,
+      flex_shrink: 0.0,
+      height: ui::cells(1),
+      margin: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(1),
+        bottom: ui::cells(0),
+        left: ui::cells(0),
+      },
+    ),
+  )
+}
+
+// One staged file as a chip: the glyph and name, a spinner while it uploads,
+// and a × that removes it, like a closable workspace tab. A failed upload is
+// tinted as danger and an image the model cannot receive as a warning.
+private fn attachment_chip(
+  themes: theme::Context,
+  item: attachments::Staged,
+  index: Int,
+  rejecting_model: Str,
+  remove: fn(Int),
+) cui::View {
+  let colors = themes.current()
+  let tone = match {
+    item.failure != "" => colors.danger_text,
+    rejecting_model != "" and item.is_image() => colors.warning_text,
+    item.uploading => colors.muted,
+    _ => colors.foreground,
+  }
+  let label = mut List::new<cui::View>()
+  label.push(
+    cui::text(
+      "{attachments::glyph} {item.filename}",
+      text_style: ui::text_style(foreground: tone),
+      wrap: ui::TextWrap::none,
+    ),
+  )
+  if item.uploading {
+    label.push(
+      spinner::spinner(
+        styles: ui::style(
+          margin: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(0),
+            bottom: ui::cells(0),
+            left: ui::cells(1),
+          },
+        ),
+      ),
+    )
+  }
+  let close = keymap::simple_command("attachment.remove", "Remove attachment", fn() Bool {
+    remove(index)
+    true
+  })
+  cui::box(
+    [
+      cui::box(
+        label.@,
+        styles: ui::style(
+          flex_direction: ui::FlexDirection::row,
+          background: colors.surface,
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(0),
+            bottom: ui::cells(0),
+            left: ui::cells(1),
+          },
+        ),
+      ),
+      controls::button(
+        themes,
+        "×",
+        close,
+        variant: controls::ButtonVariant::secondary,
+        compact: true,
+        focusable: false,
+        foreground: colors.muted,
+      ),
+    ],
+    key: "attachment-{index}",
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::row,
+      flex_shrink: 0.0,
+      height: ui::cells(1),
+      margin: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(1),
+        bottom: ui::cells(0),
+        left: ui::cells(0),
+      },
+    ),
+  )
+}
+
+// pending_activity renders the latest thinking line as muted inline Markdown
+// while preserving the pending slot's fixed one-row geometry.
+fn pending_activity(themes: theme::Context, activity: Str) cui::View {
+  let colors = themes.current()
+  cui::box(
+    [
+      spinner::spinner(styles: ui::style(foreground: colors.muted, flex_shrink: 0.0)),
+      cui::box(
+        [
+          markdown::inline_view(
+            themes,
+            "pending-activity",
+            activity,
+            base: ui::text_style(foreground: colors.muted),
+            semantic: false,
+          ),
+        ],
+        styles: ui::style(
+          height: ui::cells(1),
+          min_width: ui::cells(0),
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+          overflow: ui::Overflow::hidden,
+        ),
+      ),
+    ],
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_direction: ui::FlexDirection::row,
+      gap: ui::cells(1),
+    ),
+  )
+}

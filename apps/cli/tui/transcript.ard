@@ -1,0 +1,1182 @@
+use ard/unsafe
+
+use go:api/contract as protocol
+use go:github.com/akonwi/vaxis
+use go:kit/ffi/sessionbridge
+use go:strings
+
+// The transcript model: messages projected from session snapshots plus the
+// live messages of the active run, built from its streamed events.
+
+enum Role {
+  // A message a plugin submitted to start the turn.
+  user,
+  assistant,
+  tool,
+  bash,
+  plugin,
+  other,
+}
+
+enum ToolState {
+  none,
+  planned,
+  running,
+  completed,
+  failed,
+  not_run,
+}
+
+struct ToolCall {
+  id: Str,
+  name: Str,
+  // The call's JSON arguments, unless the server omitted them.
+  arguments: Str,
+  arguments_truncated: Bool,
+  // Whether the arguments have not arrived yet, as for a subagent's live
+  // call.
+  arguments_unknown: Bool?,
+}
+
+// A tool call whose arguments are not known.
+fn tool_call(id: Str, name: Str) ToolCall {
+  ToolCall{
+    id: id,
+    name: name,
+    arguments: "",
+    arguments_truncated: false,
+  }
+}
+
+// The most streamed output kept for a running tool, in bytes, as in vaxis.
+let live_output_limit = 61440
+
+struct Message {
+  id: Str,
+  turn_id: Str,
+  // Orders persisted messages within the session; zero until persisted.
+  sequence: Int,
+  role: Role,
+  text: Str,
+  thinking: Str,
+  tool_call_id: Str,
+  tool_name: Str,
+  tool_calls: [ToolCall],
+  tool_state: ToolState,
+  error_message: Str,
+  is_error: Bool,
+  aborted: Bool,
+  pending: Bool,
+  // Files attached to a user message.
+  attachments: [Attachment],
+  // Annotations a user message sent.
+  annotations: [sessionbridge::Annotation],
+  // The direct shell run of a bash message.
+  bash: sessionbridge::Bash?,
+  // The plugin that submitted a plugin message.
+  plugin_id: Str,
+  // A tool result's raw JSON details.
+  details: Str,
+  // Whether a tool result's output was cut short, live or by the server.
+  output_truncated: Bool,
+  // Whether the server left out a tool result's details.
+  details_omitted: Bool,
+}
+
+// A file attached to a user message, shown by name. Images can be previewed.
+struct Attachment {
+  id: Str,
+  image: Bool,
+  filename: Str,
+}
+
+// The session event kinds this model distinguishes.
+enum Event {
+  run_started,
+  user_message,
+  plugin_message,
+  assistant_started,
+  text_delta,
+  thinking_delta,
+  assistant_completed,
+  tool_planned,
+  tool_started,
+  tool_updated,
+  tool_completed,
+  compaction_started,
+  compaction_finished,
+  retry_scheduled,
+  retry_started,
+  context_updated,
+  run_finished,
+  other,
+}
+
+fn classify(kind: Str) Event {
+  match kind {
+    "turn.started" => Event::run_started,
+    "user.message.added" => Event::user_message,
+    "plugin.message.added" => Event::plugin_message,
+    "assistant.started" => Event::assistant_started,
+    "assistant.text.delta" => Event::text_delta,
+    "assistant.thinking.delta" => Event::thinking_delta,
+    "assistant.completed" => Event::assistant_completed,
+    "tool.planned" => Event::tool_planned,
+    "tool.started" => Event::tool_started,
+    "tool.output.delta" => Event::tool_updated,
+    "tool.completed" => Event::tool_completed,
+    "compaction.started" => Event::compaction_started,
+    "compaction.completed" => Event::compaction_finished,
+    "provider.retry.scheduled" => Event::retry_scheduled,
+    "provider.retry.started" => Event::retry_started,
+    "context.changed" => Event::context_updated,
+    "turn.completed" => Event::run_finished,
+    _ => Event::other,
+  }
+}
+
+fn role(value: Str) Role {
+  match value {
+    "user" => Role::user,
+    "assistant" => Role::assistant,
+    "tool" => Role::tool,
+    "bash" => Role::bash,
+    "plugin" => Role::plugin,
+    _ => Role::other,
+  }
+}
+
+fn message(id: Str, turn_id: Str, role: Role) Message {
+  Message{
+    id: id,
+    turn_id: turn_id,
+    sequence: 0,
+    role: role,
+    text: "",
+    thinking: "",
+    tool_call_id: "",
+    tool_name: "",
+    tool_calls: [],
+    tool_state: ToolState::none,
+    error_message: "",
+    is_error: false,
+    aborted: false,
+    pending: false,
+    attachments: [],
+    annotations: [],
+    bash: Maybe::new<sessionbridge::Bash>(),
+    plugin_id: "",
+    details: "",
+    output_truncated: false,
+    details_omitted: false,
+  }
+}
+
+// A bash message showing run, keyed by its execution.
+fn bash_message(run: sessionbridge::Bash) Message {
+  let shown = mut message(run.ID, "", Role::bash)
+  shown.text = run.Command
+  shown.pending = run.Running()
+  shown.bash = Maybe::new(run)
+  shown.@
+}
+
+// Projects persisted transcript messages into displayable messages, skipping
+// messages with no displayable content.
+fn project(messages: [protocol::TranscriptMessage]) [Message] {
+  let result = mut List::new<Message>()
+  for source in sessionbridge::Messages(mut messages) {
+    let text_parts = mut List::new<Str>()
+    let thinking_parts = mut List::new<Str>()
+    let calls = mut List::new<ToolCall>()
+    let attached = mut List::new<Attachment>()
+    let noted = mut List::new<sessionbridge::Annotation>()
+    let user = source.Role == "user"
+    for block in source.Content {
+      match {
+        block.Kind == "text" => text_parts.push(block.Text),
+        user and block.Kind == "promptCommand" => {
+          // A prompt command's message reads as its invocation.
+          text_parts.push(block.Text)
+        },
+        block.Kind == "thinking" => thinking_parts.push(block.Text),
+        block.Kind == "toolCall" => {
+          calls.push(
+            ToolCall{
+              id: block.ToolCallID,
+              name: block.ToolName,
+              arguments: block.Arguments,
+              arguments_truncated: block.ArgumentsTruncated,
+            },
+          )
+        },
+        user and block.AttachmentID != "" and (block.Kind == "image" or block.Kind == "file") => {
+          attached.push(
+            Attachment{
+              id: block.AttachmentID,
+              image: block.Kind == "image",
+              filename: block.Filename,
+            },
+          )
+        },
+        block.Kind == "image" => {
+          if block.AttachmentID == "" {
+            text_parts.push("[image]")
+          }
+        },
+        block.Kind == "file" => text_parts.push("[file: {block.Filename}]"),
+        user and block.Kind == "annotations" => {
+          for annotation in block.Annotations {
+            noted.push(annotation)
+          }
+        },
+        _ => (),
+      }
+    }
+    mut text = strings::Join(text_parts, "\n")
+    let thinking = strings::Join(thinking_parts, "\n")
+    if text == "" and source.ErrorMessage != "" {
+      text = source.ErrorMessage
+    }
+    let empty = strings::TrimSpace(text) == "" and strings::TrimSpace(thinking) == "" and source.ToolName == "" and calls.size() == 0 and source.Content.size() == 0 and attached.size() == 0
+    if not empty {
+      let kind = role(source.Role)
+      let projected = mut message(source.ID, source.TurnID, kind)
+      projected.text = text
+      projected.thinking = thinking
+      projected.tool_call_id = source.ToolCallID
+      projected.tool_name = source.ToolName
+      projected.tool_calls = calls.@
+      projected.tool_state = match kind == Role::tool {
+        true => {
+          match source.IsError {
+            true => ToolState::failed,
+            false => ToolState::completed,
+          }
+        },
+        false => ToolState::none,
+      }
+      projected.error_message = source.ErrorMessage
+      projected.is_error = source.IsError
+      projected.aborted = source.StopReason == "aborted"
+      projected.sequence = source.Sequence
+      projected.attachments = attached.@
+      projected.annotations = noted.@
+      projected.plugin_id = source.PluginID
+      projected.details = source.Details
+      if not unsafe::is_nil(source.Bash) {
+        let run = source.Bash.@
+        projected.text = run.Command
+        projected.bash = Maybe::new(run)
+      }
+      result.push(projected.@)
+    }
+  }
+  result.@
+}
+
+// Merged is a snapshot transcript combined with already loaded history.
+struct Merged {
+  messages: [Message],
+  // Whether earlier history loaded before the snapshot was kept.
+  preserved: Bool,
+}
+
+// merge_snapshot combines a bounded snapshot transcript with the messages
+// already shown. When the snapshot overlaps them consistently, loaded history
+// older than the snapshot is kept in front of it. Otherwise, as after
+// compaction or for an unrelated transcript, the snapshot replaces them.
+fn merge_snapshot(existing: [Message], snapshot: [Message]) Merged {
+  let replaced = Merged{messages: snapshot, preserved: false}
+  match snapshot.at(0) {
+    first => {
+      if existing.size() == 0 or first.sequence <= 0 {
+        replaced
+      } else {
+        mut overlaps = false
+        mut consistent = true
+        for message in snapshot {
+          for current in existing {
+            if current.id != "" and current.id == message.id {
+              overlaps = true
+              consistent = consistent and current.sequence == message.sequence
+            } else if current.sequence > 0 and current.sequence == message.sequence {
+              consistent = false
+            }
+          }
+        }
+        match overlaps and consistent {
+          true => {
+            let merged = mut List::new<Message>()
+            for current in existing {
+              if current.sequence > 0 and current.sequence < first.sequence {
+                merged.push(current)
+              }
+            }
+            for message in snapshot {
+              merged.push(message)
+            }
+            Merged{messages: merged.@, preserved: true}
+          },
+          false => replaced,
+        }
+      }
+    },
+    _ => replaced,
+  }
+}
+
+// prepend_history places an earlier transcript page in front of the messages
+// already shown. A page that repeats or contradicts them is rejected.
+fn prepend_history(older: [Message], existing: [Message]) [Message]!Str {
+  mut failure = ""
+  for message in older {
+    for current in existing {
+      if failure == "" and message.id != "" and current.id == message.id {
+        failure = "earlier transcript overlaps message {message.id}"
+      } else if failure == "" and message.sequence > 0 and current.sequence == message.sequence {
+        failure = "earlier transcript overlaps sequence {message.sequence}"
+      }
+    }
+  }
+  match failure == "" {
+    true => {
+      let merged = mut List::new<Message>()
+      for message in older {
+        merged.push(message)
+      }
+      for current in existing {
+        merged.push(current)
+      }
+      Result::ok(merged.@)
+    },
+    false => Result::err(failure),
+  }
+}
+
+// Work is a run of tool calls from one turn, shown as one work chip. It is
+// keyed by its turn and first call, which stay the same when a live turn is
+// persisted under new message IDs.
+struct Work {
+  key: Str,
+  turn_id: Str,
+  // The calls' result rows, in order.
+  tools: [Message],
+  // The run's thinking and calls, in order.
+  steps: [Step],
+  calls: Int,
+  failed: Int,
+  // Whether any call is still planned or running in a turn that was not
+  // aborted.
+  running: Bool,
+}
+
+// Step is one entry of an open work row: a message's thinking, or a tool
+// call with its result once there is one. A call without a result is
+// planned, or not run when its turn was aborted.
+struct Step {
+  key: Str,
+  thinking: Str,
+  call: ToolCall?,
+  result: Message?,
+}
+
+// Row is one transcript row: a message, or a run of tool calls.
+struct Row {
+  message: Message,
+  work: Work?,
+}
+
+// Whether an assistant message's prose is shown. Streamed prose is revealed
+// only once its message settles, so incomplete Markdown never reaches layout.
+fn shows_prose(message: Message) Bool {
+  message.role == Role::assistant and message.text != "" and (not message.pending)
+}
+
+// A run of tool calls being collected into a Work.
+private struct Batch {
+  turn_id: Str,
+  first_call: Str,
+  calls: [Str: Bool],
+  tools: [Message],
+  // Thinking and calls in order; results are matched to calls by ID.
+  steps: [Step],
+  aborted: Bool,
+}
+
+private fn batch(turn_id: Str) mut Batch {
+  (mut Batch{
+    turn_id: turn_id,
+    first_call: "",
+    calls: [:],
+    tools: [],
+    steps: [],
+    aborted: false,
+  })
+}
+
+impl Batch {
+  fn mut call(call: ToolCall) {
+    if call.id != "" and not self.calls.has(call.id) {
+      if self.first_call == "" {
+        self.first_call = call.id
+      }
+      self.calls.set(call.id, true)
+      self.steps.push(
+        Step{
+          key: "call:{call.id}",
+          thinking: "",
+          call: Maybe::new(call),
+          result: Maybe::new<Message>(),
+        },
+      )
+    }
+  }
+
+  fn mut think(message: Message) {
+    if strings::TrimSpace(message.thinking) != "" {
+      self.steps.push(
+        Step{
+          key: "thinking:{self.steps.size()}",
+          thinking: message.thinking,
+          call: Maybe::new<ToolCall>(),
+          result: Maybe::new<Message>(),
+        },
+      )
+    }
+  }
+
+  // The steps with each call's result, or a placeholder for a call without
+  // one.
+  private fn resolved() [Step] {
+    let results = mut Map::new<Message>()
+    for tool in self.tools {
+      results.set(tool.tool_call_id, tool)
+    }
+    let steps = mut List::new<Step>()
+    for step in self.steps {
+      match step.call {
+        call => {
+          let result = match results.get(call.id) {
+            found => found,
+            _ => {
+              let placeholder = mut message("", self.turn_id, Role::tool)
+              placeholder.tool_call_id = call.id
+              placeholder.tool_name = call.name
+              placeholder.pending = true
+              placeholder.tool_state = match self.aborted {
+                true => ToolState::not_run,
+                false => ToolState::planned,
+              }
+              placeholder.@
+            },
+          }
+          steps.push(
+            Step{
+              key: step.key,
+              thinking: "",
+              call: step.call,
+              result: Maybe::new(result),
+            },
+          )
+        },
+        _ => steps.push(step),
+      }
+    }
+    steps.@
+  }
+
+  fn work() Work {
+    mut failed = 0
+    mut pending = false
+    for tool in self.tools {
+      if tool.tool_state == ToolState::failed {
+        failed =+ 1
+      }
+      if tool.tool_state == ToolState::planned or tool.tool_state == ToolState::running {
+        pending = true
+      }
+    }
+    Work{
+      key: "work:{self.turn_id}:{self.first_call}",
+      turn_id: self.turn_id,
+      tools: self.tools,
+      steps: self.resolved(),
+      calls: self.calls.size(),
+      failed: failed,
+      running: pending and not self.aborted,
+    }
+  }
+}
+
+// rows groups the tool calls of each turn into work rows, as the vaxis
+// client does. A run starts at an assistant message that calls tools, after
+// any prose of that message, and continues through the turn's later calls
+// until prose, another kind of row, or another turn ends it. Messages that
+// show nothing outside a run, such as thinking alone, do not end it; their
+// thinking is one of its steps.
+fn rows(messages: [Message]) [Row] {
+  let result = mut List::new<Row>()
+  mut current = batch("")
+  mut open = false
+  // A finished reply that only thinks, kept for the run it may start.
+  mut held = Maybe::new<Message>()
+  for message in messages {
+    let calls_tools = message.role == Role::assistant and message.tool_calls.size() > 0
+    let joins = message.role == Role::tool or calls_tools
+    let ends = message.role != Role::assistant and message.role != Role::tool or shows_prose(message)
+    match held {
+      thought => {
+        // Thinking that no run of its turn follows shows on its own.
+        if not joins and message.turn_id == thought.turn_id {
+          result.push(Row{message: thought, work: Maybe::new<Work>()})
+          held = Maybe::new<Message>()
+        }
+      },
+      _ => (),
+    }
+    // An aborted reply stops the run it follows.
+    if open and message.role == Role::assistant and message.aborted and message.turn_id == current.turn_id {
+      current.aborted = true
+    }
+    if open and (ends or joins and message.turn_id != current.turn_id) {
+      result.push(Row{message: message_for(current.@), work: Maybe::new(current.work())})
+      open = false
+    }
+    if ends {
+      result.push(Row{message: message, work: Maybe::new<Work>()})
+    }
+    if joins {
+      if not open {
+        current = batch(message.turn_id)
+        open = true
+        match held {
+          thought => current.think(thought),
+          _ => (),
+        }
+        held = Maybe::new<Message>()
+      }
+      if message.aborted {
+        current.aborted = true
+      }
+      current.think(message)
+      for call in message.tool_calls {
+        current.call(call)
+      }
+      if message.role == Role::tool {
+        current.call(tool_call(message.tool_call_id, message.tool_name))
+        current.tools.push(message)
+      }
+    } else if open and message.role == Role::assistant and message.turn_id == current.turn_id and (not ends) {
+      // Thinking between calls stays in its run.
+      current.think(message)
+    } else if (not open) and only_thinks(message) {
+      held = Maybe::new(message)
+    }
+  }
+  if open {
+    result.push(Row{message: message_for(current.@), work: Maybe::new(current.work())})
+  }
+  match held {
+    thought => result.push(Row{message: thought, work: Maybe::new<Work>()}),
+    _ => (),
+  }
+  result.@
+}
+
+// Whether a finished reply has thinking and nothing else. A streaming one's
+// thinking shows as the turn's activity instead.
+fn only_thinks(message: Message) Bool {
+  let thinks = strings::TrimSpace(message.thinking) != ""
+  message.role == Role::assistant and thinks and message.text == "" and message.tool_calls.size() == 0 and (not message.pending)
+}
+
+// The message a work row stands in for, which identifies its turn.
+private fn message_for(work: Batch) Message {
+  message("", work.turn_id, Role::other)
+}
+
+// One streamed content block of the live assistant message.
+struct Block {
+  thinking: Bool,
+  text: Str,
+}
+
+// The live state of the active run, layered over the snapshot transcript.
+struct Live {
+  messages: [Message],
+  assistant: Int,
+  has_user: Bool,
+  tools: [Str: Int],
+  content: [Int: Block],
+  sequence: Int64,
+  stream_id: Str,
+  activity: Str,
+  thinking: Str,
+  context_tokens: Int,
+  context_window: Int,
+}
+
+fn live() Live {
+  Live{
+    messages: [],
+    assistant: -1,
+    has_user: false,
+    tools: [:],
+    content: [:],
+    sequence: 0,
+    stream_id: "",
+    activity: "",
+    thinking: "",
+    context_tokens: 0,
+    context_window: 0,
+  }
+}
+
+// The text of a tool result's content blocks.
+fn content_text(content: [sessionbridge::Content]) Str {
+  let parts = mut List::new<Str>()
+  for block in content {
+    match {
+      block.Kind == "text" => parts.push(block.Text),
+      block.Kind == "image" => parts.push("[image]"),
+      block.Kind == "file" => parts.push("[file: {block.Filename}]"),
+      _ => (),
+    }
+  }
+  strings::Join(parts, "\n")
+}
+
+// The last non-blank line of streamed thinking, shown as the turn activity.
+fn latest_thinking_line(thinking: Str) Str {
+  let normalized = strings::ReplaceAll(strings::ReplaceAll(thinking, "\r\n", "\n"), "\r", "\n")
+  let lines = strings::Split(normalized, "\n")
+  mut found = "Thinking…"
+  for line in lines {
+    let trimmed = strings::TrimRight(line, " \t")
+    if trimmed != "" {
+      found = trimmed
+    }
+  }
+  found
+}
+
+impl Live {
+  // Clears the live run, as when a snapshot supersedes it.
+  fn mut reset() {
+    self.messages = []
+    self.assistant = -1
+    self.has_user = false
+    self.tools = [:]
+    self.content = [:]
+    self.sequence = 0
+    self.stream_id = ""
+    self.activity = ""
+    self.thinking = ""
+  }
+
+  // Settles the live run without its final events, as when the turn finished
+  // while its stream was lost. Planned tools never ran; running tools are
+  // shown as done because their outcome is unknown.
+  fn mut settle() {
+    mut index = 0
+    while index < self.messages.size() {
+      self.edit(index, fn(current: mut Message) {
+        current.pending = false
+        current.tool_state = match current.tool_state {
+          ToolState::planned => ToolState::not_run,
+          ToolState::running => ToolState::completed,
+          _ => current.tool_state,
+        }
+      })
+      index =+ 1
+    }
+    self.thinking = ""
+    self.activity = ""
+  }
+
+  // Reports whether a snapshot predates events this live state has applied.
+  fn supersedes(snapshot: protocol::SessionSnapshot) Bool {
+    self.sequence > 0 and snapshot.EventStreamID == self.stream_id and snapshot.EventCursor < self.sequence
+  }
+
+  // Adopts the event stream that replaced the one this live turn followed.
+  // The server renumbers a replacement stream, so applied sequences restart at
+  // the snapshot's cursor, or at its start when the snapshot can replay the
+  // whole active turn. Events still in flight from the replaced stream are
+  // ignored.
+  fn mut adopt_stream(snapshot: protocol::SessionSnapshot) {
+    if self.stream_id != "" and snapshot.EventStreamID != "" and snapshot.EventStreamID != self.stream_id {
+      self.stream_id = snapshot.EventStreamID
+      self.sequence = match snapshot.EventReplayAvailable {
+        true => Int64::from(0),
+        false => snapshot.EventCursor,
+      }
+    }
+  }
+
+  // Reports whether an active live turn owns the transcript tail. Attached
+  // session snapshots are not authoritative for this in-flight turn, even
+  // after its optimistic user row gains a durable identity.
+  fn blocks_snapshot_replacement() Bool {
+    self.activity != ""
+  }
+
+  // Shows a submitted prompt before the server accepts it.
+  fn mut submit(text: Str, attachments: [Attachment], annotations: [sessionbridge::Annotation]?) {
+    self.reset()
+    self.activity = "Working…"
+    let user = mut message("", "", Role::user)
+    user.text = text
+    user.attachments = attachments
+    user.annotations = annotations.or([])
+    self.messages.push(user.@)
+    self.has_user = true
+  }
+
+  private fn mut edit(index: Int, change: fn(mut Message)) {
+    match self.messages.at(index) {
+      current => {
+        let edited = mut current
+        change(edited)
+        self.messages.set(index, edited.@)
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut remove(index: Int) {
+    let kept = mut List::new<Message>()
+    mut position = 0
+    for current in self.messages {
+      if position != index {
+        kept.push(current)
+      }
+      position =+ 1
+    }
+    self.messages = kept.@
+    for call_id in self.tools.keys() {
+      let tool = self.tools.get(call_id).or(-1)
+      if tool > index {
+        self.tools.set(call_id, tool - 1)
+      }
+    }
+  }
+
+  private fn mut ensure_assistant(message_id: Str, turn_id: Str) Int {
+    mut found = -1
+    match self.messages.at(self.assistant) {
+      current => {
+        if current.id == message_id {
+          found = self.assistant
+        }
+      },
+      _ => (),
+    }
+    if found < 0 {
+      mut index = self.messages.size() - 1
+      while index >= 0 and found < 0 {
+        let current = self.messages.at(index).expect("live message")
+        if current.role == Role::assistant and current.id == message_id {
+          found = index
+        }
+        index =- 1
+      }
+    }
+    match found >= 0 {
+      true => {
+        self.assistant = found
+        self.edit(found, fn(current: mut Message) {
+          if current.turn_id == "" {
+            current.turn_id = turn_id
+          }
+        })
+        found
+      },
+      false => {
+        self.assistant = self.messages.size()
+        self.content = [:]
+        let created = mut message(message_id, turn_id, Role::assistant)
+        created.pending = true
+        self.messages.push(created.@)
+        self.assistant
+      },
+    }
+  }
+
+  private fn mut sync_assistant(index: Int) {
+    let keys = mut self.content.keys()
+    keys.sort(fn(left: Int, right: Int) Bool {
+      left < right
+    })
+    let text = mut List::new<Str>()
+    let thinking = mut List::new<Str>()
+    for key in keys {
+      let block = self.content.get(key).expect("content block")
+      match block.thinking {
+        true => thinking.push(block.text),
+        false => text.push(block.text),
+      }
+    }
+    let joined_text = strings::Join(text, "\n")
+    let joined_thinking = strings::Join(thinking, "\n")
+    self.edit(index, fn(current: mut Message) {
+      current.text = joined_text
+      current.thinking = joined_thinking
+    })
+  }
+
+  private fn mut ensure_tool(turn_id: Str, call_id: Str, name: Str) Int {
+    match self.tools.get(call_id) {
+      index => index,
+      _ => {
+        let index = self.messages.size()
+        self.tools.set(call_id, index)
+        let created = mut message("live-tool:{call_id}", turn_id, Role::tool)
+        created.tool_call_id = call_id
+        created.tool_name = name
+        self.messages.push(created.@)
+        index
+      },
+    }
+  }
+
+  // Records a tool call on its assistant message, creating one when the call
+  // arrives before any assistant content for the turn.
+  private fn mut ensure_tool_call(event: sessionbridge::Event) {
+    mut known = false
+    let informed = event.Arguments != "" or event.ArgumentsTruncated
+    for current, index in self.messages {
+      if current.role == Role::assistant and current.turn_id == event.TurnID {
+        for call, position in current.tool_calls {
+          if call.id == event.ToolCallID {
+            known = true
+            // A started call can bring arguments its plan did not have.
+            if informed {
+              self.edit(index, fn(owner: mut Message) {
+                let updated = mut call
+                updated.arguments = event.Arguments
+                updated.arguments_truncated = event.ArgumentsTruncated
+                owner.tool_calls.set(position, updated.@)
+              })
+            }
+          }
+        }
+      }
+    }
+    if not known {
+      let call = ToolCall{
+        id: event.ToolCallID,
+        name: event.ToolName,
+        arguments: event.Arguments,
+        arguments_truncated: event.ArgumentsTruncated,
+      }
+      mut owner = -1
+      mut index = self.messages.size() - 1
+      while index >= 0 and owner < 0 {
+        let current = self.messages.at(index).expect("live message")
+        if current.role == Role::assistant and current.turn_id == event.TurnID and (event.MessageID == "" or current.id == event.MessageID) {
+          owner = index
+        }
+        index =- 1
+      }
+      match owner >= 0 {
+        true => {
+          self.edit(owner, fn(current: mut Message) {
+            current.tool_calls.push(call)
+          })
+        },
+        false => {
+          let id = match event.MessageID == "" {
+            true => "live-assistant:{event.ToolCallID}",
+            false => event.MessageID,
+          }
+          let created = mut message(id, event.TurnID, Role::assistant)
+          created.tool_calls = [call]
+          self.messages.push(created.@)
+        },
+      }
+    }
+  }
+}
+
+impl Live {
+  // Applies a batch of streamed run events and reports whether entries were
+  // added or reshaped, which asks a view pinned to the end to follow. Streamed
+  // assistant text does not request a follow by itself. Events at or before
+  // the last applied sequence are ignored, so replayed batches are harmless.
+  fn mut apply(events: [sessionbridge::Event]) Bool {
+    mut changed = false
+    for event in events {
+      if self.apply_event(event) {
+        changed = true
+      }
+    }
+    changed
+  }
+
+  // Applies one ordered event. Session-watch consumers use this boundary so
+  // turn lifecycle bookkeeping and transcript reduction stay in wire order.
+  fn mut apply_event(event: sessionbridge::Event) Bool {
+    let replaced = self.stream_id != "" and event.StreamID != "" and event.StreamID != self.stream_id
+    if replaced or event.Sequence <= self.sequence {
+      false
+    } else {
+      self.sequence = event.Sequence
+      if event.StreamID != "" {
+        self.stream_id = event.StreamID
+      }
+      self.apply_one(event)
+    }
+  }
+
+  private fn mut apply_one(event: sessionbridge::Event) Bool {
+    match classify(event.Kind) {
+      Event::run_started => {
+        // A queued successor can start in the same session batch that settled
+        // its predecessor. Preserve accumulated rows while resetting state
+        // used to reconcile this turn's user, assistant, and tool events.
+        if self.activity == "" {
+          self.assistant = -1
+          self.has_user = false
+          self.tools = [:]
+          self.content = [:]
+        }
+        self.thinking = ""
+        self.activity = "Working…"
+        false
+      },
+      Event::user_message => {
+        if self.activity == "" {
+          self.activity = "Working…"
+        }
+        match self.has_user {
+          false => {
+            let user = mut message("live-user:{event.TurnID}", event.TurnID, Role::user)
+            user.text = event.Text
+            self.messages.push(user.@)
+            self.has_user = true
+          },
+          true => {
+            mut pending = -1
+            mut index = 0
+            for current in self.messages {
+              if pending < 0 and current.role == Role::user and current.turn_id == "" {
+                pending = index
+              }
+              index =+ 1
+            }
+            self.edit(pending, fn(current: mut Message) {
+              current.id = "live-user:{event.TurnID}"
+              current.turn_id = event.TurnID
+              current.text = event.Text
+            })
+          },
+        }
+        true
+      },
+      Event::plugin_message => {
+        // A plugin message starts its turn in place of a user prompt.
+        if self.activity == "" {
+          self.activity = "Working…"
+        }
+        let id = "live-plugin:{event.TurnID}"
+        mut present = false
+        for current in self.messages {
+          if current.id == id {
+            present = true
+          }
+        }
+        if not present {
+          let row = mut message(id, event.TurnID, Role::plugin)
+          row.text = event.Text
+          row.plugin_id = event.PluginID
+          self.messages.push(row.@)
+        }
+        true
+      },
+      Event::assistant_started => {
+        self.activity = "Working…"
+        self.thinking = match event.Text == "" {
+          true => event.Thinking,
+          false => "",
+        }
+        self.assistant = self.messages.size()
+        self.content = [:]
+        if event.Thinking != "" {
+          self.content.set(-2, Block{thinking: true, text: event.Thinking})
+        }
+        if event.Text != "" {
+          self.content.set(-1, Block{thinking: false, text: event.Text})
+        }
+        let started = mut message(event.MessageID, event.TurnID, Role::assistant)
+        started.text = event.Text
+        started.thinking = event.Thinking
+        started.pending = true
+        self.messages.push(started.@)
+        event.Thinking != ""
+      },
+      Event::text_delta => self.delta(event, false),
+      Event::thinking_delta => self.delta(event, true),
+      Event::assistant_completed => {
+        let index = self.ensure_assistant(event.MessageID, event.TurnID)
+        self.edit(index, fn(current: mut Message) {
+          if event.Text != "" {
+            current.text = event.Text
+          }
+          if event.Thinking != "" {
+            current.thinking = event.Thinking
+          }
+          current.pending = false
+        })
+        let completed = self.messages.at(index).expect("completed assistant")
+        if completed.text == "" and completed.thinking == "" and completed.tool_calls.size() == 0 {
+          self.remove(index)
+        }
+        self.assistant = -1
+        self.content = [:]
+        self.thinking = ""
+        self.activity = "Working…"
+        true
+      },
+      Event::tool_planned => self.tool_scheduled(event, ToolState::planned),
+      Event::tool_started => self.tool_scheduled(event, ToolState::running),
+      Event::tool_updated => {
+        self.thinking = ""
+        self.activity = "Working…"
+        self.ensure_tool_call(event)
+        let index = self.ensure_tool(event.TurnID, event.ToolCallID, event.ToolName)
+        let delta = content_text(event.Content)
+        self.edit(index, fn(current: mut Message) {
+          current.is_error = event.IsError
+          if not current.output_truncated {
+            let room = live_output_limit - current.text.size()
+            if delta.size() <= room {
+              current.text = current.text + delta
+            } else {
+              current.text = current.text + utf8_prefix(delta, room)
+              current.output_truncated = true
+            }
+          }
+        })
+        false
+      },
+      Event::tool_completed => {
+        self.thinking = ""
+        self.activity = "Working…"
+        self.ensure_tool_call(event)
+        let index = self.ensure_tool(event.TurnID, event.ToolCallID, event.ToolName)
+        let text = content_text(event.Content)
+        self.edit(index, fn(current: mut Message) {
+          current.text = text
+          current.output_truncated = event.ContentTruncated
+          current.details_omitted = event.DetailsOmitted
+          current.details = event.Details
+          current.is_error = event.IsError
+          current.pending = false
+          current.tool_state = match event.IsError {
+            true => ToolState::failed,
+            false => ToolState::completed,
+          }
+        })
+        true
+      },
+      Event::compaction_started => {
+        self.thinking = ""
+        self.activity = "Compacting session…"
+        false
+      },
+      Event::compaction_finished => {
+        self.activity = "Working…"
+        false
+      },
+      Event::retry_scheduled => {
+        self.thinking = ""
+        false
+      },
+      Event::retry_started => {
+        self.activity = "Working…"
+        false
+      },
+      Event::context_updated => {
+        self.context_tokens = event.ContextTokens
+        self.context_window = event.ContextWindow
+        false
+      },
+      Event::run_finished => {
+        for call_id in self.tools.keys() {
+          self.edit(self.tools.get(call_id).or(-1), fn(current: mut Message) {
+            if current.tool_state == ToolState::planned {
+              current.pending = false
+              current.tool_state = ToolState::not_run
+            }
+          })
+        }
+        self.thinking = ""
+        self.activity = ""
+        true
+      },
+      Event::other => false,
+    }
+  }
+
+  private fn mut delta(event: sessionbridge::Event, thinking: Bool) Bool {
+    let index = self.ensure_assistant(event.MessageID, event.TurnID)
+    let existing = self.content.get(event.ContentIndex)
+    let compatible = match existing {
+      block => block.thinking == thinking,
+      _ => true,
+    }
+    match compatible {
+      false => false,
+      true => {
+        let prior = match existing {
+          block => block.text,
+          _ => "",
+        }
+        self.content.set(event.ContentIndex, Block{thinking: thinking, text: prior + event.Delta})
+        self.sync_assistant(index)
+        match thinking {
+          true => {
+            let streamed = self.messages.at(index).expect("live assistant").thinking
+            self.thinking = streamed
+            self.activity = latest_thinking_line(streamed)
+          },
+          false => {
+            self.thinking = ""
+            self.activity = "Working…"
+          },
+        }
+        thinking
+      },
+    }
+  }
+
+  private fn mut tool_scheduled(event: sessionbridge::Event, state: ToolState) Bool {
+    self.thinking = ""
+    self.activity = "Working…"
+    self.ensure_tool_call(event)
+    let index = self.ensure_tool(event.TurnID, event.ToolCallID, event.ToolName)
+    self.edit(index, fn(current: mut Message) {
+      current.pending = true
+      current.tool_state = state
+    })
+    true
+  }
+}
+
+// The longest prefix of value within limit bytes that ends on a character.
+private fn utf8_prefix(value: Str, limit: Int) Str {
+  mut kept = ""
+  mut done = false
+  for character in vaxis::Characters(value) {
+    if not done {
+      if kept.size() + character.Grapheme.size() <= limit {
+        kept = kept + character.Grapheme
+      } else {
+        done = true
+      }
+    }
+  }
+  kept
+}

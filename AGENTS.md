@@ -25,8 +25,11 @@ TUI and macOS UI work must preserve its surface hierarchy, palette, layout,
 interaction, and component conventions unless a new decision explicitly changes
 it.
 
-The native TUI uses `go.rockorager.dev/vaxis/ui`. The maintained clients are
-the native TUI and the native macOS app (`apps/macos`).
+The native TUI is written in Ard with Cooper in `apps/cli`
+([ADR 0035](docs/adrs/0035-build-the-terminal-client-with-ard-and-cooper.md)).
+Until that client replaces it, `internal/tui` (`go.rockorager.dev/vaxis/ui`)
+remains the shipped client. The maintained clients are the native TUI and the
+native macOS app (`apps/macos`).
 
 The semantic browser client (`apps/web`, `backlog/web.md`) is not actively
 maintained. Do not plan, update, validate, or add backlog items for it as part
@@ -83,6 +86,9 @@ asked.
 - UI presentation tests must assert the visible content, style, geometry, focus,
   or interaction that is expected. Prefer exact expected rows, cells, snapshots,
   and state transitions so each test documents the intended experience.
+- Ard unit tests normally live beside the code they cover. Use a separate test
+  file when the scenario is complex or needs a dedicated harness; do not add
+  unit tests for simple code without meaningful behavior to protect.
 - Do not define presentation behavior by asserting that unwanted text, glyphs,
   or styles are absent. Use negative assertions only when a test explicitly
   captures a discovered regression.
@@ -103,9 +109,15 @@ go vet ./...
 go test ./...
 ```
 
-`gofmt -l .` must print nothing. Also run `go test -race ./...` for changes to
-daemon, session, subagent, plugin, or other concurrency-sensitive code when the
-platform supports it.
+`gofmt -l .` must print nothing outside ignored `ard-out/` build output. Also
+run `go test -race ./...` for changes to daemon, session, subagent, plugin, or
+other concurrency-sensitive code when the platform supports it.
+
+`apps/cli` is a separate Go module and Ard project that builds the `kit`
+executable alongside `cmd/kit`. Its `ffi/cli` package keeps the commands,
+flags, help, and exit codes of `internal/cli`; mirror command-line changes in
+both while both entry points exist. Its interactive flow differs because
+`main.ard` runs the terminal apps. For changes there, run the checks listed in `apps/cli/README.md`.
 
 When explicitly asked to change the browser client, run its formatting, lint,
 typecheck, unit, and browser suites defined by the web workspace. Bun is a

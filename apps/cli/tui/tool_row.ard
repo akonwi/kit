@@ -1,0 +1,393 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/ui
+use go:github.com/akonwi/vaxis
+use go:kit/ffi/toolpresentation
+use kit/tui/layout
+use kit/tui/spinner
+use kit/tui/theme
+use kit/tui/transcript
+use go:strings
+
+// One tool call in an open work chip, as the vaxis client draws it: a state
+// icon, the title in an accent column, and the summary in a chip. A row
+// narrower than `narrow_width` puts the chip on its own line and keeps the
+// end of a path that leads its summary. Clicking a row selects it; the
+// selected row is filled.
+
+// Rows narrower than this put the summary on a second line.
+let narrow_width = 60
+
+// The narrowest and widest the title column of a wide row gets. Rows in one
+// chip share a column as wide as their longest title, within these bounds;
+// a title wider than the widest clips.
+let min_title_width = 18
+let max_title_width = 32
+
+// How a call's state is shown.
+enum Mark {
+  working,
+  done,
+  failed,
+  skipped,
+}
+
+fn mark(result: transcript::Message) Mark {
+  match result.tool_state {
+    transcript::ToolState::planned => Mark::working,
+    transcript::ToolState::running => Mark::working,
+    transcript::ToolState::failed => Mark::failed,
+    transcript::ToolState::not_run => Mark::skipped,
+    _ => Mark::done,
+  }
+}
+
+// The call's title and summary. servers names the session's MCP servers.
+fn presentation(call: transcript::ToolCall, result: transcript::Message, servers: [Str]) toolpresentation::Presentation {
+  let names = mut servers
+  toolpresentation::Present(call_input(call), result_input(result), names)
+}
+
+private fn call_input(call: transcript::ToolCall) toolpresentation::Call {
+  toolpresentation::Call{
+    Name: call.name,
+    Arguments: call.arguments,
+    ArgumentsTruncated: call.arguments_truncated,
+    ArgumentsUnknown: call.arguments_unknown.or(false),
+  }
+}
+
+private fn result_input(result: transcript::Message) toolpresentation::Result {
+  toolpresentation::Result{
+    Succeeded: result.tool_state == transcript::ToolState::completed,
+    Text: result.text,
+    Details: result.details,
+  }
+}
+
+// The width of the title column shared by rows with these titles.
+fn title_column(titles: [Str]) Int {
+  mut width = min_title_width
+  for title in titles {
+    let wanted = display_width(title)
+    if wanted > width {
+      width = wanted
+    }
+  }
+  match width > max_title_width {
+    true => max_title_width,
+    false => width,
+  }
+}
+
+fn display_width(value: Str) Int {
+  mut width = 0
+  for character in vaxis::Characters(value) {
+    width =+ character.Width
+  }
+  width
+}
+
+// value cut to its last cells within limit, behind `…/`. A value that fits,
+// or a limit under two cells, is unchanged.
+fn path_tail(value: Str, limit: Int) Str {
+  match limit < 2 or display_width(value) <= limit {
+    true => value,
+    false => {
+      let budget = limit - display_width("…/")
+      let characters = vaxis::Characters(value)
+      mut start = characters.size()
+      mut used = 0
+      mut fitting = true
+      while fitting and start > 0 {
+        let width = characters.at(start - 1).expect("character").Width
+        if used + width > budget {
+          fitting = false
+        } else {
+          used =+ width
+          start =- 1
+        }
+      }
+      let kept = mut List::new<Str>()
+      for character, index in characters {
+        if index >= start {
+          kept.push(character.Grapheme)
+        }
+      }
+      "…/" + strings::TrimLeft(strings::Join(kept, ""), "/")
+    },
+  }
+}
+
+// summary shortened to limit cells. A summary that starts with path keeps the
+// rest after it and the end of the path; otherwise it keeps its own end.
+fn shorten(summary: Str, path: Str, limit: Int) Str {
+  match path != "" and strings::HasPrefix(summary, path) {
+    true => {
+      let suffix = strings::TrimPrefix(summary, path)
+      let budget = limit - display_width(suffix)
+      let room = match budget < 2 {
+        true => 2,
+        false => budget,
+      }
+      path_tail(path, room) + suffix
+    },
+    false => path_tail(summary, limit),
+  }
+}
+
+struct Props {
+  themes: theme::Context,
+  call: transcript::ToolCall,
+  result: transcript::Message,
+  selected: Bool,
+  // Called when the row is clicked.
+  on_select: fn(),
+  // The session's MCP servers, whose tools are titled after them.
+  servers: [Str],
+  // The width of the title column of a wide row (see `title_column`).
+  title_width: Int,
+  // Opens a file the call names, at a line or 0; see `toolpresentation::OpensFile`.
+  // Without it, the summary is not a link.
+  open_file: fn(toolpresentation::FileTarget)?,
+  // Opens the conversation of a subagent the call addresses; see
+  // `toolpresentation::OpensAgent`.
+  open_agent: fn(Str)?,
+}
+
+fn view(props: Props) cui::View {
+  cui::child(new, props, key: "tool-row:{props.call.id}")
+}
+
+private struct Row {
+  props: mut Props,
+  frame: mut cui::BoxRef,
+  // The row's width as last laid out; zero until then, when it is wide.
+  width: Int,
+  // Whether the pointer is over a summary that opens something.
+  link_hovered: Bool,
+}
+
+private fn new(props: mut Props) mut Row {
+  (mut Row{
+    props: props,
+    frame: cui::box_ref(),
+    width: 0,
+    link_hovered: false,
+  })
+}
+
+impl cui::Lifecycle for Row {
+  fn mut mounted(context: cui::Context) {
+    // Measured after each layout and before painting, so a row never paints
+    // a layout for a width it no longer has.
+    let _ = context.internal_layout(fn() Bool {
+      self.measure()
+    })
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl Row {
+  // Records the row's width. Returns whether it changed.
+  private fn mut measure() Bool {
+    match self.frame.current {
+      frame => {
+        let width = frame.layout().local.width
+        let changed = width != self.width
+        self.width = width
+        changed
+      },
+      _ => false,
+    }
+  }
+
+  private fn narrow() Bool {
+    self.width > 0 and self.width < narrow_width
+  }
+}
+
+impl Row {
+  // What clicking the summary opens: the file the call names, or the
+  // conversation of the subagent it addresses.
+  private fn opens() fn()? {
+    let call = call_input(self.props.call)
+    let file = match self.props.open_file {
+      open => toolpresentation::OpensFile(call, result_input(self.props.result)),
+      _ => toolpresentation::FileTarget{},
+    }
+    let agent = match self.props.open_agent {
+      open => toolpresentation::OpensAgent(call),
+      _ => "",
+    }
+    match {
+      file.Path != "" => {
+        let open = self.props.open_file.expect("a file opener")
+        Maybe::new(fn() {
+          open(file)
+        })
+      },
+      agent != "" => {
+        let open = self.props.open_agent.expect("an agent opener")
+        Maybe::new(fn() {
+          open(agent)
+        })
+      },
+      _ => Maybe::new<fn()>(),
+    }
+  }
+
+  // The summary, which is a link when it opens something.
+  private fn mut chip(summary: Str, shown: Mark) cui::View {
+    let colors = self.props.themes.current()
+    let target = self.opens()
+    let hovered = self.link_hovered and target.is_some()
+    let text = cui::text(
+      " {summary} ",
+      styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
+      text_style: ui::text_style(
+        foreground: match shown {
+          Mark::skipped => colors.muted,
+          _ => colors.foreground,
+        },
+        background: match hovered {
+          true => colors.surface_hovered,
+          false => colors.surface,
+        },
+      ),
+      wrap: ui::TextWrap::none,
+      overflow: ui::TextOverflow::ellipsis,
+    )
+    match target {
+      open => {
+        cui::box(
+          [text],
+          styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
+          on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+            if received.event_type == cooper::MouseEventType::over or received.event_type == cooper::MouseEventType::move {
+              self.link_hovered = true
+            } else if received.event_type == cooper::MouseEventType::out {
+              self.link_hovered = false
+            } else if received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+              open()
+              received.prevent_default()
+              received.stop_propagation()
+            }
+          },
+        )
+      },
+      _ => text,
+    }
+  }
+}
+
+impl cui::Component for Row {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let shown = mark(self.props.result)
+    let presented = presentation(self.props.call, self.props.result, self.props.servers)
+    // A call with nothing to add to its title shows no chip.
+    let summarized = presented.Summary != ""
+    let narrow = self.narrow()
+    let summary = match narrow and presented.PathFirst {
+      true => {
+        let limit = match self.width - 6 < 2 {
+          true => 2,
+          false => self.width - 6,
+        }
+        shorten(presented.Summary, presented.Path, limit)
+      },
+      false => presented.Summary,
+    }
+    let title_color = match shown {
+      Mark::failed => colors.danger_text,
+      Mark::skipped => colors.muted,
+      _ => colors.accent_text,
+    }
+    let icon = match shown {
+      Mark::working => spinner::spinner(styles: ui::style(foreground: colors.muted, flex_shrink: 0.0)),
+      Mark::done => layout::line(" ", ui::text_style()),
+      Mark::failed => layout::line("✗", ui::text_style(foreground: colors.danger_text)),
+      Mark::skipped => layout::line("⊘", ui::text_style(foreground: colors.muted)),
+    }
+    let chip = self.chip(summary, shown)
+    let title = cui::text(
+      presented.Title,
+      styles: match narrow {
+        true => ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
+        false => ui::style(width: ui::cells(self.props.title_width), flex_shrink: 0.0),
+      },
+      text_style: ui::text_style(foreground: title_color),
+      wrap: ui::TextWrap::none,
+      overflow: ui::TextOverflow::clip,
+    )
+    let line = fn(children: [cui::View]) cui::View {
+      cui::box(
+        children,
+        styles: ui::style(
+          height: ui::cells(1),
+          flex_direction: ui::FlexDirection::row,
+          flex_shrink: 0.0,
+        ),
+      )
+    }
+    let rows = match {
+      narrow and summarized => {
+        [
+          line([icon, layout::line(" ", ui::text_style()), title]),
+          cui::box(
+            [line([chip])],
+            styles: ui::style(
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(0),
+                bottom: ui::cells(0),
+                left: ui::cells(2),
+              },
+            ),
+          ),
+        ]
+      },
+      summarized => {
+        [
+          line([icon, layout::line(" ", ui::text_style()), title, layout::line(" ", ui::text_style()), chip]),
+        ]
+      },
+      _ => [line([icon, layout::line(" ", ui::text_style()), title])],
+    }
+    let chosen = self.props.on_select
+    cui::box(
+      rows,
+      ref: self.frame,
+      styles: match self.props.selected {
+        true => ui::style(flex_direction: ui::FlexDirection::column, background: colors.surface_pressed),
+        false => ui::style(flex_direction: ui::FlexDirection::column),
+      },
+      on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+        if received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+          chosen()
+          received.prevent_default()
+        }
+      },
+    )
+  }
+}
+
+test fn a_path_keeps_its_informative_end() Void!Str {
+  testing::assert(
+    path_tail("docs/design/0012-native-macos-client.md", 24) == "…/native-macos-client.md",
+    path_tail("docs/design/0012-native-macos-client.md", 24),
+  )
+}
+
+test fn a_path_led_summary_keeps_what_follows_the_path() Void!Str {
+  let shortened = shorten("internal/parser/tokenize.go:1–120", "internal/parser/tokenize.go", 26)
+  try testing::assert(shortened == "…/parser/tokenize.go:1–120", shortened)
+  testing::assert(
+    shorten("short.go:1–2", "short.go", 26) == "short.go:1–2",
+    "a summary that fits is kept",
+  )
+}

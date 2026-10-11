@@ -1,0 +1,196 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/controls
+use kit/tui/theme
+
+struct Model {
+  presses: Int,
+}
+
+struct Props {
+  model: mut Model,
+  themes: theme::Context,
+}
+
+struct Host {
+  model: mut Model,
+  themes: theme::Context,
+}
+
+fn host(props: mut Props) mut Host {
+  (mut Host{model: props.model, themes: props.themes})
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    let action = keymap::simple_command("test.button", "Test button", fn() Bool {
+      self.model.presses =+ 1
+      true
+    })
+    cui::box(
+      [
+        controls::button(self.themes, "Act", action, styles: ui::style(width: ui::cells(10))),
+        controls::button(
+          self.themes,
+          "Alt",
+          action,
+          variant: controls::ButtonVariant::secondary,
+          styles: ui::style(width: ui::cells(10)),
+        ),
+        controls::button(
+          self.themes,
+          "Delete",
+          action,
+          variant: controls::ButtonVariant::danger,
+          styles: ui::style(width: ui::cells(10)),
+        ),
+      ],
+      styles: ui::style(flex_direction: ui::FlexDirection::row),
+    )
+  }
+}
+
+fn expect_background(terminal: headless::TestApp, x: Int, color: ui::Color, state: Str) Void!Str {
+  let actual = terminal.frame().cell(
+    x,
+    0,
+  ).expect("button padding").style.background.expect("button surface")
+  testing::assert(
+    actual.red == color.red and actual.green == color.green and actual.blue == color.blue,
+    "{state} background rgb({actual.red}, {actual.green}, {actual.blue}), expected rgb({color.red}, {color.green}, {color.blue})",
+  )
+}
+
+test fn button_has_semantic_interaction_surfaces_and_activates_from_pointer_and_keyboard() Void!Str {
+  let terminal = headless::new(30, 2)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{presses: 0}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(app, cui::child(host, Props{model: model, themes: themes}))
+  defer renderer.destroy()
+  terminal.flush()
+  let colors = theme::system()
+  try expect_background(terminal, 0, colors.primary, "resting")
+  try expect_background(terminal, 10, colors.surface, "secondary")
+  try expect_background(terminal, 20, colors.danger, "danger")
+  terminal.mouse_move(11, 0)
+  terminal.flush()
+  try expect_background(terminal, 10, colors.surface_hovered, "secondary hovered")
+  terminal.mouse_down(11, 0)
+  terminal.flush()
+  try expect_background(terminal, 10, colors.surface_pressed, "secondary pressed")
+  terminal.mouse_up(11, 0)
+  terminal.flush()
+  try testing::assert(model.presses == 1, "secondary button activates on pointer release")
+  terminal.mouse_move(1, 0)
+  terminal.flush()
+  try expect_background(terminal, 0, colors.primary_hovered, "hovered")
+  terminal.mouse_down(1, 0)
+  terminal.flush()
+  try expect_background(terminal, 0, colors.primary_pressed, "pressed")
+  try testing::assert(model.presses == 1, "pressing shows feedback before the action runs")
+  terminal.mouse_up(1, 0)
+  terminal.flush()
+  try testing::assert(model.presses == 2, "pointer release invokes the button command")
+  try expect_background(terminal, 0, colors.primary_hovered, "focused")
+  terminal.key(
+    event::key(
+      "return",
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: false,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  terminal.flush()
+  testing::assert(model.presses == 3, "focused button activates from Return")
+}
+
+struct Interrupts {
+  count: Int,
+}
+
+struct FieldProps {
+  interrupts: mut Interrupts,
+  keep: Bool,
+}
+
+struct FieldHost {
+  props: mut FieldProps,
+}
+
+fn field_host(props: mut FieldProps) mut FieldHost {
+  (mut FieldHost{props: props})
+}
+
+impl cui::Component for FieldHost {
+  fn mut render() cui::View {
+    let interrupts = self.props.interrupts
+    let interrupt = keymap::simple_command("app.interrupt", "Clear or quit", fn() Bool {
+      interrupts.count =+ 1
+      true
+    })
+    let field = match self.props.keep {
+      true => {
+        cui::input(
+          "draft",
+          autofocus: true,
+          commands: [controls::keep_interrupt],
+          bindings: [controls::keep_interrupt_binding()],
+        )
+      },
+      false => cui::input("draft", autofocus: true),
+    }
+    cui::box(
+      [field],
+      commands: [interrupt],
+      bindings: [keymap::binding(keymap::key("c", ctrl: true), interrupt.with())],
+      binding_scope: keymap::ScopeMode::application,
+    )
+  }
+}
+
+fn interrupts_after_ctrl_c(keep: Bool) Int {
+  let terminal = headless::new(20, 2)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let interrupts = mut Interrupts{count: 0}
+  let renderer = cui::mount(
+    app,
+    cui::child(field_host, FieldProps{interrupts: interrupts, keep: keep}),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  terminal.key(
+    event::key(
+      "c",
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: true,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  terminal.flush()
+  interrupts.count
+}
+
+test fn a_focused_text_field_keeps_ctrl_c_from_the_application() Void!Str {
+  try testing::assert(interrupts_after_ctrl_c(false) == 1, "an ordinary field lets Ctrl+C through")
+  testing::assert(interrupts_after_ctrl_c(true) == 0, "a field keeping Ctrl+C holds it")
+}

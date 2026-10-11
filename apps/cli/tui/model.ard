@@ -1,0 +1,399 @@
+use ard/async
+
+use go:api
+use go:api/contract as protocol
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use go:kit/ffi/cli
+use go:kit/ffi/contextbridge
+use kit/tui/format
+use kit/tui/modal
+use kit/tui/palette
+use kit/tui/spinner
+use kit/tui/theme
+use go:strconv
+use go:strings
+
+// Props contains the server-authoritative catalog and shell-owned transition
+// callbacks for the model picker.
+struct Props {
+  themes: theme::Context,
+  client: mut api::Client,
+  lifetime: contextbridge::Cancellation,
+  bound: mut api::Session,
+  session: protocol::SessionInfo,
+  override_service: cli::ModelOverrideService,
+  dismiss: keymap::SimpleCommand,
+  applied: fn(protocol::ConfigureSessionResult),
+  // Chooses a subagent conversation's model instead of the session's.
+  subagent: Subagent?,
+}
+
+// A subagent conversation whose model the picker chooses.
+struct Subagent {
+  // The conversation's model.
+  current: Str,
+  // Sets the model. It blocks, so it runs off the UI thread.
+  apply: fn(Str) Void!Error,
+  applied: fn(),
+}
+
+struct Picker {
+  // Keep parent-owned dependencies and session state linked to cui::child's
+  // refreshed props slot while retaining picker interaction state below.
+  props: mut Props,
+  models: [protocol::ModelCapability],
+  loading: Bool,
+  pending: Bool,
+  error: Str,
+  editing_context: Bool,
+  edit_value: Str,
+  edit_model: Str,
+  generation: Int,
+  context: cui::Context?,
+}
+
+fn new(props: mut Props) mut Picker {
+  (mut Picker{
+    props: props,
+    models: [],
+    loading: true,
+    pending: false,
+    error: "",
+    editing_context: false,
+    edit_value: "",
+    edit_model: "",
+    generation: 0,
+    context: Maybe::new<cui::Context>(),
+  })
+}
+
+private fn catalog(models: [protocol::ModelCapability], pending: Bool) [palette::Item] {
+  let result = mut List::new<palette::Item>()
+  for model in models {
+    let unavailable = match model.Available and not pending {
+      true => "",
+      false => "unavailable",
+    }
+    result.push(
+      palette::Item{
+        key: model.ID,
+        label: model.Name,
+        hint: model.ID,
+        meta: "{format::context_window(model.ContextWindow)} context",
+        description: "",
+        search_terms: [model.Provider, model.API],
+        disabled_reason: unavailable,
+      },
+    )
+  }
+  result.@
+}
+
+impl cui::Lifecycle for Picker {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+    self.load(ctx)
+  }
+
+  fn mut unmounting(ctx: cui::Context) {
+    self.generation =+ 1
+  }
+}
+
+impl Picker {
+  private fn mut load(ctx: cui::Context) {
+    self.loading = true
+    self.error = ""
+    self.generation =+ 1
+    let generation = self.generation
+    let client = self.props.client
+    let lifetime = self.props.lifetime
+    let dispatch = ctx.dispatch
+    async::start(fn() {
+      let result = client.Models(lifetime.Context)
+      let _ = dispatch(fn() {
+        if self.generation == generation {
+          self.loading = false
+          match result {
+            ok(catalog) => { self.models = catalog.Models },
+            err(failure) => { self.error = failure.error() },
+          }
+        }
+      })
+    })
+  }
+
+  private fn mut begin_context_edit(selected: Str) {
+    if self.loading or self.pending or selected == "" {
+      ()
+    } else {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            for model in self.models {
+              if model.ID == selected {
+                self.editing_context = true
+                self.edit_model = model.ID
+                self.edit_value = "{model.ContextWindow}"
+                self.error = ""
+              }
+            }
+          })
+        },
+        _ => (),
+      }
+    }
+  }
+
+  private fn mut save_context_edit() {
+    let value = strings::TrimSpace(self.edit_value)
+    match value == "" {
+      true => {
+        match self.props.override_service.SetContextWindow(self.edit_model, 0) {
+          ok(_) => {
+            self.editing_context = false
+            match self.context {
+              context => self.load(context),
+              _ => (),
+            }
+          },
+          err(failure) => { self.error = failure.error() },
+        }
+      },
+      false => {
+        match strconv::Atoi(value) {
+          ok(parsed) => {
+            if parsed <= 0 {
+              self.error = "Enter a positive integer, or leave blank to clear"
+            } else {
+              match self.props.override_service.SetContextWindow(self.edit_model, parsed) {
+                ok(_) => {
+                  self.editing_context = false
+                  match self.context {
+                    context => self.load(context),
+                    _ => (),
+                  }
+                },
+                err(failure) => { self.error = failure.error() },
+              }
+            }
+          },
+          err(_) => { self.error = "Enter a positive integer, or leave blank to clear" },
+        }
+      },
+    }
+  }
+
+  private fn mut request_apply(model: Str) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.apply(model, context)
+        })
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut apply(model: Str, ctx: cui::Context) {
+    if self.pending {
+      ()
+    } else if self.props.subagent.is_some() {
+      let subagent = self.props.subagent.expect("subagent")
+      self.pending = true
+      self.error = ""
+      self.generation =+ 1
+      let generation = self.generation
+      let dispatch = ctx.dispatch
+      async::start(fn() {
+        let result = subagent.apply(model)
+        let _ = dispatch(fn() {
+          if self.generation == generation {
+            self.pending = false
+            match result {
+              ok(_) => subagent.applied(),
+              err(failure) => { self.error = failure.error() },
+            }
+          }
+        })
+      })
+    } else {
+      self.pending = true
+      self.error = ""
+      self.generation =+ 1
+      let generation = self.generation
+      let lifetime = self.props.lifetime
+      let bound = self.props.bound
+      let session = self.props.session
+      let dispatch = ctx.dispatch
+      async::start(fn() {
+        let result = bound.Configure(
+          lifetime.Context,
+          protocol::ConfigureSessionInput{ExpectedRevision: session.ConfigurationRevision, Model: model},
+        )
+        let _ = dispatch(fn() {
+          if self.generation == generation {
+            self.pending = false
+            match result {
+              ok(applied) => self.props.applied(applied),
+              err(failure) => { self.error = failure.error() },
+            }
+          }
+        })
+      })
+    }
+  }
+
+  private fn mut context_editor() cui::View {
+    let dismiss = keymap::simple_command("model.override.back", "Back", fn() Bool {
+      self.editing_context = false
+      self.error = ""
+      true
+    })
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::centered,
+        title: "Context window",
+        meta: self.edit_model,
+        header: [],
+        body: cui::box(
+          [
+            cui::input(
+              self.edit_value,
+              key: "model.context-window",
+              placeholder: "Blank clears the override",
+              autofocus: true,
+              on_input: fn(value: Str, ctx: cui::Context) {
+                self.edit_value = value
+                self.error = ""
+              },
+              on_submit: fn(value: Str, ctx: cui::Context) {
+                self.save_context_edit()
+              },
+            ),
+            cui::text(
+              self.error,
+              text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
+            ),
+          ],
+          styles: ui::style(
+            flex_direction: ui::FlexDirection::column,
+            padding: ui::Edges{
+              top: ui::cells(1),
+              right: ui::cells(1),
+              bottom: ui::cells(1),
+              left: ui::cells(1),
+            },
+          ),
+        ),
+        footer: Maybe::new<cui::View>(),
+        autofocus: false,
+        dismiss: dismiss,
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
+}
+
+impl cui::Component for Picker {
+  fn mut render() cui::View {
+    match self.editing_context {
+      true => self.context_editor(),
+      false => {
+        match self.loading {
+          true => {
+            modal::dialog(
+              self.props.themes,
+              modal::Dialog{
+                placement: modal::Placement::picker,
+                title: "",
+                meta: "",
+                header: [],
+                body: cui::box(
+                  [spinner::spinner()],
+                  styles: ui::style(
+                    padding: ui::Edges{
+                      top: ui::cells(1),
+                      right: ui::cells(1),
+                      bottom: ui::cells(1),
+                      left: ui::cells(1),
+                    },
+                  ),
+                ),
+                footer: Maybe::new<cui::View>(),
+                autofocus: true,
+                dismiss: self.props.dismiss,
+                commands: Maybe::new<[keymap::Command]>(),
+                bindings: Maybe::new<[keymap::Binding]>(),
+              },
+            )
+          },
+          false => {
+            match self.error != "" {
+              true => {
+                modal::dialog(
+                  self.props.themes,
+                  modal::Dialog{
+                    placement: modal::Placement::centered,
+                    title: "Models",
+                    meta: "",
+                    header: [],
+                    body: cui::text(
+                      self.error,
+                      styles: ui::style(
+                        padding: ui::Edges{
+                          top: ui::cells(1),
+                          right: ui::cells(1),
+                          bottom: ui::cells(1),
+                          left: ui::cells(1),
+                        },
+                      ),
+                      text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
+                    ),
+                    footer: Maybe::new<cui::View>(),
+                    autofocus: true,
+                    dismiss: self.props.dismiss,
+                    commands: Maybe::new<[keymap::Command]>(),
+                    bindings: Maybe::new<[keymap::Binding]>(),
+                  },
+                )
+              },
+              false => {
+                cui::child(
+                  palette::new_picker,
+                  palette::PickerProps{
+                    themes: self.props.themes,
+                    catalog: catalog(self.models, self.pending),
+                    placeholder: "Search models…",
+                    initial_selection: match self.props.subagent {
+                      subagent => subagent.current,
+                      _ => self.props.session.Model,
+                    },
+                    title: "Select model",
+                    footer: "ctrl+o overrides",
+                    error: "",
+                    dismiss: self.props.dismiss,
+                    toggle: Maybe::new<fn(Str, Bool)>(),
+                    override: Maybe::new(fn(selected: Str) {
+                      self.begin_context_edit(selected)
+                    }),
+                    tree: Maybe::new<[palette::Branch]>(),
+                    on_query_change: fn(query: Str) {},
+                    on_selection_change: fn(selected: Str) {},
+                    on_activate: fn(item: palette::Item) {
+                      self.request_apply(item.key)
+                    },
+                  },
+                )
+              },
+            }
+          },
+        }
+      },
+    }
+  }
+}

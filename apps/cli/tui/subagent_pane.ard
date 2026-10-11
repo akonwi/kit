@@ -1,0 +1,873 @@
+use ard/async
+use ard/testing
+
+use go:api/contract as protocol
+use go:context
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use go:kit/ffi/contextbridge
+use go:kit/ffi/sessionbridge
+use go:kit/ffi/toolpresentation
+use kit/tui/chrome
+use kit/tui/controls
+use kit/tui/format
+use kit/tui/image_preview
+use kit/tui/layout
+use kit/tui/status
+use kit/tui/subagents
+use kit/tui/theme
+use kit/tui/transcript
+use kit/tui/transcript_pane
+use go:strings
+use go:time
+
+// A subagent conversation's tab: a header with the conversation's state and
+// its actions, then its transcript and, while it works, what it is doing.
+//
+// The transcript is the conversation's durable history with its live run
+// layered over it. History is read again whenever the roster reports the
+// conversation changed, and when the live run completes a message or tool.
+// While the tab is shown and the conversation runs, live events are polled.
+
+// How often a shown, running conversation's live events are read.
+let poll_interval = 500
+
+// Service reads one conversation. Both calls block.
+struct Service {
+  // The newest page of history, or the page before a cursor.
+  transcript: fn(Str) protocol::SubagentTranscript!Error,
+  // Live events after a sequence of a stream; an empty stream reads the
+  // retained events from the start.
+  events: fn(Str, Int64) sessionbridge::SubagentPage!Error,
+}
+
+struct Props {
+  themes: theme::Context,
+  // The conversation as the roster last reported it.
+  conversation: protocol::SubagentConversation,
+  shown: Bool,
+  service: Service,
+  // The session's MCP servers, whose tools are titled after them.
+  servers: [Str],
+  open_file: fn(toolpresentation::FileTarget)?,
+  // The header's actions.
+  choose_model: fn(),
+  choose_thinking: fn(),
+  cancel: fn(),
+  dismiss: fn(),
+}
+
+struct Pane {
+  props: mut Props,
+  context: cui::Context?,
+  control: mut transcript_pane::Control,
+  durable: [transcript::Message],
+  // The cursor before the oldest loaded message, while more remains.
+  cursor: Str,
+  more: Bool,
+  loaded: Bool,
+  loading: Bool,
+  // A refresh was asked for while one was in flight.
+  stale: Bool,
+  failure: Str,
+  older_loading: Bool,
+  older_failure: Str,
+  live: transcript::Live,
+  live_loading: Bool,
+  // Advances when polling stops or the live run resets, so events read
+  // before then are dropped.
+  live_epoch: Int,
+  polling: contextbridge::Cancellation?,
+  // The roster's report the history was last read for.
+  seen: Str,
+  was_shown: Bool,
+  open_work: [Str: Bool],
+  selected_tool: Str,
+  open_output: [Str: Bool],
+  folded_bash: [Str: Bool],
+  expanded_notes: [Str: Bool],
+  expanded_plugins: [Str: Bool],
+}
+
+fn view(props: Props) cui::View {
+  cui::child(new, props, key: "subagent-pane:{props.conversation.ID}")
+}
+
+private fn new(props: mut Props) mut Pane {
+  (mut Pane{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    control: transcript_pane::control(),
+    durable: [],
+    cursor: "",
+    more: false,
+    loaded: false,
+    loading: false,
+    stale: false,
+    failure: "",
+    older_loading: false,
+    older_failure: "",
+    live: transcript::live(),
+    live_loading: false,
+    live_epoch: 0,
+    polling: Maybe::new<contextbridge::Cancellation>(),
+    seen: "",
+    was_shown: false,
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    folded_bash: [:],
+    expanded_notes: [:],
+    expanded_plugins: [:],
+  })
+}
+
+// report identifies what the roster last said about the conversation.
+private fn report(conversation: protocol::SubagentConversation) Str {
+  "{conversation.State}|{conversation.UpdatedAt}|{conversation.Generation}|{conversation.QueuedTasks}"
+}
+
+// merged is the durable history followed by the live run's messages that
+// history does not have yet.
+fn merged(durable: [transcript::Message], live: [transcript::Message]) [transcript::Message] {
+  let ids = mut Map::new<Bool>()
+  let calls = mut Map::new<Bool>()
+  let results = mut Map::new<Bool>()
+  for message in durable {
+    ids.set(message.id, true)
+    for call in message.tool_calls {
+      calls.set(call.id, true)
+    }
+    if message.role == transcript::Role::tool {
+      results.set(message.tool_call_id, true)
+    }
+  }
+  let result = mut List::new<transcript::Message>()
+  for message in durable {
+    result.push(message)
+  }
+  for message in live {
+    match message.role {
+      transcript::Role::assistant => {
+        if not ids.get(message.id).or(false) {
+          let kept = mut List::new<transcript::ToolCall>()
+          for call in message.tool_calls {
+            if not calls.get(call.id).or(false) {
+              // Live events name a call without its arguments.
+              let shown = mut call
+              shown.arguments_unknown = Maybe::new(
+                call.arguments == "" and not call.arguments_truncated,
+              )
+              kept.push(shown.@)
+            }
+          }
+          let empty = message.text == "" and message.thinking == "" and kept.size() == 0
+          if not empty {
+            let shown = mut message
+            shown.tool_calls = kept.@
+            result.push(shown.@)
+          }
+        }
+      },
+      transcript::Role::tool => {
+        if not results.get(message.tool_call_id).or(false) {
+          result.push(message)
+        }
+      },
+      _ => {
+        if not ids.get(message.id).or(false) {
+          result.push(message)
+        }
+      },
+    }
+  }
+  result.@
+}
+
+// with_result adds a settled conversation's result summary as its reply when
+// the history after the latest prompt has no reply with text, as when the
+// reply is not retained.
+fn with_result(conversation: protocol::SubagentConversation, messages: [transcript::Message]) [transcript::Message] {
+  let summary = strings::TrimSpace(conversation.LastResultSummary)
+  mut answered = false
+  for message in messages {
+    if message.role == transcript::Role::user {
+      answered = false
+    } else if message.role == transcript::Role::assistant and strings::TrimSpace(message.text) != "" {
+      answered = true
+    }
+  }
+  match conversation.State == "running" or summary == "" or answered {
+    true => messages,
+    false => {
+      let result = mut List::new<transcript::Message>()
+      for message in messages {
+        result.push(message)
+      }
+      let reply = mut transcript::message(
+        "subagent-result:{conversation.ID}",
+        "",
+        transcript::Role::assistant,
+      )
+      reply.text = summary
+      result.push(reply.@)
+      result.@
+    },
+  }
+}
+
+// The events of a poll, unless it was superseded.
+private fn if_current(current: Bool, events: [sessionbridge::Event]) [sessionbridge::Event] {
+  match current {
+    true => events,
+    false => [],
+  }
+}
+
+// refreshed is the newest history page joined to the earlier messages the
+// pane already loaded, which the page does not reach. They are kept only
+// when the page continues them, sharing a message; otherwise turns between
+// them would be missing, and the page replaces them.
+fn refreshed(existing: [transcript::Message], page: [transcript::Message]) [transcript::Message] {
+  let first = match page.at(0) {
+    message => message.sequence,
+    _ => 0,
+  }
+  let paged = mut Map::new<Bool>()
+  for message in page {
+    paged.set(message.id, true)
+  }
+  mut continued = false
+  for message in existing {
+    if paged.get(message.id).or(false) {
+      continued = true
+    }
+  }
+  let result = mut List::new<transcript::Message>()
+  if first > 0 and continued {
+    for message in existing {
+      if message.sequence > 0 and message.sequence < first {
+        result.push(message)
+      }
+    }
+  }
+  for message in page {
+    result.push(message)
+  }
+  result.@
+}
+
+impl cui::Lifecycle for Pane {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+    self.sync()
+  }
+
+  fn mut unmounting(context: cui::Context) {
+    self.stop_polling()
+    self.context = Maybe::new<cui::Context>()
+  }
+}
+
+impl Pane {
+  private fn running() Bool {
+    self.props.conversation.State == "running"
+  }
+
+  // Acts on prop changes: being shown, the roster reporting a change, and
+  // whether live events need polling.
+  private fn mut sync() {
+    if self.context.is_some() {
+      let reported = report(self.props.conversation)
+      let appeared = self.props.shown and not self.was_shown
+      if appeared or self.props.shown and reported != self.seen {
+        self.seen = reported
+        self.refresh()
+      }
+      self.was_shown = self.props.shown
+      match self.props.shown and self.running() {
+        true => self.start_polling(),
+        false => self.stop_polling(),
+      }
+    }
+  }
+
+  // Reads the newest history page, once more when asked again meanwhile.
+  private fn mut refresh() {
+    match self.context {
+      context => {
+        if self.loading {
+          self.stale = true
+        } else {
+          self.loading = true
+          self.stale = false
+          let read = self.props.service.transcript
+          let dispatch = context.dispatch
+          async::start(fn() {
+            let result = read("")
+            let _ = dispatch(fn() {
+              self.loading = false
+              match result {
+                ok(page) => {
+                  let messages = transcript::project(page.Messages)
+                  let joined = refreshed(self.durable, messages)
+                  let extended = joined.size() > messages.size()
+                  self.durable = joined
+                  if not extended {
+                    self.cursor = page.PreviousMessageCursor
+                    self.more = page.HasMoreMessages
+                  }
+                  self.loaded = true
+                  self.failure = ""
+                  // A settled conversation's history has its whole run.
+                  if not self.running() {
+                    self.reset_live()
+                  }
+                },
+                err(failure) => { self.failure = failure.error() },
+              }
+              if self.stale {
+                self.refresh()
+              }
+            })
+          })
+        }
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut load_older() {
+    match self.context {
+      context => {
+        let idle = not self.older_loading
+        if self.more and idle and self.cursor != "" {
+          self.older_loading = true
+          let cursor = self.cursor
+          let read = self.props.service.transcript
+          let dispatch = context.dispatch
+          async::start(fn() {
+            let result = read(cursor)
+            let _ = dispatch(fn() {
+              self.older_loading = false
+              match result {
+                ok(page) => {
+                  match transcript::prepend_history(transcript::project(page.Messages), self.durable) {
+                    ok(joined) => {
+                      self.durable = joined
+                      self.cursor = page.PreviousMessageCursor
+                      self.more = page.HasMoreMessages
+                      self.older_failure = ""
+                    },
+                    err(failure) => { self.older_failure = failure },
+                  }
+                },
+                err(failure) => { self.older_failure = failure.error() },
+              }
+            })
+          })
+        }
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut start_polling() {
+    if self.polling.is_none() {
+      match self.context {
+        context => {
+          let attempt = contextbridge::WithCancel(context::Background())
+          self.polling = Maybe::new(attempt)
+          let dispatch = context.dispatch
+          self.poll()
+          async::start(fn() {
+            mut running = true
+            while running {
+              time::Sleep(time::Millisecond * time::Duration::from(poll_interval))
+              match attempt.Context.Err() {
+                ok(_) => {
+                  if dispatch(fn() {
+                    self.poll()
+                  }).is_err() {
+                    running = false
+                  }
+                },
+                err(_) => { running = false },
+              }
+            }
+          })
+        },
+        _ => (),
+      }
+    }
+  }
+
+  private fn mut stop_polling() {
+    match self.polling {
+      attempt => {
+        attempt.Cancel()
+        self.live_epoch =+ 1
+      },
+      _ => (),
+    }
+    self.polling = Maybe::new<contextbridge::Cancellation>()
+  }
+
+  private fn mut reset_live() {
+    self.live.reset()
+    self.live_epoch =+ 1
+  }
+
+  // Reads the live events after those applied. A completed message, tool,
+  // or turn is in history now, so history is read again.
+  private fn mut poll() {
+    match self.context {
+      context => {
+        let idle = not self.live_loading
+        if idle and self.polling.is_some() {
+          self.live_loading = true
+          let epoch = self.live_epoch
+          let stream = self.live.stream_id
+          let after = self.live.sequence
+          let read = self.props.service.events
+          let dispatch = context.dispatch
+          async::start(fn() {
+            let result = read(stream, after)
+            let _ = dispatch(fn() {
+              self.live_loading = false
+              // Events read before polling stopped or the live run was
+              // reset belong to what was replaced.
+              let current = epoch == self.live_epoch and self.polling.is_some()
+              match result {
+                // The next poll tries again; history still shows.
+                ok(page) => {
+                  let replaced = self.live.stream_id != "" and page.StreamID != "" and page.StreamID != self.live.stream_id
+                  if current and (page.ResyncRequired or replaced) {
+                    self.reset_live()
+                  }
+                  mut settled = false
+                  for event in if_current(current, page.Events) {
+                    let _ = self.live.apply_event(event)
+                    let kind = transcript::classify(event.Kind)
+                    if kind == transcript::Event::assistant_completed or kind == transcript::Event::tool_completed or kind == transcript::Event::run_finished {
+                      settled = true
+                    }
+                  }
+                  if settled {
+                    self.refresh()
+                  }
+                },
+                err(_) => (),
+              }
+            })
+          })
+        }
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut toggle_work(key: Str, open: Bool) {
+    for other in self.open_work.keys() {
+      self.open_work.set(other, false)
+    }
+    for row in transcript::rows(self.messages()) {
+      match row.work {
+        work => self.open_work.set(work.key, false),
+        _ => (),
+      }
+    }
+    self.open_work.set(key, not open)
+    self.selected_tool = ""
+    self.open_output = [:]
+  }
+
+  private fn messages() [transcript::Message] {
+    with_result(self.props.conversation, merged(self.durable, self.live.messages))
+  }
+
+  private fn mut request(change: fn()) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(change)
+      },
+      _ => (),
+    }
+  }
+}
+
+// The header's left side: the conversation's state and what to know about it.
+fn summary(conversation: protocol::SubagentConversation) Str {
+  match conversation.State {
+    "running" => {
+      match conversation.QueuedTasks > 0 {
+        true => "running · {conversation.QueuedTasks} queued",
+        false => "running",
+      }
+    },
+    "failed" => {
+      let reason = subagents::failure(conversation)
+      match reason == "" {
+        true => "failed",
+        false => "failed · {reason}",
+      }
+    },
+    "aborted" => "aborted",
+    "interrupted" => "interrupted",
+    _ => "completed",
+  }
+}
+
+impl Pane {
+  private fn mut header() cui::View {
+    let colors = self.props.themes.current()
+    let conversation = self.props.conversation
+    let state = subagents::status_of(conversation.State).or(status::Status::idle)
+    let tone = status::color(colors, state)
+    let model = format::model_name(conversation.Model)
+    let thinking = match conversation.ThinkingLevel == "" {
+      true => "thinking",
+      false => conversation.ThinkingLevel,
+    }
+    let choose_model = self.props.choose_model
+    let choose_thinking = self.props.choose_thinking
+    let cancel = self.props.cancel
+    let dismiss = self.props.dismiss
+    let actions = mut List::new<cui::View>()
+    actions.push(
+      controls::button(
+        self.props.themes,
+        "{model} ▾",
+        keymap::simple_command("subagent.model", "Change subagent model", fn() Bool {
+          choose_model()
+          true
+        }),
+        variant: controls::ButtonVariant::ghost,
+        compact: true,
+        focusable: false,
+      ),
+    )
+    actions.push(
+      controls::button(
+        self.props.themes,
+        "{thinking} ▾",
+        keymap::simple_command("subagent.thinking", "Change subagent thinking level", fn() Bool {
+          choose_thinking()
+          true
+        }),
+        variant: controls::ButtonVariant::ghost,
+        compact: true,
+        focusable: false,
+      ),
+    )
+    if subagents::cancellable(conversation).is_some() {
+      actions.push(
+        controls::button(
+          self.props.themes,
+          "Cancel",
+          keymap::simple_command("subagent.cancel", "Cancel subagent task", fn() Bool {
+            cancel()
+            true
+          }),
+          variant: controls::ButtonVariant::ghost,
+          compact: true,
+          focusable: false,
+        ),
+      )
+    }
+    actions.push(
+      controls::button(
+        self.props.themes,
+        "Dismiss",
+        keymap::simple_command("subagent.dismiss", "Dismiss subagent", fn() Bool {
+          dismiss()
+          true
+        }),
+        variant: controls::ButtonVariant::ghost,
+        compact: true,
+        focusable: false,
+      ),
+    )
+    let detail = summary(conversation)
+    let separator = strings::Index(detail, " · ")
+    let label = match separator < 0 {
+      true => detail,
+      false => detail.slice(0, separator).or(detail),
+    }
+    let rest = match separator < 0 {
+      true => "",
+      false => detail.slice(separator + 1, detail.size()).or(""),
+    }
+    cui::box(
+      [
+        cui::box(
+          [
+            status::icon(self.props.themes, state),
+            cui::text(
+              label,
+              styles: ui::style(flex_shrink: 0.0),
+              text_style: ui::text_style(foreground: tone),
+              wrap: ui::TextWrap::none,
+            ),
+            cui::text(
+              rest,
+              styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
+              text_style: ui::text_style(foreground: colors.muted),
+              wrap: ui::TextWrap::none,
+              overflow: ui::TextOverflow::ellipsis,
+            ),
+          ],
+          styles: ui::style(
+            flex_grow: 1.0,
+            flex_basis: ui::cells(0),
+            min_width: ui::cells(0),
+            flex_direction: ui::FlexDirection::row,
+            gap: ui::cells(1),
+            overflow: ui::Overflow::hidden,
+            padding: ui::Edges{
+              top: ui::cells(0),
+              right: ui::cells(2),
+              bottom: ui::cells(0),
+              left: ui::cells(1),
+            },
+          ),
+        ),
+        cui::box(
+          actions.@,
+          styles: ui::style(flex_shrink: 0.0, flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
+        ),
+      ],
+      styles: ui::style(
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+      ),
+    )
+  }
+
+  private fn mut transcript_view() cui::View {
+    let messages = self.messages()
+    match messages.size() == 0 {
+      true => {
+        let colors = self.props.themes.current()
+        let state = match {
+          self.failure != "" => "Could not load transcript: {self.failure}",
+          not self.loaded => "Loading transcript…",
+          _ => "No transcript yet",
+        }
+        layout::centered(
+          [
+            layout::line(
+              state,
+              ui::text_style(
+                foreground: match self.failure != "" {
+                  true => colors.danger_text,
+                  false => colors.muted,
+                },
+              ),
+            ),
+          ],
+        )
+      },
+      false => {
+        transcript_pane::pane(
+          transcript_pane::Props{
+            themes: self.props.themes,
+            messages: messages,
+            control: self.control,
+            history: transcript_pane::History{
+              more: self.more,
+              loading: self.older_loading,
+              failure: self.older_failure,
+            },
+            images: transcript_pane::Images{
+              expanded: "",
+              preview: fn(id: Str) image_preview::Preview? {
+                Maybe::new<image_preview::Preview>()
+              },
+              toggle: fn(id: Str) {},
+              open: fn(id: Str) {},
+              request: fn(id: Str) {},
+            },
+            bash: transcript_pane::Bash{
+              folded: self.folded_bash,
+              toggle: fn(id: Str) {
+                self.request(fn() {
+                  self.folded_bash.set(id, not self.folded_bash.get(id).or(false))
+                })
+              },
+            },
+            notes: transcript_pane::Notes{
+              expanded: self.expanded_notes,
+              toggle: fn(id: Str) {
+                self.request(fn() {
+                  self.expanded_notes.set(id, not self.expanded_notes.get(id).or(false))
+                })
+              },
+            },
+            plugins: transcript_pane::Plugins{
+              expanded: self.expanded_plugins,
+              toggle: fn(id: Str) {
+                self.request(fn() {
+                  self.expanded_plugins.set(id, not self.expanded_plugins.get(id).or(false))
+                })
+              },
+            },
+            work: transcript_pane::Work{
+              open: self.open_work,
+              toggle: fn(key: Str, open: Bool) {
+                self.request(fn() {
+                  self.toggle_work(key, open)
+                })
+              },
+              selected: self.selected_tool,
+              select_tool: fn(key: Str) {
+                self.request(fn() {
+                  self.selected_tool = key
+                })
+              },
+              outputs: self.open_output,
+              toggle_output: fn(key: Str) {
+                self.request(fn() {
+                  self.open_output.set(key, not self.open_output.get(key).or(false))
+                })
+              },
+              servers: self.props.servers,
+              open_file: self.props.open_file,
+            },
+            load_older: fn() {
+              self.request(fn() {
+                self.load_older()
+              })
+            },
+          },
+          0,
+        )
+      },
+    }
+  }
+}
+
+impl cui::Component for Pane {
+  fn mut render() cui::View {
+    self.sync()
+    let colors = self.props.themes.current()
+    let children = mut List::new<cui::View>()
+    children.push(self.header())
+    children.push(layout::divider(colors.border))
+    children.push(
+      cui::box(
+        [self.transcript_view()],
+        styles: ui::style(
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+          flex_direction: ui::FlexDirection::column,
+          overflow: ui::Overflow::hidden,
+        ),
+      ),
+    )
+    if self.running() {
+      let activity = match self.live.activity == "" {
+        true => "Working…",
+        false => self.live.activity,
+      }
+      children.push(
+        cui::box(
+          [chrome::pending_activity(self.props.themes, activity)],
+          styles: ui::style(flex_shrink: 0.0, padding: layout::inset()),
+        ),
+      )
+    }
+    cui::box(
+      children.@,
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
+        flex_direction: ui::FlexDirection::column,
+      ),
+    )
+  }
+}
+
+private fn reply(id: Str, calls: [transcript::ToolCall]) transcript::Message {
+  let made = mut transcript::message(id, "turn_a", transcript::Role::assistant)
+  made.tool_calls = calls
+  made.@
+}
+
+private fn result(call: Str) transcript::Message {
+  let made = mut transcript::message("result:{call}", "turn_a", transcript::Role::tool)
+  made.tool_call_id = call
+  made.@
+}
+
+private fn ids(messages: [transcript::Message]) Str {
+  let shown = mut List::new<Str>()
+  for message in messages {
+    let calls = mut List::new<Str>()
+    for call in message.tool_calls {
+      calls.push(
+        match call.arguments_unknown.or(false) {
+          true => "{call.id}?",
+          false => call.id,
+        },
+      )
+    }
+    shown.push("{message.id}[{strings::Join(calls, ",")}]")
+  }
+  strings::Join(shown, " ")
+}
+
+test fn history_replaces_the_live_messages_it_has_caught_up_with() Void!Str {
+  let durable = [reply("m1", [transcript::tool_call("c1", "read")]), result("c1")]
+  let live = [
+    reply("m1", [transcript::tool_call("c1", "read")]),
+    result("c1"),
+    reply(
+      "live-assistant:c2",
+      [transcript::tool_call("c1", "read"), transcript::tool_call("c2", "grep")],
+    ),
+    result("c2"),
+  ]
+  let shown = ids(merged(durable, live))
+  testing::assert(
+    shown == "m1[c1] result:c1[] live-assistant:c2[c2?] result:c2[]",
+    "only what history lacks stays live, its calls awaiting arguments: {shown}",
+  )
+}
+
+test fn a_settled_conversation_without_a_reply_shows_its_result() Void!Str {
+  let conversation = protocol::SubagentConversation{
+    ID: "subagent_a",
+    State: "idle",
+    LastResultSummary: " Looks sound. ",
+  }
+  let prompt = mut transcript::message("u1", "turn_a", transcript::Role::user)
+  prompt.text = "Review"
+  let shown = with_result(conversation, [prompt.@])
+  try testing::assert(
+    shown.size() == 2 and shown.at(1).expect("result").text == "Looks sound.",
+    "the summary stands in for the reply",
+  )
+  let answer = mut transcript::message("m1", "turn_a", transcript::Role::assistant)
+  answer.text = "It is sound."
+  testing::assert(
+    with_result(conversation, [prompt.@, answer.@]).size() == 2,
+    "a reply with text needs no summary",
+  )
+}
+
+private fn numbered(id: Str, sequence: Int) transcript::Message {
+  let made = mut transcript::message(id, "turn_a", transcript::Role::assistant)
+  made.sequence = sequence
+  made.@
+}
+
+test fn a_refreshed_page_keeps_earlier_history_only_when_it_continues_it() Void!Str {
+  let existing = [numbered("a", 1), numbered("b", 2), numbered("c", 3)]
+  let continued = ids(refreshed(existing, [numbered("c", 3), numbered("d", 4)]))
+  try testing::assert(continued == "a[] b[] c[] d[]", "a continuing page extends history: {continued}")
+  let skipped = ids(refreshed(existing, [numbered("x", 9), numbered("y", 10)]))
+  testing::assert(skipped == "x[] y[]", "a page past a gap replaces history: {skipped}")
+}

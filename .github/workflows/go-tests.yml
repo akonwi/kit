@@ -88,3 +88,77 @@ jobs:
 
       - name: Test terminal input ownership
         run: python3 scripts/test-tui-input-ownership.py
+
+  ard-client:
+    name: Ard client (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/cli
+    env:
+      ARD_VERSION: v0.44.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/cli/go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            apps/cli/go.sum
+
+      - name: Install Ard
+        run: |
+          os=$(uname -s | tr '[:upper:]' '[:lower:]')
+          case "$(uname -m)" in
+            x86_64 | amd64) arch=amd64 ;;
+            arm64 | aarch64) arch=arm64 ;;
+            *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
+          esac
+          archive="ard_${ARD_VERSION}_${os}_${arch}.tar.gz"
+          release="https://github.com/akonwi/ard/releases/download/${ARD_VERSION}"
+          install_dir="$RUNNER_TEMP/ard"
+          mkdir -p "$install_dir"
+          curl -fsSL --retry 3 -o "$install_dir/$archive" "$release/$archive"
+          curl -fsSL --retry 3 -o "$install_dir/checksums.txt" "$release/checksums.txt"
+          expected=$(awk -v name="$archive" '{ file = $2; sub(/^.*\//, "", file); if (file == name) print $1 }' "$install_dir/checksums.txt")
+          actual=$(shasum -a 256 "$install_dir/$archive" | awk '{ print $1 }')
+          if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+            echo "Checksum mismatch for $archive: expected '$expected', got '$actual'"
+            exit 1
+          fi
+          tar -xzf "$install_dir/$archive" -C "$install_dir" ard
+          echo "$install_dir" >> "$GITHUB_PATH"
+          echo "ARD_CACHE_DIR=$RUNNER_TEMP/ard-cache" >> "$GITHUB_ENV"
+          echo "KIT_HOME=$(mktemp -d "$RUNNER_TEMP/kit-test-home.XXXXXX")" >> "$GITHUB_ENV"
+
+      - name: Fetch Ard dependencies
+        run: |
+          ard version
+          ard deps fetch
+          ard deps verify
+
+      - name: Check Ard formatting
+        run: ard format --check .
+
+      - name: Type-check
+        run: ard check main.ard
+
+      - name: Test Ard
+        run: ard test
+
+      - name: Vet Go bridges
+        run: go vet ./...
+
+      - name: Test Go bridges
+        run: go test -count=1 ./...
+
+      - name: Build
+        run: ard build main.ard --out "$RUNNER_TEMP/kit-ard/kit"

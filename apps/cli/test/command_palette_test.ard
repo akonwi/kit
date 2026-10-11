@@ -1,0 +1,462 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/command_palette
+use kit/tui/palette
+use kit/tui/theme
+use go:strings
+
+struct Model {
+  open: Bool,
+  draft: Str,
+  busy: Bool,
+  actions: [command_palette::Action],
+  notices: [command_palette::Notice],
+  dismissed: Int,
+}
+
+struct Props {
+  model: mut Model,
+  themes: theme::Context,
+}
+
+struct Host {
+  props: mut Props,
+}
+
+fn host(props: mut Props) mut Host {
+  (mut Host{props: props})
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    let model = self.props.model
+    let children = mut List::new<cui::View>()
+    // A composer-like editor stays mounted while the modal owns input.
+    children.push(
+      cui::text_area(
+        model.draft,
+        key: "draft",
+        autofocus: not model.open,
+        focused: match model.open {
+          true => Maybe::new(false),
+          false => Maybe::new<Bool>(),
+        },
+        on_input: fn(value: Str, context: cui::Context) {
+          model.draft = value
+        },
+      ),
+    )
+    if model.open {
+      children.push(self.palette())
+    }
+    cui::box(children.@, styles: ui::style(width: ui::percent(100.0), height: ui::percent(100.0)))
+  }
+}
+
+impl Host {
+  fn mut palette() cui::View {
+    let model = self.props.model
+    command_palette::view(
+      command_palette::Props{
+        themes: self.props.themes,
+        busy: model.busy,
+        connected: true,
+        prompt_commands: [
+          protocol::PromptCommand{
+            Name: "review",
+            Description: "Review changes",
+            Source: "project",
+          },
+        ],
+        plugin_commands: [plugin_command()],
+        dismiss: fn() Bool {
+          model.dismissed =+ 1
+          true
+        },
+        activate: fn(action: command_palette::Action) {
+          let actions = mut model.actions
+          actions.push(action)
+          model.actions = actions.@
+        },
+        notice: fn(notice: command_palette::Notice) {
+          let notices = mut model.notices
+          notices.push(notice)
+          model.notices = notices.@
+        },
+      },
+    )
+  }
+}
+
+fn plugin_command() protocol::PluginCommand {
+  protocol::PluginCommand{
+    ID: "demo.echo",
+    LocalID: "echo",
+    PluginID: "demo",
+    Instance: "demo-1",
+    Description: "Echo text",
+    ArgName: "text",
+  }
+}
+
+fn item(key: Str, disabled_reason: Str) palette::Item {
+  palette::Item{
+    key: key,
+    label: key,
+    hint: "",
+    description: "",
+    meta: "",
+    search_terms: [],
+    disabled_reason: disabled_reason,
+  }
+}
+
+fn key(name: Str, text: Str?) mut event::KeyEvent {
+  event::key(
+    name,
+    text.or(""),
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: false,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+fn type_text(terminal: headless::TestApp, value: Str) {
+  for character in strings::Split(value, "") {
+    let name = match character == " " {
+      true => "space",
+      false => character,
+    }
+    terminal.key(key(name, text: character))
+    terminal.flush()
+  }
+}
+
+fn mount(terminal: headless::TestApp, model: mut Model) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(
+    app,
+    cui::child(host, Props{model: model, themes: theme::context(theme::store(theme::system()))}),
+  )
+}
+
+fn search_row(terminal: headless::TestApp) Str {
+  mut found = ""
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    if found == "" and strings::Contains(row, "│") and (not strings::Contains(row, "─")) {
+      found = strings::TrimSpace(strings::Trim(row, "│ "))
+    }
+  }
+  found
+}
+
+fn footer_row(terminal: headless::TestApp) Str {
+  let rows = strings::Split(terminal.frame().text(), "\n")
+  mut footer = ""
+  for row in rows {
+    let content = strings::TrimSpace(strings::Trim(row, "│ "))
+    if strings::Contains(row, "│") and content != "" {
+      footer = content
+    }
+  }
+  footer
+}
+
+test fn the_footer_teaches_only_the_custom_completion_binding() Void!Str {
+  let terminal = headless::new(80, 40)
+  defer terminal.destroy()
+  let model = mut Model{
+    open: true,
+    draft: "",
+    busy: false,
+    actions: [],
+    notices: [],
+    dismissed: 0,
+  }
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  testing::assert(footer_row(terminal) == "tab complete", "footer: {footer_row(terminal)}")
+}
+
+test fn command_arguments_follow_only_the_first_command_token() Void!Str {
+  try testing::assert(
+    command_palette::command_word("  name  New title ") == "name",
+    "the command word ignores arguments",
+  )
+  try testing::assert(
+    command_palette::command_args("echo  two  spaces ") == " two  spaces ",
+    "arguments after one separator stay literal",
+  )
+  testing::assert(
+    command_palette::command_args("  cd ../repo") == "../repo",
+    "leading whitespace does not shift the argument boundary",
+  )
+}
+
+test fn resolution_validates_builtins_and_preserves_extension_arguments() Void!Str {
+  match command_palette::resolve(item("cd", "idle only"), "cd /tmp", [], []) {
+    ok(_) => try testing::fail("disabled commands do not resolve"),
+    err(notice) => {
+      try testing::assert(
+        notice.title == "Command unavailable" and notice.detail == "idle only",
+        "disabled commands explain their reason",
+      )
+    },
+  }
+  match command_palette::resolve(item("cd", ""), "cd   ", [], []) {
+    ok(_) => try testing::fail("cd requires a path"),
+    err(notice) => try testing::assert(notice.title == "Usage: /cd <path>", "cd reports usage"),
+  }
+  match command_palette::resolve(item("cd", ""), "cd  ../repo ", [], []) {
+    ok(action) => {
+      try testing::assert(
+        action.kind == command_palette::ActionKind::change_directory and action.argument == "../repo",
+        "built-in arguments are trimmed",
+      )
+    },
+    err(_) => try testing::fail("cd with a path resolves"),
+  }
+  let prompts = [protocol::PromptCommand{Name: "review"}]
+  match command_palette::resolve(item("prompt:review", ""), "review  focus on tests", prompts, []) {
+    ok(action) => {
+      try testing::assert(
+        action.kind == command_palette::ActionKind::prompt_command and action.prompt_command == "review" and action.argument == " focus on tests",
+        "prompt commands keep literal arguments",
+      )
+    },
+    err(_) => try testing::fail("prompt commands resolve"),
+  }
+  match command_palette::resolve(item("plugin:demo-1:demo.echo", ""), "echo hi", [], [plugin_command()]) {
+    ok(action) => {
+      testing::assert(
+        action.kind == command_palette::ActionKind::plugin_command and action.argument == "hi" and action.plugin_command.or(protocol::PluginCommand{}).ID == "demo.echo",
+        "plugin commands carry their canonical command",
+      )
+    },
+    err(_) => testing::fail("plugin commands resolve"),
+  }
+}
+
+test fn fork_stays_available_during_a_turn_and_carries_a_first_message() Void!Str {
+  mut fork = Maybe::new<palette::Item>()
+  for candidate in command_palette::command_catalog(true, true, [], []) {
+    if candidate.key == "fork" {
+      fork = Maybe::new(candidate)
+    }
+  }
+  try testing::assert(fork.is_some(), "the catalog offers fork")
+  let command = fork.expect("fork")
+  try testing::assert(
+    command.disabled_reason == "" and command.hint == "[message]",
+    "fork is enabled while busy and hints its optional message",
+  )
+  match command_palette::resolve(command, "fork  explore the other approach ", [], []) {
+    ok(action) => {
+      try testing::assert(
+        action.kind == command_palette::ActionKind::fork and action.argument == "explore the other approach",
+        "the trimmed argument becomes the first message",
+      )
+    },
+    err(_) => try testing::fail("fork resolves"),
+  }
+  match command_palette::resolve(command, "fork", [], []) {
+    ok(action) => testing::assert(action.argument == "", "fork without a message has no argument"),
+    err(_) => testing::fail("fork without a message resolves"),
+  }
+}
+
+test fn tab_completion_keeps_the_command_selected_while_typing_arguments() Void!Str {
+  let terminal = headless::new(80, 16)
+  defer terminal.destroy()
+  let model = mut Model{
+    open: true,
+    draft: "",
+    busy: false,
+    actions: [],
+    notices: [],
+    dismissed: 0,
+  }
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  // The search field owns focus on mount.
+  type_text(terminal, "nam")
+  terminal.key(key("tab"))
+  terminal.flush()
+  try testing::assert(
+    search_row(terminal) == "name",
+    "Tab completes the selected command and separator: {search_row(terminal)}",
+  )
+  type_text(terminal, "Release notes")
+  try testing::assert(
+    search_row(terminal) == "name Release notes",
+    "arguments remain in the invocation: {search_row(terminal)}",
+  )
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(model.actions.size() == 1, "Enter resolves one action")
+  let action = model.actions.at(0).expect("action")
+  testing::assert(
+    action.kind == command_palette::ActionKind::rename and action.argument == "Release notes",
+    "the completed command activates with its argument",
+  )
+}
+
+test fn unavailable_commands_report_feedback_and_live_capabilities_refresh() Void!Str {
+  let terminal = headless::new(80, 16)
+  defer terminal.destroy()
+  let model = mut Model{
+    open: true,
+    draft: "",
+    busy: true,
+    actions: [],
+    notices: [],
+    dismissed: 0,
+  }
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "compact")
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(model.actions.size() == 0, "a disabled command does not run")
+  try testing::assert(
+    model.notices.size() == 1 and model.notices.at(0).expect("notice").detail == "idle only",
+    "the palette reports why the command is unavailable",
+  )
+
+  renderer.update(fn() {
+    model.busy = false
+  })
+  terminal.flush()
+  try testing::assert(search_row(terminal) == "compact", "parent updates preserve the local query")
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(
+    model.actions.size() == 1 and model.actions.at(0).expect("action").kind == command_palette::ActionKind::compact,
+    "the refreshed capability activates without reopening",
+  )
+  terminal.key(key("escape"))
+  terminal.flush()
+  testing::assert(model.dismissed == 1, "Escape requests dismissal from the owner")
+}
+
+test fn opening_from_a_mounted_editor_moves_typing_into_the_search_field() Void!Str {
+  let terminal = headless::new(80, 16)
+  defer terminal.destroy()
+  let model = mut Model{
+    open: false,
+    draft: "",
+    busy: false,
+    actions: [],
+    notices: [],
+    dismissed: 0,
+  }
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  type_text(terminal, "a")
+  try testing::assert(model.draft == "a", "the editor owns input before the palette opens")
+
+  renderer.update(fn() {
+    model.open = true
+  })
+  terminal.flush()
+  type_text(terminal, "theme")
+  try testing::assert(model.draft == "a", "the retained editor stops receiving input")
+  testing::assert(
+    search_row(terminal) == "theme",
+    "the palette search owns input: {search_row(terminal)}",
+  )
+}
+
+test fn gapped_command_words_rank_the_command_and_keep_arguments() Void!Str {
+  let terminal = headless::new(80, 16)
+  defer terminal.destroy()
+  let model = mut Model{
+    open: true,
+    draft: "",
+    busy: false,
+    actions: [],
+    notices: [],
+    dismissed: 0,
+  }
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "nm Release notes")
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(model.actions.size() == 1, "Enter resolves one action")
+  let action = model.actions.at(0).expect("action")
+  testing::assert(
+    action.kind == command_palette::ActionKind::rename and action.argument == "Release notes",
+    "the best fuzzy command activates with its literal argument",
+  )
+}
+
+test fn without_a_compatible_server_only_local_commands_remain() Void!Str {
+  let catalog = command_palette::command_catalog(
+    false,
+    false,
+    [
+      protocol::PromptCommand{
+        Name: "review",
+        Description: "Review changes",
+        Source: "project",
+      },
+    ],
+    [],
+  )
+  mut keys = ""
+  for item in catalog {
+    keys = match keys == "" {
+      true => item.key,
+      false => "{keys} {item.key}",
+    }
+  }
+  testing::assert(keys == "debug login mcp quit theme", keys)
+}
+
+test fn prompt_commands_show_their_source_with_claude_code_commands_as_claude() Void!Str {
+  let catalog = command_palette::command_catalog(
+    false,
+    true,
+    [
+      protocol::PromptCommand{
+        Name: "review",
+        Description: "Review changes",
+        Source: protocol::PromptCommandSourceProject,
+        Location: "/repo/.agents/prompts/review.md",
+      },
+      protocol::PromptCommand{
+        Name: "claude-fix",
+        Description: "Fix an issue",
+        Source: protocol::PromptCommandSourceClaudeProject,
+        Location: "/repo/.claude/commands/claude-fix.md",
+      },
+    ],
+    [],
+  )
+  mut sources = ""
+  for item in catalog {
+    if item.key.starts_with("prompt:") {
+      sources = "{sources}{item.label}={item.meta} "
+    }
+  }
+  testing::assert(sources == "claude-fix=claude review=project ", sources)
+}

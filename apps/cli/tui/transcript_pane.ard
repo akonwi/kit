@@ -1,0 +1,1478 @@
+use cooper
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use go:github.com/akonwi/vaxis
+use go:kit/ffi/pluginmessage
+use go:kit/ffi/sessionbridge
+use go:kit/ffi/toolpresentation
+use kit/tui/annotations
+use kit/tui/attachments
+use kit/tui/controls
+use kit/tui/image_preview
+use kit/tui/layout
+use kit/tui/markdown
+use kit/tui/spinner
+use kit/tui/theme
+use kit/tui/tool_output
+use kit/tui/tool_row
+use kit/tui/transcript
+use go:strings
+
+// The retained conversation transcript. The attached-session owner supplies
+// projected messages; this component owns presentation state only: the
+// virtual list, its reading position and sticky tail, and whether the latest
+// message is out of view.
+//
+// It opens at, and follows, its latest message until the user scrolls away;
+// returning to the end resumes following. Short transcripts rest on the
+// composer, as in the vaxis client. An assistant reply taller than the
+// viewport opens at its first row instead, both when it arrives while the
+// transcript follows its end and when an attachment opens on it, so reading
+// starts at the beginning of the answer.
+//
+// Earlier history loads a page at a time once the view is within
+// `history_threshold` rows of the top, which includes a first page too short
+// to fill the viewport. A status row above the oldest message reports loading
+// and failure; it disappears once the conversation's beginning is shown.
+
+// Control is the host's handle to one attachment's transcript. Its list ref
+// binds to the mounted virtual list; replace it with each new attachment.
+struct Control {
+  list: mut cui::VirtualListRef,
+}
+
+fn control() mut Control {
+  (mut Control{list: cui::virtual_list_ref()})
+}
+
+impl Control {
+  // Returns the transcript to its end and resumes following. UI-thread only.
+  fn show_latest() Bool {
+    match self.list.current {
+      list => {
+        let _ = list.scroll_to_edge(cui::ScrollEdge::end, sticky: true)
+        true
+      },
+      _ => false,
+    }
+  }
+}
+
+// Rows from the top at which the next earlier page is requested.
+let history_threshold = 40
+// The history status row and the blank row above it.
+let status_rows = 2
+
+// History is the attachment's earlier-transcript paging state.
+struct History {
+  // Whether earlier messages exist beyond the oldest one shown.
+  more: Bool,
+  loading: Bool,
+  // The last failure; automatic loading pauses until retried.
+  failure: Str,
+}
+
+// Images attached to user messages. Clicking an image's row toggles its
+// preview; at most one is expanded.
+struct Images {
+  // The attachment ID of the expanded image, if any.
+  expanded: Str,
+  // The expanded image's preview, once requested.
+  preview: fn(Str) image_preview::Preview?,
+  // Expands an image, or collapses the expanded one.
+  toggle: fn(Str),
+  // Opens an image in the system's default application.
+  open: fn(Str),
+  // Loads an image's preview for showing, such as one shown by show_image.
+  request: fn(Str),
+}
+
+// Annotations sent with user messages. Clicking a message's annotations
+// row expands or collapses them.
+struct Notes {
+  // Message IDs whose annotations are expanded.
+  expanded: [Str: Bool],
+  toggle: fn(Str),
+}
+
+// Direct shell runs. A finished run's header folds and unfolds its output.
+struct Bash {
+  // Execution IDs whose output is folded.
+  folded: [Str: Bool],
+  toggle: fn(Str),
+}
+
+// Plugin-submitted messages. Clicking one's row expands or collapses it.
+struct Plugins {
+  // Turn IDs whose plugin message is expanded. A plugin message keeps its
+  // turn ID from the live event through the persisted transcript.
+  expanded: [Str: Bool],
+  toggle: fn(Str),
+}
+
+// Runs of tool calls, shown as work chips. Clicking a chip opens or closes
+// it; at most one is open.
+struct Work {
+  // Chips opened or closed by a click, by work key. Without one, a running
+  // chip of up to `work_auto_open` calls is open.
+  open: [Str: Bool],
+  // Opens the chip with the key, or closes it when open (the second
+  // argument).
+  toggle: fn(Str, Bool),
+  // The selected tool row's key (see `tool_key`), or empty.
+  selected: Str,
+  // Selects the tool row with the key.
+  select_tool: fn(Str),
+  // Tool rows whose output is shown, by key.
+  outputs: [Str: Bool],
+  // Shows or hides the output of the tool row with the key.
+  toggle_output: fn(Str),
+  // The session's MCP servers, whose tools are titled after them.
+  servers: [Str],
+  // Opens the file a tool row's summary names.
+  open_file: fn(toolpresentation::FileTarget)?,
+  // Opens the conversation of a subagent a tool row addresses.
+  open_agent: fn(Str)?,
+}
+
+// The key of a tool row, unique in the session.
+fn tool_key(turn_id: Str, call_id: Str) Str {
+  "{turn_id}:{call_id}"
+}
+
+// A running chip opens on its own until it has more calls than this.
+let work_auto_open = 5
+
+// Whether a work chip is open: as last clicked, else while it runs with few
+// enough calls to follow.
+fn work_is_open(work: Work, run: transcript::Work) Bool {
+  match work.open.get(run.key) {
+    open => open,
+    _ => run.running and run.calls <= work_auto_open,
+  }
+}
+
+// Output lines a bash row shows before summarizing the rest.
+let bash_visible_lines = 20
+
+struct Props {
+  themes: theme::Context,
+  messages: [transcript::Message],
+  control: mut Control,
+  history: History,
+  images: Images,
+  bash: Bash,
+  plugins: Plugins,
+  notes: Notes,
+  work: Work,
+  // Requests the next earlier page. Repeated requests while one is in flight
+  // are ignored by the owner.
+  load_older: fn(),
+}
+
+struct Pane {
+  props: mut Props,
+  context: cui::Context?,
+  // Derived from the VirtualList's committed visibility rather than estimates
+  // from its pre-layout rows. It stays false while any portion of a tall
+  // latest reply is visible.
+  latest_out_of_view: Bool,
+  // The last row and whether it is an assistant reply, as last rendered.
+  tail_key: Str,
+  tail_is_reply: Bool,
+  // The last row already considered for opening at its start. Absent until
+  // the first committed update, so an attachment's initial reply counts.
+  arrived_tail: Str?,
+  // A reply aligned to its start whose fit is confirmed by the next update.
+  aligning: Str?,
+  // The committed scroll position, absent until the list first reports.
+  scroll_top: Int?,
+  // The oldest message row and whether the history status sat above it, as
+  // last rendered.
+  head_key: Str,
+  head_status: Bool,
+}
+
+// One transcript row: a message, a run of tool calls, or the
+// earlier-history status, and its stable virtual-list key.
+struct Entry {
+  key: Str,
+  message: transcript::Message,
+  work: transcript::Work?,
+  last: Bool,
+  status: Bool,
+}
+
+let history_status_key = "history:status"
+
+// pane retains one attachment's transcript. `scope_id` remounts it, resetting
+// presentation state, when a new attachment replaces the old one.
+fn pane(props: Props, scope_id: Int) cui::View {
+  cui::child(new, props, key: "transcript:{scope_id}")
+}
+
+private fn new(props: mut Props) mut Pane {
+  (mut Pane{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    latest_out_of_view: false,
+    tail_key: "",
+    tail_is_reply: false,
+    arrived_tail: Maybe::new<Str>(),
+    aligning: Maybe::new<Str>(),
+    scroll_top: Maybe::new<Int>(),
+    head_key: "",
+    head_status: false,
+  })
+}
+
+impl cui::Lifecycle for Pane {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl Pane {
+  // Committed list updates report the latest message's visibility. Only
+  // changes dispatch, so a settled list does not schedule further renders.
+  private fn mut observe(update: cui::VirtualListUpdate) {
+    self.scroll_top = Maybe::new(update.state.scroll_top)
+    self.open_tall_reply(update)
+    self.request_history(update.state.scroll_top)
+    let hidden = not update.state.last_item_visible
+    if hidden != self.latest_out_of_view {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            self.latest_out_of_view = hidden
+          })
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // A reply arriving at the followed end is aligned to its start. Updates
+  // are committed after painting, so its tail shows for one frame first.
+  // Aligning a reply that fits clamps to the end, where following resumes
+  // with no visible change.
+  private fn mut open_tall_reply(update: cui::VirtualListUpdate) {
+    match self.props.control.list.current {
+      list => {
+        match self.aligning {
+          key => {
+            self.aligning = Maybe::new<Str>()
+            let fits = update.state.scroll_top >= update.state.maximum_scroll_top
+            if fits and update.user_scroll.is_none() and key == self.tail_key {
+              let _ = list.scroll_to_edge(cui::ScrollEdge::end, sticky: true)
+            }
+          },
+          _ => (),
+        }
+        let arrived = match self.arrived_tail {
+          previous => previous != self.tail_key,
+          _ => true,
+        }
+        if arrived {
+          self.arrived_tail = Maybe::new(self.tail_key)
+          let following = match update.state.following_edge {
+            edge => edge == cui::ScrollEdge::end,
+            _ => false,
+          }
+          if self.tail_is_reply and following {
+            list.stop_following()
+            match list.scroll_to_key(self.tail_key, alignment: cui::ScrollAlignment::start) {
+              true => { self.aligning = Maybe::new(self.tail_key) },
+              false => {
+                let _ = list.scroll_to_edge(cui::ScrollEdge::end, sticky: true)
+              },
+            }
+          }
+        }
+      },
+      _ => (),
+    }
+  }
+
+  // A view resting on the history status anchors to the status itself, so a
+  // prepended page would keep the top in view and pull reading back to the
+  // start. Instead, the message that was oldest is aligned to the top.
+  private fn mut keep_reading_position(head: Str) {
+    let previous = self.head_key
+    let had_status = self.head_status
+    self.head_key = head
+    self.head_status = self.props.history.more or self.props.history.loading or self.props.history.failure != ""
+    if had_status and previous != "" and previous != head {
+      match self.scroll_top {
+        top => {
+          if top < status_rows {
+            match self.props.control.list.current {
+              list => {
+                if not list.is_following_edge() {
+                  let _ = list.scroll_to_key(previous, alignment: cui::ScrollAlignment::start)
+                }
+              },
+              _ => (),
+            }
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Requests the next earlier page while the view is near the top.
+  private fn request_history(scroll_top: Int) {
+    let history = self.props.history
+    if history.more and (not history.loading) and history.failure == "" and scroll_top <= history_threshold {
+      (self.props.load_older)()
+    }
+  }
+
+  private fn mut list() cui::View {
+    let themes = self.props.themes
+    let images = self.props.images
+    let bash = self.props.bash
+    let plugins = self.props.plugins
+    let notes = self.props.notes
+    let work = self.props.work
+    let colors = themes.current()
+    self.tail_key = ""
+    self.tail_is_reply = false
+    let shown = mut List::new<transcript::Row>()
+    for row in transcript::rows(self.props.messages) {
+      if row.work.is_some() or renders(row.message) {
+        shown.push(row)
+      }
+    }
+    match shown.size() == 0 {
+      true => layout::empty_state(colors, "Ask a question or give a task."),
+      false => {
+        let entries = mut List::new<Entry>()
+        let history = self.props.history
+        let status = history.more or history.loading or history.failure != ""
+        if status {
+          entries.push(
+            Entry{
+              key: history_status_key,
+              message: transcript::message("", "", transcript::Role::other),
+              work: Maybe::new<transcript::Work>(),
+              last: false,
+              status: true,
+            },
+          )
+        }
+        mut position = 0
+        for row in shown {
+          let message = row.message
+          let key = match {
+            row.work.is_some() => row.work.expect("work").key,
+            message.id == "" => "pending:{position}",
+            _ => message.id,
+          }
+          entries.push(
+            Entry{
+              key: key,
+              message: message,
+              work: row.work,
+              last: position == shown.size() - 1,
+              status: false,
+            },
+          )
+          if position == 0 {
+            self.keep_reading_position(key)
+          }
+          position =+ 1
+          self.tail_key = key
+          self.tail_is_reply = row.work.is_none() and message.role == transcript::Role::assistant
+        }
+        cui::virtual_list(
+          entries.@,
+          item_key: fn(entry: Entry) Str {
+            entry.key
+          },
+          render_item: fn(entry: Entry) cui::View {
+            match entry.status {
+              true => self.history_row(),
+              false => transcript_row(themes, images, bash, plugins, notes, work, entry),
+            }
+          },
+          estimated_height: 4,
+          overscan: 2,
+          key: "transcript",
+          ref: self.props.control.list,
+          sticky_scroll: cui::ScrollEdge::end,
+          on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
+            self.observe(update)
+          },
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        )
+      },
+    }
+  }
+
+  // The status above the oldest message shown: loading, or a failure that
+  // can be retried.
+  private fn history_row() cui::View {
+    let colors = self.props.themes.current()
+    let muted = ui::text_style(foreground: colors.muted)
+    let history = self.props.history
+    let content = match {
+      history.loading => {
+        cui::box(
+          [
+            spinner::spinner(styles: ui::style(foreground: colors.muted)),
+            layout::line(" Loading earlier messages…", muted),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::row),
+        )
+      },
+      history.failure != "" => {
+        let load_older = self.props.load_older
+        let retry = keymap::simple_command(
+          "transcript.history.retry",
+          "Retry earlier messages",
+          fn() Bool {
+            load_older()
+            true
+          },
+        )
+        cui::box(
+          [
+            controls::button(
+              self.props.themes,
+              "Could not load earlier messages · retry",
+              retry,
+              variant: controls::ButtonVariant::secondary,
+              compact: true,
+              focusable: false,
+            ),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::row),
+        )
+      },
+      _ => layout::line("↑ Scroll for earlier messages", muted),
+    }
+    cui::box(
+      [content],
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::column,
+        padding: ui::Edges{
+          top: ui::cells(1),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+    )
+  }
+
+  private fn mut latest_button() cui::View {
+    let control = self.props.control
+    let latest = keymap::simple_command("transcript.latest", "Show latest", fn() Bool {
+      control.show_latest()
+    })
+    controls::button(
+      self.props.themes,
+      "↓ Latest",
+      latest,
+      variant: controls::ButtonVariant::secondary,
+      compact: true,
+      focusable: false,
+      styles: ui::style(
+        position: ui::Position::absolute,
+        right: ui::cells(1),
+        bottom: ui::cells(1),
+        z_index: 1,
+      ),
+    )
+  }
+}
+
+impl cui::Component for Pane {
+  fn mut render() cui::View {
+    let children = mut List::new<cui::View>()
+    children.push(self.list())
+    // Paging state changes without a list update, as when a page brings no
+    // displayable messages or nothing is shown yet, still continue loading.
+    match self.tail_key == "" {
+      true => self.request_history(0),
+      false => {
+        match self.scroll_top {
+          top => self.request_history(top),
+          _ => (),
+        }
+      },
+    }
+    if self.latest_out_of_view {
+      children.push(self.latest_button())
+    }
+    cui::box(
+      children.@,
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
+        position: ui::Position::relative,
+        overflow: ui::Overflow::visible,
+      ),
+    )
+  }
+}
+
+// Each row keeps a blank row above it; the last also keeps one below.
+private fn transcript_row(
+  themes: theme::Context,
+  images: Images,
+  bash: Bash,
+  plugins: Plugins,
+  notes: Notes,
+  work: Work,
+  entry: Entry,
+) cui::View {
+  let bottom = match entry.last {
+    true => 1,
+    false => 0,
+  }
+  let view = match entry.work {
+    run => work_view(themes, images, work, run),
+    _ => entry_view(themes, images, bash, plugins, notes, entry.key, entry.message).or(layout::blank()),
+  }
+  cui::box(
+    [view],
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::column,
+      padding: ui::Edges{
+        top: ui::cells(1),
+        right: ui::cells(1),
+        bottom: ui::cells(bottom),
+        left: ui::cells(1),
+      },
+    ),
+  )
+}
+
+// Whether a message has visible transcript content.
+private fn renders(message: transcript::Message) Bool {
+  match message.role {
+    // Buffer streamed prose in the model, but reveal it only after the
+    // assistant message settles so incomplete Markdown never reaches layout.
+    transcript::Role::user => {
+      message.text != "" or message.attachments.size() > 0 or message.annotations.size() > 0
+    },
+    transcript::Role::assistant => {
+      let settled = message.text != "" and not message.pending
+      settled or transcript::only_thinks(message)
+    },
+    transcript::Role::tool => true,
+    transcript::Role::bash => message.bash.is_some(),
+    transcript::Role::plugin => message.text != "",
+    transcript::Role::other => false,
+  }
+}
+
+private fn entry_view(
+  themes: theme::Context,
+  images: Images,
+  bash: Bash,
+  plugins: Plugins,
+  notes: Notes,
+  key: Str,
+  message: transcript::Message,
+) cui::View? {
+  let colors = themes.current()
+  match message.role {
+    transcript::Role::user => user_entry(themes, images, notes, key, message),
+    transcript::Role::assistant => {
+      let tone = match {
+        message.aborted => colors.muted,
+        message.is_error => colors.danger_text,
+        _ => colors.foreground,
+      }
+      match {
+        transcript::only_thinks(message) => {
+          // Thinking no run took in reads as it does in an activity list.
+          Maybe::new(
+            markdown::view(
+              themes,
+              key,
+              message.thinking,
+              base: ui::text_style(foreground: colors.muted, italic: true),
+            ),
+          )
+        },
+        message.text == "" => Maybe::new<cui::View>(),
+        _ => {
+          Maybe::new(
+            markdown::view(
+              themes,
+              key,
+              message.text,
+              base: ui::text_style(foreground: tone),
+              semantic: (not message.aborted) and not message.is_error,
+            ),
+          )
+        },
+      }
+    },
+    transcript::Role::tool => {
+      Maybe::new(
+        tool_row::view(
+          tool_row::Props{
+            themes: themes,
+            call: transcript::tool_call(message.tool_call_id, message.tool_name),
+            result: message,
+            selected: false,
+            on_select: fn() {},
+            servers: [],
+            title_width: tool_row::min_title_width,
+          },
+        ),
+      )
+    },
+    transcript::Role::bash => {
+      match message.bash {
+        run => Maybe::new(bash_entry(colors, bash, run)),
+        _ => Maybe::new<cui::View>(),
+      }
+    },
+    transcript::Role::plugin => Maybe::new(plugin_entry(themes, plugins, message)),
+    transcript::Role::other => Maybe::new<cui::View>(),
+  }
+}
+
+// A user turn: a tinted wash with half-block edges and two-cell padding.
+private fn user_entry(
+  themes: theme::Context,
+  images: Images,
+  notes: Notes,
+  key: Str,
+  message: transcript::Message,
+) cui::View? {
+  let colors = themes.current()
+  match message.text == "" and message.attachments.size() == 0 and message.annotations.size() == 0 {
+    true => Maybe::new<cui::View>(),
+    false => {
+      let body = mut List::new<cui::View>()
+      if message.text != "" {
+        body.push(
+          markdown::view(
+            themes,
+            key,
+            message.text,
+            base: ui::text_style(foreground: colors.foreground, background: colors.user_fill),
+          ),
+        )
+      }
+      if message.text != "" and message.attachments.size() > 0 {
+        body.push(cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)))
+      }
+      for attachment in message.attachments {
+        let expanded = attachment.image and attachment.id != "" and images.expanded == attachment.id
+        body.push(attachment_label(colors, images, attachment))
+        if expanded {
+          let preview = (images.preview)(attachment.id).or(image_preview::loading())
+          let open = images.open
+          let id = attachment.id
+          body.push(
+            image_preview::view(themes, id, preview, fn() {
+              open(id)
+            }),
+          )
+        }
+      }
+      if message.annotations.size() > 0 {
+        if message.text != "" and message.attachments.size() == 0 {
+          body.push(cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)))
+        }
+        let expanded = notes.expanded.get(message.id).or(false)
+        body.push(
+          annotations_label(colors, notes, message.id, message.annotations.size(), expanded),
+        )
+        if expanded {
+          for annotation in message.annotations {
+            body.push(sent_annotation(colors, annotation))
+          }
+        }
+      }
+      let edge = fn(glyph: Str) cui::View {
+        cui::text(
+          strings::Repeat(glyph, 1024),
+          styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
+          text_style: ui::text_style(foreground: colors.user_fill),
+          wrap: ui::TextWrap::none,
+        )
+      }
+      Maybe::new(
+        cui::box(
+          [
+            edge("▄"),
+            cui::box(
+              body.@,
+              styles: ui::style(
+                flex_direction: ui::FlexDirection::column,
+                background: colors.user_fill,
+                padding: ui::Edges{
+                  top: ui::cells(0),
+                  right: ui::cells(2),
+                  bottom: ui::cells(0),
+                  left: ui::cells(2),
+                },
+              ),
+            ),
+            edge("▀"),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::column, flex_shrink: 0.0),
+        ),
+      )
+    },
+  }
+}
+
+// A user message's annotations row, which expands or collapses them.
+private fn annotations_label(
+  colors: theme::Theme,
+  notes: Notes,
+  id: Str,
+  count: Int,
+  expanded: Bool,
+) cui::View {
+  let noun = match count == 1 {
+    true => "annotation",
+    false => "annotations",
+  }
+  let mark = match expanded {
+    true => "▾",
+    false => "▸",
+  }
+  let toggle = notes.toggle
+  cui::box(
+    [
+      layout::line(
+        "{annotations::glyph} {count} {noun} {mark}",
+        ui::text_style(foreground: colors.primary_text, background: colors.user_fill),
+      ),
+    ],
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+    ),
+    on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+      if received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+        toggle(id)
+        received.prevent_default()
+      }
+    },
+  )
+}
+
+// Lines of a sent annotation's source shown before the rest is cut.
+let sent_preview_lines = 3
+
+// A sent annotation, expanded: where it was, the start of its source as it
+// was then, and the note, beside an accent bar.
+private fn sent_annotation(colors: theme::Theme, annotation: sessionbridge::Annotation) cui::View {
+  let fill = colors.user_fill
+  let lines = strings::Split(strings::TrimRight(annotation.Preview, "\n"), "\n")
+  let shown = mut List::new<cui::View>()
+  shown.push(
+    cui::text(
+      annotations::location(annotation),
+      text_style: ui::text_style(foreground: colors.muted, background: fill),
+      wrap: ui::TextWrap::none,
+      overflow: ui::TextOverflow::ellipsis,
+    ),
+  )
+  for line, index in lines {
+    if index < sent_preview_lines {
+      let more = index == sent_preview_lines - 1 and lines.size() > sent_preview_lines
+      let source = strings::ReplaceAll(line, "\t", "  ")
+      shown.push(
+        cui::text(
+          match more {
+            true => "  {source} …",
+            false => "  {source}",
+          },
+          text_style: ui::text_style(foreground: colors.muted, background: fill),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      )
+    }
+  }
+  shown.push(
+    cui::text(
+      annotation.Body,
+      text_style: ui::text_style(foreground: colors.foreground, background: fill),
+    ),
+  )
+  cui::box(
+    [
+      cui::box(
+        [
+          cui::text(
+            strings::TrimSuffix(strings::Repeat("▎\n", 256), "\n"),
+            styles: ui::style(position: ui::Position::absolute, top: ui::cells(0), left: ui::cells(0)),
+            text_style: ui::text_style(foreground: colors.accent_text, background: fill),
+            selectable: false,
+          ),
+        ],
+        styles: ui::style(
+          width: ui::cells(2),
+          flex_shrink: 0.0,
+          position: ui::Position::relative,
+          overflow: ui::Overflow::hidden,
+        ),
+      ),
+      cui::box(
+        shown.@,
+        styles: ui::style(
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+          flex_direction: ui::FlexDirection::column,
+        ),
+      ),
+    ],
+    styles: ui::style(
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+      margin: ui::Edges{
+        top: ui::cells(1),
+        right: ui::cells(0),
+        bottom: ui::cells(0),
+        left: ui::cells(0),
+      },
+    ),
+  )
+}
+
+// One attached file in a user message. An image's row toggles its preview.
+private fn attachment_label(
+  colors: theme::Theme,
+  images: Images,
+  attachment: transcript::Attachment,
+) cui::View {
+  let previewable = attachment.image and attachment.id != ""
+  let toggle = images.toggle
+  let id = attachment.id
+  cui::box(
+    [
+      layout::line(
+        "{attachments::glyph} {attachment.filename}",
+        ui::text_style(foreground: colors.primary_text, background: colors.user_fill),
+      ),
+    ],
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+    ),
+    on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+      if previewable and received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+        toggle(id)
+        received.prevent_default()
+      }
+    },
+  )
+}
+
+// A shell command typed in the composer, as in the vaxis client: a success
+// rule on the left, a spinner while it runs and then its outcome, the command,
+// and its muted output. Clicking a finished header folds the output.
+private fn bash_entry(colors: theme::Theme, bash: Bash, run: sessionbridge::Bash) cui::View {
+  let output: [Str] = match run.Output == "" {
+    true => [],
+    false => strings::Split(run.Output, "\n"),
+  }
+  let foldable = (not run.Running()) and output.size() > 0
+  let folded = bash.folded.get(run.ID).or(false)
+  let header = mut List::new<cui::View>()
+  if run.Running() {
+    header.push(spinner::spinner(styles: ui::style(foreground: colors.success_text)))
+  } else {
+    let outcome = bash_outcome(colors, run)
+    header.push(cui::text(outcome.glyph, text_style: ui::text_style(foreground: outcome.color)))
+  }
+  header.push(
+    cui::text(
+      strings::ReplaceAll(run.Command, "\t", "  "),
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
+        min_width: ui::cells(0),
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(0),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+      text_style: ui::text_style(foreground: colors.foreground),
+      selectable: true,
+      selection_style: theme::selection_style(colors),
+    ),
+  )
+  if foldable {
+    header.push(
+      cui::text(
+        match folded {
+          true => " ▸",
+          false => " ▾",
+        },
+        text_style: ui::text_style(foreground: colors.muted),
+      ),
+    )
+  }
+  let toggle = bash.toggle
+  let id = run.ID
+  let body = mut List::new<cui::View>()
+  body.push(
+    cui::box(
+      header.@,
+      styles: ui::style(flex_direction: ui::FlexDirection::row, flex_shrink: 0.0),
+      on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+        if foldable and received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+          toggle(id)
+          received.prevent_default()
+        }
+      },
+    ),
+  )
+  if foldable and not folded {
+    mut shown = output
+    if output.size() > bash_visible_lines {
+      let kept = mut List::new<Str>()
+      for line, index in output {
+        if index < bash_visible_lines - 2 {
+          kept.push(line)
+        }
+      }
+      kept.push("… ({output.size() - (bash_visible_lines - 2)} more lines)")
+      shown = kept.@
+    }
+    body.push(
+      cui::text(
+        strings::Join(mut shown, "\n"),
+        styles: ui::style(
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(0),
+            bottom: ui::cells(0),
+            left: ui::cells(2),
+          },
+        ),
+        text_style: ui::text_style(foreground: colors.muted),
+        selectable: true,
+        selection_style: theme::selection_style(colors),
+      ),
+    )
+  }
+  cui::box(
+    [
+      // The rule spans the entry without adding to its height.
+      cui::text(
+        strings::Repeat("│\n", 1023) + "│",
+        styles: ui::style(
+          position: ui::Position::absolute,
+          top: ui::cells(0),
+          bottom: ui::cells(0),
+          left: ui::cells(0),
+          width: ui::cells(1),
+          overflow: ui::Overflow::hidden,
+        ),
+        text_style: ui::text_style(foreground: colors.success_text),
+        wrap: ui::TextWrap::none,
+      ),
+      cui::box(
+        body.@,
+        styles: ui::style(
+          flex_direction: ui::FlexDirection::column,
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(0),
+            bottom: ui::cells(0),
+            left: ui::cells(2),
+          },
+        ),
+      ),
+    ],
+    styles: ui::style(
+      position: ui::Position::relative,
+      flex_direction: ui::FlexDirection::column,
+      flex_shrink: 0.0,
+      overflow: ui::Overflow::hidden,
+    ),
+  )
+}
+
+// A plugin-submitted message, as in the vaxis client: one quiet row naming
+// the plugin and summarizing the message's first line. A message of several
+// lines, or one line too long for the row, expands to show it in full beneath
+// a left rule; a single line that fits is shown whole and does not expand.
+// The message is context the plugin gave the agent, so it stays subordinate
+// to user and assistant messages.
+fn plugin_entry(themes: theme::Context, plugins: Plugins, message: transcript::Message) cui::View {
+  cui::child(
+    new_plugin_row,
+    PluginRowProps{
+      themes: themes,
+      plugins: plugins,
+      message: message,
+    },
+    key: "plugin",
+  )
+}
+
+private struct PluginRowProps {
+  themes: theme::Context,
+  plugins: Plugins,
+  message: transcript::Message,
+}
+
+private struct PluginRow {
+  props: mut PluginRowProps,
+  header: mut cui::BoxRef,
+  // Whether the one-line row cuts the message's summary, as last laid out.
+  overflows: Bool,
+}
+
+private fn new_plugin_row(props: mut PluginRowProps) mut PluginRow {
+  (mut PluginRow{
+    props: props,
+    header: cui::box_ref(),
+    overflows: false,
+  })
+}
+
+impl cui::Lifecycle for PluginRow {
+  fn mut mounted(context: cui::Context) {
+    // Measured after each layout and before painting, so a row never paints
+    // with a toggle it no longer needs, or without one it now needs.
+    let _ = context.internal_layout(fn() Bool {
+      self.measure()
+    })
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl PluginRow {
+  // Updates whether the summary overflows the row. Returns whether it changed.
+  private fn mut measure() Bool {
+    match self.header.current {
+      header => {
+        let width = header.layout().local.width
+        let message = self.props.message
+        let summary = pluginmessage::Summary(strings::TrimSpace(message.text))
+        let overflows = width > 0 and display_width("◆ {message.plugin_id} · {summary}") > width
+        let changed = overflows != self.overflows
+        self.overflows = overflows
+        changed
+      },
+      _ => false,
+    }
+  }
+}
+
+private fn display_width(value: Str) Int {
+  mut width = 0
+  for character in vaxis::Characters(value) {
+    width =+ character.Width
+  }
+  width
+}
+
+impl cui::Component for PluginRow {
+  fn mut render() cui::View {
+    let themes = self.props.themes
+    let plugins = self.props.plugins
+    let message = self.props.message
+    let colors = themes.current()
+    let turn_id = message.turn_id
+    let text = strings::TrimSpace(message.text)
+    let foldable = strings::Contains(text, "\n") or self.overflows
+    let expanded = foldable and plugins.expanded.get(turn_id).or(false)
+    let identity = ui::text_style(foreground: colors.accent_text)
+    let muted = ui::text_style(foreground: colors.muted)
+    let fixed = fn(value: Str, style: ui::TextStyle) cui::View {
+      cui::text(
+        value,
+        styles: ui::style(flex_shrink: 0.0),
+        text_style: style,
+        wrap: ui::TextWrap::none,
+      )
+    }
+    let toggle = plugins.toggle
+    let row = mut List::new<cui::View>()
+    row.push(fixed("◆ ", identity))
+    row.push(fixed(message.plugin_id, identity))
+    row.push(fixed(" · ", muted))
+    row.push(
+      cui::text(
+        pluginmessage::Summary(text),
+        styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
+        text_style: muted,
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+      ),
+    )
+    if foldable {
+      row.push(
+        fixed(
+          match expanded {
+            true => " ▾",
+            false => " ▸",
+          },
+          muted,
+        ),
+      )
+    }
+    let header = cui::box(
+      row.@,
+      ref: self.header,
+      styles: ui::style(
+        height: ui::cells(1),
+        flex_direction: ui::FlexDirection::row,
+        flex_shrink: 0.0,
+      ),
+      on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+        if foldable and received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+          toggle(turn_id)
+          received.prevent_default()
+        }
+      },
+    )
+    match expanded {
+      false => header,
+      true => {
+        cui::box(
+          [
+            header,
+            cui::box(
+              [
+                // The rule spans the message without adding to its height.
+                cui::text(
+                  strings::Repeat("│\n", 1023) + "│",
+                  styles: ui::style(
+                    position: ui::Position::absolute,
+                    top: ui::cells(0),
+                    bottom: ui::cells(0),
+                    left: ui::cells(0),
+                    width: ui::cells(1),
+                    overflow: ui::Overflow::hidden,
+                  ),
+                  text_style: ui::text_style(foreground: colors.border),
+                  wrap: ui::TextWrap::none,
+                ),
+                cui::box(
+                  [markdown::view(themes, "transcript-plugin:{turn_id}", text, base: muted)],
+                  styles: ui::style(
+                    flex_direction: ui::FlexDirection::column,
+                    padding: ui::Edges{
+                      top: ui::cells(0),
+                      right: ui::cells(0),
+                      bottom: ui::cells(0),
+                      left: ui::cells(2),
+                    },
+                  ),
+                ),
+              ],
+              styles: ui::style(
+                position: ui::Position::relative,
+                flex_direction: ui::FlexDirection::column,
+                flex_shrink: 0.0,
+                overflow: ui::Overflow::hidden,
+                margin: ui::Edges{
+                  top: ui::cells(0),
+                  right: ui::cells(0),
+                  bottom: ui::cells(0),
+                  left: ui::cells(2),
+                },
+              ),
+            ),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::column, flex_shrink: 0.0),
+        )
+      },
+    }
+  }
+}
+
+private struct Outcome {
+  glyph: Str,
+  color: ui::Color,
+}
+
+// A finished command's glyph: ✓ for exit code zero, ⊘ when it was stopped,
+// and ✗ for any other result.
+private fn bash_outcome(colors: theme::Theme, run: sessionbridge::Bash) Outcome {
+  match {
+    run.Status == "aborted" or run.Status == "interrupted" => Outcome{glyph: "⊘", color: colors.muted},
+    run.Succeeded() => Outcome{glyph: "✓", color: colors.success_text},
+    _ => Outcome{glyph: "✗", color: colors.danger_text},
+  }
+}
+
+// A run of tool calls: a chip counting its calls and failures, followed
+// while open by its activity: each message's thinking, then its tool rows.
+// While closed, a spinner shows the run working.
+// A run of tool calls: its chip or activity, then the images its show_image
+// calls presented, which show whether or not the chip is open.
+fn work_view(themes: theme::Context, images: Images, work: Work, run: transcript::Work) cui::View {
+  let shown = shown_images(run)
+  match shown.size() == 0 {
+    true => work_activity(themes, work, run),
+    false => {
+      let views = mut List::new<cui::View>()
+      views.push(work_activity(themes, work, run))
+      for image in shown {
+        views.push(
+          cui::child(
+            new_shown_image,
+            ShownImageProps{
+              themes: themes,
+              images: images,
+              image: image,
+            },
+            key: "shown-image:{image.AttachmentID}",
+          ),
+        )
+      }
+      cui::box(views.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
+    },
+  }
+}
+
+// The images a run's show_image calls presented, in call order.
+fn shown_images(run: transcript::Work) [toolpresentation::ShownImage] {
+  let shown = mut List::new<toolpresentation::ShownImage>()
+  for step in run.steps {
+    match step.result {
+      result => {
+        let call = step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name))
+        let image = toolpresentation::ShowsImage(
+          toolpresentation::Call{
+            Name: call.name,
+            Arguments: call.arguments,
+            ArgumentsTruncated: call.arguments_truncated,
+          },
+          toolpresentation::Result{
+            Succeeded: result.tool_state == transcript::ToolState::completed,
+            Text: result.text,
+            Details: result.details,
+          },
+        )
+        if image.AttachmentID != "" {
+          shown.push(image)
+        }
+      },
+      _ => (),
+    }
+  }
+  shown.@
+}
+
+private struct ShownImageProps {
+  themes: theme::Context,
+  images: Images,
+  image: toolpresentation::ShownImage,
+}
+
+// An image shown by show_image: a blank row, the preview in rows reserved
+// before it loads, and its caption. It loads when first shown.
+private struct ShownImage {
+  props: mut ShownImageProps,
+}
+
+private fn new_shown_image(props: mut ShownImageProps) mut ShownImage {
+  (mut ShownImage{props: props})
+}
+
+impl cui::Lifecycle for ShownImage {
+  fn mut mounted(context: cui::Context) {
+    (self.props.images.request)(self.props.image.AttachmentID)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl cui::Component for ShownImage {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let id = self.props.image.AttachmentID
+    let preview = (self.props.images.preview)(id).or(image_preview::loading())
+    let open = self.props.images.open
+    let views = mut List::new<cui::View>()
+    views.push(layout::blank())
+    views.push(
+      image_preview::view(
+        self.props.themes,
+        id,
+        preview,
+        fn() {
+          open(id)
+        },
+        fill: colors.background,
+      ),
+    )
+    if self.props.image.Caption != "" {
+      views.push(layout::line(self.props.image.Caption, ui::text_style(foreground: colors.muted)))
+    }
+    cui::box(
+      views.@,
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::column,
+        flex_shrink: 0.0,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(0),
+          bottom: ui::cells(0),
+          left: ui::cells(2),
+        },
+      ),
+    )
+  }
+}
+
+fn work_activity(themes: theme::Context, work: Work, run: transcript::Work) cui::View {
+  let colors = themes.current()
+  let open = work_is_open(work, run)
+  let muted = ui::text_style(foreground: colors.muted)
+  let count = match run.calls == 1 {
+    true => "1 tool call",
+    false => "{run.calls} tool calls",
+  }
+  let header = mut List::new<cui::View>()
+  header.push(
+    match {
+      open => layout::line("▾", muted),
+      run.running => spinner::spinner(styles: ui::style(foreground: colors.muted)),
+      _ => layout::line("▸", muted),
+    },
+  )
+  header.push(layout::line(" {count}", muted))
+  if run.failed > 0 {
+    header.push(layout::line(" · ", muted))
+    header.push(layout::line("{run.failed} failed", ui::text_style(foreground: colors.danger_text)))
+  }
+  let toggle = work.toggle
+  let key = run.key
+  let chip = cui::box(
+    header.@,
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_direction: ui::FlexDirection::row,
+      flex_shrink: 0.0,
+    ),
+    on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+      if received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+        toggle(key, open)
+        received.prevent_default()
+      }
+    },
+  )
+  match open {
+    false => chip,
+    true => {
+      let rows = mut List::new<cui::View>()
+      rows.push(chip)
+      // The chip's rows share a title column wide enough for their titles.
+      let titles = mut List::new<Str>()
+      for step in run.steps {
+        match step.result {
+          result => {
+            let call = step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name))
+            titles.push(tool_row::presentation(call, result, work.servers).Title)
+          },
+          _ => (),
+        }
+      }
+      let title_width = tool_row::title_column(titles.@)
+      for step in run.steps {
+        // Thinking lines up with the tool rows' titles.
+        let content = match step.result {
+          result => {
+            let row = tool_key(run.turn_id, result.tool_call_id)
+            let selected = work.selected == row
+            let choose = work.select_tool
+            let toggle_output = work.toggle_output
+            let views = mut List::new<cui::View>()
+            // A click selects a row and shows or hides its output.
+            views.push(
+              tool_row::view(
+                tool_row::Props{
+                  themes: themes,
+                  call: step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name)),
+                  result: result,
+                  selected: selected,
+                  servers: work.servers,
+                  title_width: title_width,
+                  open_file: work.open_file,
+                  open_agent: work.open_agent,
+                  on_select: fn() {
+                    choose(row)
+                    toggle_output(row)
+                  },
+                },
+              ),
+            )
+            if work.outputs.get(row).or(false) {
+              views.push(
+                cui::box(
+                  [
+                    tool_output::view(
+                      tool_output::Props{
+                        themes: themes,
+                        key: row,
+                        call: step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name)),
+                        result: result,
+                      },
+                    ),
+                  ],
+                  key: "output",
+                  styles: ui::style(
+                    flex_direction: ui::FlexDirection::column,
+                    padding: ui::Edges{
+                      top: ui::cells(0),
+                      right: ui::cells(0),
+                      bottom: ui::cells(0),
+                      left: ui::cells(2),
+                    },
+                  ),
+                ),
+              )
+            }
+            cui::box(views.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
+          },
+          _ => {
+            markdown::view(
+              themes,
+              "{run.key}:{step.key}",
+              step.thinking,
+              base: ui::text_style(foreground: colors.muted, italic: true),
+            )
+          },
+        }
+        rows.push(
+          cui::box(
+            [content],
+            key: step.key,
+            styles: ui::style(
+              flex_direction: ui::FlexDirection::column,
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(0),
+                bottom: ui::cells(0),
+                left: ui::cells(2),
+              },
+            ),
+          ),
+        )
+      }
+      cui::box(rows.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
+    },
+  }
+}

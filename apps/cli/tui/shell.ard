@@ -1,0 +1,2470 @@
+use ard/async
+use ard/testing
+use ard/unsafe
+
+use go:api
+use go:api/contract as protocol
+use go:context
+use cooper
+use cooper/animation
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use go:github.com/akonwi/kit/internal/theme as kittheme
+use go:kit/ffi/cli
+use go:kit/ffi/contextbridge
+use go:kit/ffi/sessionbridge
+use go:kit/ffi/toolpresentation
+use kit/tui/after_commit
+use kit/tui/attached_session
+use kit/tui/attachments
+use kit/tui/auth
+use kit/tui/bootstrap
+use kit/tui/chrome
+use kit/tui/command_palette
+use kit/tui/composer
+use kit/tui/controls
+use kit/tui/diff_pane
+use kit/tui/diff_target_picker
+use kit/tui/file_pane
+use kit/tui/file_picker
+use kit/tui/image_preview
+use kit/tui/interaction_dock
+use kit/tui/layout
+use kit/tui/mcp
+use kit/tui/model
+use kit/tui/model_refresh
+use kit/tui/rename
+use kit/tui/scratchpad
+use kit/tui/session_debug
+use kit/tui/sessions
+use kit/tui/status
+use kit/tui/subagent_pane
+use kit/tui/subagent_picker
+use kit/tui/subagents
+use kit/tui/tab_strip
+use kit/tui/tabs_picker
+use kit/tui/terminal_status
+use kit/tui/theme
+use kit/tui/theme_picker
+use kit/tui/thinking
+use kit/tui/toast
+use kit/tui/transcript_pane
+use kit/tui/workspace
+use go:strings
+use go:time
+
+// The root terminal-client component: session bootstrap, shell chrome, and
+// retained feature composition.
+
+enum Phase {
+  loading,
+  auth,
+  ready,
+  failed,
+}
+
+// The open root dialog. Each member carries what its dialog needs to mount, so
+// opening a dialog and passing its arguments are one transition.
+struct NoModal {}
+struct CommandPaletteModal {}
+struct AuthModal {}
+struct SessionDebugModal {}
+struct MCPStatusModal {}
+struct ModelPickerModal {}
+struct ThemePickerModal {}
+struct ThinkingPickerModal {}
+struct SessionsModal {}
+struct TabsModal {}
+struct FilesModal {}
+// The subagents picker, or, given a conversation, its dismissal question.
+struct SubagentsModal {
+  confirm: Str,
+}
+// The model and thinking pickers for a subagent conversation.
+struct SubagentModelModal {
+  conversation: Str,
+}
+struct SubagentThinkingModal {
+  conversation: Str,
+}
+
+type Modal =
+  | NoModal
+  | CommandPaletteModal
+  | AuthModal
+  | SessionDebugModal
+  | MCPStatusModal
+  | ModelPickerModal
+  | ThemePickerModal
+  | ThinkingPickerModal
+  | rename::Request
+  | SessionsModal
+  | TabsModal
+  | FilesModal
+  | SubagentsModal
+  | SubagentModelModal
+  | SubagentThinkingModal
+  | diff_pane::TargetRequest
+
+// The detached placeholder never starts work, so its effects are inert.
+private fn inert_attachment_host() attached_session::Host {
+  attached_session::Host{
+    dispatch: fn(action: fn()) Void!event::DispatchError {
+      Result::ok(())
+    },
+    toast: fn(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {},
+    attach: fn(attached: bootstrap::Attached, location: Str) {},
+    restore_draft: fn(text: Str) {},
+    prepend_draft: fn(text: Str) {},
+    show_latest: fn() {},
+    open_url: fn(target: Str) Void!Error {
+      Result::ok(())
+    },
+    image_matte: fn() ui::Color {
+      ui::rgb(0, 0, 0)
+    },
+    alert: fn(title: Str, message: Str) {},
+  }
+}
+
+struct Props {
+  options: cli::TUIOptions,
+  themes: theme::Context,
+  quit: fn(),
+  // Resolves, resumes, or creates the session and attaches to it; normally
+  // `bootstrap::attach`. It runs off the UI thread.
+  attach: fn(context::Context, cli::TUIOptions) bootstrap::Attached!Str,
+  // Publishes the session's status to the hosting terminal.
+  terminal: terminal_status::Terminal,
+  // Opens a file or URL with the system's default application.
+  open_url: fn(Str) Void!Error,
+}
+
+struct Shell {
+  props: mut Props,
+  phase: Phase,
+  error: Str,
+  context: cui::Context?,
+  lifetime: contextbridge::Cancellation?,
+  pending_attachment: bootstrap::Attached?,
+  pending_attachment_location: Str,
+  // Counts client-side attachment scopes. Reattaching the same durable
+  // session creates a new scope.
+  session_scope_id: Int,
+  // The current attachment owns session state and session-scoped operations.
+  attached: mut attached_session::Controller,
+  // Whether the composer is the Bash panel, which brings its own frame.
+  composer_bash: Bool,
+  composer_control: mut composer::Ref,
+  dock_control: mut interaction_dock::Ref,
+  // Whether the last render presented the interaction dock, so focus can
+  // return to the composer once the last request settles.
+  dock_shown: Bool,
+  // 1 at the start of copy feedback, fading to 0 over 350ms.
+  selection_copy_pulse: Float64,
+  selection_copy_base: ui::Color,
+  // Owns the client-wide model-catalog refresh.
+  models: mut model_refresh::Refresher,
+  // Owns theme selection and preview; Shell only routes picker results.
+  theme: mut theme::Owner,
+  workspace: mut workspace::Tabs,
+  scratchpad_control: mut scratchpad::PaneRef,
+  // Whether Diff lines wrap, a saved preference.
+  diff_wrap: Bool,
+  // The lines an annotation's chip last asked the Diff tab to show.
+  diff_reveal: diff_pane::Reveal,
+  active_modal: Modal,
+  // The notification host owns notifications; Shell only raises them.
+  notifications: mut toast::Control,
+  connect_button: mut cui::BoxRef,
+  // Rebound to each attachment's retained transcript.
+  transcript_control: mut transcript_pane::Control,
+}
+
+fn new(props: mut Props) mut Shell {
+  let phase = match props.options.Authenticated {
+    true => Phase::loading,
+    false => Phase::auth,
+  }
+  let notifications = toast::control()
+  (mut Shell{
+    props: props,
+    phase: phase,
+    error: "",
+    context: Maybe::new<cui::Context>(),
+    lifetime: Maybe::new<contextbridge::Cancellation>(),
+    pending_attachment: Maybe::new<bootstrap::Attached>(),
+    pending_attachment_location: "",
+    session_scope_id: 0,
+    attached: attached_session::detached(props.options, inert_attachment_host()),
+    composer_bash: false,
+    composer_control: composer::ref(),
+    dock_control: interaction_dock::ref(),
+    dock_shown: false,
+    selection_copy_pulse: 0.0,
+    selection_copy_base: ui::rgb(0, 0, 0),
+    models: model_refresh::refresher(props.options.Client, notifications),
+    theme: theme::owner(props.themes, props.options.ThemeName, props.options.ThemeDefinition),
+    workspace: workspace::tabs(),
+    scratchpad_control: scratchpad::pane_ref(),
+    diff_wrap: props.options.DiffWrapLines,
+    diff_reveal: diff_pane::no_reveal(),
+    active_modal: NoModal{},
+    notifications: notifications,
+    connect_button: cui::box_ref(),
+    transcript_control: transcript_pane::control(),
+  })
+}
+
+impl cui::Lifecycle for Shell {
+  fn mut mounted(ctx: cui::Context) {
+    let lifetime = contextbridge::WithCancel(self.props.options.Context)
+    self.lifetime = Maybe::new(lifetime)
+    self.context = Maybe::new(ctx)
+    self.theme.bind(ctx.dispatch, (ctx.theme)())
+    self.models.bind(ctx.dispatch, lifetime)
+    let owner = self.theme
+    let _ = ctx.on_theme_changed(fn(next: cooper::Theme) {
+      owner.request_terminal(next)
+    })
+    if self.phase == Phase::loading {
+      self.bootstrap(ctx, lifetime)
+    }
+  }
+
+  fn mut unmounting(ctx: cui::Context) {
+    self.attached.dispose()
+    match self.lifetime {
+      lifetime => lifetime.Cancel(),
+      _ => (),
+    }
+  }
+}
+
+impl Shell {
+  // Attaches in the background and applies the outcome on the UI thread.
+  fn mut bootstrap(ctx: cui::Context, lifetime: contextbridge::Cancellation) {
+    let options = self.props.options
+    let attach = self.props.attach
+    let dispatch = ctx.dispatch
+    async::start(fn() {
+      let result = attach(lifetime.Context, options)
+      let location = match result {
+        ok => options.ResolveLocation(lifetime.Context, ok.snapshot.Session.CWD),
+        err => options.Location,
+      }
+      let _ = dispatch(fn() {
+        match result {
+          ok => self.attach(ok, location),
+          err => {
+            self.error = err
+            self.phase = Phase::failed
+          },
+        }
+      })
+    })
+  }
+
+  // Starts again after a failed start. Creating a session is idempotent for
+  // its requested ID, so a session created before the failure is reused.
+  fn mut retry() Bool {
+    match self.phase == Phase::failed {
+      true => {
+        match self.context {
+          ctx => {
+            match self.lifetime {
+              lifetime => {
+                self.error = ""
+                self.phase = Phase::loading
+                self.bootstrap(ctx, lifetime)
+                true
+              },
+              _ => false,
+            }
+          },
+          _ => false,
+        }
+      },
+      false => false,
+    }
+  }
+
+  // Ctrl+C reaches the shell only outside modals and text fields other than
+  // the composer. It clears a non-empty composer; otherwise it detaches. A
+  // draft behind the interaction dock is kept.
+  fn mut interrupt() Bool {
+    if self.phase != Phase::ready or self.attached.feedback_pending() or (not self.clear_draft()) {
+      (self.props.quit)()
+    }
+    true
+  }
+
+  // Clears the composer's text and staged files. Returns whether there were
+  // any.
+  private fn mut clear_draft() Bool {
+    let text = self.composer_control.clear()
+    let staged = self.attached.attachments.size() > 0
+    if staged {
+      self.dispatch(fn() {
+        let _ = self.attached.clear_attachments()
+      })
+    }
+    text or staged
+  }
+}
+
+impl Shell {
+  // Commands owned by child controls report intent back through Shell's
+  // context so only the state owner performs and renders the transition.
+  private fn mut command(id: Str, label: Str, transition: fn()) keymap::SimpleCommand {
+    keymap::simple_command(id, label, fn() Bool {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            transition()
+          })
+          true
+        },
+        _ => false,
+      }
+    })
+  }
+
+  fn mut header() cui::View {
+    chrome::header(
+      self.props.themes,
+      chrome::Header{
+        session: self.attached.info,
+        context_tokens: self.attached.context_tokens,
+        context_window: self.attached.context_window,
+        rename: self.command("name.open", "Rename session", fn() {
+          self.active_modal = rename::Request{
+            initial_name: self.attached.info.or(protocol::SessionInfo{}).Name,
+            submit_immediately: false,
+          }
+        }),
+        model: self.command("model.open", "Change session model", fn() {
+          self.active_modal = ModelPickerModal{}
+        }),
+        thinking: self.command("thinking.open", "Change thinking level", fn() {
+          self.active_modal = ThinkingPickerModal{}
+        }),
+        debug: self.command("debug.open", "Show session diagnostics", fn() {
+          self.active_modal = SessionDebugModal{}
+        }),
+      },
+    )
+  }
+
+  fn footer() cui::View {
+    let connection = match self.attached.connected() {
+      // The footer's left third must fit this; the persistent toast explains
+      // what changed.
+      true => "",
+      false => "Restart Kit to reconnect",
+    }
+    let status = chrome::session_status(
+      self.attached.recovery_status(),
+      self.attached.follow_ups.Count,
+    )
+    chrome::footer(
+      self.props.themes,
+      connection,
+      status,
+      chrome::Right{location: self.attached.footer_location(), plugin: self.attached.plugin_footer},
+    )
+  }
+}
+
+impl Shell {
+  fn mut body() cui::View {
+    let colors = self.props.themes.current()
+    match self.phase {
+      Phase::loading => layout::empty_state(colors, "Starting Kit…"),
+      Phase::auth => {
+        let children = mut List::new<cui::View>()
+        for view in layout::wordmark(colors) {
+          children.push(view)
+        }
+        children.push(layout::blank())
+        children.push(
+          layout::line(
+            "Connect an AI provider to get started.",
+            ui::text_style(foreground: colors.muted),
+          ),
+        )
+        children.push(layout::blank())
+        let connect = self.command("auth.connect", "Connect a provider", fn() {
+          let _ = self.open_auth()
+        })
+        children.push(
+          controls::button(
+            self.props.themes,
+            "Connect a provider",
+            connect,
+            variant: controls::ButtonVariant::primary,
+            autofocus: true,
+            ref: self.connect_button,
+          ),
+        )
+        layout::centered(children.@)
+      },
+      Phase::failed => {
+        layout::centered(
+          [
+            layout::line("Kit could not start", ui::text_style(foreground: colors.danger_text, bold: true)),
+            layout::blank(),
+            cui::text(
+              self.error,
+              styles: ui::style(max_width: ui::cells(72)),
+              text_style: ui::text_style(foreground: colors.muted),
+            ),
+            layout::blank(),
+            layout::line("r retry · ctrl+c quit", ui::text_style(foreground: colors.muted)),
+          ],
+        )
+      },
+      Phase::ready => self.conversation(),
+    }
+  }
+
+  fn mut conversation() cui::View {
+    let colors = self.props.themes.current()
+    let children = mut List::new<cui::View>()
+    if self.workspace.shown() {
+      children.push(self.workspace_tabs())
+      children.push(layout::divider(colors.border))
+    }
+    // Keep the transcript retained so workspace switches preserve its virtual
+    // list anchor, selection, and already-parsed message surfaces.
+    // Workspaces keep three rows when the interaction dock needs the rest.
+    children.push(
+      cui::box(
+        [self.transcript_view()],
+        key: "agent-workspace",
+        styles: ui::style(
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+          min_height: ui::cells(3),
+          display: match self.workspace.on_agent() {
+            true => ui::Display::flex,
+            false => ui::Display::none,
+          },
+        ),
+      ),
+    )
+    // An open Scratchpad stays mounted while hidden so its autosave keeps
+    // running; it saves before unmounting when its tab closes.
+    if self.workspace.has(workspace::scratchpad().id) {
+      children.push(
+        cui::box(
+          [self.scratchpad_view()],
+          key: "scratchpad-workspace",
+          styles: ui::style(
+            flex_grow: 1.0,
+            flex_basis: ui::cells(0),
+            min_height: ui::cells(3),
+            display: match self.on_scratchpad() {
+              true => ui::Display::flex,
+              false => ui::Display::none,
+            },
+          ),
+        ),
+      )
+    }
+    // The Diff pane stays mounted while hidden, keeping its place.
+    if self.workspace.has(workspace::diff().id) {
+      let shown = self.workspace.selected == workspace::diff().id
+      children.push(
+        cui::box(
+          [
+            diff_pane::view(
+              diff_pane::Props{
+                themes: self.props.themes,
+                workspace_id: self.attached.workspace_id,
+                shown: shown,
+                observe: self.attached.diff_observer(),
+                observe_target: self.attached.diff_target_observer(),
+                read: self.attached.diff_reader(),
+                pick_target: fn(request: diff_pane::TargetRequest) {
+                  self.dispatch(fn() {
+                    self.active_modal = request
+                  })
+                },
+                wrap: self.diff_wrap,
+                set_wrap: fn(wrap: Bool) {
+                  self.dispatch(fn() {
+                    self.set_diff_wrap(wrap)
+                  })
+                },
+                annotations: self.attached.annotations,
+                annotate: self.attached.annotation_service(),
+                remove_annotation: fn(id: Uint64) {
+                  self.dispatch(fn() {
+                    self.attached.remove_annotation(id)
+                  })
+                },
+                release_focus: fn() {
+                  self.dispatch(fn() {
+                    self.focus_composer()
+                  })
+                },
+                reveal: self.diff_reveal,
+              },
+            ),
+          ],
+          key: "workspace:diff",
+          styles: ui::style(
+            flex_grow: 1.0,
+            flex_basis: ui::cells(0),
+            min_height: ui::cells(3),
+            flex_direction: ui::FlexDirection::column,
+            display: match shown {
+              true => ui::Display::flex,
+              false => ui::Display::none,
+            },
+          ),
+        ),
+      )
+    }
+    // File panes stay mounted while hidden, keeping their place in the file.
+    let reader = self.attached.file_reader()
+    let annotate = self.attached.annotation_service()
+    for tab in self.workspace.open {
+      if tab.kind == workspace::Kind::file {
+        let shown = tab.id == self.workspace.selected
+        children.push(
+          cui::box(
+            [
+              file_pane::view(
+                file_pane::Props{
+                  themes: self.props.themes,
+                  tab: tab,
+                  stale: tab.workspace_id != self.attached.workspace_id,
+                  shown: shown,
+                  read: reader,
+                  annotations: self.attached.annotations,
+                  annotate: annotate,
+                  remove_annotation: fn(id: Uint64) {
+                    self.dispatch(fn() {
+                      self.attached.remove_annotation(id)
+                    })
+                  },
+                  release_focus: fn() {
+                    self.dispatch(fn() {
+                      self.focus_composer()
+                    })
+                  },
+                },
+              ),
+            ],
+            key: "workspace:{tab.id}",
+            styles: ui::style(
+              flex_grow: 1.0,
+              flex_basis: ui::cells(0),
+              min_height: ui::cells(3),
+              flex_direction: ui::FlexDirection::column,
+              display: match shown {
+                true => ui::Display::flex,
+                false => ui::Display::none,
+              },
+            ),
+          ),
+        )
+      }
+    }
+    for tab in self.workspace.open {
+      if tab.kind == workspace::Kind::subagent {
+        children.push(self.subagent_view(tab))
+      }
+    }
+    // Agent activity can change height as streamed follow-ups arrive. Keep it
+    // out of Scratchpad so those updates cannot resize the focused editor and
+    // force its cursor back into view.
+    // A dock stays presented beneath dialogs; it only stops owning input.
+    let request = self.attached.interaction()
+    let docked = self.docked()
+    // Elsewhere only the chips show, so the status line's changes don't
+    // resize the pane.
+    if not docked {
+      let pending = self.pending()
+      if pending.status or chrome::has_chips(pending) {
+        children.push(chrome::pending_row(self.props.themes, pending))
+      }
+    }
+    // The dock's frame, or the Bash panel's, separates it from the
+    // workspace and footer.
+    if not self.framed() {
+      children.push(layout::divider(colors.border))
+    }
+    // The composer stays mounted behind the dock so its draft survives.
+    children.push(
+      cui::box(
+        [self.composer_view()],
+        key: "composer.host",
+        styles: ui::style(
+          flex_direction: ui::FlexDirection::column,
+          flex_shrink: 0.0,
+          display: match docked {
+            true => ui::Display::none,
+            false => ui::Display::flex,
+          },
+        ),
+      ),
+    )
+    match request {
+      pending => children.push(self.dock_view(pending)),
+      _ => (),
+    }
+    self.track_dock(docked)
+    cui::box(
+      children.@,
+      styles: ui::style(flex_grow: 1.0, flex_direction: ui::FlexDirection::column),
+    )
+  }
+
+  fn mut scratchpad_view() cui::View {
+    // The editor reports to the attachment it was opened for; Shell keeps only
+    // workspace visibility and the close handshake.
+    let attached = self.attached
+    match attached.scratchpad_updater() {
+      update => {
+        scratchpad::pane(
+          scratchpad::Props{
+            themes: self.props.themes,
+            record: attached.scratchpad_record,
+            loading: attached.scratchpad_loading,
+            failure: attached.scratchpad_failure,
+            active: self.modal_closed() and self.on_scratchpad(),
+            update: update,
+            retry_load: fn() Bool {
+              attached.request_scratchpad_retry()
+            },
+            saved: fn(record: protocol::Scratchpad) {
+              attached.request_scratchpad_saved(record)
+            },
+            closed: fn(close_tab: Bool) {
+              self.apply_scratchpad_closed(close_tab)
+            },
+            notice: fn(title: Str, detail: Str) {
+              attached.request_scratchpad_notice(title, detail)
+            },
+            control: self.scratchpad_control,
+          },
+          attached.scope_id,
+        )
+      },
+      _ => cui::box([], styles: ui::style(flex_grow: 1.0)),
+    }
+  }
+
+  // The tab strip is host chrome. Pane bodies never repeat their title or
+  // close affordance.
+  fn mut workspace_tabs() cui::View {
+    let entries = mut List::new<tab_strip::Entry>()
+    entries.push(
+      tab_strip::Entry{
+        label: "Agent",
+        selected: self.workspace.on_agent(),
+        show: self.command("workspace.agent", "Show Agent", fn() {
+          self.show_tab(workspace::agent)
+        }),
+        close: Maybe::new<keymap::SimpleCommand>(),
+      },
+    )
+    let labels = self.workspace.labels()
+    for tab, index in self.workspace.open {
+      let id = tab.id
+      let label = labels.at(index).or(tab.label)
+      let marker = match tab.kind == workspace::Kind::subagent {
+        true => {
+          match subagents::conversation(self.attached.subagents, tab.conversation_id.or("")) {
+            conversation => subagents::tab_status(conversation.State),
+            _ => Maybe::new<status::Status>(),
+          }
+        },
+        false => Maybe::new<status::Status>(),
+      }
+      entries.push(
+        tab_strip::Entry{
+          label: label,
+          status: marker,
+          selected: tab.id == self.workspace.selected,
+          show: self.command("workspace.show:{id}", "Show {tab.label}", fn() {
+            self.show_tab(id)
+          }),
+          close: Maybe::new(
+            self.command("workspace.close:{id}", "Close {tab.label}", fn() {
+              self.close_tab(id)
+            }),
+          ),
+        },
+      )
+    }
+    tab_strip::view(
+      tab_strip::Props{
+        themes: self.props.themes,
+        entries: entries.@,
+        more: self.command("workspace.tabs", "Show all tabs", fn() {
+          self.active_modal = TabsModal{}
+        }),
+      },
+    )
+  }
+
+  // A subagent conversation's tab. A conversation the server no longer
+  // retains closes its tab.
+  fn mut subagent_view(tab: workspace::Tab) cui::View {
+    let id = tab.conversation_id.or("")
+    let shown = tab.id == self.workspace.selected
+    match subagents::conversation(self.attached.subagents, id) {
+      conversation => {
+        match self.attached.subagent_service(id) {
+          service => {
+            cui::box(
+              [
+                subagent_pane::view(
+                  subagent_pane::Props{
+                    themes: self.props.themes,
+                    conversation: conversation,
+                    shown: shown,
+                    service: service,
+                    servers: self.attached.mcp_server_names(),
+                    open_file: Maybe::new(fn(target: toolpresentation::FileTarget) {
+                      self.dispatch(fn() {
+                        self.open_tool_file(target)
+                      })
+                    }),
+                    choose_model: fn() {
+                      self.dispatch(fn() {
+                        self.active_modal = SubagentModelModal{conversation: id}
+                      })
+                    },
+                    choose_thinking: fn() {
+                      self.dispatch(fn() {
+                        self.active_modal = SubagentThinkingModal{conversation: id}
+                      })
+                    },
+                    cancel: fn() {
+                      self.dispatch(fn() {
+                        self.attached.cancel_subagent(id)
+                      })
+                    },
+                    dismiss: fn() {
+                      self.dispatch(fn() {
+                        self.active_modal = SubagentsModal{confirm: id}
+                      })
+                    },
+                  },
+                ),
+              ],
+              key: "workspace:{tab.id}",
+              styles: ui::style(
+                flex_grow: 1.0,
+                flex_basis: ui::cells(0),
+                min_height: ui::cells(3),
+                flex_direction: ui::FlexDirection::column,
+                display: match shown {
+                  true => ui::Display::flex,
+                  false => ui::Display::none,
+                },
+              ),
+            )
+          },
+          _ => cui::box([], key: "workspace:{tab.id}"),
+        }
+      },
+      _ => {
+        let closing = tab.id
+        self.dispatch(fn() {
+          self.close_tab(closing)
+        })
+        cui::box([], key: "workspace:{tab.id}")
+      },
+    }
+  }
+
+  // Opens the conversation of the agent a tool row addresses. The roster may
+  // not list a conversation the model just started, so it is reloaded first.
+  fn mut open_tool_agent(agent: Str) {
+    self.attached.reload_subagents_then(fn() {
+      self.dispatch(fn() {
+        let id = subagents::conversation_of(self.attached.subagents, agent)
+        match id == "" {
+          true => {
+            self.notify(
+              "Subagent conversation unavailable",
+              "No active conversation for \"{agent}\".",
+              toast::Variant::warning,
+              false,
+            )
+          },
+          false => self.open_subagent(id),
+        }
+      })
+    })
+  }
+
+  // Opens a subagent conversation in its tab.
+  fn mut open_subagent(conversation_id: Str) {
+    match subagents::conversation(self.attached.subagents, conversation_id) {
+      conversation => self.open_tab(workspace::subagent(conversation.ID, conversation.AgentName)),
+      _ => (),
+    }
+  }
+
+  fn mut subagents_modal(confirm: Str) cui::View {
+    let info = self.attached.info.or(protocol::SessionInfo{})
+    subagent_picker::view(
+      subagent_picker::Props{
+        themes: self.props.themes,
+        roster: self.attached.subagents,
+        session_model: info.Model,
+        session_thinking: info.ThinkingLevel,
+        confirm: confirm,
+        dismiss: keymap::simple_command("subagents.close", "Close", fn() Bool {
+          self.dismiss_modal()
+        }),
+        open: fn(id: Str) {
+          self.dispatch(fn() {
+            self.finish_modal()
+            self.open_subagent(id)
+          })
+        },
+        remove: self.attached.subagent_dismisser().or(fn(id: Str, generation: Uint64) Void!Error {
+          Result::ok(())
+        }),
+      },
+    )
+  }
+
+  fn mut subagent_model_modal(id: Str) cui::View {
+    let conversation = subagents::conversation(
+      self.attached.subagents,
+      id,
+    ).or(protocol::SubagentConversation{})
+    let configure = self.attached.subagent_configurer(id)
+    cui::child(
+      model::new,
+      model::Props{
+        themes: self.props.themes,
+        client: self.props.options.Client,
+        lifetime: self.lifetime.expect("mounted model picker"),
+        bound: self.attached.session.expect("attached model picker"),
+        session: self.attached.info.or(protocol::SessionInfo{}),
+        override_service: self.props.options.ModelOverrideService,
+        dismiss: keymap::simple_command("subagent.model.dismiss", "Close", fn() Bool {
+          self.dismiss_modal()
+        }),
+        applied: fn(applied: protocol::ConfigureSessionResult) {},
+        subagent: Maybe::new(
+          model::Subagent{
+            current: conversation.Model,
+            apply: fn(model: Str) Void!Error {
+              match configure {
+                set => set(model, ""),
+                _ => Result::ok(()),
+              }
+            },
+            applied: fn() {
+              let _ = self.dismiss_modal()
+            },
+          },
+        ),
+      },
+    )
+  }
+
+  fn mut subagent_thinking_modal(id: Str) cui::View {
+    let conversation = subagents::conversation(
+      self.attached.subagents,
+      id,
+    ).or(protocol::SubagentConversation{})
+    let configure = self.attached.subagent_configurer(id)
+    cui::child(
+      thinking::new,
+      thinking::Props{
+        themes: self.props.themes,
+        client: self.props.options.Client,
+        lifetime: self.lifetime.expect("mounted thinking picker"),
+        session_client: self.attached.session.expect("attached thinking picker"),
+        session: self.attached.info.or(protocol::SessionInfo{}),
+        dismiss: fn() {
+          let _ = self.dismiss_modal()
+        },
+        refreshed: fn(session: protocol::SessionInfo) {},
+        applied: fn(session: protocol::SessionInfo) {},
+        subagent: Maybe::new(
+          thinking::Subagent{
+            model: conversation.Model,
+            level: conversation.ThinkingLevel,
+            apply: fn(level: Str) Void!Error {
+              match configure {
+                set => set("", level),
+                _ => Result::ok(()),
+              }
+            },
+            applied: fn() {
+              let _ = self.dismiss_modal()
+            },
+          },
+        ),
+      },
+    )
+  }
+
+  fn mut files_modal() cui::View {
+    file_picker::view(
+      file_picker::Props{
+        themes: self.props.themes,
+        index: self.attached.files.index,
+        dismiss: keymap::simple_command("files.dismiss", "Close", fn() Bool {
+          self.dismiss_modal()
+        }),
+        choose: fn(path: Str) {
+          self.dispatch(fn() {
+            self.finish_modal()
+            self.open_file(path, 0)
+          })
+        },
+        refresh: fn() {
+          self.dispatch(fn() {
+            self.attached.refresh_files()
+          })
+        },
+      },
+    )
+  }
+
+  fn mut diff_target_modal(request: diff_pane::TargetRequest) cui::View {
+    diff_target_picker::view(
+      diff_target_picker::Props{
+        themes: self.props.themes,
+        request: request,
+        list: self.attached.diff_target_lister(),
+        dismiss: keymap::simple_command("diff.target.dismiss", "Close", fn() Bool {
+          self.dismiss_modal()
+        }),
+        chosen: fn() {
+          self.dispatch(fn() {
+            self.finish_modal()
+          })
+        },
+      },
+    )
+  }
+
+  // Wraps Diff lines or stops, and saves the choice.
+  private fn mut set_diff_wrap(wrap: Bool) {
+    self.diff_wrap = wrap
+    let service = self.props.options.DiffPreferenceService
+    if not unsafe::is_nil(service) {
+      async::start(fn() {
+        match service.SetWrapLines(wrap) {
+          ok(_) => (),
+          err(error) => {
+            self.dispatch(fn() {
+              self.notify(
+                "Could not save the wrap setting",
+                error.error(),
+                toast::Variant::warning,
+                false,
+              )
+            })
+          },
+        }
+      })
+    }
+  }
+
+  fn mut tabs_modal() cui::View {
+    tabs_picker::view(
+      tabs_picker::Props{
+        themes: self.props.themes,
+        tabs: self.workspace.@,
+        dismiss: keymap::simple_command("tabs.dismiss", "Close", fn() Bool {
+          self.dismiss_modal()
+        }),
+        choose: fn(id: Str) {
+          self.dispatch(fn() {
+            self.finish_modal()
+            self.show_tab(id)
+          })
+        },
+        close: fn(id: Str) {
+          self.dispatch(fn() {
+            self.close_tab(id)
+          })
+        },
+      },
+    )
+  }
+
+  fn mut transcript_view() cui::View {
+    transcript_pane::pane(
+      transcript_pane::Props{
+        themes: self.props.themes,
+        messages: self.attached.transcript_messages(),
+        control: self.transcript_control,
+        history: transcript_pane::History{
+          more: self.attached.history_more,
+          loading: self.attached.history_loading,
+          failure: self.attached.history_failure,
+        },
+        images: transcript_pane::Images{
+          expanded: self.attached.expanded_image,
+          preview: fn(id: Str) image_preview::Preview? {
+            self.attached.preview(id)
+          },
+          toggle: fn(id: Str) {
+            self.dispatch(fn() {
+              self.attached.toggle_image(id)
+            })
+          },
+          open: fn(id: Str) {
+            self.dispatch(fn() {
+              self.attached.open_image(id)
+            })
+          },
+          request: fn(id: Str) {
+            self.dispatch(fn() {
+              self.attached.request_image(id)
+            })
+          },
+        },
+        bash: transcript_pane::Bash{
+          folded: self.attached.folded_bash,
+          toggle: fn(id: Str) {
+            self.dispatch(fn() {
+              self.attached.toggle_bash(id)
+            })
+          },
+        },
+        notes: transcript_pane::Notes{
+          expanded: self.attached.expanded_notes,
+          toggle: fn(id: Str) {
+            self.dispatch(fn() {
+              self.attached.toggle_sent_annotations(id)
+            })
+          },
+        },
+        plugins: transcript_pane::Plugins{
+          expanded: self.attached.expanded_plugins,
+          toggle: fn(turn_id: Str) {
+            self.dispatch(fn() {
+              self.attached.toggle_plugin_message(turn_id)
+            })
+          },
+        },
+        work: transcript_pane::Work{
+          open: self.attached.open_work,
+          toggle: fn(key: Str, open: Bool) {
+            self.dispatch(fn() {
+              self.attached.toggle_work(key, open)
+            })
+          },
+          selected: self.attached.selected_tool,
+          select_tool: fn(key: Str) {
+            self.dispatch(fn() {
+              self.attached.select_tool(key)
+            })
+          },
+          outputs: self.attached.open_output,
+          servers: self.attached.mcp_server_names(),
+          open_file: Maybe::new(fn(target: toolpresentation::FileTarget) {
+            self.dispatch(fn() {
+              self.open_tool_file(target)
+            })
+          }),
+          open_agent: Maybe::new(fn(agent: Str) {
+            self.dispatch(fn() {
+              self.open_tool_agent(agent)
+            })
+          }),
+          toggle_output: fn(key: Str) {
+            self.dispatch(fn() {
+              self.attached.toggle_output(key)
+            })
+          },
+        },
+        load_older: fn() {
+          self.request_older_history()
+        },
+      },
+      self.attached.scope_id,
+    )
+  }
+
+  fn mut pending() chrome::Pending {
+    chrome::Pending{
+      status: self.workspace.on_agent(),
+      notice: self.attached.notice,
+      activity: self.attached.activity(),
+      follow_ups: self.attached.follow_ups,
+      attachments: self.attached.attachments,
+      annotations: self.attached.pending_annotations(),
+      rejecting_model: self.attached.rejecting_model(),
+      remove_attachment: fn(index: Int) {
+        self.dispatch(fn() {
+          self.attached.remove_attachment(index)
+        })
+      },
+      open_annotation: fn(annotation: sessionbridge::Annotation) {
+        self.dispatch(fn() {
+          self.open_annotation(annotation)
+        })
+      },
+      remove_annotation: fn(id: Uint64) {
+        self.dispatch(fn() {
+          self.attached.remove_annotation(id)
+        })
+      },
+    }
+  }
+
+  // Opens an annotation's lines: a diff's in the Diff tab, and a file's in
+  // its File tab. A stale one opens the file as it is now, to annotate
+  // again.
+  fn mut open_annotation(annotation: sessionbridge::Annotation) {
+    match annotation.Kind == "diff" and not annotation.Stale {
+      true => {
+        self.diff_reveal = diff_pane::Reveal{
+          opening: self.diff_reveal.opening + 1,
+          target_id: annotation.TargetID,
+          working_tree: annotation.TargetKind == "working_tree",
+          path: annotation.Path,
+          side: annotation.Side,
+          line: annotation.StartLine,
+        }
+        self.open_tab(workspace::diff())
+      },
+      false => self.open_file(annotation.Path, annotation.StartLine),
+    }
+  }
+
+  fn mut dock_view(request: protocol::InteractionRequest) cui::View {
+    let attached = self.attached
+    interaction_dock::dock(
+      interaction_dock::Props{
+        themes: self.props.themes,
+        request: request,
+        queue_length: attached.interactions.size(),
+        active: self.modal_closed(),
+        submitting: attached.interaction_responding == request.ID,
+        respond: fn(response: protocol::InteractionResponse) {
+          self.request_interaction_response(response)
+        },
+        control: self.dock_control,
+      },
+    )
+  }
+
+  // The dock answers through Shell's context so the attachment's submitting
+  // state renders with the response.
+  fn mut request_interaction_response(response: protocol::InteractionResponse) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.attached.respond_interaction(response)
+        })
+      },
+      _ => (),
+    }
+  }
+
+  // Returns focus to the composer once the last pending request settles. A
+  // newly shown dock takes focus itself when it mounts.
+  private fn mut track_dock(docked: Bool) {
+    if self.dock_shown and (not docked) and self.modal_closed() and self.workspace.on_agent() {
+      self.focus_composer()
+    }
+    self.dock_shown = docked
+  }
+
+  fn mut composer_view() cui::View {
+    composer::view(
+      composer::Props{
+        themes: self.props.themes,
+        enabled: self.modal_closed() and not self.attached.feedback_pending(),
+        focus_eligible: self.modal_closed() and self.workspace.on_agent(),
+        control: self.composer_control,
+        submit: fn(text: Str) Bool {
+          self.request_composer_submit(text)
+        },
+        attach: fn(paths: [Str]) Bool {
+          self.request_attachments(paths)
+        },
+        follow_ups: self.attached.follow_ups.Count,
+        restore_follow_ups: fn() {
+          self.request_follow_up_restore()
+        },
+        files: self.attached.files.index,
+        load_files: fn() {
+          self.dispatch(fn() {
+            self.attached.load_files()
+          })
+        },
+        sessions: self.attached.mentionable,
+        load_sessions: fn() {
+          self.dispatch(fn() {
+            self.attached.load_mentionable_sessions()
+          })
+        },
+        recall_history: fn() {
+          self.request_message_history()
+        },
+        recall_bash: fn() {
+          self.request_bash_history()
+        },
+        older_bash: fn(before: Int64) {
+          self.request_older_bash_history(before)
+        },
+        open_palette: fn() {
+          self.request_composer_palette()
+        },
+        bash_changed: fn(bash: Bool) {
+          self.apply_composer_bash(bash)
+        },
+      },
+    )
+  }
+
+  // Composer callbacks re-enter Shell through its owning context.
+  // A draft waits while its attachments cannot be sent.
+  fn mut request_composer_submit(text: Str) Bool {
+    if self.phase != Phase::ready or not self.attached.can_submit() {
+      false
+    } else {
+      match self.attached.send_blocker(text) {
+        blocker => {
+          self.dispatch(fn() {
+            self.notify(blocker.title, blocker.detail, blocker.variant, false)
+          })
+          false
+        },
+        _ => {
+          match self.context {
+            context => {
+              let _ = context.dispatch(fn() {
+                self.attached.submit(text)
+              })
+              true
+            },
+            _ => false,
+          }
+        },
+      }
+    }
+  }
+
+  // Opens the composer's command history from the commands shown, then
+  // replaces them with the session's newest commands.
+  fn mut request_bash_history() {
+    if self.phase == Phase::ready {
+      let control = self.composer_control
+      self.dispatch(fn() {
+        let _ = control.open_bash_history(bash_entries(self.attached.shown_commands()))
+        // One picker's worth of the newest commands keeps opening cheap.
+        self.attached.load_bash_history(
+          Int64::from(0),
+          10,
+          fn(page: sessionbridge::BashHistoryPage?) {
+            let _ = control.answer_bash_history(bash_page(page), false)
+          },
+        )
+      })
+    }
+  }
+
+  // Adds the commands run before the cursor to the composer's history.
+  fn mut request_older_bash_history(before: Int64) {
+    if self.phase == Phase::ready {
+      let control = self.composer_control
+      self.dispatch(fn() {
+        self.attached.load_bash_history(before, 100, fn(page: sessionbridge::BashHistoryPage?) {
+          let _ = control.answer_bash_history(bash_page(page), true)
+        })
+      })
+    }
+  }
+
+  // Opens the composer's history picker once the session's earlier prompts
+  // load.
+  fn mut request_message_history() {
+    if self.phase == Phase::ready {
+      let control = self.composer_control
+      self.dispatch(fn() {
+        self.attached.load_message_history(fn(entries: [sessionbridge::HistoryEntry]) {
+          let recalled = mut List::new<composer::HistoryEntry>()
+          for entry in entries {
+            recalled.push(composer::HistoryEntry{id: entry.ID, text: entry.Text})
+          }
+          let _ = control.open_history(recalled.@)
+        })
+      })
+    }
+  }
+
+  // Restores queued follow-ups into the composer.
+  fn mut request_follow_up_restore() {
+    if self.phase == Phase::ready {
+      self.dispatch(fn() {
+        self.attached.restore_follow_ups()
+      })
+    }
+  }
+
+  // Stages pasted files for the next prompt. Without an attached session the
+  // paste stays text.
+  fn mut request_attachments(paths: [Str]) Bool {
+    match self.phase == Phase::ready and self.attached.can_submit() {
+      true => {
+        self.dispatch(fn() {
+          self.attached.stage_attachments(paths)
+        })
+        true
+      },
+      false => false,
+    }
+  }
+
+  private fn dispatch(action: fn()) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(action)
+      },
+      _ => (),
+    }
+  }
+
+  // The transcript asks for earlier history while rendering; the request
+  // runs on the next dispatch so the attachment changes outside that render.
+  fn mut request_older_history() {
+    if self.attached.can_load_older() {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            self.attached.load_older()
+          })
+        },
+        _ => (),
+      }
+    }
+  }
+
+  fn mut request_composer_palette() {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.open_command_palette()
+        })
+      },
+      _ => (),
+    }
+  }
+
+  fn mut apply_composer_bash(bash: Bool) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.composer_bash = bash
+        })
+      },
+      _ => (),
+    }
+  }
+}
+
+impl cui::Component for Shell {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let interrupt = keymap::simple_command("app.interrupt", "Clear or quit", fn() Bool {
+      match self.modal_closed() {
+        true => self.interrupt(),
+        false => true,
+      }
+    })
+    let commands = mut List::new<keymap::Command>()
+    let bindings = mut List::new<keymap::Binding>()
+    commands.push(interrupt)
+    bindings.push(keymap::binding(keymap::key("c", ctrl: true), interrupt.with()))
+    if self.phase == Phase::ready and self.modal_closed() {
+      let open_palette = keymap::simple_command("palette.open", "Open command palette", fn() Bool {
+        self.open_command_palette()
+      })
+      commands.push(open_palette)
+      bindings.push(keymap::binding(keymap::key("p", ctrl: true), open_palette.with()))
+      let open_files = keymap::simple_command("files.open", "Open a workspace file", fn() Bool {
+        self.open_files()
+      })
+      commands.push(open_files)
+      bindings.push(keymap::binding(keymap::key("o", ctrl: true), open_files.with()))
+    }
+    // Ctrl+] and Ctrl+[ step through the tabs, wrapping through Agent. They
+    // need a terminal that reports Ctrl+[ apart from Escape.
+    if self.phase == Phase::ready and self.modal_closed() and self.workspace.shown() {
+      let next = keymap::simple_command("workspace.next", "Next tab", fn() Bool {
+        self.show_tab(self.workspace.beside(1))
+        true
+      })
+      let previous = keymap::simple_command("workspace.previous", "Previous tab", fn() Bool {
+        self.show_tab(self.workspace.beside(-1))
+        true
+      })
+      commands.push(next)
+      commands.push(previous)
+      bindings.push(keymap::binding(keymap::key("]", ctrl: true), next.with()))
+      bindings.push(keymap::binding(keymap::key("[", ctrl: true), previous.with()))
+    }
+    // While a request is pending, the dock's Escape cancels it instead. A
+    // running shell command is stopped before the turn.
+    if self.phase == Phase::ready and self.modal_closed() and (not self.attached.feedback_pending()) and self.attached.can_interrupt() {
+      let abort = keymap::simple_command("run.abort", "Abort run", fn() Bool {
+        self.attached.interrupt()
+      })
+      commands.push(abort)
+      bindings.push(keymap::binding(keymap::key("escape"), abort.with()))
+    }
+    if self.phase == Phase::failed {
+      let retry = keymap::simple_command("app.retry", "Retry", fn() Bool {
+        self.retry()
+      })
+      commands.push(retry)
+      bindings.push(keymap::binding(keymap::key("r"), retry.with()))
+    }
+    if self.phase == Phase::auth and self.modal_closed() {
+      let connect = keymap::simple_command("auth.connect", "Connect a provider", fn() Bool {
+        self.open_auth()
+      })
+      commands.push(connect)
+      bindings.push(keymap::binding(keymap::key("return"), connect.with()))
+      bindings.push(keymap::binding(keymap::key("space"), connect.with()))
+    }
+    let shell = cui::box(
+      // Keep the application key layer attached to a focusable shell owner;
+      // terminal key routing otherwise has no initial target before deferred
+      // child autofocus settles.
+      // Let focused controls handle Cmd+C first. This application fallback
+      // copies the active cross-control selection without changing focus.
+      [
+        self.header(),
+        layout::divider(colors.border),
+        self.body(),
+        self.footer_rule(colors),
+        self.footer(),
+      ],
+      key: "shell.surface",
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        flex_direction: ui::FlexDirection::column,
+        background: colors.background,
+        foreground: colors.foreground,
+      ),
+      commands: commands.@,
+      bindings: bindings.@,
+      binding_scope: keymap::ScopeMode::application,
+      on_key: fn(received: mut event::KeyEvent, ctx: cui::Context) {
+        if received.event_type == event::KeyEventType::press and received.modifiers.super and received.name == "c" {
+          match (ctx.current_selection)() {
+            selection => {
+              if selection.selected_text != "" {
+                (ctx.copy)(selection.copy_text.or(selection.selected_text))
+                if self.selection_copy_pulse == 0.0 {
+                  self.selection_copy_base = self.props.themes.current().selection
+                }
+                self.selection_copy_pulse = 1.0
+                self.update_selection_copy_pulse(1.0)
+                let _ = ctx.animate(
+                  350,
+                  fn(frame: animation::Frame) {
+                    self.selection_copy_pulse = 1.0 - frame.progress
+                    self.update_selection_copy_pulse(self.selection_copy_pulse)
+                  },
+                  ease: animation::in_out_sine,
+                )
+                received.prevent_default()
+                received.stop_propagation()
+              }
+            },
+            _ => (),
+          }
+        }
+      },
+    )
+    let layers = mut List::new<cui::View>()
+    layers.push(shell)
+    // Keep the notification host at a stable position ahead of the optional
+    // modal so opening a dialog never remounts it.
+    layers.push(toast::host(self.props.themes, self.notifications))
+    layers.push(self.terminal_status())
+    match self.active_modal {
+      NoModal => (),
+      CommandPaletteModal => layers.push(self.command_palette_modal()),
+      AuthModal => layers.push(self.auth_modal()),
+      SessionDebugModal => layers.push(self.session_debug_modal()),
+      MCPStatusModal => layers.push(self.mcp_status_modal()),
+      ModelPickerModal => layers.push(self.model_picker_modal()),
+      ThemePickerModal => layers.push(self.theme_picker_modal()),
+      ThinkingPickerModal => layers.push(self.thinking_picker_modal()),
+      rename::Request(request) => layers.push(self.rename_session_modal(request)),
+      SessionsModal => layers.push(self.sessions_modal()),
+      TabsModal => layers.push(self.tabs_modal()),
+      FilesModal => layers.push(self.files_modal()),
+      SubagentsModal(request) => layers.push(self.subagents_modal(request.confirm)),
+      SubagentModelModal(request) => layers.push(self.subagent_model_modal(request.conversation)),
+      SubagentThinkingModal(request) => layers.push(self.subagent_thinking_modal(request.conversation)),
+      diff_pane::TargetRequest(request) => layers.push(self.diff_target_modal(request)),
+    }
+    cui::box(
+      layers.@,
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        position: ui::Position::relative,
+        background: colors.background,
+      ),
+    )
+  }
+}
+
+impl Shell {
+  // terminal_status reports the attached session's name, directory, and
+  // whether a turn or manual compaction is running or waiting for an answer.
+  fn terminal_status() cui::View {
+    let info = self.attached.info.or(protocol::SessionInfo{})
+    let cwd = match info.CWD == "" {
+      true => self.props.options.CWD,
+      false => info.CWD,
+    }
+    terminal_status::reporter(
+      terminal_status::Props{
+        terminal: self.props.terminal,
+        session_name: info.Name,
+        cwd: cwd,
+        running: self.attached.working() or self.attached.feedback_pending(),
+        work_id: match self.attached.run_id != "" {
+          true => self.attached.run_id,
+          false => self.attached.bash_id,
+        },
+        feedback: self.attached.feedback_pending(),
+        frame_duration: Maybe::new<time::Duration>(),
+      },
+    )
+  }
+
+  // update_selection_copy_pulse updates the shared presentation token so
+  // VirtualList rows and other independently retained subtrees repaint too.
+  fn mut update_selection_copy_pulse(progress: Float64) {
+    let colors = mut self.props.themes.current()
+    colors.selection = theme::selection_pulse_color(
+      self.selection_copy_base,
+      colors.selection_backdrop,
+      progress,
+    )
+    self.props.themes.replace(colors.@)
+  }
+
+  // notify raises an application notification through the host's context.
+  fn mut notify(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
+    self.notifications.show(title, detail, variant, persistent)
+  }
+
+  // The rule above the footer; the interaction dock's frame, or the Bash
+  // panel's, replaces it.
+  fn footer_rule(colors: theme::Theme) cui::View {
+    match self.framed() {
+      true => cui::box([], styles: ui::style(height: ui::cells(0), flex_shrink: 0.0)),
+      false => layout::divider(colors.border),
+    }
+  }
+
+  // Whether the interaction dock replaces the composer.
+  fn docked() Bool {
+    self.phase == Phase::ready and self.attached.interaction().is_some()
+  }
+
+  // Whether the dock or the Bash panel is drawn in its own frame, in place of
+  // the rules around the composer.
+  fn framed() Bool {
+    self.docked() or self.phase == Phase::ready and self.composer_bash
+  }
+
+  // Whether no root dialog is open.
+  fn modal_closed() Bool {
+    match self.active_modal {
+      NoModal => true,
+      _ => false,
+    }
+  }
+
+  fn palette_open() Bool {
+    match self.active_modal {
+      CommandPaletteModal => true,
+      _ => false,
+    }
+  }
+
+  fn auth_open() Bool {
+    match self.active_modal {
+      AuthModal => true,
+      _ => false,
+    }
+  }
+
+  fn mut open_auth() Bool {
+    self.active_modal = AuthModal{}
+    true
+  }
+
+  fn mut open_command_palette() Bool {
+    if self.phase == Phase::ready and self.modal_closed() {
+      self.active_modal = CommandPaletteModal{}
+    }
+    true
+  }
+
+  fn mut dismiss_modal() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.finish_modal_now(context)
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut finish_modal() {
+    match self.context {
+      context => self.finish_modal_now(context),
+      _ => (),
+    }
+  }
+
+  private fn mut finish_modal_now(context: cui::Context) {
+    self.active_modal = NoModal{}
+    if self.phase == Phase::auth {
+      let connect = self.connect_button
+      let _ = after_commit::once(context, fn() {
+        connect.focus(context)
+      })
+    } else if self.phase == Phase::ready and self.attached.feedback_pending() {
+      let _ = self.dock_control.focus()
+    } else if self.phase == Phase::ready {
+      self.focus_selected()
+    }
+  }
+
+  fn mut session_debug_modal() cui::View {
+    session_debug::dialog(
+      self.props.themes,
+      session_debug::Details{
+        session: self.attached.info.or(protocol::SessionInfo{}),
+        context_tokens: self.attached.context_tokens,
+        context_window: self.attached.context_window,
+        usage: self.attached.usage,
+      },
+      keymap::simple_command("debug.dismiss", "Close", fn() Bool {
+        self.dismiss_modal()
+      }),
+    )
+  }
+
+  fn mut rename_session_modal(request: rename::Request) cui::View {
+    let dismiss = keymap::simple_command("name.dismiss", "Close", fn() Bool {
+      self.dismiss_modal()
+    })
+    // Completions update the attachment this dialog configured.
+    let attached = self.attached
+    cui::child(
+      rename::new,
+      rename::Props{
+        themes: self.props.themes,
+        client: self.props.options.Client,
+        lifetime: self.lifetime.expect("mounted rename dialog"),
+        session: self.attached.info.or(protocol::SessionInfo{}),
+        request: request,
+        dismiss: dismiss,
+        applied: fn(session: protocol::SessionInfo) {
+          attached.request_info(session)
+          let _ = self.dismiss_modal()
+        },
+      },
+    )
+  }
+
+  fn mut model_picker_modal() cui::View {
+    let dismiss = keymap::simple_command("model.dismiss", "Close", fn() Bool {
+      self.dismiss_modal()
+    })
+    let attached = self.attached
+    cui::child(
+      model::new,
+      model::Props{
+        themes: self.props.themes,
+        client: self.props.options.Client,
+        lifetime: self.lifetime.expect("mounted model picker"),
+        bound: self.attached.session.expect("attached model picker"),
+        session: self.attached.info.or(protocol::SessionInfo{}),
+        override_service: self.props.options.ModelOverrideService,
+        dismiss: dismiss,
+        applied: fn(applied: protocol::ConfigureSessionResult) {
+          attached.request_info(applied.Session)
+          let _ = self.dismiss_modal()
+        },
+      },
+    )
+  }
+
+  fn mut thinking_picker_modal() cui::View {
+    let dismiss = fn() {
+      let _ = self.dismiss_modal()
+    }
+    let attached = self.attached
+    cui::child(
+      thinking::new,
+      thinking::Props{
+        themes: self.props.themes,
+        client: self.props.options.Client,
+        lifetime: self.lifetime.expect("mounted thinking picker"),
+        session_client: self.attached.session.expect("attached thinking picker"),
+        session: self.attached.info.or(protocol::SessionInfo{}),
+        dismiss: dismiss,
+        refreshed: fn(session: protocol::SessionInfo) {
+          attached.request_info(session)
+        },
+        applied: fn(session: protocol::SessionInfo) {
+          attached.request_info(session)
+          let _ = self.dismiss_modal()
+        },
+      },
+    )
+  }
+
+  fn mut theme_picker_modal() cui::View {
+    let owner = self.theme
+    cui::child(
+      theme_picker::new,
+      theme_picker::Props{
+        themes: self.props.themes,
+        service: self.props.options.ThemeService,
+        committed_name: owner.committed_name,
+        committed_definition: owner.committed,
+        dismiss: fn() {
+          owner.request_cancel()
+          let _ = self.dismiss_modal()
+        },
+        preview: fn(definition: kittheme::Definition) {
+          owner.request_preview(definition)
+        },
+        applied: fn(name: Str, definition: kittheme::Definition) {
+          owner.request_commit(name, definition)
+          let _ = self.dismiss_modal()
+        },
+      },
+    )
+  }
+
+  fn mut sessions_modal() cui::View {
+    let dismiss = keymap::simple_command("sessions.dismiss", "Close", fn() Bool {
+      self.dismiss_modal()
+    })
+    let attached = self.attached
+    cui::child(
+      sessions::new,
+      sessions::Props{
+        themes: self.props.themes,
+        client: self.props.options.Client,
+        lifetime: self.lifetime.expect("mounted session picker"),
+        current_session_id: self.attached.info.or(protocol::SessionInfo{}).ID,
+        dismiss: dismiss,
+        renamed: fn(session: protocol::SessionInfo) {
+          attached.request_info(session)
+        },
+        applied: fn(session: mut api::Session, snapshot: protocol::SessionSnapshot) {
+          match self.context {
+            context => {
+              let _ = context.dispatch(fn() {
+                self.finish_modal_now(context)
+                self.attach(
+                  bootstrap::Attached{
+                    info: snapshot.Session,
+                    session: session,
+                    snapshot: snapshot,
+                    failed_first_message: Maybe::new<bootstrap::FailedFirstMessage>(),
+                  },
+                  self.props.options.ResolveLocation(
+                    self.lifetime.expect("session lifetime").Context,
+                    snapshot.Session.CWD,
+                  ),
+                )
+              })
+            },
+            _ => (),
+          }
+        },
+      },
+    )
+  }
+
+  fn mut mcp_status_modal() cui::View {
+    let dismiss = keymap::simple_command("mcp.dismiss", "Close", fn() Bool {
+      self.dismiss_modal()
+    })
+    cui::child(
+      mcp::new,
+      mcp::Props{
+        themes: self.props.themes,
+        servers: self.attached.mcp_servers,
+        warnings: self.attached.mcp_warnings,
+        dismiss: dismiss,
+      },
+    )
+  }
+
+  fn mut command_palette_modal() cui::View {
+    command_palette::view(
+      command_palette::Props{
+        themes: self.props.themes,
+        busy: self.attached.working(),
+        connected: self.attached.connected(),
+        prompt_commands: self.attached.prompt_commands,
+        plugin_commands: self.attached.plugin_commands,
+        dismiss: fn() Bool {
+          self.dismiss_modal()
+        },
+        activate: fn(action: command_palette::Action) {
+          self.request_palette_action(action)
+        },
+        notice: fn(notice: command_palette::Notice) {
+          self.notify(notice.title, notice.detail, toast::Variant::warning, false)
+        },
+      },
+    )
+  }
+
+  // Palette actions re-enter Shell through its owning context. The palette has
+  // already validated the invocation; Shell only routes it to its owner.
+  fn mut request_palette_action(action: command_palette::Action) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.palette_open() {
+            self.run_palette_action(action)
+          }
+        })
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut run_palette_action(action: command_palette::Action) {
+    match action.kind {
+      // Replacing the palette mounts the flow's own focus owner.
+      command_palette::ActionKind::login => { self.active_modal = AuthModal{} },
+      command_palette::ActionKind::quit => self.props.quit(),
+      command_palette::ActionKind::compact => {
+        self.finish_modal()
+        self.attached.compact()
+      },
+      command_palette::ActionKind::debug => { self.active_modal = SessionDebugModal{} },
+      command_palette::ActionKind::mcp => { self.active_modal = MCPStatusModal{} },
+      command_palette::ActionKind::model => { self.active_modal = ModelPickerModal{} },
+      command_palette::ActionKind::theme => { self.active_modal = ThemePickerModal{} },
+      command_palette::ActionKind::thinking => { self.active_modal = ThinkingPickerModal{} },
+      command_palette::ActionKind::rename => {
+        self.active_modal = rename::Request{
+          initial_name: match action.argument == "" {
+            true => self.attached.info.or(protocol::SessionInfo{}).Name,
+            false => action.argument,
+          },
+          submit_immediately: action.argument != "",
+        }
+      },
+      command_palette::ActionKind::new_session => {
+        self.finish_modal()
+        self.attached.create_sibling()
+      },
+      command_palette::ActionKind::fork => {
+        self.finish_modal()
+        self.attached.fork(action.argument)
+      },
+      command_palette::ActionKind::refresh_models => {
+        self.finish_modal()
+        self.models.refresh()
+      },
+      command_palette::ActionKind::reload => {
+        self.finish_modal()
+        self.attached.reload()
+      },
+      command_palette::ActionKind::sessions => { self.active_modal = SessionsModal{} },
+      command_palette::ActionKind::scratchpad => {
+        self.finish_modal()
+        self.open_tab(workspace::scratchpad())
+      },
+      command_palette::ActionKind::subagents => {
+        self.attached.reload_subagents()
+        self.active_modal = SubagentsModal{confirm: ""}
+      },
+      command_palette::ActionKind::tabs => { self.active_modal = TabsModal{} },
+      command_palette::ActionKind::files => {
+        let _ = self.open_files()
+      },
+      command_palette::ActionKind::diff => {
+        self.finish_modal()
+        self.attached.load_workspace()
+        self.open_tab(workspace::diff())
+      },
+      command_palette::ActionKind::change_directory => {
+        self.finish_modal()
+        self.attached.change_working_directory(action.argument)
+      },
+      command_palette::ActionKind::prompt_command => {
+        self.finish_modal()
+        self.attached.submit_prompt_command(action.prompt_command, action.argument, "")
+      },
+      command_palette::ActionKind::plugin_command => {
+        match action.plugin_command {
+          command => {
+            self.finish_modal()
+            self.attached.execute_plugin_command(command, action.argument)
+          },
+          _ => (),
+        }
+      },
+    }
+  }
+
+  // The connection flow owns its steps and attempts. Shell decides only what
+  // an installed credential means for the root phase.
+  fn mut auth_modal() cui::View {
+    auth::flow(
+      auth::Props{
+        themes: self.props.themes,
+        lifetime: self.lifetime.expect("mounted shell"),
+        services: auth::services(self.props.options),
+        dismiss: fn() {
+          let _ = self.dismiss_modal()
+        },
+        authenticated: fn() {
+          self.apply_authenticated()
+        },
+        copied: fn() {
+          self.notify("Copied to clipboard", "", toast::Variant::info, false)
+        },
+      },
+    )
+  }
+
+  fn mut apply_authenticated() {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.auth_open() {
+            self.active_modal = NoModal{}
+            self.phase = Phase::loading
+            self.bootstrap(context, self.lifetime.expect("mounted shell"))
+          }
+        })
+      },
+      _ => (),
+    }
+  }
+}
+
+// Session synchronization. Workers only dispatch; every state change runs on
+// the UI thread.
+impl Shell {
+  fn mut attach(attached: bootstrap::Attached, location: Str) {
+    if self.workspace.has(workspace::scratchpad().id) and self.scratchpad_control.close(false) {
+      self.pending_attachment = Maybe::new(attached)
+      self.pending_attachment_location = location
+    } else {
+      self.attach_now(attached, location)
+    }
+  }
+
+  private fn mut attach_now(attached: bootstrap::Attached, location: Str) {
+    self.begin_session_scope()
+    self.attached = attached_session::attach(
+      self.props.options,
+      self.attachment_host(),
+      self.session_scope_id,
+      self.lifetime.expect("mounted shell"),
+      attached,
+      location,
+    )
+    self.phase = Phase::ready
+    self.attached.start(attached.snapshot.ActiveTurnID, attached.snapshot.ActiveBashExecutionID)
+  }
+
+  // The root effects an attachment may request. Each callback runs inside the
+  // attachment's dispatch through Shell's context.
+  private fn mut attachment_host() attached_session::Host {
+    let context = self.context.expect("mounted shell")
+    attached_session::Host{
+      dispatch: context.dispatch,
+      toast: fn(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
+        self.notify(title, detail, variant, persistent)
+      },
+      attach: fn(attached: bootstrap::Attached, location: Str) {
+        self.attach(attached, location)
+      },
+      restore_draft: fn(text: Str) {
+        let _ = self.composer_control.restore_if_empty(text)
+      },
+      prepend_draft: fn(text: Str) {
+        let _ = self.composer_control.prepend(text)
+      },
+      show_latest: fn() {
+        let _ = self.transcript_control.show_latest()
+      },
+      open_url: fn(target: Str) Void!Error {
+        (self.props.open_url)(target)
+      },
+      image_matte: fn() ui::Color {
+        self.props.themes.current().user_fill
+      },
+      alert: fn(title: Str, message: Str) {
+        terminal_status::alert(self.props.terminal, title, message)
+      },
+    }
+  }
+
+  // Ends the current attachment and resets the root presentation it owned.
+  // A new scope invalidates queued work even when the same durable session is
+  // reattached.
+  private fn mut begin_session_scope() {
+    self.attached.dispose()
+    self.pending_attachment = Maybe::new<bootstrap::Attached>()
+    self.pending_attachment_location = ""
+    self.session_scope_id = self.session_scope_id + 1
+    self.transcript_control = transcript_pane::control()
+    self.composer_bash = false
+    let _ = self.composer_control.reset()
+    self.notifications.clear()
+    self.workspace = workspace::tabs()
+    self.scratchpad_control = scratchpad::pane_ref()
+  }
+
+  private fn on_scratchpad() Bool {
+    self.workspace.selected == workspace::scratchpad().id
+  }
+
+  // Shows the file picker, loading the index and workspace it needs.
+  fn mut open_files() Bool {
+    self.attached.load_files()
+    self.attached.load_workspace()
+    self.active_modal = FilesModal{}
+    true
+  }
+
+  // Opens a workspace file in its File tab, at line when it is above 0.
+  fn mut open_file(path: Str, line: Int) {
+    match self.attached.workspace_id == "" {
+      true => {
+        self.notify(
+          "Workspace unavailable",
+          "Try again in a moment.",
+          toast::Variant::warning,
+          false,
+        )
+      },
+      false => self.open_tab(workspace::file(self.attached.workspace_id, path, line)),
+    }
+  }
+
+  // Opens the file a tool row names, which must lie in the working
+  // directory.
+  fn mut open_tool_file(target: toolpresentation::FileTarget) {
+    let cwd = self.attached.info.or(protocol::SessionInfo{}).CWD
+    let relative = toolpresentation::WorkspacePath(cwd, target.Path)
+    match relative == "" {
+      true => {
+        self.notify(
+          "File unavailable",
+          "The tool reported a path outside the current workspace.",
+          toast::Variant::warning,
+          false,
+        )
+      },
+      false => self.open_file(relative, target.Line),
+    }
+  }
+
+  // Opens `tab`, or selects it if it is already open.
+  fn mut open_tab(tab: workspace::Tab) {
+    if self.workspace.add(tab) {
+      self.show_tab(tab.id)
+    } else {
+      self.notify(
+        "Too many tabs",
+        "Close a tab before opening another.",
+        toast::Variant::warning,
+        false,
+      )
+    }
+  }
+
+  // Selects an open tab.
+  fn mut show_tab(id: Str) {
+    if id == self.workspace.selected {
+      self.focus_selected()
+    } else if self.workspace.select(id) {
+      self.entered_tab()
+    }
+  }
+
+  // Closes a tab. Closing the Scratchpad waits for it to save its draft and
+  // unmount; Shell caches the authoritative record while the pane owns its
+  // draft, autosave worker, and save-before-unmount handshake.
+  fn mut close_tab(id: Str) {
+    let selected = id == self.workspace.selected
+    // A reopened Diff tab starts without the last chip's lines.
+    if id == workspace::diff().id {
+      self.diff_reveal = diff_pane::no_reveal()
+    }
+    if id == workspace::scratchpad().id and self.scratchpad_control.close(true) {
+      ()
+    } else if self.workspace.close(id) and selected {
+      self.entered_tab()
+    }
+  }
+
+  // Readies the newly selected tab. The Scratchpad focuses its editor once
+  // loaded; every other tab focuses the composer, as File and Diff panes are
+  // mouse-only and take no focus.
+  private fn mut entered_tab() {
+    if self.on_scratchpad() {
+      self.attached.load_scratchpad()
+    } else {
+      self.focus_composer()
+    }
+  }
+
+  private fn mut focus_selected() {
+    if self.on_scratchpad() {
+      let _ = self.scratchpad_control.focus()
+    } else {
+      self.focus_composer()
+    }
+  }
+
+  private fn mut focus_composer() {
+    let _ = self.composer_control.focus()
+  }
+
+  fn mut apply_scratchpad_closed(close_tab: Bool) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          match self.pending_attachment {
+            attached => {
+              let location = self.pending_attachment_location
+              self.attach_now(attached, location)
+            },
+            _ => {
+              let selected = self.on_scratchpad()
+              if close_tab and self.workspace.close(workspace::scratchpad().id) and selected {
+                self.entered_tab()
+              }
+            },
+          }
+        })
+      },
+      _ => (),
+    }
+  }
+}
+
+test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation() Void!Str {
+  let subject = new(
+    mut Props{
+      options: cli::TUIOptions{},
+      themes: theme::context(theme::store(theme::system())),
+      quit: fn() {},
+      attach: bootstrap::attach,
+      terminal: terminal_status::detached(),
+      open_url: fn(target: Str) Void!Error {
+        Result::ok(())
+      },
+    },
+  )
+  let previous = subject.attached
+  previous.active = true
+  let first_scope = subject.session_scope_id
+  subject.composer_bash = true
+  subject.notify("Old session warning", "", toast::Variant::warning, true)
+  let _ = subject.workspace.open(workspace::scratchpad())
+
+  subject.begin_session_scope()
+
+  try testing::assert(subject.session_scope_id != first_scope, "reattachment starts a new scope")
+  try testing::assert(not previous.active, "the previous attachment rejects late completions")
+  try testing::assert(not subject.composer_bash, "the previous Bash panel closes")
+  try testing::assert(subject.notifications.pending_count() == 0, "session notifications reset")
+  testing::assert(
+    subject.workspace.on_agent() and not subject.workspace.shown(),
+    "workspace state resets",
+  )
+}
+
+// Commands as the composer recalls them, with the prefix of their mode.
+private fn bash_entries(items: [sessionbridge::BashHistoryItem]) [composer::HistoryEntry] {
+  let entries = mut List::new<composer::HistoryEntry>()
+  for item in items {
+    entries.push(
+      composer::HistoryEntry{id: item.ID, text: composer::bash_text(item.Command, item.Exclude)},
+    )
+  }
+  entries.@
+}
+
+private fn bash_page(page: sessionbridge::BashHistoryPage?) composer::BashPage? {
+  match page {
+    loaded => {
+      Maybe::new(
+        composer::BashPage{
+          entries: bash_entries(loaded.Items),
+          more: loaded.More,
+          before: loaded.Before,
+        },
+      )
+    },
+    _ => Maybe::new<composer::BashPage>(),
+  }
+}
+
+private fn opened_rename(subject: mut Shell, failure: Str) rename::Request!Str {
+  match subject.active_modal {
+    rename::Request(request) => Result::ok(request),
+    _ => Result::err(failure),
+  }
+}
+
+test fn rename_requests_carry_their_opening_settings_with_the_dialog() Void!Str {
+  let subject = new(
+    mut Props{
+      options: cli::TUIOptions{},
+      themes: theme::context(theme::store(theme::system())),
+      quit: fn() {},
+      attach: bootstrap::attach,
+      terminal: terminal_status::detached(),
+      open_url: fn(target: Str) Void!Error {
+        Result::ok(())
+      },
+    },
+  )
+  subject.attached.apply_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1", Name: "Notes"}},
+  )
+  let rename_action = fn(argument: Str) command_palette::Action {
+    command_palette::Action{
+      kind: command_palette::ActionKind::rename,
+      argument: argument,
+      prompt_command: "",
+      plugin_command: Maybe::new<protocol::PluginCommand>(),
+    }
+  }
+
+  subject.run_palette_action(rename_action(""))
+  let edit = try opened_rename(subject, "/rename opens the rename dialog")
+  try testing::assert(
+    edit.initial_name == "Notes" and not edit.submit_immediately,
+    "a bare /rename edits the current name: {edit.initial_name}",
+  )
+
+  subject.active_modal = NoModal{}
+  subject.run_palette_action(rename_action("Release notes"))
+  let named = try opened_rename(subject, "/rename NAME opens the rename dialog")
+  testing::assert(
+    named.initial_name == "Release notes" and named.submit_immediately,
+    "/rename NAME submits the given name immediately: {named.initial_name}",
+  )
+}
+
+private fn mount_ready(terminal: headless::TestApp, subject: mut Shell) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(
+    app,
+    cui::child(
+      fn(props: mut Props) mut Shell {
+        subject
+      },
+      subject.props.@,
+    ),
+  )
+}
+
+test fn ctrl_c_clears_staged_files_before_quitting() Void!Str {
+  let terminal = headless::new(60, 14)
+  defer terminal.destroy()
+  let quits = mut List::new<Int>()
+  let subject = new(
+    mut Props{
+      options: cli::TUIOptions{Context: context::Background(), Authenticated: true},
+      themes: theme::context(theme::store(theme::system())),
+      quit: fn() {
+        quits.push(1)
+      },
+      attach: bootstrap::attach,
+      terminal: terminal_status::detached(),
+      open_url: fn(target: Str) Void!Error {
+        Result::ok(())
+      },
+    },
+  )
+  subject.phase = Phase::ready
+  subject.attached = attached_session::detached(cli::TUIOptions{}, inert_attachment_host())
+  subject.attached.active = true
+  subject.attached.apply_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}},
+  )
+  subject.attached.attachments = [
+    attachments::uploaded(protocol::AttachmentInfo{ID: "attachment-1", Filename: "notes.txt"}),
+  ]
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  try testing::assert(terminal.frame().text().contains("📎 notes.txt"), "the file is staged")
+
+  terminal.key(
+    event::key(
+      "c",
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: true,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(
+    quits.size() == 0 and subject.attached.attachments.size() == 0,
+    "the first Ctrl+C clears the staged file",
+  )
+  try testing::assert(not terminal.frame().text().contains("📎 notes.txt"), "the chip is gone")
+
+  terminal.key(
+    event::key(
+      "c",
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: true,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  terminal.flush()
+  testing::assert(quits.size() == 1, "the next Ctrl+C quits")
+}
+
+test fn a_pending_request_replaces_the_composer_until_it_settles() Void!Str {
+  let terminal = headless::new(60, 14)
+  defer terminal.destroy()
+  let subject = new(
+    mut Props{
+      options: cli::TUIOptions{Context: context::Background(), Authenticated: true},
+      themes: theme::context(theme::store(theme::system())),
+      quit: fn() {},
+      attach: bootstrap::attach,
+      terminal: terminal_status::detached(),
+      open_url: fn(target: Str) Void!Error {
+        Result::ok(())
+      },
+    },
+  )
+  // An attached session without a server handle; mounting skips bootstrap.
+  subject.phase = Phase::ready
+  subject.attached = attached_session::detached(cli::TUIOptions{}, inert_attachment_host())
+  subject.attached.active = true
+  subject.attached.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1", Name: "Fix pager"},
+      PendingInteractions: [
+        protocol::InteractionRequest{
+          ID: "interaction_1",
+          TurnID: "turn-1",
+          ToolCallID: "call-1",
+          Kind: protocol::InteractionConfirm,
+          Title: "Delete the generated snapshots?",
+        },
+      ],
+    },
+  )
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  let painted = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    painted.push(strings::TrimRight(row, " "))
+  }
+  let shown = strings::Join(painted, "|\n")
+  let expected = [
+    "  Fix pager",
+    "────────────────────────────────────────────────────────────",
+    "                            k i t",
+    "                         ━━━━━━━━━━━",
+    "",
+    "               Ask a question or give a task.",
+    "┌──────────────────────────────────────────────────────────┐",
+    "│ Delete the generated snapshots?                          │",
+    "├──────────────────────────────────────────────────────────┤",
+    "│   Yes     No                                             │",
+    "├──────────────────────────────────────────────────────────┤",
+    "│ y yes · n no · esc cancel                        Cancel  │",
+    "└──────────────────────────────────────────────────────────┘",
+    "",
+  ]
+  mut index = 0
+  while index < expected.size() {
+    try testing::assert(
+      painted.at(index).or("") == expected.at(index).or(""),
+      "row {index}; the docked panel takes the composer's place:\n{shown}|",
+    )
+    index =+ 1
+  }
+  try testing::assert(
+    not terminal.frame().text().contains("Ask kit"),
+    "the composer is hidden:\n{shown}|",
+  )
+  let frame = terminal.frame().cell(
+    0,
+    6,
+  ).expect("dock frame").style.foreground.expect("frame color")
+  let border = theme::system().border
+  try testing::assert(
+    frame.red == border.red and frame.green == border.green and frame.blue == border.blue,
+    "the dock uses the dialog border color",
+  )
+
+  renderer.update(fn() {
+    subject.attached.apply_events(
+      [
+        sessionbridge::Event{
+          Kind: "interaction.resolved",
+          Sequence: 1,
+          InteractionID: "interaction_1",
+        },
+      ],
+    )
+  })
+  terminal.flush()
+  testing::assert(
+    terminal.frame().text().contains("Ask kit to do something…"),
+    "the composer returns once the request settles",
+  )
+}

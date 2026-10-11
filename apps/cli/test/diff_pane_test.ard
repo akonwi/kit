@@ -1,0 +1,785 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/testing as headless
+use cooper/ui
+use go:kit/ffi/sessionbridge
+use kit/tui/annotations
+use kit/tui/diff_pane
+use kit/tui/theme
+use go:strings
+use go:time
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn same_color(left: ui::Color?, right: ui::Color) Bool {
+  match left {
+    color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+    _ => false,
+  }
+}
+
+fn line(kind: Str, old: Int, new: Int, content: Str) protocol::DiffLine {
+  let made = mut protocol::DiffLine{Kind: kind, Content: content}
+  if old > 0 {
+    let number = old
+    made.OldLine = mut number
+  }
+  if new > 0 {
+    let number = new
+    made.NewLine = mut number
+  }
+  made.@
+}
+
+fn observed(input: protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error {
+  Result::ok(
+    protocol::WorkingTreePage{
+      Observation: protocol::DiffObservation{Revision: "revision_1", Target: protocol::DiffTarget{ID: "difftarget_1"}},
+      Files: [
+        protocol::DiffFileSummary{
+          Path: "main.go",
+          ContentState: "text",
+          FileRevision: "file_1",
+        },
+        protocol::DiffFileSummary{Path: "logo.png", ContentState: "binary"},
+      ],
+    },
+  )
+}
+
+fn read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
+  Result::ok(
+    protocol::FileDiffPage{
+      Hunks: [
+        protocol::DiffHunk{
+          Lines: [
+            line("context", 1, 1, "package main"),
+            line("deletion", 2, 0, "var x = 1"),
+            line("addition", 0, 2, "var x = 2"),
+            line("addition", 0, 3, "var y = 3"),
+          ],
+        },
+      ],
+    },
+  )
+}
+
+fn props(
+  observe: (fn(protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error)?,
+  read: (fn(protocol::ReadFileDiffInput) protocol::FileDiffPage!Error)?,
+) diff_pane::Props {
+  diff_pane::Props{
+    themes: theme::context(theme::store(theme::system())),
+    workspace_id: "workspace_a",
+    shown: true,
+    observe: observe,
+    observe_target: Maybe::new<fn(protocol::ObserveDiffInput) protocol::WorkingTreePage!Error>(),
+    read: read,
+    pick_target: fn(request: diff_pane::TargetRequest) {},
+    wrap: false,
+    set_wrap: fn(wrap: Bool) {},
+    annotations: [],
+    remove_annotation: fn(id: Uint64) {},
+    release_focus: fn() {},
+    reveal: diff_pane::no_reveal(),
+  }
+}
+
+// Flushes until the frame shows some text.
+fn wait_for(terminal: headless::TestApp, text: Str) {
+  mut attempts = 0
+  while attempts < 200 and not strings::Contains(terminal.frame().text(), text) {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+}
+
+test fn the_working_tree_shows_each_file_and_its_changes() Void!Str {
+  let terminal = headless::new(44, 12)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(props(Maybe::new(observed), Maybe::new(read))),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  mut attempts = 0
+  while attempts < 200 and not strings::Contains(terminal.frame().text(), "var y") {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      " Working tree ▾  2 changed files   Wrap off",
+      "────────────────────────────────────────────",
+      " ▾ main.go",
+      "───────────────────────────────────────────",
+      " 1 1   package main",
+      " 2   − var x = 1",
+      "   2 + var x = 2",
+      "   3 + var y = 3",
+      "───────────────────────────────────────────",
+      " ▾ logo.png",
+      "───────────────────────────────────────────",
+      "  Binary file changed",
+    ],
+  )
+  let colors = theme::system()
+  let resting = terminal.frame().cell(20, 2).expect("file header").style.background
+  try testing::assert(resting.is_none(), "a file's header is a ghost button")
+  terminal.mouse_move(20, 2)
+  terminal.flush()
+  let hovered = terminal.frame().cell(20, 2).expect("hovered header")
+  try testing::assert(same_color(hovered.style.background, colors.surface_hovered), "hovering fills it")
+  let removed = terminal.frame().cell(30, 5).expect("removed line")
+  try testing::assert(
+    same_color(removed.style.background, colors.diff_removed),
+    "a removed line is filled",
+  )
+  let added = terminal.frame().cell(30, 6).expect("added line")
+  try testing::assert(same_color(added.style.background, colors.diff_added), "an added line is filled")
+  terminal.click(4, 2)
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      " Working tree ▾  2 changed files   Wrap off",
+      "────────────────────────────────────────────",
+      " ▸ main.go",
+      "───────────────────────────────────────────",
+      " ▾ logo.png",
+      "───────────────────────────────────────────",
+      "  Binary file changed",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ],
+  )
+  testing::pass()
+}
+
+fn long_read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
+  let lines = mut List::new<protocol::DiffLine>()
+  for number in 1..12 {
+    lines.push(line("addition", 0, number, "line {number}"))
+  }
+  Result::ok(protocol::FileDiffPage{Hunks: [protocol::DiffHunk{Lines: lines.@}]})
+}
+
+test fn a_scrolled_file_keeps_its_header_pinned() Void!Str {
+  let terminal = headless::new(44, 8)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(props(Maybe::new(observed), Maybe::new(long_read))),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  mut attempts = 0
+  while attempts < 200 and not strings::Contains(terminal.frame().text(), "line 1") {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.scroll(10, 4, 3)
+  terminal.flush()
+  terminal.flush()
+  let shown = rows(terminal)
+  try testing::assert(
+    strings::HasPrefix(shown.at(2).or(""), " ▾ main.go  "),
+    "the header stays on top:\n{strings::Join(mut shown, "|\n")}",
+  )
+  try testing::assert(strings::HasPrefix(shown.at(3).or(""), "───"), "with its rule")
+  testing::assert(strings::Contains(shown.at(4).or(""), "line "), "its lines scroll beneath it")
+}
+
+test fn loading_is_centered_in_the_pane() Void!Str {
+  let terminal = headless::new(44, 12)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(
+      props(
+        Maybe::new<fn(protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error>(),
+        Maybe::new(read),
+      ),
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let shown = rows(terminal)
+  mut found = -1
+  for row, index in shown {
+    if strings::Contains(row, "Loading diff…") {
+      found = index
+    }
+  }
+  let text = shown.at(found).or("")
+  // The body has ten rows under the header; the spinner and label take 15
+  // of 44 columns.
+  try testing::assert(found == 7, "the middle row of the body:\n{strings::Join(mut shown, "|\n")}")
+  testing::assert(
+    strings::HasPrefix(text, strings::Repeat(" ", 15) + "⠋") and strings::HasSuffix(text, " Loading diff…"),
+    "the middle columns: {text}|",
+  )
+}
+
+fn paired_read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
+  Result::ok(
+    protocol::FileDiffPage{
+      Hunks: [
+        protocol::DiffHunk{
+          Lines: [
+            line("context", 1, 1, "package main"),
+            line("deletion", 2, 0, "var x = 1"),
+            line("deletion", 3, 0, "var z = 0"),
+            line("addition", 0, 2, "var x = 2"),
+            line("context", 4, 3, "func main() {{}}"),
+          ],
+        },
+      ],
+    },
+  )
+}
+
+fn column_of(terminal: headless::TestApp, row: Int, text: Str) Int {
+  let shown = rows(terminal).at(row).or("")
+  // Columns count cells; every character before the label is one cell.
+  let before = strings::SplitN(shown, text, 2).at(0).or("")
+  strings::Split(before, "").size()
+}
+
+test fn a_wide_pane_splits_old_and_new_lines_side_by_side() Void!Str {
+  let terminal = headless::new(124, 9)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(props(Maybe::new(observed), Maybe::new(paired_read))),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  wait_for(terminal, "var z")
+  terminal.click(column_of(terminal, 0, "Unified") + 2, 0)
+  terminal.flush()
+  terminal.flush()
+  expect_rows(
+    rows(terminal),
+    [
+      " Working tree ▾  2 changed files                                                                           Wrap off   Split",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      " ▾ main.go                                                                                                                 ┃",
+      "───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┃",
+      " 1   package main                                            │ 1   package main                                            ┃",
+      " 2 − var x = 1                                               │ 2 + var x = 2                                               ┃",
+      " 3 − var z = 0                                               │                                                             │",
+      " 4   func main() {{}}                                          │ 3   func main() {{}}                                          │",
+      "───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│",
+    ],
+  )
+}
+
+fn long_line_read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
+  Result::ok(
+    protocol::FileDiffPage{
+      Hunks: [
+        protocol::DiffHunk{
+          Lines: [line("addition", 0, 1, "alpha beta gamma delta epsilon zeta"), line("addition", 0, 2, "eta")],
+        },
+      ],
+    },
+  )
+}
+
+test fn wrapped_lines_continue_under_their_text() Void!Str {
+  let terminal = headless::new(26, 9)
+  defer terminal.destroy()
+  let wrapped = mut props(Maybe::new(observed), Maybe::new(long_line_read))
+  wrapped.wrap = true
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(wrapped.@),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  wait_for(terminal, "2 + eta")
+  expect_rows(
+    rows(terminal),
+    [
+      " Working tree ▾   Wrap on",
+      "──────────────────────────",
+      " ▾ main.go               ┃",
+      "─────────────────────────┃",
+      " 1 + alpha beta gamma    ┃",
+      "     delta epsilon zeta  ┃",
+      " 2 + eta                 ┃",
+      "─────────────────────────│",
+      " ▾ logo.png              │",
+    ],
+  )
+}
+
+fn commit_observed(input: protocol::ObserveDiffInput) protocol::WorkingTreePage!Error {
+  match input.TargetReference == "difftargetref_commit" {
+    true => {
+      Result::ok(
+        protocol::WorkingTreePage{
+          Observation: protocol::DiffObservation{
+            Revision: "revision_c",
+            Target: protocol::DiffTarget{ID: "difftarget_c", Kind: "commit"},
+          },
+          Files: [protocol::DiffFileSummary{Path: "chrome.ard", ContentState: "binary"}],
+        },
+      )
+    },
+    false => Result::err(Error::new("unexpected target")),
+  }
+}
+
+test fn a_picked_commit_replaces_the_working_tree() Void!Str {
+  let terminal = headless::new(64, 6)
+  defer terminal.destroy()
+  let requests = mut List::new<diff_pane::TargetRequest>()
+  let picking = mut props(Maybe::new(observed), Maybe::new(read))
+  picking.observe_target = Maybe::new(commit_observed)
+  picking.pick_target = fn(request: diff_pane::TargetRequest) {
+    requests.push(request)
+  }
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(picking.@),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  wait_for(terminal, "var y")
+  terminal.click(4, 0)
+  terminal.flush()
+  try testing::assert(requests.size() == 1, "clicking the target opens the picker")
+  let request = requests.at(0).expect("a target request")
+  try testing::assert(
+    request.workspace_id == "workspace_a" and request.current == "difftarget_1",
+    "for this workspace, with the working tree current",
+  )
+  (request.choose)(
+    protocol::DiffTargetEntry{
+      Reference: "difftargetref_commit",
+      TargetID: "difftarget_c",
+      Kind: "commit",
+      Metadata: protocol::DiffTargetMetadata{Label: "db99f1d  feat(cli): ghost buttons"},
+    },
+  )
+  wait_for(terminal, "chrome.ard")
+  expect_rows(
+    rows(terminal),
+    [
+      " db99f1d  feat(cli): ghost buttons ▾  1 changed file   Wrap off",
+      "────────────────────────────────────────────────────────────────",
+      " ▾ chrome.ard",
+      "───────────────────────────────────────────────────────────────",
+      "  Binary file changed",
+      "",
+    ],
+  )
+}
+
+fn long_pair_read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
+  Result::ok(
+    protocol::FileDiffPage{
+      Hunks: [
+        protocol::DiffHunk{
+          Lines: [
+            line(
+              "deletion",
+              1,
+              0,
+              "the old line is long enough that it wraps onto a second row of the left side",
+            ),
+            line("addition", 0, 1, "short"),
+            line("context", 2, 2, "after"),
+          ],
+        },
+      ],
+    },
+  )
+}
+
+test fn the_split_rule_spans_a_wrapped_row() Void!Str {
+  let terminal = headless::new(124, 8)
+  defer terminal.destroy()
+  let wrapped = mut props(Maybe::new(observed), Maybe::new(long_pair_read))
+  wrapped.wrap = true
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(wrapped.@),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  wait_for(terminal, "after")
+  terminal.click(column_of(terminal, 0, "Unified") + 2, 0)
+  terminal.flush()
+  terminal.flush()
+  expect_rows(
+    rows(terminal),
+    [
+      " Working tree ▾  2 changed files                                                                            Wrap on   Split",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      " ▾ main.go                                                                                                                 ┃",
+      "───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┃",
+      " 1 − the old line is long enough that it wraps onto a second │ 1 + short                                                   ┃",
+      "     row of the left side                                    │                                                             ┃",
+      " 2   after                                                   │ 2   after                                                   │",
+      "───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│",
+    ],
+  )
+}
+
+// What an annotated Diff pane asked of the session.
+struct Calls {
+  saved: [Str],
+  removed: [Uint64],
+}
+
+fn calls() mut Calls {
+  (mut Calls{saved: [], removed: []})
+}
+
+// Props for an annotated pane over `observed` and `read`, recording what
+// it asks.
+fn annotated(notes: [sessionbridge::Annotation], recorded: mut Calls, reveal: diff_pane::Reveal) diff_pane::Props {
+  let made = mut props(Maybe::new(observed), Maybe::new(read))
+  made.annotations = notes
+  made.annotate = Maybe::new(
+    annotations::Service{
+      create: fn(anchor: protocol::AnnotationAnchor, body: Str) Str {
+        let diff = anchor.WorkingTreeDiff.@
+        recorded.saved.push(
+          "create {diff.TargetID}@{diff.TargetRevision} {diff.Path}@{diff.FileRevision} {diff.Side} {diff.StartLine}-{diff.EndLine}: {body}",
+        )
+        ""
+      },
+      update: fn(id: Uint64, body: Str) Str {
+        recorded.saved.push("update {id}: {body}")
+        ""
+      },
+      remove: fn(id: Uint64) Str {
+        ""
+      },
+      body: fn(id: Uint64) Str!Str {
+        Result::ok("")
+      },
+    },
+  )
+  made.remove_annotation = fn(id: Uint64) {
+    recorded.removed.push(id)
+  }
+  made.reveal = reveal
+  made.@
+}
+
+fn diff_note(id: Int, side: Str, start: Int, end: Int, body: Str) sessionbridge::Annotation {
+  sessionbridge::Annotation{
+    ID: Uint64::fit(id),
+    Kind: "diff",
+    TargetID: "difftarget_1",
+    TargetRevision: "revision_1",
+    TargetKind: "working_tree",
+    Side: side,
+    Path: "main.go",
+    FileRevision: "file_1",
+    StartLine: start,
+    EndLine: end,
+    Body: body,
+  }
+}
+
+fn typed(terminal: headless::TestApp, text: Str) {
+  for character in strings::Split(text, "") {
+    terminal.key(
+      event::key(
+        character,
+        character,
+        event::KeyEventType::press,
+        event::Modifiers{
+          shift: false,
+          ctrl: false,
+          alt: false,
+          super: false,
+        },
+      ),
+    )
+  }
+  terminal.flush()
+}
+
+fn wait_until(terminal: headless::TestApp, done: fn() Bool) {
+  mut attempts = 0
+  while attempts < 200 and not done() {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+}
+
+fn left_drag(terminal: headless::TestApp, x: Int, y: Int) {
+  terminal.mouse(
+    event::mouse(
+      event::MouseEventType::drag,
+      event::MouseButton::left,
+      x,
+      y,
+      event::Modifiers{
+        shift: false,
+        ctrl: false,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+}
+
+test fn a_hovered_lines_plus_annotates_its_side() Void!Str {
+  let recorded = calls()
+  let terminal = headless::new(44, 16)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(annotated([], recorded, diff_pane::no_reveal())),
+  )
+  defer renderer.destroy()
+  wait_for(terminal, "var y")
+  terminal.mouse_move(20, 6)
+  terminal.flush()
+  let colors = theme::system()
+  let plus = terminal.frame().cell(5, 6).expect("the +")
+  try testing::assert(
+    same_color(plus.style.background, colors.primary) and rows(terminal).at(6).or("") == "   2 + var x = 2",
+    "the hovered line's marker becomes the +: {rows(terminal).at(6).or("")}",
+  )
+  terminal.click(5, 6)
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      " Working tree ▾  2 changed files   Wrap off",
+      "────────────────────────────────────────────",
+      " ▾ main.go                                 ┃",
+      "───────────────────────────────────────────┃",
+      " 1 1   package main                        ┃",
+      " 2   − var x = 1                           ┃",
+      "   2 + var x = 2                           ┃",
+      "       ┌─────────────────────────────────┐ ┃",
+      "       │                                 │ ┃",
+      "       │                                 │ ┃",
+      "       │                                 │ ┃",
+      "       │           Cancel      Comment   │ ┃",
+      "       └─────────────────────────────────┘ ┃",
+      "   3 + var y = 3                           ┃",
+      "───────────────────────────────────────────│",
+      " ▾ logo.png                                │",
+    ],
+  )
+  typed(terminal, "why")
+  terminal.key(
+    event::key(
+      "return",
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: false,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  wait_until(terminal, fn() Bool {
+    recorded.saved.size() > 0
+  })
+  testing::assert(
+    recorded.saved.at(0).or("") == "create difftarget_1@revision_1 main.go@file_1 new 2-2: why",
+    "an added line is on the new side: {recorded.saved.at(0).or("")}",
+  )
+}
+
+test fn a_range_keeps_to_the_side_it_starts_on() Void!Str {
+  let recorded = calls()
+  let terminal = headless::new(44, 16)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(annotated([], recorded, diff_pane::no_reveal())),
+  )
+  defer renderer.destroy()
+  wait_for(terminal, "var y")
+  terminal.mouse_move(20, 6)
+  terminal.flush()
+  terminal.mouse_down(5, 6)
+  left_drag(terminal, 5, 7)
+  left_drag(terminal, 20, 7)
+  terminal.flush()
+  let colors = theme::system()
+  let picked = terminal.frame().cell(30, 7).expect("a picked line")
+  try testing::assert(
+    same_color(picked.style.background, colors.surface_hovered),
+    "the picked lines are filled",
+  )
+  // An old line has no new number, so the range doesn't reach it.
+  left_drag(terminal, 20, 5)
+  terminal.mouse_up(20, 5)
+  terminal.flush()
+  typed(terminal, "both")
+  terminal.click(32, 12)
+  wait_until(terminal, fn() Bool {
+    recorded.saved.size() > 0
+  })
+  testing::assert(
+    recorded.saved.at(0).or("") == "create difftarget_1@revision_1 main.go@file_1 new 2-3: both",
+    "the range stays on the new side: {recorded.saved.at(0).or("")}",
+  )
+}
+
+test fn saved_notes_sit_under_their_last_line() Void!Str {
+  let recorded = calls()
+  let terminal = headless::new(44, 12)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(
+      annotated([diff_note(7, "old", 1, 2, "why drop it?")], recorded, diff_pane::no_reveal()),
+    ),
+  )
+  defer renderer.destroy()
+  wait_for(terminal, "drop it")
+  try expect_rows(
+    rows(terminal),
+    [
+      " Working tree ▾  2 changed files   Wrap off",
+      "────────────────────────────────────────────",
+      " ▾ main.go                                 ┃",
+      "───────────────────────────────────────────┃",
+      " 1 1   package main                        ┃",
+      " 2   − var x = 1                           ┃",
+      "     ×  🗨️ why drop it?                    ┃",
+      "   2 + var x = 2                           ┃",
+      "   3 + var y = 3                           ┃",
+      "───────────────────────────────────────────┃",
+      " ▾ logo.png                                ┃",
+      "───────────────────────────────────────────│",
+    ],
+  )
+  let colors = theme::system()
+  try testing::assert(
+    same_color(terminal.frame().cell(1, 4).expect("a context line").style.background, colors.primary),
+    "a context line's old number is annotated",
+  )
+  terminal.click(5, 6)
+  terminal.flush()
+  testing::assert(
+    recorded.removed.size() == 1 and recorded.removed.at(0).or(Uint64::from(0)) == Uint64::from(7),
+    "its × removes it",
+  )
+}
+
+test fn a_chip_reveals_its_lines() Void!Str {
+  let recorded = calls()
+  let terminal = headless::new(44, 8)
+  defer terminal.destroy()
+  let reveal = diff_pane::Reveal{
+    opening: 1,
+    target_id: "difftarget_1",
+    working_tree: true,
+    path: "main.go",
+    side: "new",
+    line: 3,
+  }
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(annotated([], recorded, reveal)),
+  )
+  defer renderer.destroy()
+  wait_for(terminal, "var y")
+  wait_until(terminal, fn() Bool {
+    rows(terminal).at(2).or("") != " ▾ main.go"
+  })
+  testing::assert(
+    strings::Contains(terminal.frame().text(), "   3 + var y = 3"),
+    "the lines are scrolled into view: {strings::Join(mut rows(terminal), "|\n")}",
+  )
+}
+
+test fn split_halves_annotate_their_own_side() Void!Str {
+  let recorded = calls()
+  let terminal = headless::new(124, 10)
+  defer terminal.destroy()
+  let made = mut annotated([diff_note(3, "old", 3, 3, "keep z")], recorded, diff_pane::no_reveal())
+  made.read = Maybe::new(paired_read)
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(made.@),
+  )
+  defer renderer.destroy()
+  wait_for(terminal, "var z")
+  terminal.click(column_of(terminal, 0, "Unified") + 2, 0)
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(7).or("") == "   ×  🗨️ keep z                                              │                                                             │",
+    "an old note sits in the old half: {strings::Join(mut rows(terminal), "|\n")}",
+  )
+  // The new half's line 1 is a context line; its + annotates the new side.
+  terminal.mouse_move(80, 4)
+  terminal.flush()
+  terminal.click(64, 4)
+  terminal.flush()
+  typed(terminal, "x")
+  terminal.key(
+    event::key(
+      "return",
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: false,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  wait_until(terminal, fn() Bool {
+    recorded.saved.size() > 0
+  })
+  testing::assert(
+    recorded.saved.at(0).or("") == "create difftarget_1@revision_1 main.go@file_1 new 1-1: x",
+    "the right half is the new side: {recorded.saved.at(0).or("")}",
+  )
+}

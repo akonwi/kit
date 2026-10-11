@@ -1,0 +1,612 @@
+use cooper/event
+use cooper/theme as ctheme
+use cooper/ui
+use go:github.com/akonwi/kit/internal/theme as kittheme
+
+// Kit's semantic colors for the terminal client.
+//
+// Cooper derives the vaxis-compatible, contrast-aware system theme from its
+// terminal session. Background and foreground paint with terminal defaults,
+// which preserve terminal transparency. User theme tokens override the derived
+// colors.
+
+struct Theme {
+  background: ui::Color,
+  // Concrete terminal background retained for transient paint effects.
+  selection_backdrop: ui::Color,
+  foreground: ui::Color,
+  muted: ui::Color,
+  disabled: ui::Color,
+  border: ui::Color,
+  // The foreground/background pair used when selectable evidence is marked.
+  // This is Cooper's vaxis-compatible terminal-derived selection fill.
+  selection: ui::Color,
+  primary_text: ui::Color,
+  // Accent-colored text, such as the identity of a plugin message, as vaxis's
+  // AccentText. User themes set it with the same token as primary_text.
+  accent_text: ui::Color,
+  success_text: ui::Color,
+  warning_text: ui::Color,
+  danger_text: ui::Color,
+  primary: ui::Color,
+  primary_hovered: ui::Color,
+  primary_pressed: ui::Color,
+  // Picker rows tint this focus color over the resolved terminal background.
+  picker_selected: ui::Color,
+  picker_hovered: ui::Color,
+  picker_disabled: ui::Color,
+  danger: ui::Color,
+  // Surface colors used for turn washes and raised controls.
+  surface: ui::Color,
+  surface_raised: ui::Color,
+  surface_hovered: ui::Color,
+  surface_pressed: ui::Color,
+  // The wash behind user turns: the primary text color over the surface.
+  user_fill: ui::Color,
+  // The fills behind added and removed lines of a diff.
+  diff_added: ui::Color,
+  diff_removed: ui::Color,
+  // Renderer-neutral syntax roles resolved from terminal tones and user theme overrides.
+  syntax_palette: [Str: ui::Color],
+  // Every semantic token role, such as `toolText`, resolved as in the vaxis
+  // client, for content that names its colors by role, like plugin footer
+  // items.
+  tokens: [Str: ui::Color],
+}
+
+struct Rgb {
+  r: Int,
+  g: Int,
+  b: Int,
+}
+
+// Store is the client-wide owner of Kit's resolved semantic theme.
+struct Store {
+  value: Theme,
+  revision: Int,
+}
+
+// Context is the render-facing handle for the shared Store. It is deliberately
+// shaped as the future value of a Cooper dependency provider.
+struct Context {
+  store: mut Store,
+}
+
+fn store(initial: Theme) mut Store {
+  (mut Store{value: initial, revision: 0})
+}
+
+fn context(shared: mut Store) Context {
+  Context{store: shared}
+}
+
+// selection_style paints selected evidence as vaxis does: terminal foreground
+// over the resolved terminal selection fill, never reverse video.
+fn selection_style(colors: Theme) fn(mut ui::TextStyle) {
+  fn(style: mut ui::TextStyle) {
+    style.foreground = colors.foreground
+    style.background = colors.selection
+    style.reverse = false
+  }
+}
+
+impl Theme {
+  fn syntax(role: Str) ui::Color {
+    self.syntax_palette.get(role).or(self.foreground)
+  }
+}
+
+impl Context {
+  fn current() Theme {
+    self.store.value
+  }
+
+  fn revision() Int {
+    self.store.revision
+  }
+
+  fn mut replace(next: Theme) {
+    self.store.value = next
+    self.store.revision =+ 1
+  }
+}
+
+// Owner is the client-wide owner of theme selection: the committed theme, the
+// definition on screen (which differs from it while a preview is open), and
+// the terminal's own theme. It resolves them into the shared Store, so a
+// terminal theme change during a preview repaints the preview, and canceling
+// a preview restores the committed theme against the current terminal.
+//
+// Requests run through the dispatch bound on mount so the whole tree repaints;
+// before binding they apply immediately.
+struct Owner {
+  themes: Context,
+  dispatch: (fn(fn()) Void!event::DispatchError)?,
+  committed_name: Str,
+  committed: kittheme::Definition,
+  displayed: kittheme::Definition,
+  terminal: ctheme::Theme,
+}
+
+fn owner(themes: Context, name: Str, definition: kittheme::Definition) mut Owner {
+  (mut Owner{
+    themes: themes,
+    dispatch: Maybe::new<fn(fn()) Void!event::DispatchError>(),
+    committed_name: name,
+    committed: definition,
+    displayed: definition,
+    terminal: ctheme::default(),
+  })
+}
+
+impl Owner {
+  // bind adopts the UI dispatch and the terminal theme detected at mount. The
+  // store was already resolved against that terminal theme at startup.
+  fn mut bind(dispatch: fn(fn()) Void!event::DispatchError, terminal: ctheme::Theme) {
+    self.dispatch = Maybe::new(dispatch)
+    self.terminal = terminal
+  }
+
+  fn mut request_preview(definition: kittheme::Definition) {
+    self.schedule(fn() {
+      self.displayed = definition
+      self.paint()
+    })
+  }
+
+  fn mut request_commit(name: Str, definition: kittheme::Definition) {
+    self.schedule(fn() {
+      self.committed_name = name
+      self.committed = definition
+      self.displayed = definition
+      self.paint()
+    })
+  }
+
+  fn mut request_cancel() {
+    self.schedule(fn() {
+      self.displayed = self.committed
+      self.paint()
+    })
+  }
+
+  fn mut request_terminal(next: ctheme::Theme) {
+    self.schedule(fn() {
+      self.terminal = next
+      self.paint()
+    })
+  }
+
+  private fn mut paint() {
+    self.themes.replace(resolve(self.displayed, self.terminal))
+  }
+
+  private fn mut schedule(action: fn()) {
+    match self.dispatch {
+      dispatch => {
+        let _ = dispatch(action)
+      },
+      _ => action(),
+    }
+  }
+}
+
+private fn rgb(r: Int, g: Int, b: Int) Rgb {
+  Rgb{
+    r: r,
+    g: g,
+    b: b,
+  }
+}
+
+// Kit's linear sRGB wash (tintUIColor): `opacity` of `accent` over `base`.
+private fn tint(base: Rgb, accent: Rgb, opacity: Float64) Rgb {
+  let mix = fn(from: Int, to: Int) Int {
+    Int::fit(Float64::fit(from) * (1.0 - opacity) + Float64::fit(to) * opacity + 0.5)
+  }
+  rgb(mix(base.r, accent.r), mix(base.g, accent.g), mix(base.b, accent.b))
+}
+
+// The theme for Cooper's terminal-color fallback.
+// selection_pulse matches vaxis's copy feedback: a 22% fade from selection
+// toward the terminal background, then back to the selection fill.
+fn selection_pulse(colors: Theme, progress: Float64) ui::Color {
+  selection_pulse_color(colors.selection, colors.selection_backdrop, progress)
+}
+
+fn selection_pulse_color(selection: ui::Color, backdrop: ui::Color, progress: Float64) ui::Color {
+  let amount = 0.22 * progress
+  to_ui(tint(from_ui(selection), from_ui(backdrop), amount))
+}
+
+fn system() Theme {
+  resolve(kittheme::Definition{}, ctheme::default())
+}
+
+// Applies a user theme's semantic tokens over the system tones.
+fn resolve(definition: kittheme::Definition, base: ctheme::Theme) Theme {
+  let tokens = definition.Tokens
+  let background = token(
+    tokens,
+    kittheme::TokenBackground,
+    from_ui(base.background),
+    from_ui(base.background),
+  )
+  let backdrop = background.or(from_ui(base.background))
+  let surface = token(
+    tokens,
+    kittheme::TokenBackgroundSurface,
+    from_ui(base.surface),
+    backdrop,
+  ).or(from_ui(base.surface))
+  let primary_text = token(
+    tokens,
+    kittheme::TokenBorderAccent,
+    from_ui(base.primary_text),
+    backdrop,
+  ).or(from_ui(base.primary_text))
+  let primary_override = token(
+    tokens,
+    kittheme::TokenPickerFocusedBackground,
+    from_ui(base.primary),
+    backdrop,
+  )
+  let primary = primary_override.or(from_ui(base.primary))
+  // User themes have one focused-picker fill, not a separate hover fill. On a
+  // dark terminal, reusing it for both states made the primary button's hover
+  // state visually indistinguishable. Lift that resolved fill toward terminal
+  // foreground; keep Cooper's contrast-derived light-mode hover tone.
+  let primary_hovered = match base.mode {
+    ctheme::Mode::dark => tint(primary, from_ui(base.foreground), 0.16),
+    ctheme::Mode::light => primary_override.or(from_ui(base.primary_hovered)),
+  }
+  let primary_pressed = token(
+    tokens,
+    kittheme::TokenBackgroundAccent,
+    from_ui(base.primary_pressed),
+    backdrop,
+  ).or(from_ui(base.primary_pressed))
+  let danger = token(
+    tokens,
+    kittheme::TokenDiffRemovedBackground,
+    from_ui(base.danger),
+    backdrop,
+  ).or(from_ui(base.danger))
+  let wash = match base.mode {
+    ctheme::Mode::dark => 0.18,
+    ctheme::Mode::light => 0.12,
+  }
+  let syntax_palette = resolve_syntax(definition.SyntaxPalette, base, backdrop)
+  Theme{
+    background: painted(background),
+    selection_backdrop: to_ui(backdrop),
+    foreground: painted(token(tokens, kittheme::TokenTextPrimary, from_ui(base.foreground), backdrop)),
+    muted: color(tokens, kittheme::TokenTextMuted, from_ui(base.muted_foreground), backdrop),
+    disabled: color(tokens, kittheme::TokenTextPlaceholder, from_ui(base.disabled_foreground), backdrop),
+    border: color(tokens, kittheme::TokenBorderDefault, from_ui(base.border), backdrop),
+    selection: to_ui(from_ui(base.selection)),
+    primary_text: to_ui(primary_text),
+    accent_text: color(tokens, kittheme::TokenBorderAccent, from_ui(base.accent_text), backdrop),
+    success_text: color(tokens, kittheme::TokenToolText, from_ui(base.success_text), backdrop),
+    warning_text: color(tokens, kittheme::TokenWarningText, from_ui(base.warning_text), backdrop),
+    danger_text: color(tokens, kittheme::TokenErrorText, from_ui(base.danger_text), backdrop),
+    primary: to_ui(primary),
+    primary_hovered: to_ui(primary_hovered),
+    primary_pressed: to_ui(primary_pressed),
+    picker_selected: to_ui(tint(backdrop, primary, 0.20)),
+    picker_hovered: to_ui(tint(backdrop, primary, 0.08)),
+    picker_disabled: to_ui(tint(backdrop, primary, 0.10)),
+    danger: to_ui(danger),
+    surface: to_ui(surface),
+    surface_raised: color(tokens, kittheme::TokenPickerBackground, from_ui(base.surface_raised), backdrop),
+    surface_hovered: color(tokens, kittheme::TokenBackgroundMuted, from_ui(base.surface_hovered), backdrop),
+    surface_pressed: color(tokens, kittheme::TokenBackgroundAccent, from_ui(base.surface_pressed), backdrop),
+    user_fill: to_ui(tint(surface, primary_text, wash)),
+    diff_added: color(
+      tokens,
+      kittheme::TokenDiffAddedBackground,
+      tint(backdrop, from_ui(base.success), 0.20),
+      backdrop,
+    ),
+    diff_removed: color(
+      tokens,
+      kittheme::TokenDiffRemovedBackground,
+      tint(backdrop, from_ui(base.danger), 0.20),
+      backdrop,
+    ),
+    syntax_palette: syntax_palette,
+    tokens: resolve_tokens(tokens, base),
+  }
+}
+
+// The color of a semantic token role, or none for an unknown role.
+fn token_color(colors: Theme, role: Str) ui::Color? {
+  colors.tokens.get(role)
+}
+
+// Resolves every semantic token role as the vaxis client does
+// (`semanticFallback` and `projectTheme`): a terminal-derived default for each
+// role, replaced by the user theme's color projected over the role's backdrop.
+// A user theme may also define roles Kit does not know, projected over the
+// background.
+private fn resolve_tokens(overrides: [Str: kittheme::Color], base: ctheme::Theme) [Str: ui::Color] {
+  let tokens = mut Map::new<ui::Color>()
+  let set = fn(color: ui::Color, roles: [Str]) {
+    for role in roles {
+      tokens.set(role, color)
+    }
+  }
+  let background = from_ui(base.background)
+  let washed = fn(accent: ui::Color, opacity: Float64) ui::Color {
+    to_ui(tint(background, from_ui(accent), opacity))
+  }
+  set(base.background, [kittheme::TokenBackground, kittheme::TokenBackgroundTransparent])
+  set(base.surface, [kittheme::TokenBackgroundSurface])
+  set(base.surface_raised, [kittheme::TokenPickerBackground])
+  set(
+    base.surface_hovered,
+    [
+      kittheme::TokenBackgroundMuted,
+      kittheme::TokenPickerBorder,
+      kittheme::TokenPickerScrollTrack,
+      kittheme::TokenScrollbarBackground,
+    ],
+  )
+  set(
+    base.surface_pressed,
+    [
+      kittheme::TokenBackgroundAccent,
+      kittheme::TokenScrollbarForeground,
+      kittheme::TokenDiffCursorGutterBackground,
+    ],
+  )
+  set(base.border, [kittheme::TokenBorderDefault, kittheme::TokenBorderStatus])
+  set(
+    base.muted_foreground,
+    [
+      kittheme::TokenBorderFocused,
+      kittheme::TokenTextSecondary,
+      kittheme::TokenTextMuted,
+      kittheme::TokenTextDebug,
+      kittheme::TokenPickerScrollThumb,
+      kittheme::TokenPanelText,
+    ],
+  )
+  set(
+    base.primary_text,
+    [
+      kittheme::TokenBorderAccent,
+      kittheme::TokenUserText,
+      kittheme::TokenUserBorder,
+      kittheme::TokenProgressNormal,
+    ],
+  )
+  set(
+    base.accent_text,
+    [
+      kittheme::TokenBorderDebug,
+      kittheme::TokenReviewText,
+      kittheme::TokenSubagentText,
+      kittheme::TokenDebugLabel,
+      kittheme::TokenMetaText,
+    ],
+  )
+  set(
+    base.success_text,
+    [
+      kittheme::TokenComposerBashBorder,
+      kittheme::TokenComposerBashExcludedBorder,
+      kittheme::TokenToolText,
+    ],
+  )
+  set(
+    base.foreground,
+    [
+      kittheme::TokenTextPrimary,
+      kittheme::TokenAssistantText,
+      kittheme::TokenCursor,
+      kittheme::TokenPickerItemText,
+    ],
+  )
+  set(base.disabled_foreground, [kittheme::TokenTextPlaceholder])
+  set(base.primary_hovered, [kittheme::TokenUserTextFocused])
+  set(
+    base.danger_text,
+    [kittheme::TokenErrorText, kittheme::TokenAttachmentText, kittheme::TokenProgressCritical],
+  )
+  set(base.warning_text, [kittheme::TokenWarningText, kittheme::TokenProgressWarning])
+  set(base.selection, [kittheme::TokenPickerFocusedBackground, kittheme::TokenDiffCursorBackground])
+  set(base.background, [kittheme::TokenPickerFocusedText])
+  set(base.primary, [kittheme::TokenToggleOn])
+  set(
+    washed(base.success, 0.20),
+    [kittheme::TokenDiffAddedBackground, kittheme::TokenDiffAddedContentBackground],
+  )
+  set(
+    washed(base.danger, 0.20),
+    [kittheme::TokenDiffRemovedBackground, kittheme::TokenDiffRemovedContentBg],
+  )
+  set(washed(base.success, 0.08), [kittheme::TokenDiffAddedLineNumberBg])
+  set(washed(base.danger, 0.08), [kittheme::TokenDiffRemovedLineNumberBg])
+  set(washed(base.success, 0.24), [kittheme::TokenDiffCursorAddedBackground])
+  set(washed(base.danger, 0.24), [kittheme::TokenDiffCursorRemovedBg])
+  // Overrides apply in registry order, so a role's backdrop reflects the
+  // user's background and fills before the role itself.
+  for role in kittheme::TokenRoles() {
+    match overrides.get(role) {
+      color => {
+        let backdrop = from_ui(tokens.get(token_backdrop(role)).or(base.background))
+        tokens.set(role, to_ui(project(color, backdrop, backdrop).or(backdrop)))
+      },
+      _ => (),
+    }
+  }
+  for role in overrides.keys() {
+    if not kittheme::IsKnownToken(role) {
+      let backdrop = from_ui(tokens.get(kittheme::TokenBackground).or(base.background))
+      let color = overrides.get(role).expect("token override")
+      tokens.set(role, to_ui(project(color, backdrop, backdrop).or(backdrop)))
+    }
+  }
+  tokens.@
+}
+
+// The role a token's translucent color is blended over (vaxis's
+// `tokenBackdrop`). The background itself blends over the terminal's.
+private fn token_backdrop(role: Str) Str {
+  let picker = [
+    kittheme::TokenPickerBorder,
+    kittheme::TokenPickerItemText,
+    kittheme::TokenPickerScrollThumb,
+    kittheme::TokenPickerScrollTrack,
+  ]
+  let added = [
+    kittheme::TokenDiffAddedContentBackground,
+    kittheme::TokenDiffAddedLineNumberBg,
+    kittheme::TokenDiffCursorAddedBackground,
+  ]
+  let removed = [
+    kittheme::TokenDiffRemovedContentBg,
+    kittheme::TokenDiffRemovedLineNumberBg,
+    kittheme::TokenDiffCursorRemovedBg,
+  ]
+  match {
+    role == kittheme::TokenBackground => "",
+    role == kittheme::TokenPickerFocusedText => kittheme::TokenPickerFocusedBackground,
+    listed(picker, role) => kittheme::TokenPickerBackground,
+    listed(added, role) => kittheme::TokenDiffAddedBackground,
+    listed(removed, role) => kittheme::TokenDiffRemovedBackground,
+    _ => kittheme::TokenBackground,
+  }
+}
+
+private fn listed(roles: [Str], role: Str) Bool {
+  mut found = false
+  for candidate in roles {
+    if candidate == role {
+      found = true
+    }
+  }
+  found
+}
+
+private fn resolve_syntax(overrides: [Str: kittheme::Color], base: ctheme::Theme, backdrop: Rgb) [Str: ui::Color] {
+  let palette = mut Map::new<ui::Color>()
+  let set = fn(color: ui::Color, roles: [Str]) {
+    for role in roles {
+      palette.set(role, color)
+    }
+  }
+  set(
+    base.foreground,
+    [
+      kittheme::SyntaxText,
+      kittheme::SyntaxBold,
+      kittheme::SyntaxCodeBlock,
+      kittheme::SyntaxOperator,
+      kittheme::SyntaxVariable,
+    ],
+  )
+  set(
+    base.primary_text,
+    [
+      kittheme::SyntaxHeading,
+      kittheme::SyntaxLink,
+      kittheme::SyntaxList,
+      kittheme::SyntaxFunction,
+      kittheme::SyntaxMember,
+      kittheme::SyntaxLabel,
+    ],
+  )
+  set(
+    base.warning_text,
+    [
+      kittheme::SyntaxItalic,
+      kittheme::SyntaxQuote,
+      kittheme::SyntaxNumber,
+      kittheme::SyntaxKeywordType,
+      kittheme::SyntaxType,
+      kittheme::SyntaxAttribute,
+    ],
+  )
+  set(base.success_text, [kittheme::SyntaxCodeInline, kittheme::SyntaxString])
+  set(
+    base.muted_foreground,
+    [
+      kittheme::SyntaxStrikethrough,
+      kittheme::SyntaxComment,
+      kittheme::SyntaxPunctuation,
+      kittheme::SyntaxTagDelimiter,
+    ],
+  )
+  set(base.disabled_foreground, [kittheme::SyntaxConceal])
+  set(
+    base.accent_text,
+    [kittheme::SyntaxEscape, kittheme::SyntaxKeyword, kittheme::SyntaxTagAttribute],
+  )
+  set(base.danger_text, [kittheme::SyntaxBuiltin, kittheme::SyntaxTag])
+  for role in overrides.keys() {
+    let fallback = from_ui(palette.get(role).or(base.foreground))
+    palette.set(
+      role,
+      to_ui(
+        project(overrides.get(role).expect("syntax override"), fallback, backdrop).or(fallback),
+      ),
+    )
+  }
+  palette.@
+}
+
+private fn from_ui(color: ui::Color) Rgb {
+  rgb(
+    Int::from(Byte::from(color.red)),
+    Int::from(Byte::from(color.green)),
+    Int::from(Byte::from(color.blue)),
+  )
+}
+
+// A user token over `backdrop`, or none when the theme leaves the role unset.
+private fn token(tokens: [Str: kittheme::Color], role: Str, fallback: Rgb, backdrop: Rgb) Rgb? {
+  match tokens.get(role) {
+    color => project(color, fallback, backdrop),
+    _ => Maybe::new<Rgb>(),
+  }
+}
+
+private fn color(tokens: [Str: kittheme::Color], role: Str, fallback: Rgb, backdrop: Rgb) ui::Color {
+  to_ui(token(tokens, role, fallback, backdrop).or(fallback))
+}
+
+// Kit's token projection: opaque colors apply as is, translucent colors blend
+// over the backdrop, and fully transparent colors keep the fallback.
+private fn project(color: kittheme::Color, fallback: Rgb, backdrop: Rgb) Rgb? {
+  let alpha = Int::from(color.A)
+  match {
+    alpha == 0 => Maybe::new(fallback),
+    alpha == 255 => Maybe::new(rgb(Int::from(color.R), Int::from(color.G), Int::from(color.B))),
+    _ => {
+      let mix = fn(foreground: Int, background: Int) Int {
+        (foreground * alpha + background * (255 - alpha) + 127) / 255
+      }
+      Maybe::new(
+        rgb(
+          mix(Int::from(color.R), backdrop.r),
+          mix(Int::from(color.G), backdrop.g),
+          mix(Int::from(color.B), backdrop.b),
+        ),
+      )
+    },
+  }
+}
+
+// Terminal defaults unless a user token sets the color.
+private fn painted(color: Rgb?) ui::Color {
+  match color {
+    rgb => to_ui(rgb),
+    _ => ui::terminal_default(),
+  }
+}
+
+private fn to_ui(color: Rgb) ui::Color {
+  ui::rgb(color.r, color.g, color.b)
+}
