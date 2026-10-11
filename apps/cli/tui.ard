@@ -97,8 +97,10 @@ fn pick_session(ctx: context::Context, client: mut api::Client, definition: kitt
     err(_) => Maybe::new<[protocol::SessionInfo]>(),
   }
   let application = try cooper::app(
+    // Inline screens keep their last frame by default; the picker's rows are
+    // erased instead, leaving the cursor where they began.
     exit_on_ctrl_c: false,
-    screen: screen::config(screen::Mode::inline, height: picker_height(listed)),
+    screen: screen::config(screen::Mode::inline, height: picker_height(listed), clear_on_exit: true),
   )
   defer application.destroy()
   let themes = theme::context(theme::store(theme::resolve(definition, application.theme())))
