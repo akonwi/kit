@@ -50,14 +50,13 @@ Parity means the same visible content, layout, focus, and interaction as the
 vaxis client, asserted by exact-row headless Cooper tests derived from the
 vaxis client's tests. Until then, `cmd/kit` ships the vaxis client. Known,
 accepted differences: centered odd-width content can sit one cell right,
-because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
+because Cooper rounds half-cell layout edges up (Cooper ADR 0020); and the
+signed-out "Connect a provider" button is filled with the primary accent
+rather than vaxis's surface fill.
 
 - [~] TUI-COOPER-010 — Sessions. Remaining: the standalone `kit sessions`
   picker, which still reports that it is unavailable (`pick_session` in
   `tui.ard`).
-- [~] TUI-COOPER-013 — System theme. Remaining: use the theme's derived
-  surfaces for filled controls such as the signed-out "Connect a provider"
-  button.
 - [~] TUI-COOPER-014 — Plugins and MCP. Remaining: plugin footer
   contributions (the snapshot's `PluginFooter` items, which can hide the
   location), and the footer's VCS branch and pull-request link that share the
