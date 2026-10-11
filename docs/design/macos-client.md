@@ -1,9 +1,88 @@
 # macOS client implementation reference
 
-This document records integration constraints and lifecycle decisions for the
-native client. Presentation belongs in [the design language](macos-design-language.md),
-architecture in [ADR 0013](../adrs/0013-native-macos-client.md), and unfinished
+This document records integration constraints, interaction behavior, and
+lifecycle decisions for the native client. Visual design belongs to the
+[Paper "Kit App" file](https://app.paper.design/file/01M4MCMMAEY5AWN7E5J0PK6X1K): its notes, app flow, themes, tokens, and
+explorations. Architecture belongs in [ADR 0013](../adrs/0013-native-macos-client.md)
+and [ADR 0044](../adrs/0044-tile-the-macos-session-workspace.md), and unfinished
 capabilities in [`macos` issues](https://github.com/akonwi/kit/issues?q=is%3Aopen+label%3Amacos).
+
+## Interaction behavior
+
+These rules cover behavior that the Paper designs do not record.
+
+### Launcher and relaunch
+
+When a window has no open session, it shows a session launcher instead of
+opening the latest session. The launcher connects in the background and lists
+recent sessions with their working directories and update times. Search, arrow
+keys, and Return open a session without a pointer. The transcript, composer, and
+workspace panes stay hidden until a session is explicitly chosen.
+
+Relaunch restores only intentionally opened sessions: each window's session tabs
+and its selected session. Closing a session removes it from restoration intent,
+and quitting keeps the open sessions for the next launch. Whether tile
+arrangements are restored is tracked by
+[#160](https://github.com/akonwi/kit/issues/160).
+
+### Composer
+
+The composer starts with one text line and grows with its content, with no
+internal scroll container or arbitrary height cap. The send and stop control
+keeps a fixed size at the bottom right, and Cmd+Return stays supported without a
+label beside it. The placeholder and typed text use the same font and text
+origin. Height is measured from the editor's own text layout rather than
+approximated with a separate SwiftUI text view, and native selection,
+insertion, multiline editing, and keyboard behavior are preserved. Very long
+drafts still need a layout policy that keeps all content and actions reachable
+without an internal scrollbar.
+
+### Pickers and overlays
+
+The command palette and other pickers take keyboard focus when opened, support
+navigation and dismissal, and keep background controls from accepting input.
+Closing a picker returns focus to the editor or tile that had it.
+
+### Appearance and themes
+
+Appearance is **System**, **Light**, or **Dark**, with a theme assigned to Light
+and another to Dark. System follows macOS and activates the matching
+assignment; forced modes use their assignment consistently. Settings previews
+both assignments so the pair can be judged without switching the whole
+application's appearance. The active appearance applies to window chrome as
+well as content: native controls keep system drawing with readable contrast
+over the theme's surfaces.
+
+Imports read Kit's `tokens` and `syntaxPalette` JSON structure. An import copies
+theme data into application preferences, validates the whole batch before
+changing any preference, and leaves source files untouched; legacy Kit state is
+never scanned implicitly. An imported theme's initial assignment comes from its
+opaque `tokens.bg` color, not its filename, and themes without a usable opaque
+background take the active mode. The imported definition is kept whole even
+when some roles have no native consumer yet.
+
+### File annotation interaction
+
+Hovering a source line reveals a gutter + control. Clicking it annotates that
+line; dragging across the gutter selects a range with a live highlight, and
+releasing opens the input. Source-text selection with Annotate selection is the
+keyboard-accessible alternative. The input sits beneath the selected range with
+composer styling and shows no line labels or filename. Enter saves, Cmd+Enter
+inserts a newline, and Escape cancels. Saved comments use proportional text
+with Edit and Delete on hover, while source and line numbers stay monospace.
+
+A strip above the Agent composer shows each note's filename, range, and a short
+comment preview, with a bounded overflow list for many notes. Activating a chip
+reveals the note in its retained file tab and briefly highlights it. Closing a
+tab leaves its server-owned notes intact. Annotations are composition inputs,
+including when the text draft is empty, and accepted messages show expandable,
+immutable annotation groups with the filename, range, comment, and captured
+source.
+
+A stale note stays visible marked File changed and cannot be sent. Activating
+it shows the frozen evidence with Select new range and Delete actions. A note is
+never silently relocated to newer code, and there is no permanent annotation
+pane.
 
 ## State and transport
 

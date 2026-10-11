@@ -152,7 +152,7 @@ inputs used by `ThemeTests`, not app resources.
 - [Session API and SDK development](../../docs/api-development.md)
 - [Client architecture](../../docs/adrs/0013-native-macos-client.md)
 - [Source editing and highlighting decision](../../docs/adrs/0013-native-source-editing-and-highlighting.md)
-- [Native design language](../../docs/design/macos-design-language.md)
+- [Paper "Kit App" design](https://app.paper.design/file/01M4MCMMAEY5AWN7E5J0PK6X1K)
 - [Client implementation reference](../../docs/design/macos-client.md)
 - [Outstanding work](https://github.com/akonwi/kit/issues?q=is%3Aopen+label%3Amacos)
 

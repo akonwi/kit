@@ -28,8 +28,10 @@ Linux desktop coverage is not required; the browser client serves Linux users.
 ## Decision
 
 Kit provides a fully native macOS application written in Swift using SwiftUI
-and AppKit. It contains no embedded web content and no agent logic. It is a
-protocol client only.
+and AppKit. Kit's own interface is native and uses no web content, and the
+application contains no agent logic. It is a protocol client only. Its
+workspace may also host terminal and browser panes as platform views, as
+defined in [ADR 0044](./0044-tile-the-macos-session-workspace.md).
 
 ### Viewport over any Kit server
 
@@ -60,8 +62,9 @@ Kit.app ── server client ──▶ local daemon   (discovered or started)
   its lifetime; switching sessions replaces or adds a view.
 - Server capability discovery drives feature availability. Workspace operations
   execute on the server host, never on the client machine. Local-only
-  affordances such as opening a path in Finder are offered only when the server
-  runs on the same machine, as determined by its reported machine identity.
+  affordances such as opening a path in Finder, and terminal panes, which run
+  on the client machine, are offered only when the server runs on the same
+  machine, as determined by its reported machine identity.
 
 ### Protocol boundary
 
@@ -79,15 +82,18 @@ ADR 0011 exactly; the client owns reconnect backoff and snapshot fallback.
   syntax highlighted.
 - Composer: native text editing with slash commands, references, attachments,
   queued follow-ups, model and thinking selection, and abort.
-- Shell: native session tabs or windows, session discovery through pickers, native
-  menus, keyboard shortcuts, notifications for interactions that need the
-  user, and standard macOS accessibility.
+- Shell: windows that each hold session tabs, session discovery through
+  pickers, native menus, keyboard shortcuts, notifications for interactions
+  that need the user, and standard macOS accessibility.
 - Mica's semantic surfaces and colors provide the application identity, with
   softened geometry and native macOS window chrome, controls, and text editing.
-  The [macOS design reference](../design/macos-design-language.md) defines the
-  presentation direction alongside `.agents/skills/design/SKILL.md`.
-- Session navigation uses native macOS window tabs. Retained workspace tabs
-  and optional two-group splits remain distinct from window-level session navigation.
+  The [Paper "Kit App" file](https://app.paper.design/file/01M4MCMMAEY5AWN7E5J0PK6X1K) defines the presentation alongside
+  `.agents/skills/design/SKILL.md`.
+- Session navigation and the workspace follow
+  [ADR 0044](./0044-tile-the-macos-session-workspace.md): a window lists its
+  open sessions as session tabs in a sidebar or top strip, and each session's
+  workspace is a split tree of tiles that each hold a tab group of panes.
+  Native macOS window tabs are not used for session navigation.
 - Appearance selects independently configured light and dark themes; System
   follows macOS. Theme imports use Kit's `tokens` and `syntaxPalette` structure,
   with explicit native projections and readable matching window chrome.
@@ -102,7 +108,8 @@ dependencies only.
 ### Non-goals
 
 - Linux or Windows desktop builds.
-- Embedding a browser, web view, or the Solid client.
+- Using web content for Kit's own interface, or embedding the Solid client.
+  Browser panes for the user's own browsing are covered by ADR 0044.
 - Running droids, tools, plugins, or SQLite inside the application process.
 - A separate desktop protocol; the application uses only the shared contracts.
 
