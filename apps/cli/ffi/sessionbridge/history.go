@@ -26,7 +26,7 @@ type messagePager interface {
 
 // MessageHistory returns the session's recent prompts, newest first, without
 // blank prompts or repeats of a newer one. It reads up to five pages of user
-// messages, as the vaxis client does.
+// messages.
 func MessageHistory(ctx context.Context, session *kit.Session) ([]HistoryEntry, error) {
 	return messageHistory(ctx, session)
 }

@@ -1,5 +1,5 @@
 // Package pluginmessage derives the collapsed presentation of a
-// plugin-submitted session message, as the vaxis client does.
+// plugin-submitted session message.
 package pluginmessage
 
 import (

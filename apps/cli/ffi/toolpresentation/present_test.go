@@ -65,7 +65,7 @@ func TestPathLedSummariesReportTheirPath(t *testing.T) {
 	}
 }
 
-func TestBashCommandSummarizesLikeTheVaxisClient(t *testing.T) {
+func TestBashCommandSummarizesPipelinesListsAndScripts(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		command    string
@@ -102,7 +102,7 @@ func TestBashCommandSummarizesLikeTheVaxisClient(t *testing.T) {
 	}
 }
 
-func TestPresentTitlesToolsVaxisDidNotKnow(t *testing.T) {
+func TestPresentTitlesInteractionScratchpadAndIntegrationTools(t *testing.T) {
 	t.Parallel()
 	servers := []string{"Cloudflare API", "everything"}
 	for _, test := range []struct {

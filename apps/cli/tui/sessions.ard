@@ -78,7 +78,7 @@ fn new(props: mut Props) mut Picker {
 }
 
 // hierarchy retains server ordering among siblings while placing each child
-// directly after its parent, as the vaxis explorer does.
+// directly after its parent.
 private fn hierarchy(sessions: [protocol::SessionInfo]) [Row] {
   let rows = mut List::new<Row>()
   for session in sessions {
@@ -172,7 +172,7 @@ private fn catalog(sessions: [protocol::SessionInfo], current: Str, pending: Boo
       let disclosure = match children > 0 {
         true => {
           match is_collapsed(collapsed, session.ID) {
-            // Match vaxis's canonical disclosure glyphs and child count.
+            // The canonical disclosure glyphs and child count.
             true => "▸ {children}",
             false => "▾ {children}",
           }

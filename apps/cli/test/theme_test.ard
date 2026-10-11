@@ -6,8 +6,8 @@ use cooper/ui
 use go:github.com/akonwi/kit/internal/theme as kittheme
 use kit/tui/theme
 
-// Expected values follow the vaxis client's theme adapter: Kit's linear wash
-// for user turns (tintUIColor) and its token projection (projectColor).
+// Expected values follow Kit's theme adapter: a linear wash for user turns and
+// the projection of user theme tokens over their backdrops.
 
 fn dark() ctheme::Theme {
   ctheme::from_terminal(
@@ -112,8 +112,7 @@ test fn accent_text_is_the_terminal_magenta_unless_the_theme_sets_its_accent() V
       A: 255,
     },
   )
-  // As in the vaxis client, the theme's accent sets both accent-colored and
-  // primary text.
+  // The theme's accent sets both accent-colored and primary text.
   let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
   try check("accent_text", colors.accent_text, ui::rgb(230, 150, 60))
   check("primary_text", colors.primary_text, ui::rgb(230, 150, 60))

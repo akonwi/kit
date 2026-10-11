@@ -57,10 +57,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
       - name: Isolate Kit test state
         shell: bash
         run: echo "KIT_HOME=$(mktemp -d "$RUNNER_TEMP/kit-test-home.XXXXXX")" >> "$GITHUB_ENV"
@@ -80,14 +76,11 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test TUI, daemon, and supporting packages
+      - name: Test daemon and supporting packages
         run: go test -count=1 ./...
 
       - name: Test for data races
         run: go test -race -count=1 ./...
-
-      - name: Test terminal input ownership
-        run: python3 scripts/test-tui-input-ownership.py
 
   ard-client:
     name: Ard client (${{ matrix.os }})

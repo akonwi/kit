@@ -624,7 +624,7 @@ test fn selected_picker_rows_use_the_vaxis_focus_tint() Void!Str {
   let expected = theme::system().picker_selected
   testing::assert(
     actual.red == expected.red and actual.green == expected.green and actual.blue == expected.blue,
-    "selected fill rgb({actual.red}, {actual.green}, {actual.blue}), expected vaxis picker tint rgb({expected.red}, {expected.green}, {expected.blue})",
+    "selected fill rgb({actual.red}, {actual.green}, {actual.blue}), expected picker tint rgb({expected.red}, {expected.green}, {expected.blue})",
   )
 }
 
@@ -701,7 +701,7 @@ test fn long_catalogs_virtualize_with_overflow_rows_and_paging() Void!Str {
     }
   }
   try testing::assert(not shows_theta, "far items stay unrendered before paging")
-  // The wheel scrolls the hidden-scrollbar list like the vaxis picker.
+  // The wheel scrolls the hidden-scrollbar list.
   terminal.scroll(10, 3, 1)
   terminal.flush()
   terminal.flush()

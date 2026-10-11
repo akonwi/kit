@@ -373,8 +373,6 @@ private fn ranks_before(left: Ranked, right: Ranked) Bool {
 
 // item_score is the best match among the label (weighted highest), the
 // description, and the search terms, which act as aliases. Zero means no match.
-// This follows the vaxis client's fuzzy select filter so both clients rank
-// alike.
 fn item_score(item: Item, query: Str) Int {
   fields_score(item.label, item, query)
 }
@@ -676,7 +674,7 @@ fn meta_column(columns: Columns, trailing: Int) ui::Style {
 fn header(props: Props, focused: Bool?, input_ref: (mut cui::InputRef)?) [cui::View] {
   [
     // A one-cell leading spacer puts the field's text in the label column,
-    // aligned with the result rows, as in the vaxis picker search field.
+    // aligned with the result rows.
     cui::box(
       [
         cui::box(
@@ -685,7 +683,7 @@ fn header(props: Props, focused: Bool?, input_ref: (mut cui::InputRef)?) [cui::V
         ),
         cui::input(
           // A trailing pad cell keeps room for the cursor at the end of the
-          // query, as in the vaxis picker field.
+          // query.
           props.query,
           key: "palette.search",
           placeholder: props.placeholder,

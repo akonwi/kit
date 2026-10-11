@@ -17,7 +17,7 @@ type Invocation struct {
 	OK bool
 }
 
-// Parse reads an invocation from composer text, as the vaxis client does.
+// Parse reads an invocation from composer text.
 // Arguments keep their quotes and line breaks; the server parses them.
 func Parse(text string) Invocation {
 	rest, slash := strings.CutPrefix(text, "/")

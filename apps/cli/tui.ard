@@ -68,9 +68,8 @@ let picker_max_rows = 20
 // The picker frame: borders, title, search field, footer, and their rules.
 let picker_chrome_rows = 8
 
-// The inline session picker's height: a row per session and the frame,
-// between 10 and 20 rows as in the vaxis client. A failed list uses the
-// minimum.
+// The inline session picker's height: a row per session and the frame, between
+// 10 and 20 rows. A failed list uses the minimum.
 fn picker_height(listed: [protocol::SessionInfo]?) Int {
   let rows = match listed {
     sessions => sessions.size() + picker_chrome_rows,
@@ -126,7 +125,7 @@ fn pick_session(ctx: context::Context, client: mut api::Client, definition: kitt
     listed: listed,
     placement: modal::Placement::region,
   }
-  // Ctrl+C closes the picker from anywhere, as in the vaxis client.
+  // Ctrl+C closes the picker from anywhere.
   let root = cui::box(
     [cui::child(sessions::new, props)],
     key: "session-picker",

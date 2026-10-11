@@ -18,7 +18,7 @@ contribute to the underlying task.
 
 The server is authoritative for sessions and subagent execution. Pane
 arrangement, focus, scroll, and selection are properties of one TUI attachment. Conflating these layers would
-either leak Vaxis types into client contracts or make ephemeral client layout
+either leak renderer types into client contracts or make ephemeral client layout
 into shared session state.
 
 The root shell is viewport-native: it paints the terminal edge to edge and does
@@ -147,12 +147,12 @@ kind. Each definition supplies:
 - the concise tab label and collision disambiguation;
 - close policy and runtime availability;
 - activity or stale metadata that may decorate its tab;
-- the Vaxis pane-body factory; and
+- the pane-body view factory; and
 - feature-specific projection from session-client data into the body.
 
 Adding a descriptor kind without a native definition must fail at build or
 contract-test time. Other renderers may consume equivalent descriptors, but do
-not import native definitions or Vaxis rendering.
+not import native definitions or the native renderer.
 
 The workspace host owns the tab strip, overflow, modal pane picker, retention,
 and surface-level focus routing. Pane bodies own their content, local
@@ -214,7 +214,7 @@ handlers. Pane-specific polling and observation are limited to the visible pane
 unless a feature has a documented background requirement. Retained hidden
 widgets may still perform lightweight reconciliation or animation while
 mounted; suspending that work is a separate optimization. Asynchronous updates
-return through Vaxis runtime dispatch and are generation-checked so a closed
+return through Cooper runtime dispatch and are generation-checked so a closed
 pane cannot update retained state.
 
 Server events continue to update the attachment's client model while a pane is
@@ -252,7 +252,7 @@ Input follows visible layer and ownership:
 5. global shell commands.
 
 Handlers are registered only while their layer and pane are eligible. A hidden
-pane cannot consume an event, and a conditional Vaxis action is omitted rather
+pane cannot consume an event, and a conditional binding is omitted rather
 than registered with an ignored result that would block an outer action.
 
 Pane-local dialogs participate in the same admission and ownership rules as
@@ -285,7 +285,7 @@ it.
 `Tab` moves focus between the selected Agent/workspace content and the composer;
 `Shift+Tab` performs the reverse transition. These bindings are part of the shell
 contract rather than ordinary pane bindings. When a modal picker, dialog, or
-interaction dock owns input, it intercepts the Vaxis focus intents and keeps
+interaction dock owns input, it intercepts the focus commands and keeps
 focus within that active layer. `Ctrl+[` and `Ctrl+]` select the previous and
 next workspace tab, wrapping through Agent and retained tabs. The modal pane
 picker traps these commands, focus movement, and Escape before any underlying
@@ -350,7 +350,7 @@ Tests for the accepted implementation establish:
 
 Presentation tests assert visible cells, styles, geometry, focus, and state
 transitions. Controller tests assert identities and lifecycle independently of
-Vaxis rendering.
+rendering.
 
 ## Consequences
 

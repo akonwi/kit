@@ -1,6 +1,6 @@
-// Package mention tracks an inline mention, such as `@path`, while the
-// composer is edited. Offsets are UTF-8 byte offsets into the draft, as the
-// composer's cursor is. It follows the vaxis client's mention controller.
+// Package mention tracks an inline mention, such as `@path`, while the composer
+// is edited. Offsets are UTF-8 byte offsets into the draft, as the composer's
+// cursor is.
 package mention
 
 import (

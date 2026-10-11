@@ -13,18 +13,13 @@ session picker (`tui::pick_session`) and then the terminal client
 bridges such as `ffi/contextbridge`.
 
 Releases build `kit` from this entry point (`.github/workflows/release.yml`).
-The terminal client is written in Ard with Cooper (`tui.ard`, `tui/`); its
-parity with the former vaxis/ui client, and accepted differences, are recorded
-in the Cooper client parity section of `backlog/tui.md`. `cmd/kit`,
-`internal/cli`, and the vaxis client in `internal/tui` remain only until they
-are removed (TUI-COOPER-015); `ffi/cli` owns the command line and need not
-mirror new changes into `internal/cli`.
+The terminal client is written in Ard with Cooper (`tui.ard`, `tui/`).
 
 The directory is a separate Go module (`github.com/akonwi/kit/apps/cli`) that
 replaces `github.com/akonwi/kit` with the repository root, so root
 `go build ./...` and `go test ./...` do not include it. Building requires Ard
-0.43.0 or newer (CI uses the version in `.github/workflows/go-tests.yml`) and
-Go 1.27 or newer.
+0.43.0 or newer (CI uses the version in `.github/actions/setup-ard/action.yml`)
+and Go 1.27 or newer.
 
 ## Cooper
 

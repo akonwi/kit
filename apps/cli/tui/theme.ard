@@ -5,10 +5,9 @@ use go:github.com/akonwi/kit/internal/theme as kittheme
 
 // Kit's semantic colors for the terminal client.
 //
-// Cooper derives the vaxis-compatible, contrast-aware system theme from its
-// terminal session. Background and foreground paint with terminal defaults,
-// which preserve terminal transparency. User theme tokens override the derived
-// colors.
+// Cooper derives the contrast-aware system theme from its terminal session.
+// Background and foreground paint with terminal defaults, which preserve
+// terminal transparency. User theme tokens override the derived colors.
 
 struct Theme {
   background: ui::Color,
@@ -19,11 +18,11 @@ struct Theme {
   disabled: ui::Color,
   border: ui::Color,
   // The foreground/background pair used when selectable evidence is marked.
-  // This is Cooper's vaxis-compatible terminal-derived selection fill.
+  // This is Cooper's terminal-derived selection fill.
   selection: ui::Color,
   primary_text: ui::Color,
-  // Accent-colored text, such as the identity of a plugin message, as vaxis's
-  // AccentText. User themes set it with the same token as primary_text.
+  // Accent-colored text, such as the identity of a plugin message. User themes
+  // set it with the same token as primary_text.
   accent_text: ui::Color,
   success_text: ui::Color,
   warning_text: ui::Color,
@@ -48,9 +47,8 @@ struct Theme {
   diff_removed: ui::Color,
   // Renderer-neutral syntax roles resolved from terminal tones and user theme overrides.
   syntax_palette: [Str: ui::Color],
-  // Every semantic token role, such as `toolText`, resolved as in the vaxis
-  // client, for content that names its colors by role, like plugin footer
-  // items.
+  // Every semantic token role, such as `toolText`, resolved for content that
+  // names its colors by role, like plugin footer items.
   tokens: [Str: ui::Color],
 }
 
@@ -80,8 +78,8 @@ fn context(shared: mut Store) Context {
   Context{store: shared}
 }
 
-// selection_style paints selected evidence as vaxis does: terminal foreground
-// over the resolved terminal selection fill, never reverse video.
+// selection_style paints selected evidence with the terminal foreground over
+// the resolved terminal selection fill, never reverse video.
 fn selection_style(colors: Theme) fn(mut ui::TextStyle) {
   fn(style: mut ui::TextStyle) {
     style.foreground = colors.foreground
@@ -208,8 +206,8 @@ private fn tint(base: Rgb, accent: Rgb, opacity: Float64) Rgb {
 }
 
 // The theme for Cooper's terminal-color fallback.
-// selection_pulse matches vaxis's copy feedback: a 22% fade from selection
-// toward the terminal background, then back to the selection fill.
+// selection_pulse is the copy feedback: a 22% fade from selection toward the
+// terminal background, then back to the selection fill.
 fn selection_pulse(colors: Theme, progress: Float64) ui::Color {
   selection_pulse_color(colors.selection, colors.selection_backdrop, progress)
 }
@@ -324,11 +322,9 @@ fn token_color(colors: Theme, role: Str) ui::Color? {
   colors.tokens.get(role)
 }
 
-// Resolves every semantic token role as the vaxis client does
-// (`semanticFallback` and `projectTheme`): a terminal-derived default for each
-// role, replaced by the user theme's color projected over the role's backdrop.
-// A user theme may also define roles Kit does not know, projected over the
-// background.
+// Resolves every semantic token role: a terminal-derived default for each role,
+// replaced by the user theme's color projected over the role's backdrop. A user
+// theme may also define roles Kit does not know, projected over the background.
 private fn resolve_tokens(overrides: [Str: kittheme::Color], base: ctheme::Theme) [Str: ui::Color] {
   let tokens = mut Map::new<ui::Color>()
   let set = fn(color: ui::Color, roles: [Str]) {
@@ -451,8 +447,8 @@ private fn resolve_tokens(overrides: [Str: kittheme::Color], base: ctheme::Theme
   tokens.@
 }
 
-// The role a token's translucent color is blended over (vaxis's
-// `tokenBackdrop`). The background itself blends over the terminal's.
+// The role a token's translucent color is blended over. The background itself
+// blends over the terminal's.
 private fn token_backdrop(role: Str) Str {
   let picker = [
     kittheme::TokenPickerBorder,

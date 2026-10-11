@@ -41,31 +41,7 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-HEAD-001 — Make diagnostics and unavailable interaction behavior clear
   when transitioning between TUI and headless workflows.
 
-## Cooper client parity
-
-The Ard and Cooper terminal client in `apps/cli`
-([ADR 0035](../docs/adrs/0035-build-the-terminal-client-with-ard-and-cooper.md))
-replaces the vaxis/ui client in `internal/tui` and is what releases build.
-Parity means the same visible content, layout, focus, and interaction as the
-vaxis client, asserted by exact-row headless Cooper tests derived from the
-vaxis client's tests. Known, accepted differences: centered odd-width content can sit one cell right,
-because Cooper rounds half-cell layout edges up (Cooper ADR 0020); and the
-signed-out "Connect a provider" button is filled with the primary accent
-rather than vaxis's surface fill; and `kit sessions` lists sessions before its
-inline picker opens, sized once to them, because a Cooper inline app keeps
-its height, where vaxis opens at ten rows and grows as they load.
-
-- [~] TUI-COOPER-015 — Replace `internal/tui` and `cmd/kit`. CI checks
-  `apps/cli`, and releases build `kit` from it, with `vX.Y.Z-rc.N` tags
-  published as GitHub prereleases. Remaining, after v0.43.0 has been used for
-  a while: remove `cmd/kit`, `internal/cli`, `internal/tui`,
-  `scripts/test-tui-input-ownership.py` and its CI step, and the `vaxis-ui`
-  skill, which drops `go.rockorager.dev/vaxis` from the root module; then
-  update `AGENTS.md`, the design skill, `apps/cli/README.md`, and the deferred
-  items below that assume the vaxis client (such as TUI-PICK-006 and
-  TUI-IMAGE-001).
-
-Upstream dependencies:
+## Upstream dependencies
 
 - Cooper: a CUI `text_area` submit callback, in place of the composer's
   Enter keymap binding.
@@ -105,20 +81,12 @@ Upstream dependencies:
 
 - [ ] TUI-PICK-009 — Render the transcript reading section list as an inline
   picker attached to its message, without a query.
-- [ ] TUI-PICK-006 — Route diff target picker keys through the app input
-  owner so keys typed after Shift+g but before the picker first paints are
-  not lost. The picker's query, selection, and catalog live in the diff pane
-  state and reach `pickerKeyModel` through the canonical picker's `OnKey`
-  hook, which only exists once the picker is painted. Moving that state to
-  the app would require the app to own diff-specific picker state.
 
 - [ ] TUI-TRANSCRIPT-006 — Progressively enrich tool-call presentation with
   bounded recorded output and explicit truncated-content and omitted-detail
   evidence, preserving equivalent presentation for live and restored activity.
 - [ ] TUI-MERMAID-001 — Render Mermaid diagrams inline with a safe visual
   fallback, or adopt an explicitly reviewed native equivalent.
-- [ ] TUI-IMAGE-001 — Add retained `vaxis/ui` image paint operations upstream
-  and use them for native Kitty/Sixel transcript rendering with clipping.
 - [ ] TUI-ATT-003 — Read an image from the system clipboard into a bounded
   temporary file for attachment. Terminals paste only text and Cooper's
   clipboard is text-only (OSC 52), so this uses `osascript` on macOS and

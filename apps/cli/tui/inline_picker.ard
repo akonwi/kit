@@ -7,12 +7,12 @@ use kit/tui/palette
 use kit/tui/theme
 use go:strings
 
-// The canonical non-modal list attached to the composer, as in the vaxis
-// client. The composer keeps focus and its text is the query, so an inline
-// picker has no title, search field, or hints; the composer routes Up, Down,
-// Enter, and Escape to it. It rests on the composer's top edge, as wide as a
-// palette picker, fits up to `max_rows` rows, and grows upward, so its bottom
-// edge stays put while filtering.
+// The canonical non-modal list attached to the composer. The composer keeps
+// focus and its text is the query, so an inline picker has no title, search
+// field, or hints; the composer routes Up, Down, Enter, and Escape to it. It
+// rests on the composer's top edge, as wide as a palette picker, fits up to
+// `max_rows` rows, and grows upward, so its bottom edge stays put while
+// filtering.
 
 // The most rows an inline picker lists; longer lists scroll behind ⋯ rows.
 let max_rows = 10
