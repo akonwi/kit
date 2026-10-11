@@ -101,8 +101,6 @@ jobs:
       run:
         shell: bash
         working-directory: apps/cli
-    env:
-      ARD_VERSION: v0.44.0
     steps:
       - uses: actions/checkout@v4
 
@@ -114,36 +112,10 @@ jobs:
             go.sum
             apps/cli/go.sum
 
-      - name: Install Ard
-        run: |
-          os=$(uname -s | tr '[:upper:]' '[:lower:]')
-          case "$(uname -m)" in
-            x86_64 | amd64) arch=amd64 ;;
-            arm64 | aarch64) arch=arm64 ;;
-            *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
-          esac
-          archive="ard_${ARD_VERSION}_${os}_${arch}.tar.gz"
-          release="https://github.com/akonwi/ard/releases/download/${ARD_VERSION}"
-          install_dir="$RUNNER_TEMP/ard"
-          mkdir -p "$install_dir"
-          curl -fsSL --retry 3 -o "$install_dir/$archive" "$release/$archive"
-          curl -fsSL --retry 3 -o "$install_dir/checksums.txt" "$release/checksums.txt"
-          expected=$(awk -v name="$archive" '{ file = $2; sub(/^.*\//, "", file); if (file == name) print $1 }' "$install_dir/checksums.txt")
-          actual=$(shasum -a 256 "$install_dir/$archive" | awk '{ print $1 }')
-          if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
-            echo "Checksum mismatch for $archive: expected '$expected', got '$actual'"
-            exit 1
-          fi
-          tar -xzf "$install_dir/$archive" -C "$install_dir" ard
-          echo "$install_dir" >> "$GITHUB_PATH"
-          echo "ARD_CACHE_DIR=$RUNNER_TEMP/ard-cache" >> "$GITHUB_ENV"
-          echo "KIT_HOME=$(mktemp -d "$RUNNER_TEMP/kit-test-home.XXXXXX")" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-ard
 
-      - name: Fetch Ard dependencies
-        run: |
-          ard version
-          ard deps fetch
-          ard deps verify
+      - name: Isolate Kit test state
+        run: echo "KIT_HOME=$(mktemp -d "$RUNNER_TEMP/kit-test-home.XXXXXX")" >> "$GITHUB_ENV"
 
       - name: Check Ard formatting
         run: ard format --check .

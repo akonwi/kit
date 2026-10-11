@@ -34,20 +34,32 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: apps/cli/go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            apps/cli/go.sum
+
+      # The released `kit` is the Ard + Cooper client in apps/cli.
+      - uses: ./.github/actions/setup-ard
 
       - name: Build release binary
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Expected a stable release tag of the form vX.Y.Z" >&2
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "Expected a release tag of the form vX.Y.Z or vX.Y.Z-rc.N" >&2
             exit 1
           fi
           test -s "docs/releases/${GITHUB_REF_NAME}.md"
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w -X github.com/akonwi/kit/internal/version.Version=${GITHUB_REF_NAME#v} -X github.com/akonwi/kit/internal/version.Commit=$GITHUB_SHA" -o dist/kit ./cmd/kit
+          cd apps/cli
+          # Build values replace -ldflags -X stamping; with Go 1.22 and newer,
+          # -s also implies -w.
+          GOFLAGS="${GOFLAGS:+$GOFLAGS }-trimpath -ldflags=-s" \
+            ard build main.ard --release \
+            --define version="${GITHUB_REF_NAME#v}" --define commit="$GITHUB_SHA" \
+            --out "$GITHUB_WORKSPACE/dist/kit"
 
       - name: Smoke test packaged executable
         shell: bash
@@ -82,11 +94,21 @@ jobs:
           merge-multiple: true
 
       - name: Create release and upload assets
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          # Release candidates are prereleases: they never become the latest
+          # release, which in-app release history and the OpenAPI
+          # compatibility gate read.
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-rc.* ]]; then
+            prerelease=(--prerelease)
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --notes-file "docs/releases/${GITHUB_REF_NAME}.md" \
+            "${prerelease[@]}" \
             artifacts/*.tar.gz

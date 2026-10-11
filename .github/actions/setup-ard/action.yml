@@ -1,0 +1,52 @@
+name: Set up Ard
+description: >-
+  Installs a pinned, checksum-verified Ard release and restores the locked
+  dependencies of the Ard project in apps/cli.
+
+inputs:
+  version:
+    description: Ard release tag. Bump it here to move every workflow together.
+    default: v0.44.0
+  project:
+    description: Ard project whose locked dependencies are restored.
+    default: apps/cli
+
+runs:
+  using: composite
+  steps:
+    - name: Install Ard
+      shell: bash
+      env:
+        ARD_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        os=$(uname -s | tr '[:upper:]' '[:lower:]')
+        case "$(uname -m)" in
+          x86_64 | amd64) arch=amd64 ;;
+          arm64 | aarch64) arch=arm64 ;;
+          *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
+        esac
+        archive="ard_${ARD_VERSION}_${os}_${arch}.tar.gz"
+        release="https://github.com/akonwi/ard/releases/download/${ARD_VERSION}"
+        install_dir="$RUNNER_TEMP/ard"
+        mkdir -p "$install_dir"
+        curl -fsSL --retry 3 -o "$install_dir/$archive" "$release/$archive"
+        curl -fsSL --retry 3 -o "$install_dir/checksums.txt" "$release/checksums.txt"
+        expected=$(awk -v name="$archive" '{ file = $2; sub(/^.*\//, "", file); if (file == name) print $1 }' "$install_dir/checksums.txt")
+        actual=$(shasum -a 256 "$install_dir/$archive" | awk '{ print $1 }')
+        if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+          echo "Checksum mismatch for $archive: expected '$expected', got '$actual'"
+          exit 1
+        fi
+        tar -xzf "$install_dir/$archive" -C "$install_dir" ard
+        echo "$install_dir" >> "$GITHUB_PATH"
+        echo "ARD_CACHE_DIR=$RUNNER_TEMP/ard-cache" >> "$GITHUB_ENV"
+
+    - name: Restore Ard dependencies
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      run: |
+        set -euo pipefail
+        ard version
+        ard deps fetch
+        ard deps verify
