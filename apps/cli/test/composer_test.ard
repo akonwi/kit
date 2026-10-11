@@ -1678,3 +1678,33 @@ test fn a_failed_session_load_is_shown_in_the_picker() Void!Str {
   type_text(terminal, " #")
   testing::assert(value.session_loads == 2, "each mention lists sessions again")
 }
+
+test fn double_and_triple_clicks_select_a_word_and_a_line_of_the_draft() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.key(character("hello world again"))
+  terminal.flush()
+  try testing::assert(
+    strings::Split(terminal.frame().text(), "\n").at(6).or("") == " hello world again                              ",
+    "Expected the draft on row 6",
+  )
+
+  terminal.double_click(8, 6)
+  terminal.flush()
+  try testing::assert(
+    terminal.selection().expect("word selection").selected_text == "world",
+    "Expected a double-click to select the word",
+  )
+  terminal.click(30, 6)
+  terminal.flush()
+  terminal.triple_click(8, 6)
+  terminal.flush()
+  testing::assert(
+    terminal.selection().expect("line selection").selected_text == "hello world again",
+    "Expected a triple-click to select the line",
+  )
+}

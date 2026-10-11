@@ -3,19 +3,19 @@
   "root": "root",
   "packages": [
     {
-      "id": "git:383a36ce72376853:38227a66bb473e756fbc8f9eb686ee0aaa94c2c6",
+      "id": "git:383a36ce72376853:01efe89e104415c3f617d17fc99651ede42ae498",
       "name": "cooper",
       "git": "https://github.com/akonwi/cooper.git",
-      "commit": "38227a66bb473e756fbc8f9eb686ee0aaa94c2c6",
-      "requested": "38227a6",
-      "integrity": "sha256:d2649a82d2380439dd60e217853801b2cee3bc0631d22c43662fab35bb2b2bd3"
+      "commit": "01efe89e104415c3f617d17fc99651ede42ae498",
+      "requested": "01efe89",
+      "integrity": "sha256:fb5535cbc3866f0df99cc5ee5277e62108b2dd73fc3e6f8e2b742848bca33920"
     },
     {
       "id": "root",
       "name": "kit",
       "path": ".",
       "dependencies": {
-        "cooper": "git:383a36ce72376853:38227a66bb473e756fbc8f9eb686ee0aaa94c2c6"
+        "cooper": "git:383a36ce72376853:01efe89e104415c3f617d17fc99651ede42ae498"
       }
     }
   ]

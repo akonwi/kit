@@ -41,8 +41,10 @@ To move to a newer Cooper commit that is on GitHub, run
 `ard add github.com/akonwi/cooper@<commit>` (or `ard update cooper` for the
 latest `main`) and commit `ard.toml` and `ard.lock` together. To develop
 against an unpushed local Cooper checkout, temporarily set
-`cooper = { path = "../../../cooper" }` in `ard.toml`; push the Cooper change
-and pin its commit before committing Kit.
+`cooper = { path = "../../../cooper" }` in `ard.toml` and move `ard.lock`
+aside: Ard builds the locked commit while the lock pins one, ignoring the path.
+Push the Cooper change and pin its commit with `ard add`, which writes a new
+lock, before committing Kit.
 
 ## Develop
 
