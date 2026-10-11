@@ -2,6 +2,7 @@ use go:api/contract as protocol
 use cooper/cui
 use cooper/keymap
 use cooper/ui
+use go:kit/ffi/footer as footerlayout
 use go:kit/ffi/sessionbridge
 use kit/tui/annotations
 use kit/tui/attachments
@@ -134,10 +135,21 @@ fn session_status(recovery: Str, follow_ups: Int) Str {
   }
 }
 
-// footer shows, on the left, the session's connection problem, else a
-// session status such as stream recovery or queued follow-ups; the working
-// location is on the right.
-fn footer(themes: theme::Context, connection: Str, status: Str, location: Str) cui::View {
+// Right is the footer's right side: the working directory with its Git
+// status, and plugin items.
+struct Right {
+  location: footerlayout::Location,
+  plugin: protocol::PluginFooter,
+}
+
+// A right side showing only text, as before a session attaches.
+fn location_only(text: Str) Right {
+  Right{location: footerlayout::Location{Text: text}, plugin: protocol::PluginFooter{}}
+}
+
+// footer shows the session's connection problem or, without one, its status
+// on the left, and the working location with plugin items on the right.
+fn footer(themes: theme::Context, connection: Str, status: Str, right: Right) cui::View {
   let colors = themes.current()
   let shown = match connection != "" {
     true => connection,
@@ -153,15 +165,7 @@ fn footer(themes: theme::Context, connection: Str, status: Str, location: Str) c
         [layout::line(shown, ui::text_style(foreground: tone))],
         styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
       ),
-      cui::box(
-        [layout::line(location, ui::text_style(foreground: colors.muted))],
-        styles: ui::style(
-          flex_grow: 2.0,
-          flex_basis: ui::cells(0),
-          flex_direction: ui::FlexDirection::row,
-          justify_content: ui::Justify::end,
-        ),
-      ),
+      cui::child(new_right_side, RightProps{themes: themes, right: right}, key: "footer.right"),
     ],
     styles: ui::style(
       height: ui::cells(1),
@@ -170,6 +174,106 @@ fn footer(themes: theme::Context, connection: Str, status: Str, location: Str) c
       padding: layout::inset(),
     ),
   )
+}
+
+private struct RightProps {
+  themes: theme::Context,
+  right: Right,
+}
+
+// The right side fits its content to the width it measures after each
+// layout, before drawing, as the vaxis client does (`ffi/footer`).
+private struct RightSide {
+  props: mut RightProps,
+  frame: mut cui::BoxRef,
+  width: Int,
+}
+
+private fn new_right_side(props: mut RightProps) mut RightSide {
+  (mut RightSide{
+    props: props,
+    frame: cui::box_ref(),
+    width: 0,
+  })
+}
+
+impl cui::Lifecycle for RightSide {
+  fn mut mounted(context: cui::Context) {
+    let _ = context.internal_layout(fn() Bool {
+      self.measure()
+    })
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl RightSide {
+  // Records the measured width. Returns whether it changed.
+  private fn mut measure() Bool {
+    match self.frame.current {
+      frame => {
+        let width = frame.layout().local.width
+        let changed = width != self.width
+        self.width = width
+        changed
+      },
+      _ => false,
+    }
+  }
+}
+
+impl cui::Component for RightSide {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let right = self.props.right
+    let spans = mut List::new<ui::Span>()
+    for span in footerlayout::Spans(right.plugin, right.location, self.width) {
+      spans.push(footer_span(colors, span))
+    }
+    cui::box(
+      [
+        cui::text(ui::styled_text(spans.@), wrap: ui::TextWrap::none, overflow: ui::TextOverflow::clip),
+      ],
+      ref: self.frame,
+      styles: ui::style(
+        flex_grow: 2.0,
+        flex_basis: ui::cells(0),
+        flex_direction: ui::FlexDirection::row,
+        justify_content: ui::Justify::end,
+        overflow: ui::Overflow::hidden,
+      ),
+    )
+  }
+}
+
+// Location text is muted, and its pull-request label is an underlined link
+// that opens on click. Plugin text uses its theme roles over muted.
+private fn footer_span(colors: theme::Theme, span: footerlayout::Span) ui::Span {
+  match {
+    span.Item => {
+      let style = span.Style
+      ui::span(
+        span.Text,
+        style: ui::span_style(
+          foreground: theme::token_color(colors, style.FG).or(colors.muted),
+          background: theme::token_color(colors, style.BG),
+          bold: style.Bold,
+          dim: style.Dim,
+          italic: style.Italic,
+          underline: style.Underline,
+          strike: style.Strikethrough,
+        ),
+      )
+    },
+    span.URL != "" => {
+      ui::span(
+        span.Text,
+        link: span.URL,
+        style: ui::span_style(foreground: colors.muted, underline: true),
+      )
+    },
+    _ => ui::span(span.Text, style: ui::span_style(foreground: colors.muted)),
+  }
 }
 
 // Pending projects the attachment's status line, queued follow-ups, and the

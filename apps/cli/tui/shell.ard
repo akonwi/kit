@@ -370,7 +370,12 @@ impl Shell {
       self.attached.recovery_status(),
       self.attached.follow_ups.Count,
     )
-    chrome::footer(self.props.themes, connection, status, self.attached.location)
+    chrome::footer(
+      self.props.themes,
+      connection,
+      status,
+      chrome::Right{location: self.attached.footer_location(), plugin: self.attached.plugin_footer},
+    )
   }
 }
 

@@ -6,6 +6,7 @@ use cooper/cui
 use cooper/keymap
 use cooper/testing as headless
 use cooper/ui
+use go:kit/ffi/footer as footerlayout
 use go:kit/ffi/sessionbridge
 use kit/tui/attachments
 use kit/tui/chrome
@@ -126,8 +127,138 @@ test fn header_without_a_session_shows_the_product_name() Void!Str {
 
 test fn footer_shows_the_location_on_the_right() Void!Str {
   expect_rows(
-    render(40, 1, chrome::footer(theme::context(theme::store(theme::system())), "", "", "~/kit")),
+    render(
+      40,
+      1,
+      chrome::footer(
+        theme::context(theme::store(theme::system())),
+        "",
+        "",
+        chrome::location_only("~/kit"),
+      ),
+    ),
     ["                                  ~/kit"],
+  )
+}
+
+fn pull_request_location() footerlayout::Location {
+  footerlayout::Location{
+    Text: "~/very/long/project (feature* · PR #8)",
+    Base: "~/very/long/project",
+    LinkText: "PR #8",
+    URL: "https://github.com/akonwi/kit/pull/8",
+  }
+}
+
+fn plugin_items(texts: [Str]) protocol::PluginFooter {
+  let items = mut List::new<protocol::PluginFooterItem>()
+  for text in texts {
+    items.push(
+      protocol::PluginFooterItem{
+        ID: "demo.{text}",
+        Content: [
+          protocol::PluginFooterSegment{Text: text, Style: protocol::PluginFooterStyle{FG: "toolText", Bold: true}},
+        ],
+      },
+    )
+  }
+  protocol::PluginFooter{Items: items.@}
+}
+
+fn footer_with(right: chrome::Right) cui::View {
+  chrome::footer(theme::context(theme::store(theme::system())), "", "", right)
+}
+
+// The column of the first cell of text in row 0, or -1.
+fn column_of(terminal: headless::TestApp, text: Str) Int {
+  let row = rows(terminal).at(0).or("")
+  let index = strings::Index(row, text)
+  match index < 0 {
+    true => -1,
+    false => strings::Split(row.slice(0, index).or(""), "").size(),
+  }
+}
+
+test fn the_footer_shows_git_status_and_links_only_the_pull_request() Void!Str {
+  let terminal = headless::new(60, 1)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    footer_with(chrome::Right{location: pull_request_location(), plugin: protocol::PluginFooter{}}),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(rows(terminal), ["                     ~/very/long/project (feature* · PR #8)"])
+  let link = column_of(terminal, "PR #8")
+  let branch = column_of(terminal, "feature")
+  let linked = terminal.frame().cell(link + 2, 0).expect("link cell")
+  let plain = terminal.frame().cell(branch, 0).expect("branch cell")
+  try testing::assert(
+    linked.hyperlink.or("") == "https://github.com/akonwi/kit/pull/8" and linked.style.underline,
+    "the pull-request label is an underlined link",
+  )
+  try testing::assert(plain.hyperlink.is_none() and not plain.style.underline, "the branch is plain text")
+  terminal.click(branch, 0)
+  terminal.click(link + 2, 0)
+  terminal.flush()
+  let opened = terminal.opened_urls()
+  testing::assert(
+    opened.size() == 1 and opened.at(0).or("") == "https://github.com/akonwi/kit/pull/8",
+    "only the label opens the pull request: {opened.size()}",
+  )
+}
+
+test fn plugin_items_follow_the_location_in_their_theme_roles() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let terminal = headless::new(60, 1)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    chrome::footer(
+      themes,
+      "",
+      "",
+      chrome::Right{location: footerlayout::Location{Text: "~/kit"}, plugin: plugin_items(["Ready"])},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(rows(terminal), ["                                              ~/kit · Ready"])
+  let style = terminal.frame().cell(column_of(terminal, "Ready"), 0).expect("item cell").style
+  let color = style.foreground.expect("item color")
+  let tool = themes.current().success_text
+  testing::assert(
+    style.bold and color.red == tool.red and color.green == tool.green and color.blue == tool.blue,
+    "the item is bold in the toolText role",
+  )
+}
+
+test fn a_narrow_footer_keeps_git_status_and_counts_hidden_items() Void!Str {
+  // The right side is two thirds of the row inside its padding.
+  try expect_rows(
+    render(
+      30,
+      1,
+      footer_with(chrome::Right{location: pull_request_location(), plugin: protocol::PluginFooter{}}),
+    ),
+    ["           (feature* · PR #8)"],
+  )
+  try expect_rows(
+    render(
+      50,
+      1,
+      footer_with(
+        chrome::Right{location: pull_request_location(), plugin: plugin_items(["Very long status", "Second"])},
+      ),
+    ),
+    ["                    (feature* · PR #8) · … 2 more"],
+  )
+  let hidden = protocol::PluginFooter{LocationHidden: true}
+  expect_rows(
+    render(40, 1, footer_with(chrome::Right{location: pull_request_location(), plugin: hidden})),
+    [""],
   )
 }
 
@@ -137,7 +268,7 @@ test fn a_connection_problem_replaces_the_session_status() Void!Str {
     themes,
     "Restart Kit to reconnect",
     "Reconnecting activity…",
-    "~/kit",
+    chrome::location_only("~/kit"),
   )
   try expect_rows(
     render(80, 1, footer),
@@ -162,7 +293,12 @@ test fn a_connection_problem_replaces_the_session_status() Void!Str {
 
 test fn turn_recovery_shows_in_muted_text() Void!Str {
   let themes = theme::context(theme::store(theme::system()))
-  let footer = chrome::footer(themes, "", "Syncing final transcript…", "~/kit")
+  let footer = chrome::footer(
+    themes,
+    "",
+    "Syncing final transcript…",
+    chrome::location_only("~/kit"),
+  )
   try expect_rows(
     render(80, 1, footer),
     [" Syncing final transcript…                                                ~/kit"],
@@ -189,7 +325,7 @@ test fn queued_follow_ups_show_how_to_restore_them() Void!Str {
   let status = chrome::session_status("", 2)
   try testing::assert(status == "2 queued · ↑ restore", status)
   expect_rows(
-    render(80, 1, chrome::footer(themes, "", status, "~/kit")),
+    render(80, 1, chrome::footer(themes, "", status, chrome::location_only("~/kit"))),
     [" 2 queued · ↑ restore                                                     ~/kit"],
   )
 }

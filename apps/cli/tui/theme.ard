@@ -48,6 +48,10 @@ struct Theme {
   diff_removed: ui::Color,
   // Renderer-neutral syntax roles resolved from terminal tones and user theme overrides.
   syntax_palette: [Str: ui::Color],
+  // Every semantic token role, such as `toolText`, resolved as in the vaxis
+  // client, for content that names its colors by role, like plugin footer
+  // items.
+  tokens: [Str: ui::Color],
 }
 
 struct Rgb {
@@ -311,7 +315,179 @@ fn resolve(definition: kittheme::Definition, base: ctheme::Theme) Theme {
       backdrop,
     ),
     syntax_palette: syntax_palette,
+    tokens: resolve_tokens(tokens, base),
   }
+}
+
+// The color of a semantic token role, or none for an unknown role.
+fn token_color(colors: Theme, role: Str) ui::Color? {
+  colors.tokens.get(role)
+}
+
+// Resolves every semantic token role as the vaxis client does
+// (`semanticFallback` and `projectTheme`): a terminal-derived default for each
+// role, replaced by the user theme's color projected over the role's backdrop.
+// A user theme may also define roles Kit does not know, projected over the
+// background.
+private fn resolve_tokens(overrides: [Str: kittheme::Color], base: ctheme::Theme) [Str: ui::Color] {
+  let tokens = mut Map::new<ui::Color>()
+  let set = fn(color: ui::Color, roles: [Str]) {
+    for role in roles {
+      tokens.set(role, color)
+    }
+  }
+  let background = from_ui(base.background)
+  let washed = fn(accent: ui::Color, opacity: Float64) ui::Color {
+    to_ui(tint(background, from_ui(accent), opacity))
+  }
+  set(base.background, [kittheme::TokenBackground, kittheme::TokenBackgroundTransparent])
+  set(base.surface, [kittheme::TokenBackgroundSurface])
+  set(base.surface_raised, [kittheme::TokenPickerBackground])
+  set(
+    base.surface_hovered,
+    [
+      kittheme::TokenBackgroundMuted,
+      kittheme::TokenPickerBorder,
+      kittheme::TokenPickerScrollTrack,
+      kittheme::TokenScrollbarBackground,
+    ],
+  )
+  set(
+    base.surface_pressed,
+    [
+      kittheme::TokenBackgroundAccent,
+      kittheme::TokenScrollbarForeground,
+      kittheme::TokenDiffCursorGutterBackground,
+    ],
+  )
+  set(base.border, [kittheme::TokenBorderDefault, kittheme::TokenBorderStatus])
+  set(
+    base.muted_foreground,
+    [
+      kittheme::TokenBorderFocused,
+      kittheme::TokenTextSecondary,
+      kittheme::TokenTextMuted,
+      kittheme::TokenTextDebug,
+      kittheme::TokenPickerScrollThumb,
+      kittheme::TokenPanelText,
+    ],
+  )
+  set(
+    base.primary_text,
+    [
+      kittheme::TokenBorderAccent,
+      kittheme::TokenUserText,
+      kittheme::TokenUserBorder,
+      kittheme::TokenProgressNormal,
+    ],
+  )
+  set(
+    base.accent_text,
+    [
+      kittheme::TokenBorderDebug,
+      kittheme::TokenReviewText,
+      kittheme::TokenSubagentText,
+      kittheme::TokenDebugLabel,
+      kittheme::TokenMetaText,
+    ],
+  )
+  set(
+    base.success_text,
+    [
+      kittheme::TokenComposerBashBorder,
+      kittheme::TokenComposerBashExcludedBorder,
+      kittheme::TokenToolText,
+    ],
+  )
+  set(
+    base.foreground,
+    [
+      kittheme::TokenTextPrimary,
+      kittheme::TokenAssistantText,
+      kittheme::TokenCursor,
+      kittheme::TokenPickerItemText,
+    ],
+  )
+  set(base.disabled_foreground, [kittheme::TokenTextPlaceholder])
+  set(base.primary_hovered, [kittheme::TokenUserTextFocused])
+  set(
+    base.danger_text,
+    [kittheme::TokenErrorText, kittheme::TokenAttachmentText, kittheme::TokenProgressCritical],
+  )
+  set(base.warning_text, [kittheme::TokenWarningText, kittheme::TokenProgressWarning])
+  set(base.selection, [kittheme::TokenPickerFocusedBackground, kittheme::TokenDiffCursorBackground])
+  set(base.background, [kittheme::TokenPickerFocusedText])
+  set(base.primary, [kittheme::TokenToggleOn])
+  set(
+    washed(base.success, 0.20),
+    [kittheme::TokenDiffAddedBackground, kittheme::TokenDiffAddedContentBackground],
+  )
+  set(
+    washed(base.danger, 0.20),
+    [kittheme::TokenDiffRemovedBackground, kittheme::TokenDiffRemovedContentBg],
+  )
+  set(washed(base.success, 0.08), [kittheme::TokenDiffAddedLineNumberBg])
+  set(washed(base.danger, 0.08), [kittheme::TokenDiffRemovedLineNumberBg])
+  set(washed(base.success, 0.24), [kittheme::TokenDiffCursorAddedBackground])
+  set(washed(base.danger, 0.24), [kittheme::TokenDiffCursorRemovedBg])
+  // Overrides apply in registry order, so a role's backdrop reflects the
+  // user's background and fills before the role itself.
+  for role in kittheme::TokenRoles() {
+    match overrides.get(role) {
+      color => {
+        let backdrop = from_ui(tokens.get(token_backdrop(role)).or(base.background))
+        tokens.set(role, to_ui(project(color, backdrop, backdrop).or(backdrop)))
+      },
+      _ => (),
+    }
+  }
+  for role in overrides.keys() {
+    if not kittheme::IsKnownToken(role) {
+      let backdrop = from_ui(tokens.get(kittheme::TokenBackground).or(base.background))
+      let color = overrides.get(role).expect("token override")
+      tokens.set(role, to_ui(project(color, backdrop, backdrop).or(backdrop)))
+    }
+  }
+  tokens.@
+}
+
+// The role a token's translucent color is blended over (vaxis's
+// `tokenBackdrop`). The background itself blends over the terminal's.
+private fn token_backdrop(role: Str) Str {
+  let picker = [
+    kittheme::TokenPickerBorder,
+    kittheme::TokenPickerItemText,
+    kittheme::TokenPickerScrollThumb,
+    kittheme::TokenPickerScrollTrack,
+  ]
+  let added = [
+    kittheme::TokenDiffAddedContentBackground,
+    kittheme::TokenDiffAddedLineNumberBg,
+    kittheme::TokenDiffCursorAddedBackground,
+  ]
+  let removed = [
+    kittheme::TokenDiffRemovedContentBg,
+    kittheme::TokenDiffRemovedLineNumberBg,
+    kittheme::TokenDiffCursorRemovedBg,
+  ]
+  match {
+    role == kittheme::TokenBackground => "",
+    role == kittheme::TokenPickerFocusedText => kittheme::TokenPickerFocusedBackground,
+    listed(picker, role) => kittheme::TokenPickerBackground,
+    listed(added, role) => kittheme::TokenDiffAddedBackground,
+    listed(removed, role) => kittheme::TokenDiffRemovedBackground,
+    _ => kittheme::TokenBackground,
+  }
+}
+
+private fn listed(roles: [Str], role: Str) Bool {
+  mut found = false
+  for candidate in roles {
+    if candidate == role {
+      found = true
+    }
+  }
+  found
 }
 
 private fn resolve_syntax(overrides: [Str: kittheme::Color], base: ctheme::Theme, backdrop: Rgb) [Str: ui::Color] {

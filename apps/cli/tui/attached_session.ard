@@ -13,6 +13,7 @@ use go:github.com/akonwi/kit/internal/identifier
 use go:kit/ffi/attachmentbridge
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
+use go:kit/ffi/footer
 use go:kit/ffi/promptcommand
 use go:kit/ffi/sessionbridge
 use kit/tui/annotations
@@ -121,6 +122,13 @@ struct Controller {
   mcp_servers: [protocol::MCPServerStatus],
   mcp_warnings: [Str],
   shown_mcp_warnings: [Str],
+  // Plugin items for the footer's right side; a plugin may hide the location.
+  plugin_footer: protocol::PluginFooter,
+  // The latest Git status for the working directory it names, from a watch
+  // restarted whenever the directory changes.
+  vcs: protocol::SessionVCSStatus,
+  vcs_watch: contextbridge::Cancellation?,
+  vcs_watched_cwd: Str,
   notice: Str,
   start_pending: Bool,
   new_session_pending: Bool,
@@ -313,6 +321,10 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     mcp_servers: [],
     mcp_warnings: [],
     shown_mcp_warnings: [],
+    plugin_footer: protocol::PluginFooter{},
+    vcs: protocol::SessionVCSStatus{},
+    vcs_watch: Maybe::new<contextbridge::Cancellation>(),
+    vcs_watched_cwd: "",
     notice: "",
     start_pending: false,
     new_session_pending: false,
@@ -430,6 +442,7 @@ impl Controller {
   fn mut start(active_turn_id: Str, active_bash_id: Str) {
     self.watch()
     self.watch_plugin_toasts()
+    self.watch_vcs()
     self.follow_run(active_turn_id)
     self.resume_bash(active_bash_id)
   }
@@ -575,6 +588,12 @@ impl Controller {
       }
       self.prompt_commands = snapshot.PromptCommands
       self.plugin_commands = snapshot.PluginCommands
+      self.plugin_footer = match unsafe::is_nil(snapshot.PluginFooter) {
+        true => protocol::PluginFooter{},
+        false => snapshot.PluginFooter.@,
+      }
+      // Another client's /cd arrives as a snapshot.
+      self.watch_vcs()
       self.follow_ups = snapshot.FollowUps
       self.annotations = sessionbridge::Summaries(mut snapshot.Annotations)
       self.context_tokens = snapshot.ContextTokens
@@ -763,6 +782,85 @@ impl Controller {
     }
     if self.live.activity == "" {
       self.abort_pending = false
+    }
+  }
+
+  // Follows the working directory's Git status. The public handle reconnects
+  // on its own and returns only when the watch ends or cannot continue; a
+  // directory change replaces the watch, and outside a Git worktree the
+  // status is empty. A failed watch shows the directory alone.
+  private fn mut watch_vcs() {
+    let cwd = self.cwd()
+    if cwd != self.vcs_watched_cwd or self.vcs_watch.is_none() {
+      match self.vcs_watch {
+        watch => watch.Cancel(),
+        _ => (),
+      }
+      self.vcs_watch = Maybe::new<contextbridge::Cancellation>()
+      self.vcs_watched_cwd = cwd
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              if cwd != "" {
+                let watch = contextbridge::WithCancel(lifetime.Context)
+                self.vcs_watch = Maybe::new(watch)
+                let dispatch = self.host.dispatch
+                async::start(fn() {
+                  let result = session.WatchVCS(
+                    watch.Context,
+                    fn(status: protocol::SessionVCSStatus) {
+                      let _ = dispatch(fn() {
+                        self.apply_vcs(status)
+                      })
+                    },
+                  )
+                  match result {
+                    err(failure) => {
+                      let _ = dispatch(fn() {
+                        if self.active {
+                          let _ = self.absorbs(failure)
+                        }
+                      })
+                    },
+                    ok(_) => (),
+                  }
+                })
+              }
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Keeps Git status for this session's current directory; a late result
+  // for a previous directory is ignored.
+  fn mut apply_vcs(status: protocol::SessionVCSStatus) {
+    if self.active and status.SessionID == self.session_id() and status.CWD == self.cwd() {
+      self.vcs = status
+    }
+  }
+
+  // The footer's default content: the working directory with its Git
+  // status, once the status describes the current directory.
+  fn footer_location() footer::Location {
+    match self.vcs.CWD != "" and self.vcs.CWD == self.cwd() {
+      true => footer::VCSLocation(self.location, self.vcs.Status),
+      false => footer::VCSLocation(self.location, self.no_vcs().Status),
+    }
+  }
+
+  private fn no_vcs() protocol::SessionVCSStatus {
+    protocol::SessionVCSStatus{}
+  }
+
+  private fn cwd() Str {
+    match self.info {
+      info => info.CWD,
+      _ => "",
     }
   }
 
@@ -1234,6 +1332,7 @@ impl Controller {
           self.info = Maybe::new(moved.@)
           self.location = cwd
           self.resolve_location(cwd)
+          self.watch_vcs()
         }
       },
       _ => (),
@@ -5724,5 +5823,84 @@ test fn requests_waiting_at_attach_do_not_alert_but_later_ones_do_once() Void!St
   testing::assert(
     alert_log(effects) == "Kit needs your input: Which branch? | Kit needs your input: A request is waiting for your answer",
     alert_log(effects),
+  )
+}
+
+private fn branch_status(cwd: Str, branch: Str, dirty: Bool) protocol::SessionVCSStatus {
+  protocol::SessionVCSStatus{
+    SessionID: "session-1",
+    CWD: cwd,
+    Status: mut protocol::VCSStatus{
+      Root: cwd,
+      Head: protocol::VCSHead{Kind: protocol::VCSHeadBranch, Name: branch},
+      Dirty: dirty,
+    },
+  }
+}
+
+test fn git_status_applies_only_to_the_current_session_and_directory() Void!Str {
+  let effects = mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1", CWD: "/repo"}},
+  )
+  subject.location = "~/repo"
+  try testing::assert(subject.footer_location().Text == "~/repo", "no status yet")
+
+  subject.apply_vcs(branch_status("/repo", "main", true))
+  try testing::assert(subject.footer_location().Text == "~/repo (main*)", subject.footer_location().Text)
+  let elsewhere = mut branch_status("/repo", "other", false)
+  elsewhere.SessionID = "session-2"
+  subject.apply_vcs(elsewhere.@)
+  subject.apply_vcs(branch_status("/other", "other", false))
+  try testing::assert(
+    subject.footer_location().Text == "~/repo (main*)",
+    "another session or directory is ignored",
+  )
+
+  // A directory change shows the new directory alone until its status
+  // arrives; a late result for the old directory is ignored.
+  subject.follow_cwd("/next")
+  subject.location = "~/next"
+  subject.apply_vcs(branch_status("/repo", "main", false))
+  try testing::assert(subject.footer_location().Text == "~/next", subject.footer_location().Text)
+  subject.apply_vcs(branch_status("/next", "feature", false))
+  testing::assert(
+    subject.footer_location().Text == "~/next (feature)" and subject.footer_location().Base == "~/next",
+    subject.footer_location().Text,
+  )
+}
+
+test fn snapshots_carry_the_plugin_footer() Void!Str {
+  let effects = mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      PluginFooter: mut protocol::PluginFooter{
+        LocationHidden: true,
+        Items: [
+          protocol::PluginFooterItem{ID: "demo.status", Content: [protocol::PluginFooterSegment{Text: "Ready"}]},
+        ],
+      },
+    },
+  )
+  try testing::assert(
+    subject.plugin_footer.LocationHidden and subject.plugin_footer.Items.size() == 1,
+    "the plugin's items replace the location",
+  )
+  // A plugin that revokes its items restores the default location.
+  subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
+  testing::assert(
+    (not subject.plugin_footer.LocationHidden) and subject.plugin_footer.Items.size() == 0,
+    "no plugin footer",
   )
 }

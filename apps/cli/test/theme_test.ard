@@ -260,3 +260,48 @@ test fn theme_requests_wait_for_the_bound_dispatch() Void!Str {
   }
   check("dispatched preview", themes.current().muted, ui::rgb(200, 100, 50))
 }
+
+fn token(colors: theme::Theme, role: Str) ui::Color {
+  theme::token_color(colors, role).or(ui::rgb(1, 2, 3))
+}
+
+test fn every_token_role_resolves_from_the_terminal_theme() Void!Str {
+  let colors = theme::resolve(kittheme::Definition{}, dark())
+  for role in kittheme::TokenRoles() {
+    try testing::assert(theme::token_color(colors, role).is_some(), "{role} is resolved")
+  }
+  try check("toolText", token(colors, kittheme::TokenToolText), colors.success_text)
+  try check("textMuted", token(colors, kittheme::TokenTextMuted), colors.muted)
+  try check("errorText", token(colors, kittheme::TokenErrorText), colors.danger_text)
+  try check("diffAddedBg", token(colors, kittheme::TokenDiffAddedBackground), colors.diff_added)
+  testing::assert(theme::token_color(colors, "brandText").is_none(), "an unknown role is unset")
+}
+
+test fn user_tokens_replace_roles_and_blend_over_their_backdrop() Void!Str {
+  let tokens = mut Map::new<kittheme::Color>()
+  tokens.set(kittheme::TokenToolText, cool())
+  tokens.set(
+    kittheme::TokenPickerBackground,
+    kittheme::Color{
+      R: 0,
+      G: 0,
+      B: 0,
+      A: 255,
+    },
+  )
+  // Picker text blends over the picker background, not the terminal's.
+  tokens.set(
+    kittheme::TokenPickerItemText,
+    kittheme::Color{
+      R: 255,
+      G: 255,
+      B: 255,
+      A: 128,
+    },
+  )
+  tokens.set("brandText", warm())
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
+  try check("toolText", token(colors, kittheme::TokenToolText), ui::rgb(10, 20, 30))
+  try check("pickerItemText", token(colors, kittheme::TokenPickerItemText), ui::rgb(128, 128, 128))
+  check("brandText", token(colors, "brandText"), ui::rgb(200, 100, 50))
+}

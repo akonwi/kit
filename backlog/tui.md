@@ -57,10 +57,6 @@ rather than vaxis's surface fill.
 - [~] TUI-COOPER-010 — Sessions. Remaining: the standalone `kit sessions`
   picker, which still reports that it is unavailable (`pick_session` in
   `tui.ard`).
-- [~] TUI-COOPER-014 — Plugins and MCP. Remaining: plugin footer
-  contributions (the snapshot's `PluginFooter` items, which can hide the
-  location), and the footer's VCS branch and pull-request link that share the
-  footer's right side.
 - [ ] TUI-COOPER-015 — Replace `internal/tui` and `cmd/kit`: build releases
   from `apps/cli`, run its checks in CI, and remove the vaxis client.
 
