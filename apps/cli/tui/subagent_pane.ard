@@ -716,6 +716,7 @@ impl Pane {
             },
             work: transcript_pane::Work{
               open: self.open_work,
+              turn_active: self.running(),
               toggle: fn(key: Str, open: Bool) {
                 self.request(fn() {
                   self.toggle_work(key, open)

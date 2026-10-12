@@ -112,9 +112,13 @@ struct Plugins {
 // Runs of tool calls, shown as work chips. Clicking a chip opens or closes
 // it; at most one is open.
 struct Work {
-  // Chips opened or closed by a click, by work key. Without one, a running
+  // Chips opened or closed by a click, by work key. Without one, a live
   // chip of up to `work_auto_open` calls is open.
   open: [Str: Bool],
+  // Whether the conversation has a turn in progress. Its latest run stays
+  // live between calls, so the chip neither closes nor stops spinning while
+  // the model prepares its next call.
+  turn_active: Bool,
   // Opens the chip with the key, or closes it when open (the second
   // argument).
   toggle: fn(Str, Bool),
@@ -139,15 +143,21 @@ fn tool_key(turn_id: Str, call_id: Str) Str {
   "{turn_id}:{call_id}"
 }
 
-// A running chip opens on its own until it has more calls than this.
+// A live chip opens on its own until it has more calls than this.
 let work_auto_open = 5
 
-// Whether a work chip is open: as last clicked, else while it runs with few
-// enough calls to follow.
-fn work_is_open(work: Work, run: transcript::Work) Bool {
+// Whether a run is live: a call is still running, or it is the last row while
+// its turn is in progress and the model is preparing its next call.
+fn work_is_live(work: Work, run: transcript::Work, last: Bool) Bool {
+  run.running or last and work.turn_active
+}
+
+// Whether a work chip is open: as last clicked, else while it is live with
+// few enough calls to follow.
+fn work_is_open(work: Work, run: transcript::Work, live: Bool) Bool {
   match work.open.get(run.key) {
     open => open,
-    _ => run.running and run.calls <= work_auto_open,
+    _ => live and run.calls <= work_auto_open,
   }
 }
 
@@ -535,7 +545,7 @@ private fn transcript_row(
     false => 0,
   }
   let view = match entry.work {
-    run => work_view(themes, images, work, run),
+    run => work_view(themes, images, work, run, entry.last),
     _ => entry_view(themes, images, bash, plugins, notes, entry.key, entry.message).or(layout::blank()),
   }
   cui::box(
@@ -1211,13 +1221,14 @@ private fn bash_outcome(colors: theme::Theme, run: sessionbridge::Bash) Outcome 
 // While closed, a spinner shows the run working.
 // A run of tool calls: its chip or activity, then the images its show_image
 // calls presented, which show whether or not the chip is open.
-fn work_view(themes: theme::Context, images: Images, work: Work, run: transcript::Work) cui::View {
+fn work_view(themes: theme::Context, images: Images, work: Work, run: transcript::Work, last: Bool) cui::View {
+  let live = work_is_live(work, run, last)
   let shown = shown_images(run)
   match shown.size() == 0 {
-    true => work_activity(themes, work, run),
+    true => work_activity(themes, work, run, live),
     false => {
       let views = mut List::new<cui::View>()
-      views.push(work_activity(themes, work, run))
+      views.push(work_activity(themes, work, run, live))
       for image in shown {
         views.push(
           cui::child(
@@ -1327,9 +1338,9 @@ impl cui::Component for ShownImage {
   }
 }
 
-fn work_activity(themes: theme::Context, work: Work, run: transcript::Work) cui::View {
+fn work_activity(themes: theme::Context, work: Work, run: transcript::Work, live: Bool) cui::View {
   let colors = themes.current()
-  let open = work_is_open(work, run)
+  let open = work_is_open(work, run, live)
   let muted = ui::text_style(foreground: colors.muted)
   let count = match run.calls == 1 {
     true => "1 tool call",
@@ -1339,7 +1350,7 @@ fn work_activity(themes: theme::Context, work: Work, run: transcript::Work) cui:
   header.push(
     match {
       open => layout::line("▾", muted),
-      run.running => spinner::spinner(styles: ui::style(foreground: colors.muted)),
+      live => spinner::spinner(styles: ui::style(foreground: colors.muted)),
       _ => layout::line("▸", muted),
     },
   )

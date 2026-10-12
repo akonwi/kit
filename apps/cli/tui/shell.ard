@@ -1061,6 +1061,7 @@ impl Shell {
         },
         work: transcript_pane::Work{
           open: self.attached.open_work,
+          turn_active: self.attached.turn_in_progress(),
           toggle: fn(key: Str, open: Bool) {
             self.dispatch(fn() {
               self.attached.toggle_work(key, open)

@@ -521,6 +521,11 @@ impl Controller {
     self.busy() or self.bash_starting or self.bash_id != ""
   }
 
+  // Whether a turn is in progress, from its submission until it settles.
+  fn turn_in_progress() Bool {
+    self.live.activity != ""
+  }
+
   // The oldest pending request that this client presents.
   fn interaction() protocol::InteractionRequest? {
     self.interactions.at(0)
