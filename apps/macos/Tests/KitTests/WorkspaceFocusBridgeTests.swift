@@ -26,45 +26,41 @@ private struct ProbeEditor: NSViewRepresentable {
 @MainActor @Observable private final class OverlayFlag { var open = false }
 
 /// The workspace's arrangement in miniature: every pane stays mounted, hidden
-/// tabs at zero opacity without hit testing, the bridge behind the tiles, and
-/// a composer below them. Agent has no focus target, as in the app.
+/// tabs at zero opacity without hit testing, and the bridge behind the tiles.
+/// Diff has no focus target, as in the app; Agent's target is its composer.
 private struct FocusHarness: View {
     let workspace: WorkspaceState
     let overlay: OverlayFlag
 
     var body: some View {
-        VStack(spacing: 0) {
-            GeometryReader { geometry in
-                let frames = workspace.root.layout(in: CGRect(origin: .zero, size: geometry.size), gap: tileGap).tiles
-                ZStack(alignment: .topLeading) {
-                    ForEach(workspace.panes) { pane in
-                        let frame = workspace.tile(containing: pane).flatMap { frames[$0] } ?? .zero
-                        let visible = workspace.isVisible(pane)
-                        editor(pane)
-                            .frame(width: frame.width, height: frame.height)
-                            .offset(x: frame.minX, y: frame.minY)
-                            .opacity(visible ? 1 : 0)
-                            .allowsHitTesting(visible)
-                    }
+        GeometryReader { geometry in
+            let frames = workspace.root.layout(in: CGRect(origin: .zero, size: geometry.size), gap: tileGap).tiles
+            ZStack(alignment: .topLeading) {
+                ForEach(workspace.panes) { pane in
+                    let frame = workspace.tile(containing: pane).flatMap { frames[$0] } ?? .zero
+                    let visible = workspace.isVisible(pane)
+                    editor(pane)
+                        .frame(width: frame.width, height: frame.height)
+                        .offset(x: frame.minX, y: frame.minY)
+                        .opacity(visible ? 1 : 0)
+                        .allowsHitTesting(visible)
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-                .background(WorkspaceFocusBridge(workspace: workspace, frames: frames, overlayOpen: { overlay.open }))
             }
-            .frame(height: 300)
-            .overlay {
-                // A palette field over the tiles, as the command palette has.
-                if overlay.open { ProbeEditor(name: "palette").frame(width: 200, height: 40).offset(x: -100) }
-            }
-            ProbeEditor(name: "composer").workspaceFocusTarget(.composer).frame(height: 60)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+            .background(WorkspaceFocusBridge(workspace: workspace, frames: frames, overlayOpen: { overlay.open }))
         }
-        .frame(width: 600, height: 360)
+        .overlay {
+            // A palette field over the tiles, as the command palette has.
+            if overlay.open { ProbeEditor(name: "palette").frame(width: 200, height: 40).offset(x: -100) }
+        }
+        .frame(width: 600, height: 300)
     }
 
     @ViewBuilder private func editor(_ pane: WorkspacePane) -> some View {
-        if pane == .conversation {
+        if pane == .review {
             ProbeEditor(name: pane.id)
         } else {
-            ProbeEditor(name: pane.id).workspaceFocusTarget(.pane(pane))
+            ProbeEditor(name: pane.id).workspaceFocusTarget(pane)
         }
     }
 }
@@ -75,13 +71,14 @@ private struct FocusHarness: View {
     let window: NSWindow
     let host: NSHostingView<FocusHarness>
 
-    /// Agent and Scratchpad share the left tile; the file is alone on the right.
+    /// Agent, Scratchpad, and Diff share the left tile; the file is alone on the right.
     init() async throws {
+        workspace.open(.review)
         workspace.open(.scratchpad)
         workspace.open(.file("a.swift"))
         workspace.split(.file("a.swift"), .right)
         host = NSHostingView(rootView: FocusHarness(workspace: workspace, overlay: overlay))
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 360),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
                           styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
         try await settle()
@@ -134,7 +131,7 @@ private struct FocusHarness: View {
         try await fixture.settle()
         #expect(fixture.responder == "scratchpad")
 
-        fixture.workspace.select(.conversation)
+        fixture.workspace.select(.review)
         try await fixture.settle()
         #expect(fixture.workspace.focusedTile == fixture.left)
         #expect(fixture.window.firstResponder === fixture.window)
@@ -142,37 +139,33 @@ private struct FocusHarness: View {
 
     @Test func aHiddenTabCannotKeepTheKeyboard() async throws {
         let fixture = try await Fixture()
-        fixture.workspace.select(.conversation)
+        fixture.workspace.select(.review)
         try await fixture.settle()
 
         fixture.window.makeFirstResponder(fixture.editor("scratchpad"))
         try await fixture.settle()
-        #expect(fixture.workspace.selected == .conversation)
+        #expect(fixture.workspace.selected == .review)
         #expect(fixture.window.firstResponder === fixture.window)
     }
 
     @Test func hiddenTabsAreOutOfHitTesting() async throws {
         let fixture = try await Fixture()
-        fixture.workspace.select(.conversation)
+        fixture.workspace.select(.review)
         try await fixture.settle()
-        let agent = fixture.editor("conversation")
-        let rect = agent.convert(agent.visibleRect, to: nil)
+        let diff = fixture.editor("review")
+        let rect = diff.convert(diff.visibleRect, to: nil)
         let frame = try #require(fixture.window.contentView?.superview)
 
         let hit = frame.hitTest(frame.convert(NSPoint(x: rect.midX, y: rect.midY), from: nil))
-        #expect((hit as? ProbeTextView)?.name == "conversation")
+        #expect((hit as? ProbeTextView)?.name == "review")
     }
 
-    @Test func theComposerTakingTheKeyboardUnfocusesTheTiles() async throws {
+    @Test func theAgentPaneTakesTheKeyboardInItsComposer() async throws {
         let fixture = try await Fixture()
-        fixture.window.makeFirstResponder(fixture.editor("composer"))
+        fixture.workspace.select(.conversation)
         try await fixture.settle()
-        #expect(fixture.workspace.contentFocused == false)
-
-        fixture.workspace.select(.scratchpad)
-        try await fixture.settle()
-        #expect(fixture.workspace.contentFocused)
-        #expect(fixture.responder == "scratchpad")
+        #expect(fixture.workspace.focusedTile == fixture.left)
+        #expect(fixture.responder == "conversation")
     }
 
     @Test func closingAnOverlayReturnsTheKeyboard() async throws {
@@ -202,7 +195,7 @@ private struct FocusHarness: View {
 
     @Test func anOpenedPaneReceivesTheKeyboard() async throws {
         let fixture = try await Fixture()
-        fixture.workspace.select(.conversation)
+        fixture.workspace.select(.review)
         try await fixture.settle()
 
         fixture.workspace.open(.file("b.swift"))

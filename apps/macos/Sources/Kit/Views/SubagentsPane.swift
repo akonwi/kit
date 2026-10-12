@@ -38,9 +38,6 @@ struct AgentPane: View {
                 }
                 Spacer()
                 if conversation.loading || agent?.status == "running" { KitSpinner() }
-                if let count = agent?.queuedTasks, count > 0 {
-                    Text("\(count) queued").foregroundStyle(theme.muted)
-                }
                 if let agent, ["failed", "aborted", "interrupted"].contains(agent.status) {
                     Text(agent.status.capitalized)
                         .foregroundStyle(agent.status == "failed" ? theme.danger : theme.muted)
@@ -74,24 +71,32 @@ struct AgentPane: View {
                 Text(emptyMessage).font(.kit(size: 13)).foregroundStyle(theme.muted)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            if conversation.activity != nil {
-                PendingActivityView(activity: conversation.activity).padding(.horizontal, 16).padding(.vertical, 8)
-            }
-            if SessionStore.subagentMessagingEnabled {
-                Rule()
-                if state.isTemporary {
-                    Text("Subagents require a persistent session.")
-                        .font(.kit(size: 12)).foregroundStyle(theme.muted).padding(16)
-                } else {
-                    SubagentComposer(operation: state.subagentSend(name), isNew: conversationID == nil,
-                        enabled: state.canSendSubagent && agent != nil, active: active,
-                        focused: $focused, focusRequest: focusRequest) {
-                            Task { await state.sendToSubagent(name, conversation: conversationID) }
-                        }
-                        .workspaceFocusTarget(.pane(.agent(name)))
-                        .padding(16)
+            // This pane's activity card, queued tray, and composer address the
+            // subagent's own conversation. Interactions belong to the parent
+            // session and appear in the Agent pane.
+            VStack(alignment: .leading, spacing: 8) {
+                PendingActivityView(activity: conversation.activity)
+                if let count = agent?.queuedTasks, count > 0 {
+                    Text("\(count) queued \(count == 1 ? "task" : "tasks")")
+                        .font(.kit(size: 12)).foregroundStyle(theme.muted)
+                        .padding(.horizontal, 4)
+                        .accessibilityLabel("\(count) queued \(count == 1 ? "task" : "tasks") for \(name)")
+                }
+                if SessionStore.subagentMessagingEnabled {
+                    if state.isTemporary {
+                        Text("Subagents require a persistent session.")
+                            .font(.kit(size: 12)).foregroundStyle(theme.muted)
+                    } else {
+                        SubagentComposer(operation: state.subagentSend(name), pane: .agent(name), isNew: conversationID == nil,
+                            enabled: state.canSendSubagent && agent != nil, active: active,
+                            focused: $focused, focusRequest: focusRequest) {
+                                Task { await state.sendToSubagent(name, conversation: conversationID) }
+                            }
+                    }
                 }
             }
+            .padding([.horizontal, .bottom], 14)
+            .padding(.top, 8)
         }
         .onChange(of: active, initial: true) { _, active in
             if active && SessionStore.subagentMessagingEnabled { focusRequest += 1 }
@@ -210,6 +215,7 @@ private struct SubagentConfigurationFeedback: View {
 private struct SubagentComposer: View {
     @Environment(\.mica) private var theme
     @Bindable var operation: SubagentSendOperation
+    let pane: WorkspacePane
     let isNew: Bool
     let enabled: Bool
     let active: Bool
@@ -237,6 +243,7 @@ private struct SubagentComposer: View {
                     shellEnabled: false, placeholder: isNew ? "Describe the task…" : "Message subagent…",
                     focusEnabled: active, accessibilityLabel: "Subagent message", theme: theme)
                     .disabled(operation.pending)
+                    .workspaceFocusTarget(pane)
                 Button(action: send) {
                     if operation.pending { KitSpinner() }
                     else { Image(systemName: "arrow.up") }
@@ -244,8 +251,9 @@ private struct SubagentComposer: View {
                     .disabled(!enabled || operation.pending || operation.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .help(isNew ? "Start task" : "Send message")
                     .accessibilityLabel(isNew ? "Start task" : "Send message")
-            }.padding(12)
-                .background(RoundedRectangle(cornerRadius: 10).stroke(focused ? theme.accent : theme.border, lineWidth: 1))
+            }.padding(.horizontal, 12).padding(.vertical, 10)
+                .background(theme.raised, in: RoundedRectangle(cornerRadius: 4))
+                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(focused ? theme.focusBorder : theme.border))
         }
     }
 }

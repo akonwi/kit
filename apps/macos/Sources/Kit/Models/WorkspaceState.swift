@@ -58,8 +58,6 @@ final class WorkspaceState {
     private(set) var focusedTile: UUID
     /// The tile filling the workspace, if one is zoomed.
     private(set) var zoomedTile: UUID?
-    /// False while the shared composer, not a tile, has the user's attention.
-    var contentFocused = true
     /// The tab being dragged, if any.
     var tabDrag: TabDrag?
 
@@ -88,7 +86,6 @@ final class WorkspaceState {
     func focus(tile: UUID) {
         guard tiles[tile] != nil else { return }
         focusedTile = tile
-        contentFocused = true
     }
 
     /// Selects an open pane and focuses its tile, ending a zoom that hides it.

@@ -70,7 +70,9 @@ struct ComposerView: View {
                                   focusAtEndRequest: state.ui.composerFocusAtEndRequest,
                                   foreground: theme.text, placeholderColor: theme.muted,
                                   attachmentDrop: acceptAttachments, attachmentDropTargeted: { attachmentDropTargeted = $0 },
-                                  submit: { state.send() }, exitShell: exitShell,
+                                  submit: { state.send() },
+                                  // A hidden Agent pane takes a focus request once it's shown.
+                                  focusEnabled: state.ui.workspace.isVisible(.conversation), exitShell: exitShell,
                                   openPalette: { state.ui.palette = true }, mentions: mentions,
                                   history: history, historySession: state.selectedID, historyClient: state.composerHistoryClient,
                                   recallQueued: {
@@ -80,7 +82,8 @@ struct ComposerView: View {
                                   mentionIdentity: state.serverID + "/" + state.selectedID,
                                   mentionLoader: mentionLoader, pickerAnchor: pickerAnchor, theme: theme)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(16)
+                .workspaceFocusTarget(.conversation)
+                .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)
             HStack(spacing: 12) {
                 if let shell = state.shellMode {
                     HStack(spacing: 8) {
@@ -135,22 +138,21 @@ struct ComposerView: View {
                     else { state.send() }
                 } label: {
                     Image(systemName: state.activeBashID != nil || state.running || state.replaying ? "stop.fill" : "arrow.up")
-                        .frame(width: 28, height: 28)
+                        .frame(width: 26, height: 26)
                         .foregroundStyle(theme.surface)
-                        .background(theme.text, in: RoundedRectangle(cornerRadius: 6))
+                        .background(theme.text, in: RoundedRectangle(cornerRadius: 3))
                 }.buttonStyle(.plain)
                     .accessibilityLabel(state.activeBashID != nil ? "Stop shell command" : state.running ? "Stop run" : state.replaying ? "Stop" : "Send")
                     .help(state.activeBashID != nil ? "Stop shell command" : state.running || state.replaying ? "Stop response" : "Send message")
                     .disabled(primaryActionDisabled)
-            }.font(.kit(size: 11)).padding(.horizontal, 16).padding(.bottom, 12)
+            }.font(.kit(size: 11)).padding(.horizontal, 12).padding(.bottom, 10)
         }
         .background(ComposerPickerAnchorView(anchor: pickerAnchor))
-        .background(theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder((focused || attachmentDropTargeted) ? theme.focusBorder : theme.strongBorder, lineWidth: 1))
+        .background(theme.raised)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder((focused || attachmentDropTargeted) ? theme.focusBorder : theme.border, lineWidth: 1))
         .onDrop(of: [UTType.fileURL.identifier, UTType.image.identifier], isTargeted: $attachmentDropTargeted,
                 perform: acceptAttachments)
-        .padding(.horizontal, 28)
         .task(id: state.selectedID) { await state.loadComposer() }
         .onChange(of: state.selected?.cwd) { mentions.reset() }
         .onChange(of: state.selectedID) { modelPickerPresented = false }

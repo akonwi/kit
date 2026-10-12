@@ -8,7 +8,6 @@ struct SessionFooter: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Rule()
             HStack(spacing: 12) {
                 statusContent
                     .frame(maxWidth: .infinity, alignment: .leading)

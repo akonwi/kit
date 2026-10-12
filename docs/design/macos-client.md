@@ -48,11 +48,12 @@ opened file takes focus in its tile.
 ### Tile focus
 
 Focusing a tile, by its tab strip, a command, or a dropped tab, moves the
-keyboard to its selected pane: the Scratchpad and file editors, or a
-subagent's message box. Panes without an editor, such as Agent and Diff, only
-take the keyboard away from other tiles and hidden tabs; the shared composer
-keeps it if it had it. Clicking into a tile's editor or transcript focuses
-that tile, and the composer taking the keyboard moves attention to it.
+keyboard to its selected pane: the Agent composer, or the Scratchpad and file
+editors. Panes without one, such as Diff, only take the keyboard
+away from other tiles and hidden tabs. Clicking into a tile's composer,
+editor, or transcript focuses that tile. A request to focus the Agent
+composer while its tab is hidden waits until the tab is shown; quoting a
+selection into it shows the tab.
 
 Hidden tabs stay mounted at zero opacity with hit testing off, so switching
 tabs never remounts an editor. SwiftUI keeps a hidden AppKit view out of hit
@@ -137,7 +138,8 @@ to their ancestor at boundaries. History anchoring survives deferred row heights
 
 Sessions initially open at the bottom. Latest appears only when the final message
 is entirely outside the viewport. Tool-backed thinking and tool activity share
-one drawer; the latest thinking line also has a slot above the composer. Assistant
+one drawer; the latest thinking line also appears in the activity card above
+the pane's composer. Assistant
 prose appears on completion. Active drawer following respects manual scrolling.
 
 ## Editors and highlighting
@@ -218,8 +220,11 @@ boundaries. Closing an attachment cancels its polling, not server execution.
 
 ## Subagents and cross-session activity
 
-Subagent inspection is read-only. Direct user-to-subagent messaging stays disabled
-by product decision; dismissal is supported. Roster status drives tab activity,
+Subagent panes show the subagent's activity card and queued task count but no
+composer. Direct user-to-subagent messaging stays disabled: a subagent's result
+is delivered to the parent agent rather than back to the user who messaged it.
+Dismissal is supported. Interaction requests carry no conversation identity, so
+every interaction docks in the Agent pane. Roster status drives tab activity,
 and effective configuration belongs to the selected subagent conversation.
 
 Created-session and peer-session tool cards present structured summaries and
@@ -302,7 +307,7 @@ pointing-hand cursor.
 Ranges cannot span omitted context or exceed 200 source lines. Ordinary native
 selection, syntax highlighting, scrolling, and source-copy behavior are retained.
 Refreshing preserves unsaved comments at their original revisions and requires
-explicit reselection. Saved notes use the shared composer submission contract.
+explicit reselection. Saved notes use the Agent composer's submission contract.
 
 `DiffTests` cover source-side projection, pinned pagination, cancelled/stale reads,
 and annotation-authorized reveal. `InlineAnnotationEditorTests` exercise the rendered native

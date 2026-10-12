@@ -1,21 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// What a focus target marker stands for: a pane's keyboard target, or the
-/// session composer below the tiles.
-enum WorkspaceFocusTarget: Hashable {
-    case pane(WorkspacePane)
-    case composer
-}
-
 /// Keeps AppKit's first responder and the workspace's focused tile in step.
 ///
 /// - Focusing a tile (a tab click, a command, a drop) moves the first
-///   responder to the focused pane's marked target view. A pane without one
-///   only takes the keyboard away from views in other tiles or hidden tabs.
-/// - A view in a tile becoming first responder (a click into an editor or
-///   transcript) focuses that tile; the composer becoming first responder
-///   hands attention to it.
+///   responder to the focused pane's marked target view: its composer or
+///   editor. A pane without one only takes the keyboard away from views in
+///   other tiles or hidden tabs.
+/// - A view in a tile becoming first responder (a click into a composer,
+///   editor, or transcript) focuses that tile.
 /// - Opening an overlay remembers the first responder, and closing it
 ///   returns focus there unless the overlay moved focus itself.
 ///
@@ -59,7 +52,6 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
         private struct Key: Equatable {
             let tile: UUID
             let pane: WorkspacePane
-            let contentFocused: Bool
             let tiles: [UUID]
         }
 
@@ -87,8 +79,7 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
             self.workspace = workspace
             self.frames = frames
             self.overlayOpen = overlayOpen
-            let key = Key(tile: workspace.focusedTile, pane: workspace.selected,
-                          contentFocused: workspace.contentFocused, tiles: workspace.visibleTiles)
+            let key = Key(tile: workspace.focusedTile, pane: workspace.selected, tiles: workspace.visibleTiles)
             let open = overlayOpen()
             if open != overlayShown {
                 overlayShown = open
@@ -112,15 +103,14 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
 
         /// Moves the first responder to the focused pane's target.
         func sync() {
-            guard let window, let workspace, !overlayOpen(), workspace.contentFocused,
-                  Self.isVisible(self) else { return }
+            guard let window, let workspace, !overlayOpen(), Self.isVisible(self) else { return }
             let pane = workspace.selected
             let responder = window.firstResponder as? NSView
             if let responder, region(of: responder) == .tile(workspace.focusedTile), Self.isVisible(responder) {
                 pendingPane = nil
                 return
             }
-            if let target = targetView(for: .pane(pane)) {
+            if let target = targetView(for: pane) {
                 pendingPane = nil
                 move(window, to: target)
                 return
@@ -130,8 +120,8 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
         }
 
         /// A marker for `pane` appeared or moved.
-        func targetChanged(_ target: WorkspaceFocusTarget) {
-            guard case .pane(let pane) = target, pane == pendingPane else { return }
+        func targetChanged(_ pane: WorkspacePane) {
+            guard pane == pendingPane else { return }
             scheduleSync()
         }
 
@@ -159,11 +149,9 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
                 if !Self.isVisible(responder) {
                     // A hidden tab's view took the keyboard; give it back.
                     scheduleSync()
-                } else if workspace.focusedTile != id || !workspace.contentFocused {
+                } else if workspace.focusedTile != id {
                     workspace.focus(tile: id)
                 }
-            case .composer:
-                workspace.contentFocused = false
             case .outside:
                 break
             }
@@ -176,26 +164,21 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
             lastResponder = view
         }
 
-        enum Region: Equatable { case tile(UUID), composer, outside }
+        enum Region: Equatable { case tile(UUID), outside }
 
-        /// Where a view sits: in a visible tile, in the composer, or elsewhere.
+        /// Where a view sits: in a visible tile, or elsewhere.
         func region(of view: NSView) -> Region {
-            let center = Self.windowCenter(of: view)
-            let point = convert(center, from: nil)
-            if bounds.contains(point) {
-                let tiles = workspace?.visibleTiles ?? []
-                if let id = tiles.first(where: { frames[$0]?.contains(point) == true }) { return .tile(id) }
-            }
-            if let composer = markers(for: .composer).first,
-               composer.convert(composer.bounds, to: nil).contains(center) { return .composer }
-            return .outside
+            let point = convert(Self.windowCenter(of: view), from: nil)
+            guard bounds.contains(point) else { return .outside }
+            let tiles = workspace?.visibleTiles ?? []
+            return tiles.first(where: { frames[$0]?.contains(point) == true }).map(Region.tile) ?? .outside
         }
 
         /// The view that should hold the keyboard for a target: the first
         /// view accepting first responder under its visible marker's center.
-        func targetView(for target: WorkspaceFocusTarget) -> NSView? {
+        func targetView(for pane: WorkspacePane) -> NSView? {
             guard let window, let root = window.contentView,
-                  let marker = markers(for: target).first(where: { Self.isVisible($0) }) else { return nil }
+                  let marker = markers(for: pane).first(where: { Self.isVisible($0) }) else { return nil }
             let rect = marker.convert(marker.bounds, to: nil)
             guard rect.width > 0, rect.height > 0 else { return nil }
             let center = NSPoint(x: rect.midX, y: rect.midY)
@@ -207,12 +190,12 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
             return nil
         }
 
-        private func markers(for target: WorkspaceFocusTarget) -> [FocusTargetMarker.MarkerView] {
+        private func markers(for pane: WorkspacePane) -> [FocusTargetMarker.MarkerView] {
             guard let root = window?.contentView else { return [] }
             var found: [FocusTargetMarker.MarkerView] = []
             var stack = [root]
             while let view = stack.popLast() {
-                if let marker = view as? FocusTargetMarker.MarkerView, marker.target == target { found.append(marker) }
+                if let marker = view as? FocusTargetMarker.MarkerView, marker.pane == pane { found.append(marker) }
                 stack.append(contentsOf: view.subviews)
             }
             return found
@@ -241,37 +224,37 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
     @MainActor static let bridges = NSHashTable<BridgeView>.weakObjects()
 }
 
-/// Marks the view whose AppKit content should take the keyboard for a
-/// focus target. Attach with `.workspaceFocusTarget(_:)`.
+/// Marks the view whose AppKit content should take the keyboard when its
+/// pane's tile is focused. Attach with `.workspaceFocusTarget(_:)`.
 struct FocusTargetMarker: NSViewRepresentable {
-    let target: WorkspaceFocusTarget
+    let pane: WorkspacePane
 
     func makeNSView(context: Context) -> MarkerView { MarkerView() }
 
     func updateNSView(_ view: MarkerView, context: Context) {
-        view.target = target
+        view.pane = pane
         view.report()
     }
 
     final class MarkerView: NSView {
-        var target: WorkspaceFocusTarget?
+        var pane: WorkspacePane?
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             report()
         }
         func report() {
-            guard let target, let window else { return }
+            guard let pane, let window else { return }
             for bridge in WorkspaceFocusBridge.bridges.allObjects where bridge.window === window {
-                bridge.targetChanged(target)
+                bridge.targetChanged(pane)
             }
         }
     }
 }
 
 extension View {
-    /// Marks this view as where the keyboard goes when `target` is focused.
-    func workspaceFocusTarget(_ target: WorkspaceFocusTarget) -> some View {
-        background(FocusTargetMarker(target: target))
+    /// Marks this view as where the keyboard goes when `pane`'s tile is focused.
+    func workspaceFocusTarget(_ pane: WorkspacePane) -> some View {
+        background(FocusTargetMarker(pane: pane))
     }
 }

@@ -396,7 +396,8 @@ final class SessionStore {
         subagentSends[selectedID, default: [:]][name] = value
         return value
     }
-    // Direct human-to-subagent messaging is intentionally deferred.
+    /// Direct messaging is off: a subagent's result is delivered to the parent
+    /// agent, not back to the user who messaged it.
     static let subagentMessagingEnabled = false
     var canSendSubagent: Bool {
         Self.subagentMessagingEnabled && subagentClient is any SubagentMessagingClient && !isTemporary && !unavailable && connectionState == .connected

@@ -2,11 +2,11 @@
 import AppKit
 import SwiftUI
 
-/// Space between tiles, and between the tiles and the composer.
+/// Space between tiles, and between the tiles and the status bar.
 let tileGap: CGFloat = 6
 private let tabStripHeight: CGFloat = 34
 
-/// A session's workspace: its split tree of tiles above the shared composer.
+/// A session's workspace: its split tree of tiles above the session status bar.
 struct WorkspaceLayout: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
@@ -62,7 +62,7 @@ struct WorkspaceLayout: View {
                     // Borders sit above pane content so the focus ring stays whole.
                     ForEach(workspace.visibleTiles, id: \.self) { id in
                         let frame = frames[id] ?? .zero
-                        let focused = workspace.contentFocused && workspace.focusedTile == id && workspace.root.tiles.count > 1
+                        let focused = workspace.focusedTile == id && workspace.root.tiles.count > 1
                         RoundedRectangle(cornerRadius: 4)
                             .strokeBorder(focused ? theme.focusBorder : theme.border)
                             .frame(width: frame.width, height: frame.height)
@@ -76,12 +76,9 @@ struct WorkspaceLayout: View {
                     frames: frames.filter { visible.contains($0.key) },
                     overlayOpen: { [ui = state.ui] in ui.palette || ui.filePicker }))
             }
-            SessionComposerRegion(state: state)
-                .workspaceFocusTarget(.composer)
-                .background(theme.surface)
+            SessionStatusRegion(state: state)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border))
-                .simultaneousGesture(TapGesture().onEnded { workspace.contentFocused = false })
         }
     }
 
@@ -132,7 +129,7 @@ private struct TileChrome: View {
 
     var body: some View {
         let tile = workspace.tiles[id]
-        let focused = workspace.contentFocused && workspace.focusedTile == id
+        let focused = workspace.focusedTile == id
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ScrollView(.horizontal) {
@@ -415,7 +412,7 @@ struct ScratchpadPane: View {
                 @Bindable var workspace = workspace
                 ScratchpadEditor(text: $workspace.scratchpad, documentVersion: pad.documentVersion,
                     editorState: $workspace.scratchpadPosition)
-                    .workspaceFocusTarget(.pane(.scratchpad))
+                    .workspaceFocusTarget(.scratchpad)
             }
             if pad.status != .saved {
                 Rule()
@@ -540,7 +537,7 @@ struct FilePane: View {
                         .foregroundStyle(theme.muted).frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .workspaceFocusTarget(.pane(.file(path)))
+            .workspaceFocusTarget(.file(path))
             Text((entry?.stale == true && preview != nil ? "Read-only · Preview may be out of date" : "Read-only") + (preview?.truncated == true ? " · Preview truncated" : ""))
                 .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
         }.onChange(of: state.annotationState.evidenceConflict) {

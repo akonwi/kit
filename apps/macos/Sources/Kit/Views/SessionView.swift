@@ -11,6 +11,7 @@ struct SessionView: View {
         VStack(spacing: 0) {
             TranscriptReadingNavigation(state: reading)
             transcript
+            SessionComposerRegion(state: state)
         }.background(theme.surface)
     }
 
@@ -34,39 +35,50 @@ struct SessionView: View {
     }
 }
 
+/// The Agent pane's composer, activity card, queued tray, and interaction
+/// dock. Everything here addresses the parent session's conversation.
 struct SessionComposerRegion: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 8) {
             if state.interactions.isEmpty {
                 PendingActivityView(activity: state.unavailable ? nil : state.activity)
-                    .frame(maxWidth: 780).padding(.horizontal, 32)
-                    .frame(maxWidth: .infinity)
             }
             if let flow = state.interactions.first {
                 InteractionCard(flow: flow, pendingCount: state.interactions.count) { state.finishInteraction(cancelled: $0) }
                     .id(flow.id).frame(maxWidth: .infinity)
             } else {
-                ComposerView(state: state).frame(maxWidth: 844).frame(maxWidth: .infinity)
+                ComposerView(state: state)
             }
             if !state.isDemo && !state.unavailable && state.connectionState != .connected {
                 HStack {
                     Text(state.connectionStatus).foregroundStyle(theme.muted)
                     Spacer()
                     Button("Reconnect") { state.attach() }.buttonStyle(MicaButtonStyle(compact: true))
-                }.font(.kit(size: 12)).padding(.horizontal, 28).padding(.vertical, 12)
+                }.font(.kit(size: 12)).padding(.horizontal, 4)
             }
-            SessionFooter(state: state).padding(.top, 12)
-        }.background(theme.surface)
-        .onChange(of: state.bashOperation.error, initial: true) { state.syncBashFeedback() }
-        .onChange(of: state.bashOperation.pending) { state.syncBashFeedback() }
-        .task(id: "bash/\(state.serverID)/\(state.selectedID)/\(state.unavailable)") {
-            if !state.unavailable { await state.monitorBash() }
         }
-        .task(id: "\(state.serverID)/\(state.selectedID)/\(state.unavailable)") {
-            if !state.unavailable, let client = state.mutationClient { await state.operations.monitorQueue(client: client, session: state.selectedID) }
-        }
+        .frame(maxWidth: 844)
+        .padding([.horizontal, .bottom], 14)
+        .frame(maxWidth: .infinity)
+        .background(theme.surface)
     }
+}
 
+/// Session status and workspace controls below the tiles, and the session's
+/// shell and queue monitors, which run whichever panes are shown.
+struct SessionStatusRegion: View {
+    @Bindable var state: SessionStore
+    var body: some View {
+        SessionFooter(state: state)
+            .onChange(of: state.bashOperation.error, initial: true) { state.syncBashFeedback() }
+            .onChange(of: state.bashOperation.pending) { state.syncBashFeedback() }
+            .task(id: "bash/\(state.serverID)/\(state.selectedID)/\(state.unavailable)") {
+                if !state.unavailable { await state.monitorBash() }
+            }
+            .task(id: "\(state.serverID)/\(state.selectedID)/\(state.unavailable)") {
+                if !state.unavailable, let client = state.mutationClient { await state.operations.monitorQueue(client: client, session: state.selectedID) }
+            }
+    }
 }

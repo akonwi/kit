@@ -92,13 +92,13 @@ it will land. A tile's split buttons or a tab's context menu also move a tab int
 new tile on the right or below. Drag the gap between tiles to resize them; double-click it to
 even them out. Zoom fills the workspace with one tile. Closing a tile's last tab
 removes the tile. Each session keeps its arrangement while the app runs.
-Focusing a tile moves the keyboard to its editor or subagent message box, and clicking
-into a tile's editor or transcript focuses that tile.
-The shared composer below the tiles always addresses the parent session. Enter submits;
-Cmd+Enter inserts a newline. Cmd+P opens commands; Cmd+, opens settings.
-Session workspace controls (Diff, Scratchpad, Subagents, Open file, and Commands)
-are centered in the footer, with status on the left. They remain available when an
-interaction replaces the composer. The session bar above the workspace shows the
+Focusing a tile moves the keyboard to its composer or editor, and clicking into a
+tile's composer, editor, or transcript focuses that tile.
+The Agent pane has its own composer, activity card, queued messages, and interaction
+dock, all addressing the parent session, and Diff comments go to it. A subagent pane
+shows that subagent's activity card and queued task count; it has no composer. Enter submits; Cmd+Enter inserts a newline. Cmd+P opens commands;
+Cmd+, opens settings. Session workspace controls (Diff, Scratchpad, Subagents, Open
+file, and Commands) are centered in the footer below the tiles, with status on the left. The session bar above the workspace shows the
 cwd, Git branch, pull request, and plugin footer items.
 
 File views read from the session server and support highlighted, selectable
