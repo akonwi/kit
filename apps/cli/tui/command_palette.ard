@@ -319,6 +319,17 @@ struct Palette {
   hidden_above: Bool,
   hidden_below: Bool,
   viewport: Int,
+  // pending is the command awaiting its required argument. While set, the
+  // palette frame shows the argument input instead of the command list, and
+  // the list's query and selection are kept for returning to it.
+  pending: PendingArgument?,
+  argument: Str,
+  argument_error: Str,
+}
+
+struct PendingArgument {
+  key: Str,
+  prompt: ArgumentPrompt,
 }
 
 // view mounts a fresh palette for each opening.
@@ -340,11 +351,46 @@ private fn new(props: mut Props) mut Palette {
     hidden_above: false,
     hidden_below: false,
     viewport: 0,
+    pending: Maybe::new<PendingArgument>(),
+    argument: "",
+    argument_error: "",
   })
 }
 
 private fn unavailable(reason: Str) Notice {
   Notice{title: "Command unavailable", detail: reason}
+}
+
+// ArgumentPrompt describes the input a built-in command requests when it is
+// activated without its required argument. Extension commands do not declare
+// whether their argument is required, so they never prompt.
+struct ArgumentPrompt {
+  title: Str,
+  placeholder: Str,
+  // missing is the inline error shown when the prompt is submitted empty.
+  missing: Str,
+}
+
+// argument_prompt returns the input to request before an enabled built-in can
+// run, or nothing when the invocation already carries its argument.
+fn argument_prompt(item: palette::Item, query: Str) ArgumentPrompt? {
+  match item.disabled_reason == "" and strings::TrimSpace(command_args(query)) == "" {
+    true => {
+      match item.key {
+        "cd" => {
+          Maybe::new(
+            ArgumentPrompt{
+              title: "Change working directory",
+              placeholder: "Path",
+              missing: "Enter a path",
+            },
+          )
+        },
+        _ => Maybe::new<ArgumentPrompt>(),
+      }
+    },
+    false => Maybe::new<ArgumentPrompt>(),
+  }
 }
 
 // resolve validates one activated row against the invocation query, returning
@@ -355,7 +401,16 @@ fn resolve(
   prompt_commands: [protocol::PromptCommand],
   plugin_commands: [protocol::PluginCommand],
 ) Action!Notice {
-  let literal = command_args(query)
+  resolve_arguments(item, command_args(query), prompt_commands, plugin_commands)
+}
+
+// resolve_arguments validates one command against its literal argument text.
+private fn resolve_arguments(
+  item: palette::Item,
+  literal: Str,
+  prompt_commands: [protocol::PromptCommand],
+  plugin_commands: [protocol::PluginCommand],
+) Action!Notice {
   let trimmed = strings::TrimSpace(literal)
   let builtin = fn(kind: ActionKind) Action!Notice {
     Result::ok(
@@ -532,10 +587,124 @@ impl Palette {
   }
 
   private fn mut activate(item: palette::Item) {
-    match resolve(item, self.query, self.props.prompt_commands, self.props.plugin_commands) {
-      ok(action) => self.props.activate(action),
-      err(notice) => self.props.notice(notice),
+    match argument_prompt(item, self.query) {
+      prompt => {
+        self.pending = Maybe::new(PendingArgument{key: item.key, prompt: prompt})
+        self.argument = ""
+        self.argument_error = ""
+      },
+      _ => {
+        match resolve(item, self.query, self.props.prompt_commands, self.props.plugin_commands) {
+          ok(action) => self.props.activate(action),
+          err(notice) => self.props.notice(notice),
+        }
+      },
     }
+  }
+
+  // submit_argument runs the pending command against the live catalog, so a
+  // capability lost while prompting is reported rather than bypassed.
+  private fn mut submit_argument(pending: PendingArgument) {
+    if strings::TrimSpace(self.argument) == "" {
+      self.argument_error = pending.prompt.missing
+    } else {
+      match palette::selected(self.catalog(), pending.key) {
+        item => {
+          match resolve_arguments(item, self.argument, self.props.prompt_commands, self.props.plugin_commands) {
+            ok(action) => self.props.activate(action),
+            err(notice) => self.props.notice(notice),
+          }
+        },
+        _ => self.props.notice(unavailable("not available yet")),
+      }
+    }
+  }
+
+  // back returns from the argument input to the command list as it was left.
+  private fn mut back() Bool {
+    self.pending = Maybe::new<PendingArgument>()
+    self.argument = ""
+    self.argument_error = ""
+    self.select(self.selection)
+    true
+  }
+
+  // argument_dialog keeps the palette's picker frame while requesting the
+  // pending command's argument; Escape returns to the command list.
+  private fn mut argument_dialog(pending: PendingArgument) cui::View {
+    let colors = self.props.themes.current()
+    let back = keymap::simple_command("palette.back", "Back to commands", fn() Bool {
+      self.back()
+    })
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::picker,
+        title: pending.prompt.title,
+        meta: "",
+        header: [
+          // A one-cell leading spacer aligns the field with the command
+          // palette's search text.
+          cui::box(
+            [
+              cui::text(" ", styles: ui::style(width: ui::cells(1), flex_shrink: 0.0)),
+              cui::input(
+                self.argument,
+                key: "command-palette.argument",
+                placeholder: pending.prompt.placeholder,
+                autofocus: true,
+                styles: ui::style(
+                  padding: ui::Edges{
+                    top: ui::cells(0),
+                    right: ui::cells(1),
+                    bottom: ui::cells(0),
+                    left: ui::cells(0),
+                  },
+                  background: colors.background,
+                  flex_grow: 1.0,
+                  flex_basis: ui::cells(0),
+                ),
+                on_input: fn(value: Str, ctx: cui::Context) {
+                  self.argument = value
+                  self.argument_error = ""
+                },
+                on_submit: fn(value: Str, ctx: cui::Context) {
+                  self.submit_argument(pending)
+                },
+              ),
+            ],
+            styles: ui::style(
+              flex_direction: ui::FlexDirection::row,
+              flex_shrink: 0.0,
+              background: colors.background,
+            ),
+          ),
+          cui::divider(),
+        ],
+        body: cui::box(
+          [
+            cui::text(
+              self.argument_error,
+              styles: ui::style(
+                padding: ui::Edges{
+                  top: ui::cells(0),
+                  right: ui::cells(1),
+                  bottom: ui::cells(0),
+                  left: ui::cells(1),
+                },
+              ),
+              text_style: ui::text_style(foreground: colors.danger_text),
+            ),
+          ],
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        ),
+        footer: Maybe::new<cui::View>(),
+        autofocus: false,
+        dismiss: back,
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
   }
 
   private fn mut viewport_props() palette::Viewport {
@@ -562,6 +731,15 @@ impl Palette {
 
 impl cui::Component for Palette {
   fn mut render() cui::View {
+    match self.pending {
+      pending => self.argument_dialog(pending),
+      _ => self.command_dialog(),
+    }
+  }
+}
+
+impl Palette {
+  private fn mut command_dialog() cui::View {
     let catalog = self.catalog()
     // Capabilities can change while the palette is open. Keep the selected row
     // when it remains visible; otherwise fall back to the first enabled row.

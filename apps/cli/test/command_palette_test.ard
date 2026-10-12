@@ -460,3 +460,172 @@ test fn prompt_commands_show_their_source_with_claude_code_commands_as_claude() 
   }
   testing::assert(sources == "claude-fix=claude review=project ", sources)
 }
+
+// panel_rows returns the dialog's non-divider content rows, trimmed of frame
+// borders and padding.
+fn panel_rows(terminal: headless::TestApp) [Str] {
+  let rows = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    if strings::Contains(row, "│") and not strings::Contains(row, "─") {
+      rows.push(strings::TrimSpace(strings::Trim(row, "│ ")))
+    }
+  }
+  rows.@
+}
+
+fn prompt_rows(terminal: headless::TestApp) Str {
+  let rows = panel_rows(terminal)
+  "{rows.at(0).or("")}|{rows.at(1).or("")}|{rows.at(2).or("")}"
+}
+
+fn open_cd_prompt(terminal: headless::TestApp) {
+  type_text(terminal, "cd")
+  terminal.key(key("return"))
+  terminal.flush()
+}
+
+test fn cd_without_a_path_prompts_for_it_in_the_palette_frame() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let model = mut Model{
+    open: true,
+    draft: "",
+    busy: false,
+    actions: [],
+    notices: [],
+    dismissed: 0,
+  }
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  open_cd_prompt(terminal)
+  try testing::assert(
+    model.actions.size() == 0 and model.notices.size() == 0,
+    "activating cd without a path waits for one",
+  )
+  try testing::assert(
+    prompt_rows(terminal) == "Change working directory|Path|",
+    "the frame titles the command and shows the path field: {prompt_rows(terminal)}",
+  )
+
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(model.actions.size() == 0, "an empty path does not run")
+  try testing::assert(
+    prompt_rows(terminal) == "Change working directory|Path|Enter a path",
+    "an empty submission explains what is missing: {prompt_rows(terminal)}",
+  )
+
+  // The path field owns focus and fills its row, so a long path stays visible.
+  let path = "~/Developer/agent/kit/apps/cli/tui/some/deeply/nested/folder"
+  type_text(terminal, path)
+  try testing::assert(
+    prompt_rows(terminal) == "Change working directory|{path}|",
+    "typing clears the error and shows the whole path: {prompt_rows(terminal)}",
+  )
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(model.actions.size() == 1, "submitting the path resolves one action")
+  let action = model.actions.at(0).expect("action")
+  testing::assert(
+    action.kind == command_palette::ActionKind::change_directory and action.argument == path,
+    "the prompted path becomes the cd argument",
+  )
+}
+
+test fn escape_from_the_cd_prompt_returns_to_the_command_list() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let model = mut Model{
+    open: true,
+    draft: "",
+    busy: false,
+    actions: [],
+    notices: [],
+    dismissed: 0,
+  }
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  open_cd_prompt(terminal)
+  type_text(terminal, "../repo")
+  terminal.key(key("escape"))
+  terminal.flush()
+  try testing::assert(model.dismissed == 0, "Escape in the prompt keeps the palette open")
+  let rows = panel_rows(terminal)
+  try testing::assert(
+    rows.at(0).or("") == "cd" and strings::HasPrefix(rows.at(1).or(""), "▌cd "),
+    "the list returns with its query and selection: {rows.at(0).or("")}|{rows.at(1).or("")}",
+  )
+
+  // The search field owns focus again, and reopening starts with an empty path.
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(
+    prompt_rows(terminal) == "Change working directory|Path|",
+    "reopening the prompt starts empty: {prompt_rows(terminal)}",
+  )
+  terminal.key(key("escape"))
+  terminal.flush()
+  terminal.key(key("escape"))
+  terminal.flush()
+  testing::assert(model.dismissed == 1, "Escape from the list then dismisses the palette")
+}
+
+test fn the_cd_prompt_reports_a_capability_lost_while_prompting() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let model = mut Model{
+    open: true,
+    draft: "",
+    busy: false,
+    actions: [],
+    notices: [],
+    dismissed: 0,
+  }
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  open_cd_prompt(terminal)
+  type_text(terminal, "/tmp")
+  renderer.update(fn() {
+    model.busy = true
+  })
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(model.actions.size() == 0, "cd does not run once a turn starts")
+  testing::assert(
+    model.notices.size() == 1 and model.notices.at(0).expect("notice").detail == "idle only",
+    "the prompt reports why the command became unavailable",
+  )
+}
+
+test fn extension_commands_without_an_argument_run_without_prompting() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let model = mut Model{
+    open: true,
+    draft: "",
+    busy: false,
+    actions: [],
+    notices: [],
+    dismissed: 0,
+  }
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "echo")
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(model.actions.size() == 1, "the plugin command runs immediately")
+  let action = model.actions.at(0).expect("action")
+  testing::assert(
+    action.kind == command_palette::ActionKind::plugin_command and action.argument == "",
+    "plugins decide whether their argument is required",
+  )
+}
