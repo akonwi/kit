@@ -138,10 +138,11 @@ how to try it. The workflow publishes it as a GitHub **prerelease**, so it never
 becomes the latest release that in-app release history and the OpenAPI
 compatibility gate read. Do not update the Homebrew formula for a candidate.
 
-An RC version is outside the stable-release compatibility promise
-(`internal/server/compatibility.go`): a candidate cannot attach to a running
-daemon of another version. Try it with an isolated `KIT_HOME`, or stop the
-stable daemon first and restart it afterward. Download each platform's archive
+Client/server compatibility depends only on the session protocol
+(`internal/clienttransport`), so a candidate that keeps the stable
+protocol can attach to a running stable daemon. Prefer an isolated `KIT_HOME`
+anyway: a candidate's daemon may migrate the database in ways older releases
+cannot reopen. Download each platform's archive
 you can run and check `kit version`, `kit --help`, and an interactive session.
 
 Fix problems forward and tag `rc.N+1`. To promote, tag `vX.Y.Z` on the tested
@@ -160,15 +161,13 @@ does not sign, notarize, tag, or publish an app.
    releases. Release only from reviewed, committed `main`. Choose the app's own
    `X.Y.Z` version (starting at `0.1.0`), not the CLI version. Review app changes
    since the previous `macos-v*` tag and ensure the source-derived
-   `CFBundleVersion` build number increases. Check the generated wire protocol,
-   `KitClientRelease` identity, and pinned `client_release` in
-   `apps/macos/script/package_app.sh` against the actual server compatibility
-   contract. For protocol 40, stable server releases >= 0.37.0 can be compatible
-   without matching the app version; do not require one exact CLI release.
-   Changes to the protocol or compatibility promise require explicit review.
+   `CFBundleVersion` build number increases. Check the generated wire protocol
+   against the server's session protocol; any server on the same protocol is
+   compatible, so do not require one exact CLI release. Changes to the protocol
+   or compatibility policy require explicit review.
 2. Prepare curated, version-matched app notes for the reviewed release commit
    before tagging. Include its full source SHA, supported macOS/architecture,
-   external-server requirement, protocol/release compatibility, manual
+   external-server requirement, protocol compatibility, manual
    install/update path, Cask status, and material limitations or skipped checks.
    The app release is manual: supply the finalized notes to `gh release create`
    with `--notes-file`; no workflow reads a tracked app notes file. If committing
@@ -202,7 +201,7 @@ does not sign, notarize, tag, or publish an app.
    It refuses dirty or untagged source; never publish the ad-hoc development
    bundle or expose keychain credentials in notes or logs.
 5. Verify the ZIP checksum, extract it outside the checkout, and inspect the
-   app's architecture, source commit, bundle version/build, `KitClientRelease`,
+   app's architecture, source commit, bundle version/build,
    Developer ID signature, stapled ticket, and Gatekeeper assessment. Exercise
    the installed artifact against a compatible running server and check
    incompatible-server recovery without altering that server. For upgrades,

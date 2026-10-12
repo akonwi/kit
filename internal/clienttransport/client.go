@@ -258,7 +258,7 @@ func (c *Client) ProbeCompatible(ctx context.Context) (Connection, error) {
 	if err != nil {
 		return Connection{}, err
 	}
-	if err := CheckCompatibility(connection); err != nil {
+	if err := CheckCompatibility(connection.ProtocolVersion, connection.KitVersion); err != nil {
 		return Connection{}, err
 	}
 	return connection, nil
@@ -276,7 +276,6 @@ type CompatibilityReason string
 const (
 	ServerProtocolOlder CompatibilityReason = "server_protocol_older"
 	ClientProtocolOlder CompatibilityReason = "client_protocol_older"
-	ReleaseMismatch     CompatibilityReason = "release_mismatch"
 )
 
 // CompatibilityError preserves the versions needed to explain a mismatch.
@@ -292,7 +291,7 @@ func (e *CompatibilityError) Error() string {
 	if e == nil {
 		return ErrIncompatibleServer.Error()
 	}
-	action := "Use a matching client; restart the daemon with the intended binary only when interrupting active work is acceptable."
+	action := "Restart the daemon with a newer binary only when interrupting active work is acceptable."
 	if e.Reason == ClientProtocolOlder {
 		action = "Update this client; do not replace the newer daemon with an older binary."
 	}
@@ -302,64 +301,21 @@ func (e *CompatibilityError) Error() string {
 func (e *CompatibilityError) Unwrap() error            { return ErrIncompatibleServer }
 func (e *CompatibilityError) IncompatibleDaemon() bool { return true }
 
-// CheckCompatibility compares a verified connection with this client.
-func CheckCompatibility(connection Connection) error {
-	return CheckCompatibilityWithVersion(connection, version.Version)
-}
-
-// CheckCompatibilityWithVersion compares a connection with a supplied client version.
-func CheckCompatibilityWithVersion(connection Connection, clientVersion string) error {
-	failure := CompatibilityError{
-		ClientVersion: clientVersion, ServerVersion: connection.KitVersion,
-		ClientProtocol: version.SessionProtocolVersion, ServerProtocol: connection.ProtocolVersion,
+// CheckCompatibility compares a verified server's identity with this client.
+// Callers must authenticate the server and verify its published identity first.
+// A client and server are compatible exactly when they speak the same session
+// protocol; the server's release label is reported for diagnosis only.
+func CheckCompatibility(serverProtocol int, serverVersion string) error {
+	if serverProtocol == version.SessionProtocolVersion {
+		return nil
 	}
-	switch {
-	case connection.ProtocolVersion < version.SessionProtocolVersion:
-		failure.Reason = ServerProtocolOlder
-	case connection.ProtocolVersion > version.SessionProtocolVersion:
+	failure := CompatibilityError{
+		Reason:        ServerProtocolOlder,
+		ClientVersion: version.Version, ServerVersion: serverVersion,
+		ClientProtocol: version.SessionProtocolVersion, ServerProtocol: serverProtocol,
+	}
+	if serverProtocol > version.SessionProtocolVersion {
 		failure.Reason = ClientProtocolOlder
-	case connection.KitVersion == clientVersion:
-		return nil
-	case coveredReleasePair(version.SessionProtocolVersion, clientVersion, connection.KitVersion):
-		return nil
-	default:
-		failure.Reason = ReleaseMismatch
 	}
 	return &failure
-}
-
-func compatible(connection Connection) error { return CheckCompatibility(connection) }
-
-func coveredReleasePair(protocol int, clientVersion, serverVersion string) bool {
-	var minimum [3]uint64
-	switch protocol {
-	case 42:
-		minimum = [3]uint64{0, 39, 0}
-	case 45:
-		minimum = [3]uint64{0, 42, 0}
-	default:
-		return false
-	}
-	return stableReleaseAtLeast(clientVersion, minimum) && stableReleaseAtLeast(serverVersion, minimum)
-}
-
-func stableReleaseAtLeast(release string, minimum [3]uint64) bool {
-	if len(release) == 0 || len(release) > 64 {
-		return false
-	}
-	var major, minor, patch uint64
-	if _, err := fmt.Sscanf(release, "%d.%d.%d", &major, &minor, &patch); err != nil {
-		return false
-	}
-	canonical := fmt.Sprintf("%d.%d.%d", major, minor, patch)
-	if canonical != release {
-		return false
-	}
-	numbers := [3]uint64{major, minor, patch}
-	for index := range numbers {
-		if numbers[index] != minimum[index] {
-			return numbers[index] > minimum[index]
-		}
-	}
-	return true
 }

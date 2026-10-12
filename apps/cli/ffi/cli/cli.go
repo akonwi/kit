@@ -20,6 +20,7 @@ import (
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
+	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/identifier"
 	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/version"
@@ -499,12 +500,8 @@ func writeServerStatus(output io.Writer, registry kitserver.Registry, health kit
 	} else {
 		fmt.Fprintln(output, "database: not ready")
 	}
-	if err := kitserver.CheckCompatibility(registry); err != nil {
+	if err := clienttransport.CheckCompatibility(registry.ProtocolVersion, registry.KitVersion); err != nil {
 		fmt.Fprintf(output, "compatibility: %v\n", err)
-		return
-	}
-	if version.Version == "dev" {
-		fmt.Fprintln(output, "compatibility: protocol-compatible (dev build; release behavior not verified)")
 		return
 	}
 	fmt.Fprintln(output, "compatibility: compatible")

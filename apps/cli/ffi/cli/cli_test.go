@@ -17,10 +17,7 @@ import (
 
 func TestServerStatusShowsDaemonAndClientCompatibility(t *testing.T) {
 	t.Parallel()
-	compatibleVerdict := "compatibility: compatible"
-	if version.Version == "dev" {
-		compatibleVerdict = "compatibility: protocol-compatible (dev build; release behavior not verified)"
-	}
+	const compatibleVerdict = "compatibility: compatible"
 	for _, tc := range []struct {
 		name     string
 		protocol int
@@ -29,9 +26,10 @@ func TestServerStatusShowsDaemonAndClientCompatibility(t *testing.T) {
 		verdict  string
 	}{
 		{name: "compatible", protocol: version.SessionProtocolVersion, release: version.Version, ready: true, verdict: compatibleVerdict},
-		{name: "older daemon", protocol: version.SessionProtocolVersion - 1, release: version.Version, ready: true, verdict: "compatibility: local daemon is incompatible (daemon_protocol_older)"},
+		{name: "different release on the same protocol", protocol: version.SessionProtocolVersion, release: "0.0.1-other", ready: true, verdict: compatibleVerdict},
+		{name: "older daemon", protocol: version.SessionProtocolVersion - 1, release: version.Version, ready: true, verdict: "compatibility: local daemon is incompatible (server_protocol_older)"},
 		{name: "newer daemon", protocol: version.SessionProtocolVersion + 1, release: version.Version, ready: true, verdict: "compatibility: local daemon is incompatible (client_protocol_older)"},
-		{name: "unready incompatible daemon", protocol: version.SessionProtocolVersion - 1, release: version.Version, verdict: "compatibility: local daemon is incompatible (daemon_protocol_older)"},
+		{name: "unready incompatible daemon", protocol: version.SessionProtocolVersion - 1, release: version.Version, verdict: "compatibility: local daemon is incompatible (server_protocol_older)"},
 		{name: "unready compatible daemon", protocol: version.SessionProtocolVersion, release: version.Version, verdict: compatibleVerdict},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

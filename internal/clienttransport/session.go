@@ -656,7 +656,7 @@ func (c *Client) UploadAttachment(ctx context.Context, sessionID, filename strin
 	if err != nil {
 		return protocol.AttachmentInfo{}, err
 	}
-	if err := compatible(connection); err != nil {
+	if err := CheckCompatibility(connection.ProtocolVersion, connection.KitVersion); err != nil {
 		return protocol.AttachmentInfo{}, err
 	}
 
@@ -774,7 +774,7 @@ func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID str
 	if err != nil {
 		return protocol.AttachmentInfo{}, nil, err
 	}
-	if err := compatible(connection); err != nil {
+	if err := CheckCompatibility(connection.ProtocolVersion, connection.KitVersion); err != nil {
 		return protocol.AttachmentInfo{}, nil, err
 	}
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/attachments/" + url.PathEscape(attachmentID)
@@ -1059,7 +1059,7 @@ func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID st
 	if err != nil {
 		return nil, err
 	}
-	if err := compatible(connection); err != nil {
+	if err := CheckCompatibility(connection.ProtocolVersion, connection.KitVersion); err != nil {
 		return nil, err
 	}
 	values := url.Values{}
@@ -1101,7 +1101,7 @@ func (c *Client) DoSessionRequest(ctx context.Context, method, path string, body
 		cleanup()
 		return nil, err
 	}
-	if err := compatible(connection); err != nil {
+	if err := CheckCompatibility(connection.ProtocolVersion, connection.KitVersion); err != nil {
 		cleanup()
 		return nil, err
 	}

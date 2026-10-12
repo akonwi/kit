@@ -15,6 +15,13 @@ const (
 	protocolHeader = httpapi.ProtocolHeader
 )
 
+// ErrIncompatibleDaemon indicates an authenticated daemon that this client must not use.
+var ErrIncompatibleDaemon = clienttransport.ErrIncompatibleServer
+
+// ErrDaemonNotReady indicates an authenticated daemon whose database is not ready.
+// Startup must not replace it or assume its database is safe for another process.
+var ErrDaemonNotReady = clienttransport.ErrServerNotReady
+
 // Health is returned by an authenticated local daemon health check.
 type Health = httpapi.Health
 
@@ -55,7 +62,7 @@ func (c *Client) probe(ctx context.Context, requireDatabase bool) (Registry, Hea
 	return registry, health, nil
 }
 
-// ProbeCompatible authenticates a ready server and checks release compatibility.
+// ProbeCompatible authenticates a ready server and checks protocol compatibility.
 func (c *Client) ProbeCompatible(ctx context.Context) (Registry, error) {
 	registry, health, err := c.ProbeLifecycle(ctx)
 	if err != nil {
@@ -64,7 +71,7 @@ func (c *Client) ProbeCompatible(ctx context.Context) (Registry, error) {
 	if !health.DatabaseReady {
 		return Registry{}, fmt.Errorf("%w: daemon %s (protocol %d)", ErrDaemonNotReady, registry.KitVersion, registry.ProtocolVersion)
 	}
-	return registry, CheckCompatibility(registry)
+	return registry, clienttransport.CheckCompatibility(registry.ProtocolVersion, registry.KitVersion)
 }
 
 // Stop requests graceful shutdown from the registered local daemon.

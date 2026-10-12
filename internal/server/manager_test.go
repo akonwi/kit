@@ -362,12 +362,3 @@ func TestManagerLaunchHonorsCanceledContext(t *testing.T) {
 		t.Fatalf("canceled launch published a daemon: %v", err)
 	}
 }
-
-func TestCompatibleWrapsSentinel(t *testing.T) {
-	t.Parallel()
-
-	err := compatible(Registry{ProtocolVersion: version.SessionProtocolVersion + 1})
-	if !errors.Is(err, ErrIncompatibleDaemon) {
-		t.Fatalf("compatible() error = %v", err)
-	}
-}

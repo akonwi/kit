@@ -12,9 +12,8 @@ const (
 	// LocalRegistryVersion versions the daemon discovery file.
 	LocalRegistryVersion = 1
 	// SessionProtocolVersion versions the server/session wire protocol.
-	// Stable releases beginning at 0.39.0 that retain protocol 42 must remain
-	// bidirectionally compatible; change the number for a baseline wire break.
-	// RC and development builds are not covered by that release promise.
+	// Clients and servers are compatible exactly when this number matches,
+	// regardless of release label; change it for any wire break.
 	//
 	// 41: Subagent mailbox entries carry a kind instead of a task ID, allowing
 	// parent-directed request replies alongside task-completion notifications.

@@ -1,25 +1,31 @@
 package clienttransport
 
 import (
+	"errors"
 	"net/http"
 	"testing"
+
+	"github.com/akonwi/kit/internal/version"
 )
 
-func TestCoveredReleasePair(t *testing.T) {
+func TestCheckCompatibilityComparesOnlyProtocols(t *testing.T) {
 	t.Parallel()
+	for _, release := range []string{version.Version, "0.42.0", "0.43.0-rc.1", "dev", "release-b"} {
+		if err := CheckCompatibility(version.SessionProtocolVersion, release); err != nil {
+			t.Errorf("server %q on the client protocol rejected: %v", release, err)
+		}
+	}
 	for _, tc := range []struct {
-		protocol       int
-		client, server string
-		want           bool
+		protocol int
+		want     CompatibilityReason
 	}{
-		{42, "0.39.0", "0.39.1", true},
-		{45, "0.42.0", "0.42.1", true},
-		{45, "0.41.0", "0.42.0", false},
-		{45, "0.42.0-rc.1", "0.42.0", false},
-		{44, "0.42.0", "0.42.1", false},
+		{version.SessionProtocolVersion - 1, ServerProtocolOlder},
+		{version.SessionProtocolVersion + 1, ClientProtocolOlder},
 	} {
-		if got := coveredReleasePair(tc.protocol, tc.client, tc.server); got != tc.want {
-			t.Errorf("protocol %d releases %q/%q = %t, want %t", tc.protocol, tc.client, tc.server, got, tc.want)
+		err := CheckCompatibility(tc.protocol, "other")
+		var mismatch *CompatibilityError
+		if !errors.Is(err, ErrIncompatibleServer) || !errors.As(err, &mismatch) || mismatch.Reason != tc.want || mismatch.ServerProtocol != tc.protocol || mismatch.ServerVersion != "other" {
+			t.Errorf("protocol %d = %v (%+v), want %s", tc.protocol, err, mismatch, tc.want)
 		}
 	}
 }

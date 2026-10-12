@@ -29,15 +29,11 @@ CLI formula. Publish its SHA-256 alongside the archive.
 The app requires a separately installed, running **compatible** Kit server.
 It discovers the registered loopback server without starting, replacing, or
 restarting it. It authenticates health, checks registry/health identity and
-database readiness, then negotiates the protocol and release policy used by the
-Go client. For protocol 45, differing canonical stable releases at or above
-`0.42.0` are compatible; equal labels attach, but equal `dev` labels alone do
-not guarantee compatibility across different builds. Differing dev/prerelease
-labels or protocol versions do not attach. The bundle's separate
-`KitClientRelease` identity names the stable Kit protocol contract implemented
-by that build (`0.42.0` for the protocol-45 app), not the app's
-`CFBundleShortVersionString`. The packaging check pins and verifies this value;
-changing the wire contract requires a reviewed compatibility update. Release
+database readiness, then applies the compatibility policy used by the Go
+client: the app and server are compatible exactly when they speak the same
+session protocol. Release labels, including development and prerelease labels,
+are reported for diagnosis but do not affect attachment; a wire change that
+existing clients cannot accept requires a protocol bump. Release
 notes and the Cask description disclose the external-server requirement and
 explain recovery from an incompatible
 running server without replacing it automatically. Verify the released app

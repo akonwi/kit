@@ -21,9 +21,10 @@ import (
 )
 
 // TestSubprocessReleaseGate builds two Kit binaries from the current source
-// with different release labels. Each label's client attaches to the daemon
-// with the same label, and the daemon with the other label rejects it without
-// disruption. This is not evidence of compatibility across source revisions.
+// with different release labels. Because compatibility depends only on the
+// session protocol, each label's client attaches to the daemon of either label
+// without disrupting it. This is not evidence of compatibility across source
+// revisions.
 func TestSubprocessReleaseGate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping subprocess builds in short mode")
@@ -56,7 +57,8 @@ func protocolTestRoot(t *testing.T) string {
 }
 
 // runReleaseGate builds a daemon and a protocol client for each label from the
-// source at root, then runs every client against every daemon.
+// source at root, then runs every client against every daemon. While each
+// client holds active work, the other label's client attaches to observe it.
 func runReleaseGate(t *testing.T, root string, labels [2]string) {
 	t.Helper()
 	binDir := t.TempDir()
@@ -152,13 +154,13 @@ func runReleaseGate(t *testing.T, root string, labels [2]string) {
 			other := labels[1-index]
 			for _, clientLabel := range []string{daemonLabel, other} {
 				client := filepath.Join(binDir, "client-"+clientLabel)
-				clientEnv := append(append([]string{}, env...), "KIT_PROTOCOL_CLIENT_HELPER=1",
-					"KIT_PROTOCOL_TEST_HOME="+paths.Home, "KIT_PROTOCOL_TEST_WORKSPACE="+workspace)
-				if clientLabel != daemonLabel {
-					clientEnv = append(clientEnv, "KIT_PROTOCOL_EXPECT_RELEASE_MISMATCH=1")
-				} else {
-					clientEnv = append(clientEnv, "KIT_PROTOCOL_OBSERVER_BIN="+client)
+				observerLabel := daemonLabel
+				if clientLabel == daemonLabel {
+					observerLabel = other
 				}
+				clientEnv := append(append([]string{}, env...), "KIT_PROTOCOL_CLIENT_HELPER=1",
+					"KIT_PROTOCOL_TEST_HOME="+paths.Home, "KIT_PROTOCOL_TEST_WORKSPACE="+workspace,
+					"KIT_PROTOCOL_OBSERVER_BIN="+filepath.Join(binDir, "client-"+observerLabel))
 				ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 				cmd := exec.CommandContext(ctx, client, "-test.run=^TestProtocolClientHelper$", "-test.v")
 				cmd.Dir = root
@@ -191,14 +193,6 @@ func TestProtocolClientHelper(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	registry, err := NewManager(paths).Ensure(ctx)
-	if os.Getenv("KIT_PROTOCOL_EXPECT_RELEASE_MISMATCH") == "1" {
-		var mismatch *DaemonCompatibilityError
-		if !errors.As(err, &mismatch) || mismatch.Reason != ReleaseMismatch ||
-			mismatch.ClientVersion != version.Version || mismatch.DaemonVersion == version.Version {
-			t.Fatalf("release skew = %v, want typed non-destructive release mismatch", err)
-		}
-		return
-	}
 	if err != nil {
 		t.Fatalf("attach: %v", err)
 	}
@@ -246,7 +240,8 @@ func TestProtocolClientHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	marker := filepath.Join(workspace, "release-active-bash")
+	// Each client run in the shared workspace waits on its own marker.
+	marker := filepath.Join(workspace, "release-active-"+bashID)
 	quotedMarker := strings.ReplaceAll(marker, "'", "'\\''")
 	command := "while [ ! -f '" + quotedMarker + "' ]; do sleep 0.05; done; printf protocol-ready"
 	bash, err := client.transport.StartBash(ctx, created.ID, protocol.BashExecutionInput{ExecutionID: bashID, Command: command})

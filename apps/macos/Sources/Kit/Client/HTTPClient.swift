@@ -106,19 +106,18 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         let payload = try response.body.json
         let health = LocalDaemonHealth(instanceId: payload.instanceId, protocolVersion: payload.protocolVersion,
                                        kitVersion: payload.kitVersion, pid: payload.pid, databaseReady: payload.databaseReady)
-        try validateDiscovery(registry: registry, health: health, clientRelease: DaemonCompatibility.clientRelease())
+        try validateDiscovery(registry: registry, health: health)
         return client
     }
 
-    static func validateDiscovery(registry: LocalDaemonRegistry, health: LocalDaemonHealth, clientRelease: String) throws {
+    static func validateDiscovery(registry: LocalDaemonRegistry, health: LocalDaemonHealth) throws {
         guard health.instanceId == registry.instanceId, health.pid == registry.pid,
               health.protocolVersion == registry.protocolVersion,
               health.kitVersion == registry.kitVersion else { throw ClientError.invalidPayload }
         guard health.databaseReady else { throw ClientError.daemonNotReady }
-        if let reason = DaemonCompatibility.mismatch(clientVersion: clientRelease, daemonVersion: registry.kitVersion,
-                                                      clientProtocol: kitWireVersion, daemonProtocol: registry.protocolVersion) {
-            throw ClientError.incompatibleDaemon(clientRelease: clientRelease, daemonVersion: registry.kitVersion,
-                                                 appProtocol: kitWireVersion, daemonProtocol: registry.protocolVersion, reason: reason)
+        if let reason = DaemonCompatibility.mismatch(clientProtocol: kitWireVersion, daemonProtocol: registry.protocolVersion) {
+            throw ClientError.incompatibleDaemon(daemonVersion: registry.kitVersion, appProtocol: kitWireVersion,
+                                                 daemonProtocol: registry.protocolVersion, reason: reason)
         }
     }
 

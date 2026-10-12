@@ -28,11 +28,9 @@ as a notarized GitHub Release ZIP and a separate Homebrew Cask with manual
 updates; see [ADR 0029](../../docs/adrs/0029-distribute-native-macos-app-separately.md).
 It **does not include or start** a server. Install and start a compatible Kit
 server separately. Discovery authenticates the registered server, checks its
-identity and readiness, and negotiates protocol/release compatibility. For
-protocol 45, the app's `KitClientRelease` identity (`0.42.0` for this build)
-can attach to canonical stable server versions >= 0.42.0 that retain protocol 45,
-without requiring the app and CLI to share an exact version. App version `0.1.3`
-is independent of that client compatibility identity. Apps 0.1.1 and 0.1.2 use
+identity and readiness, and checks protocol compatibility. The app attaches to
+any server speaking its session protocol (45 for this build), regardless of the
+server's release label; the app and CLI need not share a version. Apps 0.1.1 and 0.1.2 use
 protocol 41 and cannot attach to a protocol-45 server. Incompatible running
 servers are left alone; update to compatible releases rather than restarting or
 replacing one from the app.
