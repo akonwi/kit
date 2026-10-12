@@ -99,7 +99,8 @@ func DetectLanguage(language, path string) string {
 	name = strings.TrimPrefix(name, ".")
 	aliases := map[string]string{
 		"golang": "go", "js": "javascript", "jsx": "javascript", "ts": "typescript",
-		"py": "python", "rs": "rust", "sh": "bash", "shell": "bash", "zsh": "bash",
+		"py": "python", "rb": "ruby", "rake": "ruby", "gemspec": "ruby", "rs": "rust",
+		"sh": "bash", "shell": "bash", "zsh": "bash",
 		"htm": "html", "md": "markdown", "mdx": "markdown", "yml": "yaml",
 	}
 	if alias := aliases[name]; alias != "" {

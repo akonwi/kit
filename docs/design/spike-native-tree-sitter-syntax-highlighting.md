@@ -19,6 +19,7 @@ Implemented and tested:
 - TypeScript and TSX
 - JavaScript and JSX
 - Python
+- Ruby
 - Rust
 - Bash
 - JSON

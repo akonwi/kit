@@ -22,6 +22,7 @@ import (
 	treesitterjavascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
 	treesitterjson "github.com/tree-sitter/tree-sitter-json/bindings/go"
 	treesitterpython "github.com/tree-sitter/tree-sitter-python/bindings/go"
+	treesitterruby "github.com/tree-sitter/tree-sitter-ruby/bindings/go"
 	treesitterrust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
 	treesittertypescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 
@@ -59,6 +60,9 @@ var tsxQuery string
 
 //go:embed queries/python.scm
 var pythonQuery string
+
+//go:embed queries/ruby.scm
+var rubyQuery string
 
 //go:embed queries/rust.scm
 var rustQuery string
@@ -112,6 +116,7 @@ var nativeGrammars = map[string]grammarSpec{
 	"typescript":      {sitter.NewLanguage(treesittertypescript.LanguageTypescript()), typescriptQuery, ""},
 	"tsx":             {sitter.NewLanguage(treesittertypescript.LanguageTSX()), tsxQuery, ""},
 	"python":          {sitter.NewLanguage(treesitterpython.Language()), pythonQuery, ""},
+	"ruby":            {sitter.NewLanguage(treesitterruby.Language()), rubyQuery, ""},
 	"rust":            {sitter.NewLanguage(treesitterrust.Language()), rustQuery, ""},
 	"bash":            {sitter.NewLanguage(treesitterbash.Language()), bashQuery, ""},
 	"json":            {sitter.NewLanguage(treesitterjson.Language()), jsonQuery, ""},
@@ -125,7 +130,7 @@ var nativeGrammars = map[string]grammarSpec{
 }
 
 func SupportedLanguages() []string {
-	return []string{"ard", "bash", "css", "go", "html", "javascript", "json", "markdown", "python", "rust", "sql", "toml", "tsx", "typescript", "yaml"}
+	return []string{"ard", "bash", "css", "go", "html", "javascript", "json", "markdown", "python", "ruby", "rust", "sql", "toml", "tsx", "typescript", "yaml"}
 }
 
 type compiledGrammar struct {
@@ -591,7 +596,8 @@ func captureRole(name string) (Role, bool) {
 		return KeywordType, true
 	case strings.HasPrefix(name, "keyword"):
 		return Keyword, true
-	case strings.HasPrefix(name, "function.builtin"), strings.HasPrefix(name, "variable.builtin"), strings.HasPrefix(name, "constant.builtin"):
+	case strings.HasPrefix(name, "function.builtin"), strings.HasPrefix(name, "function.method.builtin"),
+		strings.HasPrefix(name, "variable.builtin"), strings.HasPrefix(name, "constant.builtin"):
 		return Builtin, true
 	case strings.HasPrefix(name, "function") || strings.HasPrefix(name, "method"):
 		return Function, true

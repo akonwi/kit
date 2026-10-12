@@ -22,6 +22,7 @@ func TestNativeTreeSitterCapturesRepresentativeLanguages(t *testing.T) {
 		{"typescript", "interface User { name: string }\n", "interface", Keyword},
 		{"tsx", "const view = <section>hello</section>;\n", "section", Tag},
 		{"python", "def greet(name: str):\n    # hello\n    return f\"hi {name}\"\n", "# hello", Comment},
+		{"ruby", "class Greeter\n  # hello\n  def greet(name) = \"hi #{name}\"\nend\n", "def", Keyword},
 		{"rust", "fn main() { let answer: u32 = 42; println!(\"{answer}\"); }\n", "fn", Keyword},
 		{"bash", "#!/usr/bin/env bash\nname=world\necho \"hello $name\"\n", "#!/usr/bin/env bash", Comment},
 		{"html", "<article class=\"post\">hello</article>\n", "article", Tag},
@@ -94,6 +95,32 @@ func TestNativeTreeSitterDetectsArdFiles(t *testing.T) {
 	assertToken(t, result, "true", Builtin)
 }
 
+func TestNativeTreeSitterRubyTokensAndMalformedRecovery(t *testing.T) {
+	var engine treeSitterEngine
+	defer engine.close()
+	source := "require \"json\"\n\nclass Greeter\n  # Greets people.\n  def greet(name)\n    @count += 1\n    puts \"hi #{name}\", :loud, nil\n  end\nend\n"
+	result := engine.highlight(context.Background(), Request{Path: "lib/greeter.rb", Source: source})
+	if result.Err != nil || result.Fallback || result.Language != "ruby" {
+		t.Fatalf("Ruby highlight = %+v", result)
+	}
+	assertToken(t, result, "require", Builtin)
+	assertToken(t, result, "class", Keyword)
+	assertToken(t, result, "Greeter", Type)
+	assertToken(t, result, "# Greets people.", Comment)
+	assertToken(t, result, "greet", Function)
+	assertToken(t, result, "@count", Member)
+	assertToken(t, result, "1", Number)
+	assertToken(t, result, ":loud", String)
+	assertToken(t, result, "nil", Builtin)
+
+	malformed := "def broken(name\n  \"open\n# tail\n"
+	result = engine.highlight(context.Background(), Request{Language: "rb", Source: malformed})
+	if result.Err != nil || result.Fallback || result.Language != "ruby" || result.Source != malformed {
+		t.Fatalf("malformed Ruby result = %+v", result)
+	}
+	assertToken(t, result, "def", Keyword)
+}
+
 func TestNativeTreeSitterEvaluatesQueryPredicates(t *testing.T) {
 	var engine treeSitterEngine
 	defer engine.close()
@@ -146,6 +173,7 @@ func TestNativeTreeSitterRepeatedGrammarLifecycle(t *testing.T) {
 		{Language: "markdown", Source: "```go\npackage p\n```\n"},
 		{Language: "html", Source: "<script>const x = 1</script>"},
 		{Language: "sql", Source: "SELECT 1;"},
+		{Language: "ruby", Source: "puts :ok\n"},
 	}
 	var engine treeSitterEngine
 	for index := range 100 {

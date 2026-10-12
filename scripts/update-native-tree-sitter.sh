@@ -26,6 +26,7 @@ copy_module go github.com/tree-sitter/tree-sitter-go v0.25.0
 copy_module typescript github.com/tree-sitter/tree-sitter-typescript v0.23.2
 copy_module javascript github.com/tree-sitter/tree-sitter-javascript v0.25.0
 copy_module python github.com/tree-sitter/tree-sitter-python v0.25.0
+copy_module ruby github.com/tree-sitter/tree-sitter-ruby v0.23.1
 copy_module rust github.com/tree-sitter/tree-sitter-rust v0.24.2
 copy_module bash github.com/tree-sitter/tree-sitter-bash v0.25.1
 copy_module json github.com/tree-sitter/tree-sitter-json v0.24.8
@@ -45,7 +46,7 @@ cp "$go_dir/queries/highlights.scm" "$q/go.scm"
 cat "$javascript_dir/queries/highlights.scm" "$javascript_dir/queries/highlights-jsx.scm" >"$q/javascript.scm"
 cat "$typescript_dir/queries/highlights.scm" "$javascript_dir/queries/highlights.scm" >"$q/typescript.scm"
 cat "$typescript_dir/queries/highlights.scm" "$javascript_dir/queries/highlights.scm" "$javascript_dir/queries/highlights-jsx.scm" >"$q/tsx.scm"
-for name in python rust bash json html css; do
+for name in python ruby rust bash json html css; do
   eval "dir=\$${name}_dir"
   cp "$dir/queries/highlights.scm" "$q/$name.scm"
 done
@@ -58,7 +59,7 @@ cp "$markdown_dir/tree-sitter-markdown/queries/injections.scm" "$q/markdown-inje
 cp "$markdown_dir/tree-sitter-markdown-inline/queries/highlights.scm" "$q/markdown_inline.scm"
 cp "$markdown_dir/tree-sitter-markdown-inline/queries/injections.scm" "$q/markdown_inline-injections.scm"
 
-for name in go typescript javascript python rust bash json yaml toml markdown html css sql; do
+for name in go typescript javascript python ruby rust bash json yaml toml markdown html css sql; do
   eval "dir=\$${name}_dir"
   cp "$dir/LICENSE" "$stage/internal/highlight/licenses/$name.txt"
 done
