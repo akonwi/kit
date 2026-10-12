@@ -26,10 +26,11 @@ struct SessionBar: View {
             if !tab.isLauncher {
                 // Plugin items take what the title and location leave.
                 PluginFooterView(session: session)
-            } else {
-                Spacer(minLength: 0)
             }
         }
+        // Without plugin items the row holds only the title and location,
+        // which stay at the leading edge.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 8).padding(.trailing, 14)
         .frame(height: showsTitle ? SessionChrome.rowHeight : SessionChrome.compactRowHeight)
         .background(WindowTitlebarRegion())
@@ -276,6 +277,7 @@ private struct SessionTopTab: View {
                     ChromeIconButton(symbol: "xmark", size: 10, frame: 16, help: "Close tab", action: close)
                 } else if let project {
                     Text(project).font(.kit(size: 10, design: .monospaced)).foregroundStyle(theme.strongBorder)
+                        .lineLimit(1).truncationMode(.middle)
                 }
             }
             .padding(.horizontal, 10)
