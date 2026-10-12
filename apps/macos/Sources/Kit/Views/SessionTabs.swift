@@ -282,7 +282,7 @@ private struct SessionTopTab: View {
             }
             .padding(.horizontal, 10)
             .frame(width: 220, height: 30)
-            .background(selected || hovering ? theme.frameHover : .clear, in: RoundedRectangle(cornerRadius: 3))
+            .background { background }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -292,6 +292,19 @@ private struct SessionTopTab: View {
         .accessibilityValue(tab.statusLabel ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .contextMenu { Button("Close Tab", action: close) }
+    }
+
+    /// The selected tab is raised in the tiles' surface so it stands apart
+    /// from the hover fill.
+    @ViewBuilder private var background: some View {
+        let shape = RoundedRectangle(cornerRadius: 3)
+        if selected {
+            shape.fill(theme.surface)
+                .overlay(shape.strokeBorder(theme.border))
+                .shadow(color: .black.opacity(theme.dark ? 0 : 0.06), radius: 1, y: 1)
+        } else if hovering {
+            shape.fill(theme.frameHover)
+        }
     }
 }
 
