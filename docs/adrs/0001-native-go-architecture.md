@@ -376,7 +376,9 @@ The exact package set should grow with real consumers, but the intended shape is
 
 ```text
 internal/apphome/        paths and filesystem ownership
-internal/server/         discovery, lifecycle, authoritative server and session directory
+internal/server/         authoritative daemon and session directory
+internal/localdiscovery/ local daemon publication contract (registry, token)
+internal/daemonctl/      client-side daemon discovery and lifecycle
 internal/session/        parent runtime orchestration
 internal/subagent/       supervised child execution
 internal/plugin/         manifests, RPC, process supervision

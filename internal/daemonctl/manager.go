@@ -1,4 +1,4 @@
-package server
+package daemonctl
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/securefs"
 	"github.com/gofrs/flock"
 )
@@ -32,7 +33,7 @@ func NewManager(paths apphome.Paths) *Manager {
 }
 
 // Ensure returns a compatible local daemon, starting one if needed.
-func (m *Manager) Ensure(ctx context.Context) (Registry, error) {
+func (m *Manager) Ensure(ctx context.Context) (localdiscovery.Registry, error) {
 	coordinator := Coordinator{
 		Paths:        m.paths,
 		Probe:        m.client.ProbeCompatible,
@@ -45,7 +46,7 @@ func (m *Manager) Ensure(ctx context.Context) (Registry, error) {
 
 // Status returns the currently registered daemon, including an older version or
 // one whose database is not ready.
-func (m *Manager) Status(ctx context.Context) (Registry, Health, error) {
+func (m *Manager) Status(ctx context.Context) (localdiscovery.Registry, Health, error) {
 	return m.client.ProbeLifecycle(ctx)
 }
 
@@ -110,13 +111,13 @@ func (m *Manager) AcquireCredentialStoreMutation(
 			lifetimeHeld = true
 			// With both startup and lifetime ownership, any publication belongs to
 			// a dead process and cannot race a normal replacement daemon.
-			if err := clearRegistration(m.paths); err != nil {
+			if err := localdiscovery.Clear(m.paths); err != nil {
 				return fail(fmt.Errorf("clear stale daemon registration: %w", err))
 			}
 			return release, nil
 		}
 
-		registry, registryErr := LoadRegistry(m.paths)
+		registry, registryErr := localdiscovery.Load(m.paths)
 		if registryErr == nil {
 			probed, _, probeErr := m.client.ProbeLifecycle(guardContext)
 			if probeErr == nil {
@@ -127,10 +128,10 @@ func (m *Manager) AcquireCredentialStoreMutation(
 				if !ok {
 					return fail(fmt.Errorf("running daemon does not report a credential source for %q; use a matching client or explicitly restart with the intended binary when interrupting active work is acceptable", providerID))
 				}
-				if source == CredentialSourceEnvironment {
+				if source == localdiscovery.CredentialSourceEnvironment {
 					return fail(fmt.Errorf("%w for %q; restart it without provider environment credentials", ErrEnvironmentCredentialsActive, providerID))
 				}
-				if source != CredentialSourceStore {
+				if source != localdiscovery.CredentialSourceStore {
 					return fail(fmt.Errorf("running daemon reports unsupported credential source %q for %q", source, providerID))
 				}
 				return release, nil
@@ -180,7 +181,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 	}
 	defer startupLock.Unlock()
 
-	registry, registryErr := LoadRegistry(m.paths)
+	registry, registryErr := localdiscovery.Load(m.paths)
 	var lifecycleErr error
 	if registryErr == nil {
 		_, _, healthErr := m.client.ProbeLifecycle(ctx)
@@ -209,13 +210,13 @@ func (m *Manager) Stop(ctx context.Context) error {
 	defer lifetimeLock.Unlock()
 
 	if registryErr == nil {
-		current, err := LoadRegistry(m.paths)
+		current, err := localdiscovery.Load(m.paths)
 		if err == nil && current.InstanceID != registry.InstanceID {
 			return fmt.Errorf("another daemon replaced instance %s while stopping", registry.InstanceID)
 		}
 	}
 	// The startup and lifetime locks prove no process can own any remaining files.
-	return clearRegistration(m.paths)
+	return localdiscovery.Clear(m.paths)
 }
 
 func (m *Manager) launch(ctx context.Context) error {

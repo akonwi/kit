@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +25,7 @@ import (
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/githubpr"
 	"github.com/akonwi/kit/internal/httpapi"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/mcpconfig"
 	"github.com/akonwi/kit/internal/mcpruntime"
 	"github.com/akonwi/kit/internal/peer"
@@ -40,6 +43,12 @@ import (
 	"github.com/gofrs/flock"
 )
 
+const (
+	instanceHeader = httpapi.InstanceHeader
+	protocolHeader = httpapi.ProtocolHeader
+)
+
+// ErrAlreadyRunning indicates that another daemon holds the lifetime lock.
 var ErrAlreadyRunning = errors.New("local daemon is already running")
 
 // RunOptions configures the internal local daemon process.
@@ -47,7 +56,7 @@ type RunOptions struct {
 	Paths             apphome.Paths
 	Logger            *slog.Logger
 	Providers         droids.Providers
-	CredentialSources map[string]CredentialSource
+	CredentialSources map[string]localdiscovery.CredentialSource
 	SystemPrompt      string
 }
 
@@ -72,14 +81,13 @@ func Run(ctx context.Context, options RunOptions) error {
 	}
 
 	var (
-		pullRequests      *githubpr.Cache
-		store             *storage.Store
-		sessionManager    *kitsession.Manager
-		subagents         *subagent.Supervisor
-		listener          net.Listener
-		instanceID        string
-		tokenPublished    bool
-		registryPublished bool
+		pullRequests   *githubpr.Cache
+		store          *storage.Store
+		sessionManager *kitsession.Manager
+		subagents      *subagent.Supervisor
+		listener       net.Listener
+		instanceID     string
+		published      bool
 	)
 	defer func() {
 		if listener != nil {
@@ -107,10 +115,10 @@ func Run(ctx context.Context, options RunOptions) error {
 				logger.Error("close database", "error", err)
 			}
 		}
-		if registryPublished {
-			removeRegistration(paths, instanceID, logger)
-		} else if tokenPublished {
-			_ = os.Remove(paths.ServerToken)
+		if published {
+			if err := localdiscovery.Withdraw(paths, instanceID); err != nil {
+				logger.Warn("withdraw daemon publication", "error", err)
+			}
 		}
 		if err := lifetimeLock.Unlock(); err != nil {
 			logger.Error("unlock local daemon lifetime", "error", err)
@@ -119,7 +127,7 @@ func Run(ctx context.Context, options RunOptions) error {
 
 	// Holding the lifetime lock proves no live daemon owns these files. Remove a
 	// dead process's publication before writing a new token and registry.
-	if err := clearRegistration(paths); err != nil {
+	if err := localdiscovery.Clear(paths); err != nil {
 		return err
 	}
 
@@ -318,7 +326,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	}
 	startedAt := time.Now().UTC()
 	baseURL := "http://" + listener.Addr().String()
-	registry := Registry{
+	registry := localdiscovery.Registry{
 		RegistryVersion:   version.LocalRegistryVersion,
 		ProtocolVersion:   version.SessionProtocolVersion,
 		KitVersion:        version.Version,
@@ -330,16 +338,10 @@ func Run(ctx context.Context, options RunOptions) error {
 		CredentialSources: credentialSources,
 	}
 
-	if err := writePrivateFile(paths.ServerToken, []byte(token+"\n")); err != nil {
+	if err := localdiscovery.Publish(paths, token, registry); err != nil {
 		return err
 	}
-	tokenPublished = true
-	// The registry is the publication marker and is written only after its token
-	// exists. Clients never discover a mixed token/registry generation.
-	if err := writeRegistry(paths, registry); err != nil {
-		return fmt.Errorf("publish daemon registry: %w", err)
-	}
-	registryPublished = true
+	published = true
 
 	stop := make(chan struct{}, 1)
 	streamShutdown, endStreams := context.WithCancel(context.Background())
@@ -418,7 +420,7 @@ func Run(ctx context.Context, options RunOptions) error {
 type localHandlerOptions struct {
 	baseURL      string
 	expectedHost string
-	registry     Registry
+	registry     localdiscovery.Registry
 	token        string
 	store        *storage.Store
 	sessions     sessionService
@@ -443,7 +445,7 @@ func newHandler(options localHandlerOptions) http.Handler {
 	httpapi.Handle(mux, lifecycleOptions, httpapi.GetHealth, func(requestContext context.Context, _ httpapi.ServerPath, _ httpapi.NoBody) (httpapi.Health, error) {
 		ctx, cancel := context.WithTimeout(requestContext, 2*time.Second)
 		defer cancel()
-		return Health{
+		return httpapi.Health{
 			InstanceID: options.registry.InstanceID, PID: options.registry.PID,
 			KitVersion: options.registry.KitVersion, ProtocolVersion: options.registry.ProtocolVersion,
 			DatabaseReady: options.store.Ready(ctx) == nil, Providers: options.providers(ctx),
@@ -519,16 +521,16 @@ func promptCacheRetention(paths apphome.Paths) func() droids.PromptCacheRetentio
 	}
 }
 
-func providersFromEnvironment(ctx context.Context, paths apphome.Paths) (droids.Providers, map[string]CredentialSource, error) {
+func providersFromEnvironment(ctx context.Context, paths apphome.Paths) (droids.Providers, map[string]localdiscovery.CredentialSource, error) {
 	store := auth.NewStore(paths.Auth)
 	openAIKey, openAIKeySource, openAISource := providerAPIKey(store, auth.OpenAIProviderID, os.Getenv("OPENAI_API_KEY"))
-	anthropicSource := CredentialSourceStore
+	anthropicSource := localdiscovery.CredentialSourceStore
 	anthropicConfig := droids.Anthropic{CredentialStore: store, BaseURL: os.Getenv("ANTHROPIC_BASE_URL")}
 	if token := os.Getenv("ANTHROPIC_OAUTH_TOKEN"); token != "" {
-		anthropicSource = CredentialSourceEnvironment
+		anthropicSource = localdiscovery.CredentialSourceEnvironment
 		anthropicConfig = droids.Anthropic{Credentials: droids.AnthropicCredentials{AccessToken: token}, BaseURL: os.Getenv("ANTHROPIC_BASE_URL")}
 	} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-		anthropicSource = CredentialSourceEnvironment
+		anthropicSource = localdiscovery.CredentialSourceEnvironment
 		anthropicConfig = droids.Anthropic{APIKey: key, BaseURL: os.Getenv("ANTHROPIC_BASE_URL")}
 	}
 	anthropicConfig.PromptCacheRetention = promptCacheRetention(paths)
@@ -540,9 +542,9 @@ func providersFromEnvironment(ctx context.Context, paths apphome.Paths) (droids.
 	}
 	accessToken := os.Getenv("OPENAI_CODEX_ACCESS_TOKEN")
 	refreshToken := os.Getenv("OPENAI_CODEX_REFRESH_TOKEN")
-	codexSource := CredentialSourceStore
+	codexSource := localdiscovery.CredentialSourceStore
 	if accessToken != "" || refreshToken != "" {
-		codexSource = CredentialSourceEnvironment
+		codexSource = localdiscovery.CredentialSourceEnvironment
 		credentials := droids.OpenAICodexCredentials{
 			AccessToken:  accessToken,
 			RefreshToken: refreshToken,
@@ -573,7 +575,7 @@ func providersFromEnvironment(ctx context.Context, paths apphome.Paths) (droids.
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure droids providers: %w", err)
 	}
-	return providers, map[string]CredentialSource{
+	return providers, map[string]localdiscovery.CredentialSource{
 		auth.OpenAIProviderID:      openAISource,
 		auth.AnthropicProviderID:   anthropicSource,
 		auth.OpenCodeGoProviderID:  openCodeGoSource,
@@ -581,9 +583,9 @@ func providersFromEnvironment(ctx context.Context, paths apphome.Paths) (droids.
 	}, nil
 }
 
-func providerAPIKey(store *auth.Store, providerID, environmentValue string) (string, droids.APIKeySource, CredentialSource) {
+func providerAPIKey(store *auth.Store, providerID, environmentValue string) (string, droids.APIKeySource, localdiscovery.CredentialSource) {
 	if environmentValue != "" {
-		return environmentValue, nil, CredentialSourceEnvironment
+		return environmentValue, nil, localdiscovery.CredentialSourceEnvironment
 	}
 	return "", func(ctx context.Context) (string, error) {
 		record, err := store.LoadAPIKey(ctx, providerID)
@@ -591,7 +593,7 @@ func providerAPIKey(store *auth.Store, providerID, environmentValue string) (str
 			return "", err
 		}
 		return record.APIKey, nil
-	}, CredentialSourceStore
+	}, localdiscovery.CredentialSourceStore
 }
 
 func configuredProviderIDs(providers droids.Providers) []string {
@@ -604,28 +606,28 @@ func configuredProviderIDs(providers droids.Providers) []string {
 	return sortedProviderIDs(set)
 }
 
-func availableProviderIDs(ctx context.Context, paths apphome.Paths, sources map[string]CredentialSource) []string {
+func availableProviderIDs(ctx context.Context, paths apphome.Paths, sources map[string]localdiscovery.CredentialSource) []string {
 	set := map[string]bool{}
 	store := auth.NewStore(paths.Auth)
-	if sources[auth.OpenAIProviderID] == CredentialSourceEnvironment {
+	if sources[auth.OpenAIProviderID] == localdiscovery.CredentialSourceEnvironment {
 		set[auth.OpenAIProviderID] = os.Getenv("OPENAI_API_KEY") != ""
 	} else {
 		record, err := store.LoadAPIKey(ctx, auth.OpenAIProviderID)
 		set[auth.OpenAIProviderID] = err == nil && record.APIKey != ""
 	}
-	if sources[auth.OpenCodeGoProviderID] == CredentialSourceEnvironment {
+	if sources[auth.OpenCodeGoProviderID] == localdiscovery.CredentialSourceEnvironment {
 		set[auth.OpenCodeGoProviderID] = os.Getenv("OPENCODE_API_KEY") != ""
 	} else {
 		record, err := store.LoadAPIKey(ctx, auth.OpenCodeGoProviderID)
 		set[auth.OpenCodeGoProviderID] = err == nil && record.APIKey != ""
 	}
-	if sources[auth.AnthropicProviderID] == CredentialSourceEnvironment {
+	if sources[auth.AnthropicProviderID] == localdiscovery.CredentialSourceEnvironment {
 		set[auth.AnthropicProviderID] = os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("ANTHROPIC_OAUTH_TOKEN") != ""
 	} else {
 		record, err := store.LoadAnthropicCredentials(ctx)
 		set[auth.AnthropicProviderID] = err == nil && (record.Credentials.APIKey != "" || record.Credentials.AccessToken != "" || record.Credentials.RefreshToken != "")
 	}
-	if sources[auth.OpenAICodexProviderID] == CredentialSourceEnvironment {
+	if sources[auth.OpenAICodexProviderID] == localdiscovery.CredentialSourceEnvironment {
 		set[auth.OpenAICodexProviderID] = true
 	} else if record, err := store.LoadOpenAICodexCredentials(ctx); err == nil && record.Revision != "" {
 		set[auth.OpenAICodexProviderID] = true
@@ -644,11 +646,11 @@ func sortedProviderIDs(set map[string]bool) []string {
 	return result
 }
 
-func cloneCredentialSources(input map[string]CredentialSource) map[string]CredentialSource {
+func cloneCredentialSources(input map[string]localdiscovery.CredentialSource) map[string]localdiscovery.CredentialSource {
 	if len(input) == 0 {
 		return nil
 	}
-	cloned := make(map[string]CredentialSource, len(input))
+	cloned := make(map[string]localdiscovery.CredentialSource, len(input))
 	for providerID, source := range input {
 		cloned[providerID] = source
 	}
@@ -662,28 +664,18 @@ func writeJSON(writer http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(writer).Encode(value)
 }
 
-func clearRegistration(paths apphome.Paths) error {
-	for _, path := range []string{paths.ServerRegistry, paths.ServerToken} {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove stale daemon registration %q: %w", path, err)
-		}
+func newToken() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("generate daemon token: %w", err)
 	}
-	return nil
+	return hex.EncodeToString(bytes), nil
 }
 
-func removeRegistration(paths apphome.Paths, instanceID string, logger *slog.Logger) {
-	registry, err := LoadRegistry(paths)
-	if err == nil && registry.InstanceID != instanceID {
-		return
+func newInstanceID() (string, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("generate daemon instance id: %w", err)
 	}
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		logger.Warn("daemon registry became unreadable during cleanup", "error", err)
-	}
-	// Remove the registry first so clients cannot discover a token while it is
-	// being deleted. The lifetime lock still prevents a replacement daemon.
-	for _, path := range []string{paths.ServerRegistry, paths.ServerToken} {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			logger.Warn("remove daemon registration", "path", path, "error", err)
-		}
-	}
+	return hex.EncodeToString(bytes), nil
 }

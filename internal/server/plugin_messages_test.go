@@ -44,7 +44,7 @@ func TestPluginMessageBoundaryKindMatchesContract(t *testing.T) {
 func TestPluginSessionMessageFixtureThroughDaemon(t *testing.T) {
 	providers := &daemonEchoProviders{}
 	client, sessionID, _ := pluginFixtureClientWithProviders(t, sessionMessageFixture, 3, providers)
-	snapshot, err := client.transport.GetSessionSnapshot(t.Context(), sessionID)
+	snapshot, err := client.GetSessionSnapshot(t.Context(), sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestPluginSessionMessageFixtureThroughDaemon(t *testing.T) {
 
 	toastContext, cancelToasts := context.WithCancel(t.Context())
 	defer cancelToasts()
-	toastBody, err := client.transport.StreamPluginToasts(toastContext, sessionID)
+	toastBody, err := client.StreamPluginToasts(toastContext, sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestPluginSessionMessageFixtureThroughDaemon(t *testing.T) {
 	execute := func(local, args string) {
 		t.Helper()
 		command := commands[local]
-		if err := client.transport.ExecutePluginCommand(t.Context(), sessionID, protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance, Args: args}); err != nil {
+		if err := client.ExecutePluginCommand(t.Context(), sessionID, protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance, Args: args}); err != nil {
 			t.Fatalf("execute %s: %v", local, err)
 		}
 	}
@@ -85,7 +85,7 @@ func TestPluginSessionMessageFixtureThroughDaemon(t *testing.T) {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
 		for {
-			snapshot, err := client.transport.GetSessionSnapshot(t.Context(), id)
+			snapshot, err := client.GetSessionSnapshot(t.Context(), id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -138,7 +138,7 @@ func TestPluginSessionMessageFixtureThroughDaemon(t *testing.T) {
 	providers.mu.Lock()
 	providers.block, providers.requestStarted = block, started
 	providers.mu.Unlock()
-	if _, err := client.transport.StartPrompt(t.Context(), sessionID, "user turn"); err != nil {
+	if _, err := client.StartPrompt(t.Context(), sessionID, "user turn"); err != nil {
 		t.Fatal(err)
 	}
 	<-started
@@ -160,7 +160,7 @@ func TestPluginSessionMessageFixtureThroughDaemon(t *testing.T) {
 	}
 
 	// Another session's plugin instance and transcript are unaffected.
-	other, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
+	other, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
 	if err != nil {
 		t.Fatal(err)
 	}

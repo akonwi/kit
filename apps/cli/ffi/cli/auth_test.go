@@ -14,6 +14,7 @@ import (
 
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
+	"github.com/akonwi/kit/internal/daemonctl"
 	kitserver "github.com/akonwi/kit/internal/server"
 )
 
@@ -122,7 +123,7 @@ func TestLoginAndLogoutRejectEnvironmentBackedDaemon(t *testing.T) {
 			Paths: paths, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		})
 	}()
-	manager := kitserver.NewManager(paths)
+	manager := daemonctl.NewManager(paths)
 	probeContext, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer probeCancel()
 	for {

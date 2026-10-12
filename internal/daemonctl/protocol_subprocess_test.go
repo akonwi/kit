@@ -1,4 +1,4 @@
-package server
+package daemonctl
 
 import (
 	"bufio"
@@ -15,7 +15,9 @@ import (
 
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/identifier"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/gofrs/flock"
 )
@@ -66,7 +68,7 @@ func runReleaseGate(t *testing.T, root string, labels [2]string) {
 		buildKitBinary(t, root, filepath.Join(binDir, "kit-"+label), label)
 		ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 		cmd := exec.CommandContext(ctx, "go", "test", "-c", "-ldflags", "-X github.com/akonwi/kit/internal/version.Version="+label,
-			"-o", filepath.Join(binDir, "client-"+label), "./internal/server")
+			"-o", filepath.Join(binDir, "client-"+label), "./internal/daemonctl")
 		cmd.Dir = root
 		cmd.Env = protocolSubprocessEnv("GOTOOLCHAIN=auto", apphome.EnvHome+"="+t.TempDir())
 		out, err := cmd.CombinedOutput()
@@ -98,7 +100,7 @@ func runReleaseGate(t *testing.T, root string, labels [2]string) {
 			if out, err := run(daemon, "server", "start"); err != nil {
 				t.Fatalf("start daemon: %v\n%s", err, out)
 			}
-			var before Registry
+			var before localdiscovery.Registry
 			t.Cleanup(func() {
 				if out, stopErr := run(daemon, "server", "stop"); stopErr != nil {
 					t.Errorf("stop test daemon: %v\n%s", stopErr, out)
@@ -120,7 +122,7 @@ func runReleaseGate(t *testing.T, root string, labels [2]string) {
 					if time.Now().After(deadline) {
 						// Only kill the process if it still owns this isolated
 						// registration; never target a potentially recycled PID.
-						if current, err := LoadRegistry(paths); err == nil && current.InstanceID == before.InstanceID && current.PID == before.PID {
+						if current, err := localdiscovery.Load(paths); err == nil && current.InstanceID == before.InstanceID && current.PID == before.PID {
 							if process, err := os.FindProcess(before.PID); err != nil {
 								t.Errorf("find stuck test daemon: %v", err)
 							} else if err := process.Kill(); err != nil {
@@ -147,7 +149,7 @@ func runReleaseGate(t *testing.T, root string, labels [2]string) {
 					time.Sleep(25 * time.Millisecond)
 				}
 			})
-			before, err := LoadRegistry(paths)
+			before, err := localdiscovery.Load(paths)
 			if err != nil || before.KitVersion != daemonLabel || before.ProtocolVersion != version.SessionProtocolVersion {
 				t.Fatalf("daemon registry = %+v, %v", before, err)
 			}
@@ -167,7 +169,7 @@ func runReleaseGate(t *testing.T, root string, labels [2]string) {
 				cmd.Env = clientEnv
 				out, runErr := cmd.CombinedOutput()
 				cancel()
-				after, err := LoadRegistry(paths)
+				after, err := localdiscovery.Load(paths)
 				if err != nil || after.PID != before.PID || after.InstanceID != before.InstanceID || after.KitVersion != before.KitVersion {
 					t.Fatalf("client %s replaced daemon: before=%+v after=%+v err=%v", clientLabel, before, after, err)
 				}
@@ -316,7 +318,7 @@ func TestProtocolClientHelper(t *testing.T) {
 		t.Fatalf("delete: %v", err)
 	}
 	_, err = client.transport.GetSessionSnapshot(ctx, created.ID)
-	var apiErr *APIError
+	var apiErr *httpapi.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 404 {
 		t.Fatalf("deleted snapshot error = %v, want 404", err)
 	}

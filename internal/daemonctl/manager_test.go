@@ -1,4 +1,4 @@
-package server
+package daemonctl
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/gofrs/flock"
 )
@@ -47,10 +48,7 @@ func TestClientStreamsAuthenticatedSessionEvents(t *testing.T) {
 	if err := paths.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	if err := writePrivateFile(paths.ServerToken, []byte(token+"\n")); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeRegistry(paths, Registry{
+	if err := localdiscovery.Publish(paths, token, localdiscovery.Registry{
 		RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: version.SessionProtocolVersion,
 		KitVersion: version.Version, PID: os.Getpid(), InstanceID: instanceID, URL: server.URL,
 		StartedAt: time.Now().UTC(),
@@ -106,7 +104,7 @@ func TestManagerStopsDaemonWhoseDatabaseIsUnhealthy(t *testing.T) {
 	if err := paths.Ensure(); err != nil {
 		t.Fatalf("Ensure() error = %v", err)
 	}
-	registry := Registry{
+	registry := localdiscovery.Registry{
 		RegistryVersion: version.LocalRegistryVersion,
 		ProtocolVersion: version.SessionProtocolVersion,
 		KitVersion:      "older",
@@ -116,10 +114,7 @@ func TestManagerStopsDaemonWhoseDatabaseIsUnhealthy(t *testing.T) {
 		URL:             server.URL,
 		StartedAt:       time.Now().UTC(),
 	}
-	if err := writePrivateFile(paths.ServerToken, []byte(token+"\n")); err != nil {
-		t.Fatalf("write token: %v", err)
-	}
-	if err := writeRegistry(paths, registry); err != nil {
+	if err := localdiscovery.Publish(paths, token, registry); err != nil {
 		t.Fatalf("write registry: %v", err)
 	}
 
@@ -165,12 +160,12 @@ func TestAcquireCredentialStoreMutationChecksRunningDaemonSource(t *testing.T) {
 
 	for _, test := range []struct {
 		name    string
-		source  CredentialSource
+		source  localdiscovery.CredentialSource
 		wantErr error
 		missing bool
 	}{
-		{name: "store", source: CredentialSourceStore},
-		{name: "environment", source: CredentialSourceEnvironment, wantErr: ErrEnvironmentCredentialsActive},
+		{name: "store", source: localdiscovery.CredentialSourceStore},
+		{name: "environment", source: localdiscovery.CredentialSourceEnvironment, wantErr: ErrEnvironmentCredentialsActive},
 		{name: "missing metadata", missing: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -183,19 +178,16 @@ func TestAcquireCredentialStoreMutationChecksRunningDaemonSource(t *testing.T) {
 				t.Fatalf("hold daemon lifetime = %v, %v", locked, err)
 			}
 			defer lifetime.Unlock()
-			registry := Registry{
+			registry := localdiscovery.Registry{
 				RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: version.SessionProtocolVersion,
 				KitVersion: version.Version, PID: os.Getpid(), InstanceID: instanceID,
 				URL: server.URL, StartedAt: time.Now().UTC(),
-				CredentialSources: map[string]CredentialSource{"openai-codex": test.source},
+				CredentialSources: map[string]localdiscovery.CredentialSource{"openai-codex": test.source},
 			}
 			if test.missing {
 				registry.CredentialSources = nil
 			}
-			if err := writePrivateFile(paths.ServerToken, []byte(token+"\n")); err != nil {
-				t.Fatal(err)
-			}
-			if err := writeRegistry(paths, registry); err != nil {
+			if err := localdiscovery.Publish(paths, token, registry); err != nil {
 				t.Fatal(err)
 			}
 			release, err := NewManager(paths).AcquireCredentialStoreMutation(context.Background(), "openai-codex")
@@ -232,10 +224,10 @@ func TestAcquireCredentialStoreMutationClearsStaleRegistry(t *testing.T) {
 	if err := paths.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	if err := writePrivateFile(paths.ServerToken, []byte("stale")); err != nil {
+	if err := os.WriteFile(paths.ServerToken, []byte("stale"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writePrivateFile(paths.ServerRegistry, []byte("stale")); err != nil {
+	if err := os.WriteFile(paths.ServerRegistry, []byte("stale"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	release, err := NewManager(paths).AcquireCredentialStoreMutation(context.Background(), "openai-codex")

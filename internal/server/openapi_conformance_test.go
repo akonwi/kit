@@ -16,6 +16,7 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	kitscratchpad "github.com/akonwi/kit/internal/scratchpad"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/version"
@@ -162,7 +163,7 @@ func TestPreRoutingErrorResponsesConformToContract(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			next := newHandler(localHandlerOptions{
 				baseURL: "http://example.com", expectedHost: "example.com", token: "test",
-				registry: Registry{InstanceID: "instance_test"}, sessions: scratchpadWireTestService{},
+				registry: localdiscovery.Registry{InstanceID: "instance_test"}, sessions: scratchpadWireTestService{},
 			})
 			var contractErr error
 			handler := contractConformanceMiddleware(t, next, func(err error) { contractErr = err })

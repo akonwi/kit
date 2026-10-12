@@ -83,16 +83,16 @@ for line in sys.stdin:
 			t.Error("daemon shutdown blocked")
 		}
 	}()
-	client := NewClient(paths)
-	defer client.transport.CloseIdleConnections()
-	eventually(t, func() bool { _, _, err := client.Probe(t.Context()); return err == nil })
-	created, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: repo, Model: "test/echo"})
+	client := localTransport(paths)
+	defer client.CloseIdleConnections()
+	eventually(t, func() bool { _, _, err := client.Probe(t.Context(), true); return err == nil })
+	created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: repo, Model: "test/echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	streamCtx, stop := context.WithCancel(t.Context())
 	defer stop()
-	body, err := client.transport.StreamSessionVCS(streamCtx, created.ID)
+	body, err := client.StreamSessionVCS(streamCtx, created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ for line in sys.stdin:
 		t.Fatalf("initial local state=%+v", local)
 	}
 	eventually(t, func() bool {
-		snapshot, err := client.transport.GetSessionSnapshot(t.Context(), created.ID)
+		snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
 		return err == nil && len(snapshot.PluginCommands) == 1
 	})
 	raw, err := os.ReadFile(filepath.Join(root, "initial.json"))
@@ -171,7 +171,7 @@ for line in sys.stdin:
 		t.Fatalf("plugin/client disagree: %v %+v", pluginGit, remote.Status.PullRequest)
 	}
 	reconnectCtx, reconnectCancel := context.WithCancel(t.Context())
-	reconnected, err := client.transport.StreamSessionVCS(reconnectCtx, created.ID)
+	reconnected, err := client.StreamSessionVCS(reconnectCtx, created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ for line in sys.stdin:
 		t.Fatalf("reconnect snapshot=%+v", fresh)
 	}
 	outside := t.TempDir()
-	changed, err := client.transport.ChangeSessionCWD(t.Context(), created.ID, outside)
+	changed, err := client.ChangeSessionCWD(t.Context(), created.ID, outside)
 	if err != nil {
 		t.Fatal(err)
 	}

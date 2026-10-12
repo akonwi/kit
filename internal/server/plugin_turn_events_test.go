@@ -63,18 +63,18 @@ for line in sys.stdin:
 			t.Error("daemon shutdown blocked")
 		}
 	}()
-	client := NewClient(paths)
-	defer client.transport.CloseIdleConnections()
-	eventually(t, func() bool { _, _, err := client.Probe(t.Context()); return err == nil })
-	created, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
+	client := localTransport(paths)
+	defer client.CloseIdleConnections()
+	eventually(t, func() bool { _, _, err := client.Probe(t.Context(), true); return err == nil })
+	created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, func() bool {
-		snapshot, err := client.transport.GetSessionSnapshot(t.Context(), created.ID)
+		snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
 		return err == nil && len(snapshot.PluginCommands) == 1 && snapshot.PluginCommands[0].ID == "turn-events.ready"
 	})
-	result, err := client.transport.Prompt(t.Context(), created.ID, "one prompt")
+	result, err := client.Prompt(t.Context(), created.ID, "one prompt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,9 +97,9 @@ for line in sys.stdin:
 		t.Fatalf("public messages = %#v", messages)
 	}
 
-	reconnected := NewClient(paths)
-	defer reconnected.transport.CloseIdleConnections()
-	if _, err := reconnected.transport.GetSessionSnapshot(t.Context(), created.ID); err != nil {
+	reconnected := localTransport(paths)
+	defer reconnected.CloseIdleConnections()
+	if _, err := reconnected.GetSessionSnapshot(t.Context(), created.ID); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)

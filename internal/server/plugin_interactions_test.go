@@ -14,19 +14,20 @@ import (
 
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/clienttransport"
 )
 
-func pluginDialogClient(t *testing.T) (*Client, string, protocol.PluginCommand) {
+func pluginDialogClient(t *testing.T) (*clienttransport.Client, string, protocol.PluginCommand) {
 	t.Helper()
 	return pluginFixtureClient(t, "ui-api-demo", 1)
 }
 
-func pluginFixtureClient(t *testing.T, name string, commandCount int) (*Client, string, protocol.PluginCommand) {
+func pluginFixtureClient(t *testing.T, name string, commandCount int) (*clienttransport.Client, string, protocol.PluginCommand) {
 	t.Helper()
 	return pluginFixtureClientWithProviders(t, name, commandCount, &daemonEchoProviders{})
 }
 
-func pluginFixtureClientWithProviders(t *testing.T, name string, commandCount int, providers *daemonEchoProviders) (*Client, string, protocol.PluginCommand) {
+func pluginFixtureClientWithProviders(t *testing.T, name string, commandCount int, providers *daemonEchoProviders) (*clienttransport.Client, string, protocol.PluginCommand) {
 	t.Helper()
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("UI fixture requires Python")
@@ -61,11 +62,11 @@ func pluginFixtureClientWithProviders(t *testing.T, name string, commandCount in
 			t.Error("daemon shutdown blocked on plugin interaction")
 		}
 	})
-	client := NewClient(paths)
-	t.Cleanup(client.transport.CloseIdleConnections)
+	client := localTransport(paths)
+	t.Cleanup(client.CloseIdleConnections)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		if _, _, err := client.Probe(t.Context()); err == nil {
+		if _, _, err := client.Probe(t.Context(), true); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -73,13 +74,13 @@ func pluginFixtureClientWithProviders(t *testing.T, name string, commandCount in
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	info, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
+	info, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	deadline = time.Now().Add(5 * time.Second)
 	for {
-		snapshot, err := client.transport.GetSessionSnapshot(t.Context(), info.ID)
+		snapshot, err := client.GetSessionSnapshot(t.Context(), info.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -93,11 +94,11 @@ func pluginFixtureClientWithProviders(t *testing.T, name string, commandCount in
 	}
 }
 
-func nextPluginInteraction(t *testing.T, client *Client, id, previous string) protocol.InteractionRequest {
+func nextPluginInteraction(t *testing.T, client *clienttransport.Client, id, previous string) protocol.InteractionRequest {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		snapshot, err := client.transport.GetSessionSnapshot(t.Context(), id)
+		snapshot, err := client.GetSessionSnapshot(t.Context(), id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -120,7 +121,7 @@ func TestPluginUIDemoUsesSharedSessionBrokerWithoutModelRun(t *testing.T) {
 	defer cancel()
 	result := make(chan error, 1)
 	go func() {
-		result <- client.transport.ExecutePluginCommand(ctx, id, protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance, Args: "initial note"})
+		result <- client.ExecutePluginCommand(ctx, id, protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance, Args: "initial note"})
 	}()
 	previous := ""
 	for step, kind := range []protocol.InteractionKind{protocol.InteractionSelect, protocol.InteractionSelect, protocol.InteractionInput, protocol.InteractionConfirm} {
@@ -152,7 +153,7 @@ func TestPluginUIDemoUsesSharedSessionBrokerWithoutModelRun(t *testing.T) {
 		if step == 0 {
 			outcomes := make(chan error, 2)
 			for range 2 {
-				go func() { outcomes <- client.transport.RespondInteraction(ctx, id, response) }()
+				go func() { outcomes <- client.RespondInteraction(ctx, id, response) }()
 			}
 			successes := 0
 			for range 2 {
@@ -169,7 +170,7 @@ func TestPluginUIDemoUsesSharedSessionBrokerWithoutModelRun(t *testing.T) {
 			if successes != 1 {
 				t.Fatalf("successful shared answers = %d", successes)
 			}
-		} else if err := client.transport.RespondInteraction(ctx, id, response); err != nil {
+		} else if err := client.RespondInteraction(ctx, id, response); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -181,7 +182,7 @@ func TestPluginUIDemoUsesSharedSessionBrokerWithoutModelRun(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("UI command did not finish")
 	}
-	snapshot, err := client.transport.GetSessionSnapshot(t.Context(), id)
+	snapshot, err := client.GetSessionSnapshot(t.Context(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,13 +195,13 @@ func TestPluginDialogRevocationRejectsOldAnswer(t *testing.T) {
 	client, id, command := pluginDialogClient(t)
 	result := make(chan error, 1)
 	go func() {
-		result <- client.transport.ExecutePluginCommand(t.Context(), id, protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance})
+		result <- client.ExecutePluginCommand(t.Context(), id, protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance})
 	}()
 	request := nextPluginInteraction(t, client, id, "")
-	if _, err := client.transport.ReloadSession(t.Context(), id); err != nil {
+	if _, err := client.ReloadSession(t.Context(), id); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.transport.RespondInteraction(t.Context(), id, protocol.InteractionResponse{RequestID: request.ID, SelectedOptionID: request.Options[0].ID}); err == nil {
+	if err := client.RespondInteraction(t.Context(), id, protocol.InteractionResponse{RequestID: request.ID, SelectedOptionID: request.Options[0].ID}); err == nil {
 		t.Fatal("revoked dialog accepted answer")
 	}
 	select {
@@ -211,7 +212,7 @@ func TestPluginDialogRevocationRejectsOldAnswer(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("revoked command remained blocked")
 	}
-	snapshot, err := client.transport.GetSessionSnapshot(t.Context(), id)
+	snapshot, err := client.GetSessionSnapshot(t.Context(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,19 +227,23 @@ func TestPluginDialogRemainsAnswerableByAnotherClient(t *testing.T) {
 	defer cancel()
 	result := make(chan error, 1)
 	go func() {
-		result <- client.transport.ExecutePluginCommand(ctx, id, protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance})
+		result <- client.ExecutePluginCommand(ctx, id, protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance})
 	}()
 	request := nextPluginInteraction(t, client, id, "")
-	client.transport.CloseIdleConnections()
+	client.CloseIdleConnections()
 	// No client event subscription owns this pending dialog. A fresh connection
 	// observes the same request and can explicitly cancel it for all clients.
-	other := NewClient(client.paths)
-	defer other.transport.CloseIdleConnections()
+	connection, _, err := client.Probe(ctx, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := clienttransport.New(func() (clienttransport.Connection, error) { return connection, nil })
+	defer other.CloseIdleConnections()
 	recovered := nextPluginInteraction(t, other, id, "")
 	if recovered.ID != request.ID || recovered.Plugin == nil || *recovered.Plugin != *request.Plugin {
 		t.Fatalf("reattached request = %#v", recovered)
 	}
-	if err := other.transport.RespondInteraction(ctx, id, protocol.InteractionResponse{RequestID: request.ID, Cancelled: true}); err != nil {
+	if err := other.RespondInteraction(ctx, id, protocol.InteractionResponse{RequestID: request.ID, Cancelled: true}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -249,7 +254,7 @@ func TestPluginDialogRemainsAnswerableByAnotherClient(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("cancelled dialog did not release command")
 	}
-	snapshot, err := other.transport.GetSessionSnapshot(ctx, id)
+	snapshot, err := other.GetSessionSnapshot(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,10 +269,10 @@ func TestDeletingSessionCancelsPendingPluginDialog(t *testing.T) {
 	defer cancel()
 	result := make(chan error, 1)
 	go func() {
-		result <- client.transport.ExecutePluginCommand(ctx, id, protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance})
+		result <- client.ExecutePluginCommand(ctx, id, protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance})
 	}()
 	nextPluginInteraction(t, client, id, "")
-	if err := client.transport.DeleteSession(ctx, id); err != nil {
+	if err := client.DeleteSession(ctx, id); err != nil {
 		t.Fatal(err)
 	}
 	select {

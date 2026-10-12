@@ -1,4 +1,4 @@
-package server
+package daemonctl
 
 import (
 	"context"
@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/clienttransport"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/gofrs/flock"
 )
 
 // ProbeFunc returns a healthy local daemon registry.
-type ProbeFunc func(context.Context) (Registry, error)
+type ProbeFunc func(context.Context) (localdiscovery.Registry, error)
 
 // LaunchFunc starts a daemon process without waiting for its lifetime.
 type LaunchFunc func(context.Context) error
@@ -26,20 +28,20 @@ type Coordinator struct {
 }
 
 // Ensure returns a healthy daemon, launching exactly one when none is reachable.
-func (c Coordinator) Ensure(ctx context.Context) (Registry, error) {
+func (c Coordinator) Ensure(ctx context.Context) (localdiscovery.Registry, error) {
 	if c.Probe == nil {
-		return Registry{}, errors.New("daemon coordinator probe is nil")
+		return localdiscovery.Registry{}, errors.New("daemon coordinator probe is nil")
 	}
 	if c.Launch == nil {
-		return Registry{}, errors.New("daemon coordinator launcher is nil")
+		return localdiscovery.Registry{}, errors.New("daemon coordinator launcher is nil")
 	}
 	if registry, err := c.Probe(ctx); err == nil {
 		return registry, nil
-	} else if errors.Is(err, ErrIncompatibleDaemon) || errors.Is(err, ErrDaemonNotReady) {
-		return Registry{}, err
+	} else if errors.Is(err, clienttransport.ErrIncompatibleServer) || errors.Is(err, clienttransport.ErrServerNotReady) {
+		return localdiscovery.Registry{}, err
 	}
 	if err := c.Paths.Ensure(); err != nil {
-		return Registry{}, err
+		return localdiscovery.Registry{}, err
 	}
 
 	pollInterval := c.PollInterval
@@ -54,18 +56,18 @@ func (c Coordinator) Ensure(ctx context.Context) (Registry, error) {
 	startupLock := flock.New(c.Paths.StartupLock)
 	locked, err := startupLock.TryLockContext(ctx, pollInterval)
 	if err != nil {
-		return Registry{}, fmt.Errorf("wait for daemon startup lock: %w", err)
+		return localdiscovery.Registry{}, fmt.Errorf("wait for daemon startup lock: %w", err)
 	}
 	if !locked {
-		return Registry{}, errors.New("daemon startup lock was not acquired")
+		return localdiscovery.Registry{}, errors.New("daemon startup lock was not acquired")
 	}
 	defer startupLock.Unlock()
 
 	// Another client may have completed startup while this caller waited.
 	if registry, err := c.Probe(ctx); err == nil {
 		return registry, nil
-	} else if errors.Is(err, ErrIncompatibleDaemon) || errors.Is(err, ErrDaemonNotReady) {
-		return Registry{}, err
+	} else if errors.Is(err, clienttransport.ErrIncompatibleServer) || errors.Is(err, clienttransport.ErrServerNotReady) {
+		return localdiscovery.Registry{}, err
 	}
 	// A previous daemon may have removed its registry while still flushing the
 	// database and holding the lifetime lock. Wait for complete teardown before
@@ -73,19 +75,19 @@ func (c Coordinator) Ensure(ctx context.Context) (Registry, error) {
 	lifetimeLock := flock.New(c.Paths.ServerLock)
 	available, err := lifetimeLock.TryLockContext(ctx, pollInterval)
 	if err != nil {
-		return Registry{}, fmt.Errorf("wait for previous daemon resources: %w", err)
+		return localdiscovery.Registry{}, fmt.Errorf("wait for previous daemon resources: %w", err)
 	}
 	if !available {
-		return Registry{}, errors.New("daemon lifetime lock was not acquired")
+		return localdiscovery.Registry{}, errors.New("daemon lifetime lock was not acquired")
 	}
 	if err := lifetimeLock.Unlock(); err != nil {
-		return Registry{}, fmt.Errorf("release daemon lifetime probe: %w", err)
+		return localdiscovery.Registry{}, fmt.Errorf("release daemon lifetime probe: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
-		return Registry{}, fmt.Errorf("launch local daemon: %w", err)
+		return localdiscovery.Registry{}, fmt.Errorf("launch local daemon: %w", err)
 	}
 	if err := c.Launch(ctx); err != nil {
-		return Registry{}, fmt.Errorf("launch local daemon: %w", err)
+		return localdiscovery.Registry{}, fmt.Errorf("launch local daemon: %w", err)
 	}
 
 	waitContext, cancel := context.WithTimeout(ctx, startTimeout)
@@ -98,13 +100,13 @@ func (c Coordinator) Ensure(ctx context.Context) (Registry, error) {
 		if err == nil {
 			return registry, nil
 		}
-		if errors.Is(err, ErrIncompatibleDaemon) {
-			return Registry{}, err
+		if errors.Is(err, clienttransport.ErrIncompatibleServer) {
+			return localdiscovery.Registry{}, err
 		}
 		lastErr = err
 		select {
 		case <-waitContext.Done():
-			return Registry{}, fmt.Errorf("wait for local daemon readiness: %w (last probe: %v)", waitContext.Err(), lastErr)
+			return localdiscovery.Registry{}, fmt.Errorf("wait for local daemon readiness: %w (last probe: %v)", waitContext.Err(), lastErr)
 		case <-ticker.C:
 		}
 	}
