@@ -9,10 +9,18 @@ APP_VERSION="${KIT_MACOS_APP_VERSION:-0.0.0}"
 APP_BUILD="${KIT_MACOS_APP_BUILD:-1}"
 APP_COMMIT="${KIT_MACOS_SOURCE_COMMIT:-}"
 DERIVED_DATA="${KIT_MACOS_DERIVED_DATA:-$APP_ROOT/.build/xcode}"
+# Development bundles get their own identity so their preferences, window
+# restoration, and process never touch an installed Kit.app.
+if [[ "${KIT_MACOS_RELEASE_BUILD:-0}" == 1 ]]; then
+  BUNDLE_ID=com.akonwi.kit; BUNDLE_NAME=Kit
+else
+  BUNDLE_ID=com.akonwi.kit.dev; BUNDLE_NAME="Kit Dev"
+fi
 [[ -z "$APP_COMMIT" || "$APP_COMMIT" =~ ^[a-f0-9]{40}$ ]] || { echo "Invalid source commit" >&2; exit 2; }
 [[ "$CONFIGURATION" == Debug || "$CONFIGURATION" == Release ]] || { echo "Invalid build configuration" >&2; exit 2; }
 [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$APP_BUILD" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "Invalid app version or build" >&2; exit 2; }
-if [[ "$MODE" != --build ]]; then pkill -x Kit 2>/dev/null || true; fi
+# Stop only a previous launch of this bundle, never an installed Kit.app.
+if [[ "$MODE" != --build ]]; then pkill -f "^$APP_BUNDLE/Contents/MacOS/Kit\$" 2>/dev/null || true; fi
 cd "$APP_ROOT"
 # SwiftLintPlugin declares these output directories but does not create them.
 PLUGIN_OUTPUT="$DERIVED_DATA/Build/Intermediates.noindex/BuildToolPluginIntermediates"
@@ -58,8 +66,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>Kit</string>
-<key>CFBundleIdentifier</key><string>com.akonwi.kit</string>
-<key>CFBundleName</key><string>Kit</string>
+<key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
+<key>CFBundleName</key><string>$BUNDLE_NAME</string>
 <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
 <key>CFBundleVersion</key><string>$APP_BUILD</string>
 $commit_entry
@@ -77,6 +85,6 @@ if [[ "$MODE" == --build ]]; then echo "$APP_BUNDLE"; exit; fi
 /usr/bin/open -n "$APP_BUNDLE"
 if [[ "$MODE" == --verify ]]; then
   sleep 1
-  pgrep -x Kit >/dev/null
+  pgrep -f "^$APP_BUNDLE/Contents/MacOS/Kit\$" >/dev/null
   echo "Kit is running."
 fi

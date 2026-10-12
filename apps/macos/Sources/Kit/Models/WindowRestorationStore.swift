@@ -18,7 +18,7 @@ final class WindowRestorationStore {
     private(set) var error: String?
     private let url: URL
 
-    init(url: URL = URL.applicationSupportDirectory.appendingPathComponent("com.akonwi.kit/windows.json")) {
+    init(url: URL = URL.applicationSupportDirectory.appendingPathComponent(AppIdentity.bundleIdentifier + "/windows.json")) {
         self.url = url
         do {
             let data = try Data(contentsOf: url)

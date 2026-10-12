@@ -1,4 +1,9 @@
+import Foundation
+
 enum AppIdentity {
-    static let bundleIdentifier = "com.akonwi.kit"
+    /// The running bundle's identifier. Development bundles use their own,
+    /// so they never share preferences or window restoration with an
+    /// installed release.
+    static let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.akonwi.kit"
     static let tabbingIdentifier = bundleIdentifier + ".sessions"
 }

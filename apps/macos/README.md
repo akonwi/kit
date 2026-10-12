@@ -13,7 +13,9 @@ apps/macos/script/build_and_run.sh --verify
 The script builds and packages `apps/macos/dist/Kit.app`, then launches it.
 `--build` packages without launching. Xcode is required for the editor dependency's
 resource generation. The development bundle is ad-hoc signed and must not be
-published. The separately signed macOS app release procedure is documented below;
+published. It is named Kit Dev with the bundle identifier `com.akonwi.kit.dev`,
+so its preferences and window restoration stay separate from an installed
+Kit.app, and relaunching it never stops the installed app. The separately signed macOS app release procedure is documented below;
 bundled-daemon work is tracked by [#143](https://github.com/akonwi/kit/issues/143).
 
 Start a compatible Kit daemon separately. The app discovers it through
