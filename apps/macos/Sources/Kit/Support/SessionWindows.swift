@@ -82,13 +82,23 @@ final class SessionWindowRegistry: NSObject {
         window.tabbingMode = .disallowed
         NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose(_:)),
                                                name: NSWindow.willCloseNotification, object: window)
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(windowKeyChanged(_:)), name: name, object: window)
+        }
+        model.isFocused = window.isKeyWindow
         capture(model)
+    }
+
+    @objc private func windowKeyChanged(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              let model = liveModels.first(where: { $0.window === window }) else { return }
+        model.isFocused = window.isKeyWindow
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow,
               let model = liveModels.first(where: { $0.window === window }) else { return }
-        NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
+        NotificationCenter.default.removeObserver(self, name: nil, object: window)
         model.closeAll()
         model.window = nil
         model.trafficLights = nil

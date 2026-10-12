@@ -61,6 +61,9 @@ struct SessionWindowRoot: View {
             let servers = Set(model.tabs.map(\.identity.server))
             await app.connectIfNeeded(to: servers.first { $0 != SessionWindowModel.defaultServer } ?? SessionWindowModel.defaultServer)
         }
+        .task(id: AttachmentKey(server: app.client?.serverID, tabs: model.tabs.map(\.id))) {
+            if let client = app.client { model.attachAll(client: client) }
+        }
         .onAppear {
             windows.restoreRemaining { openWindow(id: "session", value: $0) }
         }
@@ -123,6 +126,12 @@ private struct SessionTabContent: View {
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+}
+
+/// Reattaches tabs when the window's server or tabs change.
+private struct AttachmentKey: Equatable {
+    let server: String?
+    let tabs: [UUID]
 }
 
 extension FocusedValues {

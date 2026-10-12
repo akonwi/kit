@@ -44,6 +44,14 @@ final class SessionTab: Identifiable {
     }
     var title: String { session?.title ?? (isLauncher ? "New session" : identity.session) }
     var status: SessionTabStatus { store?.tabStatus ?? .idle }
+    /// A turn finished while the user was elsewhere; cleared when the tab is
+    /// next shown in a focused window.
+    fileprivate(set) var finished = false
+    /// The last status the window recorded, to detect a finished turn.
+    fileprivate var recordedStatus: SessionTabStatus = .idle
+    /// Whether the tab's marker calls for attention; idle tabs recede.
+    var needsAttention: Bool { status != .idle || finished }
+    var statusLabel: String? { status.label ?? (finished ? "Finished" : nil) }
     /// The session's working directory, for grouping tabs by project.
     var directory: String { session?.cwd ?? session?.workspace ?? "" }
 }
@@ -94,7 +102,25 @@ final class SessionWindowModel: Identifiable {
     func select(_ tab: SessionTab) {
         guard tabs.contains(where: { $0 === tab }), selectedTabID != tab.id else { return }
         selectedTabID = tab.id
+        if isFocused { tab.finished = false }
         onChange(self)
+    }
+
+    /// Whether the window is key, so its selected tab is in front of the user.
+    @ObservationIgnored var isFocused = true {
+        didSet { if isFocused { selectedTab.finished = false } }
+    }
+
+    /// Records a tab's status. A turn that ends while the tab is not in front
+    /// of the user marks it finished.
+    func record(_ status: SessionTabStatus, for tab: SessionTab) {
+        let previous = tab.recordedStatus
+        tab.recordedStatus = status
+        if status != .idle {
+            tab.finished = false
+        } else if previous != .idle, !(isFocused && tab.id == selectedTabID) {
+            tab.finished = true
+        }
     }
 
     /// Selects the tab at a display position.
@@ -170,8 +196,27 @@ final class SessionWindowModel: Identifiable {
         if let store = tab.store, store.serverID == client.serverID { return store }
         let store = SessionStore(fixture: Fixture(sessions: app.sessions), client: client, sessionID: tab.identity.session)
         tab.store = store
+        tab.recordedStatus = store.tabStatus
         store.attach()
+        observeStatus(of: tab, store: store)
         return store
+    }
+
+    /// Attaches every session tab, so background tabs report their status.
+    func attachAll(client: any SessionClient) {
+        for tab in tabs { _ = store(for: tab, client: client) }
+    }
+
+    private func observeStatus(of tab: SessionTab, store: SessionStore) {
+        withObservationTracking {
+            _ = store.tabStatus
+        } onChange: { [weak self, weak tab, weak store] in
+            Task { @MainActor in
+                guard let self, let tab, let store, tab.store === store else { return }
+                self.record(store.tabStatus, for: tab)
+                self.observeStatus(of: tab, store: store)
+            }
+        }
     }
 
     /// Records a session change made inside a tab's own store.
@@ -197,5 +242,7 @@ final class SessionWindowModel: Identifiable {
         tab.store?.detach()
         tab.store?.stop()
         tab.store = nil
+        tab.finished = false
+        tab.recordedStatus = .idle
     }
 }

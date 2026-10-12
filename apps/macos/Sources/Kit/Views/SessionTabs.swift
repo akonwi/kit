@@ -93,10 +93,10 @@ private struct SessionSidebarRow: View {
     var body: some View {
         Button(action: select) {
             HStack(spacing: 10) {
-                SessionTabStatusMarker(status: tab.status).frame(width: 14)
+                SessionTabStatusMarker(status: tab.status, finished: tab.finished).frame(width: 14)
                 Text(tab.title)
                     .font(.kit(size: 13, weight: selected ? .medium : .regular))
-                    .foregroundStyle(tab.isLauncher ? theme.muted : theme.text)
+                    .foregroundStyle(SessionTabStatusMarker.titleProminent(tab, selected: selected) ? theme.text : theme.muted)
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if hovering {
@@ -110,9 +110,9 @@ private struct SessionSidebarRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(tab.status.label.map { "\(tab.title) — \($0)" } ?? tab.title)
+        .help(tab.statusLabel.map { "\(tab.title) — \($0)" } ?? tab.title)
         .accessibilityLabel(tab.title)
-        .accessibilityValue(tab.status.label ?? "")
+        .accessibilityValue(tab.statusLabel ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .contextMenu { Button("Close Tab", action: close) }
     }
@@ -214,7 +214,7 @@ private struct SessionTabOverflowMenu: View {
     var body: some View {
         Menu {
             ForEach(hidden) { tab in
-                Button(tab.status.label.map { "\(tab.title) — \($0)" } ?? tab.title) { select(tab) }
+                Button(tab.statusLabel.map { "\(tab.title) — \($0)" } ?? tab.title) { select(tab) }
             }
         } label: {
             Text("+\(hidden.count)")
@@ -246,10 +246,10 @@ private struct SessionTopTab: View {
     var body: some View {
         Button(action: select) {
             HStack(spacing: 8) {
-                SessionTabStatusMarker(status: tab.status).frame(width: 12)
+                SessionTabStatusMarker(status: tab.status, finished: tab.finished).frame(width: 12)
                 Text(tab.title)
                     .font(.kit(size: 12, weight: selected ? .medium : .regular))
-                    .foregroundStyle(tab.isLauncher ? theme.muted : theme.text)
+                    .foregroundStyle(SessionTabStatusMarker.titleProminent(tab, selected: selected) ? theme.text : theme.muted)
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if selected || hovering {
@@ -265,26 +265,37 @@ private struct SessionTopTab: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(tab.status.label.map { "\(tab.title) — \($0)" } ?? tab.title)
+        .help(tab.statusLabel.map { "\(tab.title) — \($0)" } ?? tab.title)
         .accessibilityLabel(tab.title)
-        .accessibilityValue(tab.status.label ?? "")
+        .accessibilityValue(tab.statusLabel ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .contextMenu { Button("Close Tab", action: close) }
     }
 }
 
-/// Activity on a session tab: working or awaiting a response.
+/// Activity on a session tab: working, awaiting a response, or finished
+/// while the user was elsewhere.
 struct SessionTabStatusMarker: View {
     @Environment(\.mica) private var theme
     let status: SessionTabStatus
+    let finished: Bool
 
     var body: some View {
         switch status {
-        case .idle: Color.clear.frame(height: 14)
         case .running: KitSpinner().foregroundStyle(theme.accent)
         case .awaitingResponse:
             Image(systemName: "questionmark").font(.system(size: 10, weight: .bold)).foregroundStyle(theme.warning)
+        case .idle where finished:
+            Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(theme.success)
+                .accessibilityLabel("Finished")
+        case .idle: Color.clear.frame(height: 14)
         }
+    }
+
+    /// Selected tabs and tabs whose marker calls for attention keep full
+    /// strength; idle tabs and the launcher recede.
+    @MainActor static func titleProminent(_ tab: SessionTab, selected: Bool) -> Bool {
+        tab.isLauncher ? false : selected || tab.needsAttention
     }
 }
 
