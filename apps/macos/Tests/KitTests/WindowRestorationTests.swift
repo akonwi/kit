@@ -140,6 +140,19 @@ import Testing
         #expect(model.selectedSession == id("c"))
     }
 
+    @Test func unopenedTabsDescribeThemselvesFromTheCatalog() {
+        let model = SessionWindowModel(id: UUID(), sessions: [id("a"), id("b")], selected: id("a"))
+        let tab = model.tabs[1]
+        #expect(tab.title == "b")
+        #expect(tab.directory == "")
+        var session = SessionExcerpt(id: "b", title: "Release notes", sourceTitle: "", model: "m", thinking: "high",
+                                     workspace: "/work/kit", date: "", messages: [])
+        session.cwd = "/work/kit/apps"
+        model.app.recordCreated(session)
+        #expect(tab.title == "Release notes")
+        #expect(tab.directory == "/work/kit/apps")
+    }
+
     @Test func tabsGroupByProjectInFirstAppearanceOrder() {
         let groups = SessionTabGroup.grouped(["kit/a", "", "ard/b", "kit/c"]) { tab in
             tab.isEmpty ? "" : "/Users/me/" + tab.split(separator: "/")[0]

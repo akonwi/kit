@@ -29,14 +29,23 @@ final class SessionTab: Identifiable {
     let id = UUID()
     fileprivate(set) var identity: SessionIdentity
     fileprivate(set) var store: SessionStore?
+    /// The window's session catalog, which describes tabs not yet opened.
+    private weak var catalog: AppModel?
 
-    init(identity: SessionIdentity) { self.identity = identity }
+    init(identity: SessionIdentity, catalog: AppModel? = nil) {
+        self.identity = identity
+        self.catalog = catalog
+    }
 
     var isLauncher: Bool { identity.session.isEmpty }
-    var title: String { store?.selected?.title ?? (isLauncher ? "New session" : identity.session) }
+    /// The live session once opened; until then, its catalog entry.
+    private var session: SessionExcerpt? {
+        store?.selected ?? catalog?.sessions.first { $0.id == identity.session }
+    }
+    var title: String { session?.title ?? (isLauncher ? "New session" : identity.session) }
     var status: SessionTabStatus { store?.tabStatus ?? .idle }
     /// The session's working directory, for grouping tabs by project.
-    var directory: String { store?.selected?.cwd ?? store?.selected?.workspace ?? "" }
+    var directory: String { session?.cwd ?? session?.workspace ?? "" }
 }
 
 /// A window's session tabs and the connection they share.
@@ -56,7 +65,10 @@ final class SessionWindowModel: Identifiable {
 
     init(id: UUID, sessions: [SessionIdentity] = [], selected: SessionIdentity? = nil) {
         self.id = id
-        let tabs = sessions.isEmpty ? [SessionTab(identity: Self.launcherIdentity)] : sessions.map(SessionTab.init)
+        let app = app
+        let tabs = sessions.isEmpty
+            ? [SessionTab(identity: Self.launcherIdentity, catalog: app)]
+            : sessions.map { SessionTab(identity: $0, catalog: app) }
         self.tabs = tabs
         selectedTabID = (selected.flatMap { identity in tabs.first { $0.identity == identity } } ?? tabs[0]).id
     }
@@ -110,7 +122,7 @@ final class SessionWindowModel: Identifiable {
             show(identity, in: selectedTab)
             return selectedTab
         }
-        let tab = SessionTab(identity: identity)
+        let tab = SessionTab(identity: identity, catalog: app)
         tabs.insert(tab, at: selectedIndex + 1)
         selectedTabID = tab.id
         onChange(self)
@@ -144,7 +156,7 @@ final class SessionWindowModel: Identifiable {
         guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
         release(tab)
         tabs.remove(at: index)
-        if tabs.isEmpty { tabs = [SessionTab(identity: Self.launcherIdentity)] }
+        if tabs.isEmpty { tabs = [SessionTab(identity: Self.launcherIdentity, catalog: app)] }
         if selectedTabID == tab.id {
             selectedTabID = tabs[min(index, tabs.count - 1)].id
         }
