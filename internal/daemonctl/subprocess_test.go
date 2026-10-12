@@ -1,4 +1,4 @@
-package server
+package daemonctl
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/gofrs/flock"
 )
 
@@ -56,7 +57,7 @@ func TestSubprocessRestartReplacesOlderDaemon(t *testing.T) {
 	})
 
 	runKit(oldBinary, "server", "start")
-	oldRegistry, err := LoadRegistry(paths)
+	oldRegistry, err := localdiscovery.Load(paths)
 	if err != nil {
 		t.Fatalf("load old registry: %v", err)
 	}
@@ -65,7 +66,7 @@ func TestSubprocessRestartReplacesOlderDaemon(t *testing.T) {
 	}
 
 	runKit(newBinary, "server", "restart")
-	newRegistry, err := LoadRegistry(paths)
+	newRegistry, err := localdiscovery.Load(paths)
 	if err != nil {
 		t.Fatalf("load new registry: %v", err)
 	}

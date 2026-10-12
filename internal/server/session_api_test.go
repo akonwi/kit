@@ -25,8 +25,11 @@ import (
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/clienttransport"
+	"github.com/akonwi/kit/internal/daemonctl"
 	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/identifier"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/scratchpad"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/subagent"
@@ -354,20 +357,17 @@ func TestSessionClientRejectsIncompatibleRegistryBeforeRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newToken() error = %v", err)
 	}
-	if err := writePrivateFile(paths.ServerToken, []byte(token+"\n")); err != nil {
-		t.Fatalf("write token: %v", err)
-	}
-	registry := Registry{
+	registry := localdiscovery.Registry{
 		RegistryVersion: version.LocalRegistryVersion,
 		ProtocolVersion: version.SessionProtocolVersion - 1,
 		KitVersion:      version.Version,
 		PID:             1, InstanceID: "old", URL: "http://127.0.0.1:1", StartedAt: time.Now(),
 	}
-	if err := writeRegistry(paths, registry); err != nil {
-		t.Fatalf("writeRegistry() error = %v", err)
+	if err := localdiscovery.Publish(paths, token, registry); err != nil {
+		t.Fatalf("Publish() error = %v", err)
 	}
-	if _, err := NewClient(paths).transport.ListSessions(context.Background(), ""); !errors.Is(err, ErrIncompatibleDaemon) {
-		t.Fatalf("ListSessions() error = %v, want ErrIncompatibleDaemon", err)
+	if _, err := localTransport(paths).ListSessions(context.Background(), ""); !errors.Is(err, clienttransport.ErrIncompatibleServer) {
+		t.Fatalf("ListSessions() error = %v, want ErrIncompatibleServer", err)
 	}
 }
 
@@ -387,11 +387,11 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		})
 	}()
-	client := NewClient(paths)
+	client := localTransport(paths)
 	probeContext, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer probeCancel()
 	for {
-		if _, _, err := client.Probe(probeContext); err == nil {
+		if _, _, err := client.Probe(probeContext, true); err == nil {
 			break
 		}
 		select {
@@ -401,27 +401,27 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 		}
 	}
 	sessionID := "session_77777777777777777777777777777777"
-	created, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{
+	created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{
 		ID: sessionID, CWD: t.TempDir(), Model: "test/echo", ThinkingLevel: "off",
 	})
 	if err != nil || created.ID != sessionID {
 		t.Fatalf("CreateSession() = %#v, %v", created, err)
 	}
-	listed, err := client.transport.Subagent(t.Context(), sessionID, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
+	listed, err := client.Subagent(t.Context(), sessionID, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
 	if err != nil || len(listed.Definitions) != 1 || listed.Definitions[0].Name != "scout" {
 		t.Fatalf("Subagent(list_agents) = %#v, %v", listed, err)
 	}
 	temporaryID := "session_88888888888888888888888888888888"
-	if _, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{
+	if _, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{
 		ID: temporaryID, CWD: t.TempDir(), Model: "test/echo", ThinkingLevel: "off", Temporary: true,
 	}); err != nil {
 		t.Fatalf("CreateSession(temporary) error = %v", err)
 	}
-	temporaryListed, err := client.transport.Subagent(t.Context(), temporaryID, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
+	temporaryListed, err := client.Subagent(t.Context(), temporaryID, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
 	if err != nil || len(temporaryListed.Definitions) != 0 {
 		t.Fatalf("Subagent(list_agents temporary) = %#v, %v; want no definitions", temporaryListed, err)
 	}
-	eventSnapshot, err := client.transport.GetSessionSnapshot(t.Context(), sessionID)
+	eventSnapshot, err := client.GetSessionSnapshot(t.Context(), sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +433,7 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 	}
 	changedEvents := make(chan protocol.SessionEvent, 1)
 	go scanSubagentChangedEvent(body, changedEvents)
-	started, err := client.transport.Subagent(t.Context(), sessionID, protocol.SubagentOperationInput{
+	started, err := client.Subagent(t.Context(), sessionID, protocol.SubagentOperationInput{
 		Action: protocol.SubagentStart, Agent: "scout", Message: "inspect from another client",
 	})
 	if err != nil || started.Task == nil || started.Conversation == nil {
@@ -452,11 +452,11 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 		t.Fatal("attached observer did not receive subagent lifecycle event")
 	}
 	stopStream()
-	observer := NewClient(paths)
+	observer := localTransport(paths)
 	var observed protocol.SubagentOperationResult
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		observed, err = observer.transport.Subagent(t.Context(), sessionID, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
+		observed, err = observer.Subagent(t.Context(), sessionID, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
 		if err == nil && len(observed.Conversations) == 1 && observed.Conversations[0].State == "idle" && observed.Conversations[0].LastResultSummary != "" && len(observed.Conversations[0].Tasks) == 1 && observed.Conversations[0].Tasks[0].State == "completed" {
 			break
 		}
@@ -470,21 +470,21 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 		t.Fatalf("observer roster = %#v", observed.Conversations)
 	}
 	targetModel := "test/echo-alt"
-	configured, err := observer.transport.ConfigureSubagent(t.Context(), sessionID, observed.Conversations[0].ID, protocol.ConfigureSubagentInput{
+	configured, err := observer.ConfigureSubagent(t.Context(), sessionID, observed.Conversations[0].ID, protocol.ConfigureSubagentInput{
 		Generation: observed.Conversations[0].Generation, Model: &targetModel,
 	})
 	if err != nil || configured.Conversation.Model != targetModel || configured.Conversation.ThinkingLevel != "off" {
 		t.Fatalf("ConfigureSubagent() = %#v, %v", configured, err)
 	}
-	childEvents, err := observer.transport.GetSubagentEvents(t.Context(), sessionID, observed.Conversations[0].ID, "", 0)
+	childEvents, err := observer.GetSubagentEvents(t.Context(), sessionID, observed.Conversations[0].ID, "", 0)
 	if err != nil || childEvents.StreamID == "" || len(childEvents.Events) == 0 {
 		t.Fatalf("child live events = %#v, %v", childEvents, err)
 	}
-	transcript, err := observer.transport.GetSubagentTranscript(t.Context(), sessionID, observed.Conversations[0].ID, "")
+	transcript, err := observer.GetSubagentTranscript(t.Context(), sessionID, observed.Conversations[0].ID, "")
 	if err != nil || len(transcript.Messages) != 2 || transcript.Messages[0].Role != "user" || transcript.Messages[1].Role != "assistant" {
 		t.Fatalf("child transcript = %#v, %v", transcript, err)
 	}
-	snapshot, err := client.transport.GetSessionSnapshot(t.Context(), sessionID)
+	snapshot, err := client.GetSessionSnapshot(t.Context(), sessionID)
 	if err != nil || len(snapshot.SubagentDefinitions) != 1 || snapshot.SubagentDefinitions[0].Name != "scout" ||
 		len(snapshot.SubagentConversations) != 1 || snapshot.SubagentConversations[0].Model != targetModel || snapshot.SubagentConversations[0].ThinkingLevel != "off" {
 		t.Fatalf("snapshot subagents = definitions:%#v conversations:%#v, %v", snapshot.SubagentDefinitions, snapshot.SubagentConversations, err)
@@ -515,11 +515,11 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		})
 	}()
 
-	client := NewClient(paths)
+	client := localTransport(paths)
 	probeContext, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer probeCancel()
 	for {
-		if _, _, err := client.Probe(probeContext); err == nil {
+		if _, _, err := client.Probe(probeContext, true); err == nil {
 			break
 		}
 		select {
@@ -529,7 +529,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		}
 	}
 
-	catalog, err := client.transport.ListModels(context.Background())
+	catalog, err := client.ListModels(context.Background())
 	if err != nil {
 		t.Fatalf("ListModels() error = %v", err)
 	}
@@ -580,44 +580,44 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	createInput := protocol.CreateSessionInput{
 		ID: sessionID, CWD: workspace, Model: "test/echo", ThinkingLevel: "off", Name: "API test",
 	}
-	created, err := client.transport.CreateSession(context.Background(), createInput)
+	created, err := client.CreateSession(context.Background(), createInput)
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
 	}
 	if !reflect.DeepEqual(created.Inputs, []protocol.ModelInputKind{protocol.ModelInputText}) {
 		t.Fatalf("created session inputs = %v, want [text]", created.Inputs)
 	}
-	scratch, err := client.transport.GetScratchpad(context.Background(), created.ID)
+	scratch, err := client.GetScratchpad(context.Background(), created.ID)
 	if err != nil || scratch.OwnerSessionID != created.ID || scratch.Content != "" || scratch.Revision != 1 {
 		t.Fatalf("GetScratchpad() = %+v, %v", scratch, err)
 	}
-	scratchSnapshot, err := client.transport.GetSessionSnapshot(context.Background(), created.ID)
+	scratchSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil || scratchSnapshot.Scratchpad == nil || *scratchSnapshot.Scratchpad != scratch {
 		t.Fatalf("initial scratchpad snapshot = %+v, %v", scratchSnapshot.Scratchpad, err)
 	}
 	canceledScratchContext, cancelScratch := context.WithCancel(context.Background())
 	cancelScratch()
-	if _, err := client.transport.UpdateScratchpad(canceledScratchContext, created.ID, protocol.UpdateScratchpadInput{
+	if _, err := client.UpdateScratchpad(canceledScratchContext, created.ID, protocol.UpdateScratchpadInput{
 		ExpectedRevision: scratch.Revision, Content: "canceled",
 	}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled UpdateScratchpad() error = %v", err)
 	}
-	updatedScratch, err := client.transport.UpdateScratchpad(context.Background(), created.ID, protocol.UpdateScratchpadInput{
+	updatedScratch, err := client.UpdateScratchpad(context.Background(), created.ID, protocol.UpdateScratchpadInput{
 		ExpectedRevision: scratch.Revision, Content: "# Shared notes\n",
 	})
 	if err != nil || updatedScratch.OwnerSessionID != created.ID || updatedScratch.Content != "# Shared notes\n" || updatedScratch.Revision != 2 {
 		t.Fatalf("UpdateScratchpad() = %+v, %v", updatedScratch, err)
 	}
-	scratchEvents, err := client.transport.GetSessionEvents(context.Background(), created.ID, scratchSnapshot.EventStreamID, scratchSnapshot.EventCursor)
+	scratchEvents, err := client.GetSessionEvents(context.Background(), created.ID, scratchSnapshot.EventStreamID, scratchSnapshot.EventCursor)
 	scratchPayload, scratchOK := protocolScratchpadPayload(scratchEvents.Events)
 	if err != nil || len(scratchEvents.Events) != 1 || !scratchOK || *scratchPayload != updatedScratch {
 		t.Fatalf("scratchpad events = %+v, %v", scratchEvents, err)
 	}
-	updatedSnapshot, err := client.transport.GetSessionSnapshot(context.Background(), created.ID)
+	updatedSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil || updatedSnapshot.Scratchpad == nil || *updatedSnapshot.Scratchpad != updatedScratch {
 		t.Fatalf("updated scratchpad snapshot = %+v, %v", updatedSnapshot.Scratchpad, err)
 	}
-	if _, err := client.transport.UpdateScratchpad(context.Background(), created.ID, protocol.UpdateScratchpadInput{
+	if _, err := client.UpdateScratchpad(context.Background(), created.ID, protocol.UpdateScratchpadInput{
 		ExpectedRevision: scratch.Revision, Content: "stale",
 	}); err == nil {
 		t.Fatal("UpdateScratchpad() accepted a stale revision")
@@ -628,7 +628,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 			t.Fatalf("stale UpdateScratchpad() error = %#v", err)
 		}
 	}
-	vcsStatus, err := client.transport.GetSessionVCSStatus(context.Background(), created.ID)
+	vcsStatus, err := client.GetSessionVCSStatus(context.Background(), created.ID)
 	if err != nil {
 		t.Fatalf("GetSessionVCSStatus() error = %v", err)
 	}
@@ -636,7 +636,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		vcsStatus.Status.Head.Kind != protocol.VCSHeadUnborn || vcsStatus.Status.Head.Name != "main" || !vcsStatus.Status.Dirty {
 		t.Fatalf("GetSessionVCSStatus() = %+v", vcsStatus)
 	}
-	indexed, err := client.transport.GetSessionFileIndex(context.Background(), created.ID)
+	indexed, err := client.GetSessionFileIndex(context.Background(), created.ID)
 	if err != nil {
 		t.Fatalf("GetSessionFileIndex() error = %v", err)
 	}
@@ -656,7 +656,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "after-index.txt"), []byte("new"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cached, err := client.transport.GetSessionFileIndex(context.Background(), created.ID)
+	cached, err := client.GetSessionFileIndex(context.Background(), created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -665,7 +665,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 			t.Fatal("ordinary file-index read unexpectedly bypassed the daemon cache")
 		}
 	}
-	refreshed, err := client.transport.RefreshSessionFileIndex(context.Background(), created.ID)
+	refreshed, err := client.RefreshSessionFileIndex(context.Background(), created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -676,19 +676,19 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if !foundRefreshed {
 		t.Fatalf("forced file-index refresh did not include new file: %+v", refreshed.Entries)
 	}
-	retried, err := client.transport.CreateSession(context.Background(), createInput)
+	retried, err := client.CreateSession(context.Background(), createInput)
 	if err != nil || retried.ID != created.ID {
 		t.Fatalf("retry CreateSession() = %+v, %v; want %q", retried, err, created.ID)
 	}
-	renameBaseline, err := client.transport.GetSessionSnapshot(context.Background(), created.ID)
+	renameBaseline, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renamed, err := client.transport.RenameSession(context.Background(), created.ID, " Renamed API session ")
+	renamed, err := client.RenameSession(context.Background(), created.ID, " Renamed API session ")
 	if err != nil || renamed.ID != created.ID || renamed.Name != "Renamed API session" {
 		t.Fatalf("RenameSession() = %+v, %v", renamed, err)
 	}
-	renameEvents, err := client.transport.GetSessionEvents(context.Background(), created.ID, renameBaseline.EventStreamID, renameBaseline.EventCursor)
+	renameEvents, err := client.GetSessionEvents(context.Background(), created.ID, renameBaseline.EventStreamID, renameBaseline.EventCursor)
 	renamePayload, renameOK := protocolRenamePayload(renameEvents.Events)
 	if err != nil || len(renameEvents.Events) != 1 || !renameOK || renamePayload != renamed.Name {
 		t.Fatalf("rename events = %+v, %v", renameEvents, err)
@@ -697,16 +697,16 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deleteCandidate, err := client.transport.CreateSession(context.Background(), protocol.CreateSessionInput{
+	deleteCandidate, err := client.CreateSession(context.Background(), protocol.CreateSessionInput{
 		ID: deleteID, CWD: workspace, Model: "test/echo",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.transport.DeleteSession(context.Background(), deleteCandidate.ID); err != nil {
+	if err := client.DeleteSession(context.Background(), deleteCandidate.ID); err != nil {
 		t.Fatalf("DeleteSession() error = %v", err)
 	}
-	listedAfterDelete, err := client.transport.ListSessions(context.Background(), "")
+	listedAfterDelete, err := client.ListSessions(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -719,7 +719,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)
 	}
-	reservation, err := client.transport.StartPrompt(context.Background(), created.ID, "hello")
+	reservation, err := client.StartPrompt(context.Background(), created.ID, "hello")
 	if err != nil {
 		t.Fatalf("StartPrompt() error = %v", err)
 	}
@@ -730,7 +730,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	var turn protocol.TurnInfo
 	turnDeadline := time.Now().Add(5 * time.Second)
 	for {
-		turn, err = client.transport.GetTurn(context.Background(), created.ID, turnID)
+		turn, err = client.GetTurn(context.Background(), created.ID, turnID)
 		if err != nil {
 			t.Fatalf("GetTurn() error = %v", err)
 		}
@@ -742,7 +742,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	snapshot, err := client.transport.GetSessionSnapshot(context.Background(), created.ID)
+	snapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil {
 		t.Fatalf("GetSessionSnapshot() error = %v", err)
 	}
@@ -776,7 +776,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 			t.Fatalf("daemon provider prompt does not contain %q:\n%s", expected, providerRequest.SystemPrompt)
 		}
 	}
-	eventBatch, err := client.transport.GetSessionEvents(context.Background(), created.ID, "", 0)
+	eventBatch, err := client.GetSessionEvents(context.Background(), created.ID, "", 0)
 	if err != nil {
 		t.Fatalf("GetSessionEvents() error = %v", err)
 	}
@@ -821,7 +821,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(invalidSkillDirectory, "SKILL.md"), []byte("---\nname: invalid-skill\n---\nMissing description.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := client.transport.ReloadSession(context.Background(), created.ID)
+	reloaded, err := client.ReloadSession(context.Background(), created.ID)
 	if err != nil {
 		t.Fatalf("ReloadSession() error = %v", err)
 	}
@@ -835,7 +835,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if !foundSkillDiagnostic {
 		t.Fatalf("reload omitted skill diagnostics: %+v", reloaded.Diagnostics)
 	}
-	afterReload, err := client.transport.GetSessionSnapshot(context.Background(), created.ID)
+	afterReload, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -854,20 +854,20 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)
 	}
-	activeReservation, err := client.transport.StartPrompt(context.Background(), created.ID, "block")
+	activeReservation, err := client.StartPrompt(context.Background(), created.ID, "block")
 	if err != nil {
 		t.Fatalf("StartPrompt() blocking run error = %v", err)
 	}
 	activeTurnID = activeReservation.TurnID
 	<-requestStarted
-	active, err := client.transport.GetTurn(context.Background(), created.ID, activeTurnID)
+	active, err := client.GetTurn(context.Background(), created.ID, activeTurnID)
 	if err != nil || active.Status != protocol.TurnStatusRunning {
 		t.Fatalf("active turn = %+v, %v", active, err)
 	}
-	if _, err := client.transport.ReloadSession(context.Background(), created.ID); err != nil {
+	if _, err := client.ReloadSession(context.Background(), created.ID); err != nil {
 		t.Fatalf("ReloadSession() during active session: %v", err)
 	}
-	if _, err := client.transport.ConfigureSession(context.Background(), created.ID, protocol.ConfigureSessionInput{
+	if _, err := client.ConfigureSession(context.Background(), created.ID, protocol.ConfigureSessionInput{
 		ExpectedRevision: 1, Model: "test/echo-alt",
 	}); err == nil {
 		t.Fatal("ConfigureSession() accepted an active session")
@@ -883,11 +883,11 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if !strings.Contains(reloadedProviderPrompt, "Reloaded project skill") || strings.Contains(reloadedProviderPrompt, "Initial project skill") {
 		t.Fatalf("reloaded provider skill catalog:\n%s", reloadedProviderPrompt)
 	}
-	activeSnapshot, err := client.transport.GetSessionSnapshot(context.Background(), created.ID)
+	activeSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil || activeSnapshot.ActiveTurnID != activeTurnID || len(activeSnapshot.Messages) != 2 {
 		t.Fatalf("active snapshot = %+v, %v", activeSnapshot, err)
 	}
-	if err := client.transport.AbortSession(context.Background(), created.ID, activeTurnID); err != nil {
+	if err := client.AbortSession(context.Background(), created.ID, activeTurnID); err != nil {
 		t.Fatalf("AbortSession() active turn error = %v", err)
 	}
 	providers.mu.Lock()
@@ -895,7 +895,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	providers.mu.Unlock()
 	activeDeadline := time.Now().Add(5 * time.Second)
 	for {
-		active, err = client.transport.GetTurn(context.Background(), created.ID, activeTurnID)
+		active, err = client.GetTurn(context.Background(), created.ID, activeTurnID)
 		if err != nil {
 			t.Fatalf("GetTurn() aborted active turn error = %v", err)
 		}
@@ -909,7 +909,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	commandReservation, err := client.transport.StartPromptCommand(context.Background(), created.ID, protocol.PromptCommandInput{
+	commandReservation, err := client.StartPromptCommand(context.Background(), created.ID, protocol.PromptCommandInput{
 		Name: "summarize", Args: `"auth module" carefully`,
 	})
 	if err != nil {
@@ -917,7 +917,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	}
 	commandDeadline := time.Now().Add(5 * time.Second)
 	for {
-		commandTurn, turnErr := client.transport.GetTurn(context.Background(), created.ID, commandReservation.TurnID)
+		commandTurn, turnErr := client.GetTurn(context.Background(), created.ID, commandReservation.TurnID)
 		if turnErr != nil {
 			t.Fatal(turnErr)
 		}
@@ -929,7 +929,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	commandSnapshot, err := client.transport.GetSessionSnapshot(context.Background(), created.ID)
+	commandSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -939,7 +939,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("prompt command message = %+v, want %+v", commandUser, wantCommand)
 	}
 
-	messagePage, err := client.transport.GetMessagePage(context.Background(), created.ID, protocol.MessagePageQuery{Limit: 2, Roles: []string{"user"}})
+	messagePage, err := client.GetMessagePage(context.Background(), created.ID, protocol.MessagePageQuery{Limit: 2, Roles: []string{"user"}})
 	if err != nil || len(messagePage.Messages) != 2 || !messagePage.HasMore || messagePage.Messages[0].Content[0].Payload != wantCommand {
 		t.Fatalf("GetMessagePage() = %+v, %v", messagePage, err)
 	}
@@ -954,12 +954,12 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 
 	// A command run without arguments records no arguments, and its message
 	// remains valid in snapshots and message pages.
-	bareReservation, err := client.transport.StartPromptCommand(context.Background(), created.ID, protocol.PromptCommandInput{Name: "summarize"})
+	bareReservation, err := client.StartPromptCommand(context.Background(), created.ID, protocol.PromptCommandInput{Name: "summarize"})
 	if err != nil {
 		t.Fatalf("StartPromptCommand() without arguments error = %v", err)
 	}
 	for bareDeadline := time.Now().Add(5 * time.Second); ; {
-		bareTurn, turnErr := client.transport.GetTurn(context.Background(), created.ID, bareReservation.TurnID)
+		bareTurn, turnErr := client.GetTurn(context.Background(), created.ID, bareReservation.TurnID)
 		if turnErr != nil {
 			t.Fatal(turnErr)
 		}
@@ -971,10 +971,10 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if _, err := client.transport.GetSessionSnapshot(context.Background(), created.ID); err != nil {
+	if _, err := client.GetSessionSnapshot(context.Background(), created.ID); err != nil {
 		t.Fatalf("GetSessionSnapshot() after a command without arguments: %v", err)
 	}
-	barePage, err := client.transport.GetMessagePage(context.Background(), created.ID, protocol.MessagePageQuery{Limit: 1, Roles: []string{"user"}})
+	barePage, err := client.GetMessagePage(context.Background(), created.ID, protocol.MessagePageQuery{Limit: 1, Roles: []string{"user"}})
 	wantBare := protocol.PromptCommandContent{Name: "summarize", Source: "project", Text: "Summarize  with ."}
 	if err != nil || len(barePage.Messages) != 1 || len(barePage.Messages[0].Content) != 1 || barePage.Messages[0].Content[0].Payload != wantBare {
 		t.Fatalf("GetMessagePage() after a command without arguments = %+v, %v; want %+v", barePage, err, wantBare)
@@ -984,7 +984,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("identifier.New() bash error = %v", err)
 	}
-	bash, err := client.transport.StartBash(context.Background(), created.ID, protocol.BashExecutionInput{
+	bash, err := client.StartBash(context.Background(), created.ID, protocol.BashExecutionInput{
 		ExecutionID: bashID, Command: "printf api-bash",
 	})
 	if err != nil || bash.Status != protocol.BashExecutionRunning {
@@ -992,7 +992,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	}
 	bashDeadline := time.Now().Add(5 * time.Second)
 	for bash.Status == protocol.BashExecutionRunning {
-		bash, err = client.transport.GetBash(context.Background(), created.ID, bashID)
+		bash, err = client.GetBash(context.Background(), created.ID, bashID)
 		if err != nil {
 			t.Fatalf("GetBash() error = %v", err)
 		}
@@ -1004,11 +1004,11 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if bash.Status != protocol.BashExecutionCompleted || bash.Output != "api-bash" {
 		t.Fatalf("completed bash = %+v", bash)
 	}
-	bashSnapshot, err := client.transport.GetSessionSnapshot(context.Background(), created.ID)
+	bashSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil || len(bashSnapshot.PendingBoundaries) != 1 || bashSnapshot.PendingBoundaries[0].ID != bashID {
 		t.Fatalf("bash snapshot = %+v, %v", bashSnapshot, err)
 	}
-	bashHistory, err := client.transport.GetBashHistory(context.Background(), created.ID, 0, 10)
+	bashHistory, err := client.GetBashHistory(context.Background(), created.ID, 0, 10)
 	if err != nil {
 		t.Fatalf("GetBashHistory() error = %v", err)
 	}
@@ -1016,10 +1016,10 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		bashHistory.Entries[0].Command != "printf api-bash" || bashHistory.Entries[0].ExcludeFromContext || bashHistory.HasMore {
 		t.Fatalf("bash history = %+v", bashHistory)
 	}
-	if _, err := client.transport.GetBashHistory(context.Background(), created.ID, 0, protocol.MaxBashHistoryPageSize+1); err == nil {
+	if _, err := client.GetBashHistory(context.Background(), created.ID, 0, protocol.MaxBashHistoryPageSize+1); err == nil {
 		t.Fatal("GetBashHistory() accepted an oversized page limit")
 	}
-	sessions, err := client.transport.ListSessions(context.Background(), workspace)
+	sessions, err := client.ListSessions(context.Background(), workspace)
 	if err != nil {
 		t.Fatalf("ListSessions() error = %v", err)
 	}
@@ -1029,16 +1029,16 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 
 	canceledConfigureContext, cancelConfigure := context.WithCancel(context.Background())
 	cancelConfigure()
-	if _, err := client.transport.ConfigureSession(canceledConfigureContext, created.ID, protocol.ConfigureSessionInput{
+	if _, err := client.ConfigureSession(canceledConfigureContext, created.ID, protocol.ConfigureSessionInput{
 		ExpectedRevision: bashSnapshot.Session.ConfigurationRevision, Model: "test/echo-alt",
 	}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled ConfigureSession() error = %v", err)
 	}
-	afterCanceledConfigure, err := client.transport.GetSessionSnapshot(context.Background(), created.ID)
+	afterCanceledConfigure, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil || afterCanceledConfigure.Session.ConfigurationRevision != bashSnapshot.Session.ConfigurationRevision || afterCanceledConfigure.Session.Model != bashSnapshot.Session.Model {
 		t.Fatalf("session after canceled configuration = %+v, %v", afterCanceledConfigure.Session, err)
 	}
-	configured, err := client.transport.ConfigureSession(context.Background(), created.ID, protocol.ConfigureSessionInput{
+	configured, err := client.ConfigureSession(context.Background(), created.ID, protocol.ConfigureSessionInput{
 		ExpectedRevision: bashSnapshot.Session.ConfigurationRevision, Model: "test/echo-alt",
 	})
 	if err != nil {
@@ -1052,7 +1052,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if !reflect.DeepEqual(configured.Session.Inputs, textAndImage) {
 		t.Fatalf("configured session inputs = %v, want %v", configured.Session.Inputs, textAndImage)
 	}
-	if _, err := client.transport.ConfigureSession(context.Background(), created.ID, protocol.ConfigureSessionInput{
+	if _, err := client.ConfigureSession(context.Background(), created.ID, protocol.ConfigureSessionInput{
 		ExpectedRevision: bashSnapshot.Session.ConfigurationRevision, Model: "test/echo",
 	}); err == nil {
 		t.Fatal("ConfigureSession() accepted a stale revision")
@@ -1063,14 +1063,14 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		}
 	}
 	compactInput := protocol.CompactSessionInput{OperationID: "compact_daemon_api_test"}
-	compacted, err := client.transport.CompactSession(context.Background(), created.ID, compactInput)
+	compacted, err := client.CompactSession(context.Background(), created.ID, compactInput)
 	if err != nil {
 		t.Fatalf("CompactSession() error = %v", err)
 	}
 	if !compacted.Compacted || compacted.CheckpointID == "" {
 		t.Fatalf("user compaction was not forced: %+v", compacted)
 	}
-	replayedCompact, err := client.transport.CompactSession(context.Background(), created.ID, compactInput)
+	replayedCompact, err := client.CompactSession(context.Background(), created.ID, compactInput)
 	if err != nil || replayedCompact != compacted {
 		t.Fatalf("replayed CompactSession() = %+v, %v; first=%+v", replayedCompact, err, compacted)
 	}
@@ -1079,13 +1079,13 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	temporary, err := client.transport.CreateSession(context.Background(), protocol.CreateSessionInput{
+	temporary, err := client.CreateSession(context.Background(), protocol.CreateSessionInput{
 		ID: temporaryID, CWD: workspace, Model: "test/echo", Temporary: true,
 	})
 	if err != nil || temporary.ID != temporaryID {
 		t.Fatalf("CreateSession(temporary) = %+v, %v", temporary, err)
 	}
-	if _, err := client.transport.GetScratchpad(context.Background(), temporaryID); err == nil {
+	if _, err := client.GetScratchpad(context.Background(), temporaryID); err == nil {
 		t.Fatal("GetScratchpad(temporary) succeeded")
 	} else {
 		var apiError *APIError
@@ -1093,7 +1093,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 			t.Fatalf("GetScratchpad(temporary) error = %#v", err)
 		}
 	}
-	sessions, err = client.transport.ListSessions(context.Background(), "")
+	sessions, err = client.ListSessions(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1102,14 +1102,14 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 			t.Fatalf("temporary session appeared in saved directory: %+v", sessions)
 		}
 	}
-	temporaryOutcome, err := client.transport.Prompt(context.Background(), temporaryID, "temporary")
+	temporaryOutcome, err := client.Prompt(context.Background(), temporaryID, "temporary")
 	if err != nil || temporaryOutcome.Status != protocol.TurnStatusCompleted {
 		t.Fatalf("Prompt(temporary) = %+v, %v", temporaryOutcome, err)
 	}
 	if matches, err := filepath.Glob(filepath.Join(paths.Droids, temporaryID+".db*")); err != nil || len(matches) != 0 {
 		t.Fatalf("temporary droid files = %v, %v", matches, err)
 	}
-	if err := client.transport.DeleteSession(context.Background(), temporaryID); err == nil {
+	if err := client.DeleteSession(context.Background(), temporaryID); err == nil {
 		t.Fatal("DeleteSession archived a temporary session")
 	} else {
 		var apiError *APIError
@@ -1117,10 +1117,10 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 			t.Fatalf("DeleteSession(temporary) error = %v", err)
 		}
 	}
-	if err := client.transport.DisposeTemporarySession(context.Background(), temporaryID); err != nil {
+	if err := client.DisposeTemporarySession(context.Background(), temporaryID); err != nil {
 		t.Fatalf("DisposeTemporarySession() = %v", err)
 	}
-	if err := client.transport.DisposeTemporarySession(context.Background(), created.ID); err == nil {
+	if err := client.DisposeTemporarySession(context.Background(), created.ID); err == nil {
 		t.Fatal("DisposeTemporarySession disposed a persisted session")
 	} else {
 		var apiError *APIError
@@ -1128,7 +1128,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 			t.Fatalf("DisposeTemporarySession(persisted) error = %v", err)
 		}
 	}
-	if _, err := client.transport.GetSessionSnapshot(context.Background(), temporaryID); err == nil {
+	if _, err := client.GetSessionSnapshot(context.Background(), temporaryID); err == nil {
 		t.Fatal("disposed temporary session remained addressable")
 	} else {
 		var apiError *APIError
@@ -1139,7 +1139,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 
 	stopContext, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stopCancel()
-	if err := NewManager(paths).Stop(stopContext); err != nil {
+	if err := daemonctl.NewManager(paths).Stop(stopContext); err != nil {
 		t.Fatalf("stop daemon: %v", err)
 	}
 	select {
@@ -1163,7 +1163,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	restartProbeContext, cancelRestartProbe := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelRestartProbe()
 	for {
-		if _, _, err := client.Probe(restartProbeContext); err == nil {
+		if _, _, err := client.Probe(restartProbeContext, true); err == nil {
 			break
 		}
 		select {
@@ -1172,7 +1172,7 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
-	reopened, err := client.transport.GetSessionSnapshot(context.Background(), created.ID)
+	reopened, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1180,12 +1180,12 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		!reflect.DeepEqual(reopened.Session.Inputs, textAndImage) {
 		t.Fatalf("reopened protocol configuration = %+v", reopened.Session)
 	}
-	if _, err := client.transport.Prompt(context.Background(), created.ID, "after daemon restart"); err != nil {
+	if _, err := client.Prompt(context.Background(), created.ID, "after daemon restart"); err != nil {
 		t.Fatal(err)
 	}
 	restartStopContext, cancelRestartStop := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelRestartStop()
-	if err := NewManager(paths).Stop(restartStopContext); err != nil {
+	if err := daemonctl.NewManager(paths).Stop(restartStopContext); err != nil {
 		t.Fatalf("stop restarted daemon: %v", err)
 	}
 	select {
@@ -1198,8 +1198,8 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	}
 }
 
-func observerStream(client *Client, ctx context.Context, sessionID, streamID string, after int64) (io.ReadCloser, error) {
-	return client.transport.StreamSessionEvents(ctx, sessionID, streamID, after)
+func observerStream(client *clienttransport.Client, ctx context.Context, sessionID, streamID string, after int64) (io.ReadCloser, error) {
+	return client.StreamSessionEvents(ctx, sessionID, streamID, after)
 }
 
 func scanSubagentChangedEvent(body io.ReadCloser, found chan<- protocol.SessionEvent) {

@@ -1,4 +1,4 @@
-package server
+package daemonctl
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/clienttransport"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/gofrs/flock"
 )
@@ -36,20 +37,17 @@ func TestProbeCompatibleSeesNewDaemonIdentityWithoutRestarting(t *testing.T) {
 	if err := paths.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	if err := writePrivateFile(paths.ServerToken, []byte(token+"\n")); err != nil {
-		t.Fatal(err)
-	}
 	publish := func(id string) {
 		t.Helper()
-		// The replaced daemon removes its registration before the next one
-		// publishes. writeRegistry deliberately refuses to overwrite it.
+		// The replaced daemon withdraws its publication before the next one
+		// publishes; Publish deliberately refuses to overwrite it.
 		if id == "second" {
-			if err := os.Remove(paths.ServerRegistry); err != nil {
+			if err := localdiscovery.Withdraw(paths, "first"); err != nil {
 				t.Fatal(err)
 			}
 		}
 		instance.Store(id)
-		if err := writeRegistry(paths, Registry{RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: version.SessionProtocolVersion, KitVersion: version.Version, PID: os.Getpid(), InstanceID: id, URL: daemon.URL, StartedAt: time.Now().UTC()}); err != nil {
+		if err := localdiscovery.Publish(paths, token, localdiscovery.Registry{RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: version.SessionProtocolVersion, KitVersion: version.Version, PID: os.Getpid(), InstanceID: id, URL: daemon.URL, StartedAt: time.Now().UTC()}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -84,7 +82,7 @@ func TestManagerEnsureLeavesLiveUnusableDaemonUntouched(t *testing.T) {
 	}{
 		{name: "older daemon", protocol: version.SessionProtocolVersion - 1, ready: true, wantReason: clienttransport.ServerProtocolOlder},
 		{name: "newer daemon", protocol: version.SessionProtocolVersion + 1, ready: true, wantReason: clienttransport.ClientProtocolOlder},
-		{name: "unready database", protocol: version.SessionProtocolVersion - 1, wantError: ErrDaemonNotReady},
+		{name: "unready database", protocol: version.SessionProtocolVersion - 1, wantError: clienttransport.ErrServerNotReady},
 		{name: "identity disagreement", protocol: version.SessionProtocolVersion, ready: true, identity: true},
 		{name: "health version disagreement", protocol: version.SessionProtocolVersion, ready: true, versionID: true},
 		{name: "malformed registry", protocol: version.SessionProtocolVersion, ready: true, malformed: true},
@@ -117,11 +115,8 @@ func TestManagerEnsureLeavesLiveUnusableDaemonUntouched(t *testing.T) {
 			if err := paths.Ensure(); err != nil {
 				t.Fatal(err)
 			}
-			registry := Registry{RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: tc.protocol, KitVersion: version.Version, PID: os.Getpid(), InstanceID: instance, URL: daemon.URL, StartedAt: time.Now().UTC()}
-			if err := writePrivateFile(paths.ServerToken, []byte(token+"\n")); err != nil {
-				t.Fatal(err)
-			}
-			if err := writeRegistry(paths, registry); err != nil {
+			registry := localdiscovery.Registry{RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: tc.protocol, KitVersion: version.Version, PID: os.Getpid(), InstanceID: instance, URL: daemon.URL, StartedAt: time.Now().UTC()}
+			if err := localdiscovery.Publish(paths, token, registry); err != nil {
 				t.Fatal(err)
 			}
 			if tc.malformed {
@@ -144,11 +139,11 @@ func TestManagerEnsureLeavesLiveUnusableDaemonUntouched(t *testing.T) {
 					t.Fatalf("Ensure() error = %v, want %s", err, tc.wantReason)
 				}
 			case tc.wantError != nil:
-				if !errors.Is(err, tc.wantError) || errors.Is(err, ErrIncompatibleDaemon) {
+				if !errors.Is(err, tc.wantError) || errors.Is(err, clienttransport.ErrIncompatibleServer) {
 					t.Fatalf("Ensure() error = %v, want unready only", err)
 				}
 			default:
-				if err == nil || errors.Is(err, ErrIncompatibleDaemon) {
+				if err == nil || errors.Is(err, clienttransport.ErrIncompatibleServer) {
 					t.Fatalf("Ensure() identity error = %v, want non-compatibility error", err)
 				}
 			}
@@ -160,7 +155,7 @@ func TestManagerEnsureLeavesLiveUnusableDaemonUntouched(t *testing.T) {
 				if err != nil || string(content) != "malformed registry" {
 					t.Fatalf("malformed live registry replaced: %q, %v", content, err)
 				}
-			} else if got, err := LoadRegistry(paths); err != nil || got.InstanceID != instance {
+			} else if got, err := localdiscovery.Load(paths); err != nil || got.InstanceID != instance {
 				t.Fatalf("live registry replaced: %+v, %v", got, err)
 			}
 		})

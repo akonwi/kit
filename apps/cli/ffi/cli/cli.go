@@ -21,7 +21,9 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/clienttransport"
+	"github.com/akonwi/kit/internal/daemonctl"
 	"github.com/akonwi/kit/internal/identifier"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/version"
 )
@@ -29,7 +31,7 @@ import (
 func bootstrapLocalClient(ctx context.Context, paths apphome.Paths) (*kit.Client, error) {
 	client, err := bootstrapLocalClientWith(ctx,
 		func(startContext context.Context) error {
-			_, err := kitserver.NewManager(paths).Ensure(startContext)
+			_, err := daemonctl.NewManager(paths).Ensure(startContext)
 			return err
 		},
 		func(connectContext context.Context) (*kit.Client, error) {
@@ -164,7 +166,7 @@ func runPrintOptions(ctx context.Context, options printOptions, stdout, stderr i
 	}
 	defer client.Close()
 	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
-	_, health, probeErr := kitserver.NewClient(paths).Probe(probeContext)
+	_, health, probeErr := daemonctl.NewClient(paths).Probe(probeContext)
 	probeCancel()
 	if probeErr != nil {
 		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", probeErr)
@@ -428,7 +430,7 @@ func runServerCommand(ctx context.Context, args []string, stdout, stderr io.Writ
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
 	}
-	manager := kitserver.NewManager(paths)
+	manager := daemonctl.NewManager(paths)
 
 	switch args[0] {
 	case "start":
@@ -491,7 +493,7 @@ func runServerCommand(ctx context.Context, args []string, stdout, stderr io.Writ
 	}
 }
 
-func writeServerStatus(output io.Writer, registry kitserver.Registry, health kitserver.Health) {
+func writeServerStatus(output io.Writer, registry localdiscovery.Registry, health daemonctl.Health) {
 	fmt.Fprintf(output, "server running: pid %d, %s\n", registry.PID, registry.URL)
 	fmt.Fprintf(output, "daemon: version %s, protocol %d\n", registry.KitVersion, registry.ProtocolVersion)
 	fmt.Fprintf(output, "client: version %s, protocol %d\n", version.Version, version.SessionProtocolVersion)

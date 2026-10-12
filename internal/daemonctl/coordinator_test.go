@@ -1,4 +1,4 @@
-package server
+package daemonctl
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/clienttransport"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/gofrs/flock"
 )
 
@@ -20,14 +22,14 @@ func TestCoordinatorSerializesConcurrentStartup(t *testing.T) {
 	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
 	var launches atomic.Int32
 	var ready atomic.Bool
-	registry := Registry{InstanceID: "ready"}
+	registry := localdiscovery.Registry{InstanceID: "ready"}
 
 	newCoordinator := func() Coordinator {
 		return Coordinator{
 			Paths: paths,
-			Probe: func(context.Context) (Registry, error) {
+			Probe: func(context.Context) (localdiscovery.Registry, error) {
 				if !ready.Load() {
-					return Registry{}, errors.New("not ready")
+					return localdiscovery.Registry{}, errors.New("not ready")
 				}
 				return registry, nil
 			},
@@ -43,7 +45,7 @@ func TestCoordinatorSerializesConcurrentStartup(t *testing.T) {
 	}
 
 	start := make(chan struct{})
-	results := make(chan Registry, 2)
+	results := make(chan localdiscovery.Registry, 2)
 	errorsFound := make(chan error, 2)
 	var group sync.WaitGroup
 	for range 2 {
@@ -93,11 +95,11 @@ func TestCoordinatorWaitsForPreviousDaemonLifetimeBeforeLaunch(t *testing.T) {
 	var ready atomic.Bool
 	coordinator := Coordinator{
 		Paths: paths,
-		Probe: func(context.Context) (Registry, error) {
+		Probe: func(context.Context) (localdiscovery.Registry, error) {
 			if ready.Load() {
-				return Registry{InstanceID: "new"}, nil
+				return localdiscovery.Registry{InstanceID: "new"}, nil
 			}
-			return Registry{}, errors.New("not ready")
+			return localdiscovery.Registry{}, errors.New("not ready")
 		},
 		Launch: func(context.Context) error {
 			launches.Add(1)
@@ -139,16 +141,16 @@ func TestCoordinatorDoesNotReplaceIncompatibleDaemon(t *testing.T) {
 	var launches atomic.Int32
 	coordinator := Coordinator{
 		Paths: paths,
-		Probe: func(context.Context) (Registry, error) {
-			return Registry{}, fmt.Errorf("%w: old protocol", ErrIncompatibleDaemon)
+		Probe: func(context.Context) (localdiscovery.Registry, error) {
+			return localdiscovery.Registry{}, fmt.Errorf("%w: old protocol", clienttransport.ErrIncompatibleServer)
 		},
 		Launch: func(context.Context) error {
 			launches.Add(1)
 			return nil
 		},
 	}
-	if _, err := coordinator.Ensure(context.Background()); !errors.Is(err, ErrIncompatibleDaemon) {
-		t.Fatalf("Ensure() error = %v, want ErrIncompatibleDaemon", err)
+	if _, err := coordinator.Ensure(context.Background()); !errors.Is(err, clienttransport.ErrIncompatibleServer) {
+		t.Fatalf("Ensure() error = %v, want clienttransport.ErrIncompatibleServer", err)
 	}
 	if got := launches.Load(); got != 0 {
 		t.Fatalf("launch count = %d, want 0", got)
@@ -172,11 +174,11 @@ func TestCoordinatorDoesNotReplaceDaemonDiscoveredUnderStartupLock(t *testing.T)
 	result := make(chan error, 1)
 	coordinator := Coordinator{
 		Paths: paths,
-		Probe: func(context.Context) (Registry, error) {
+		Probe: func(context.Context) (localdiscovery.Registry, error) {
 			if probes.Add(1) == 1 {
-				return Registry{}, errors.New("no daemon yet")
+				return localdiscovery.Registry{}, errors.New("no daemon yet")
 			}
-			return Registry{ProtocolVersion: 5, InstanceID: "old"}, fmt.Errorf("%w: old protocol", ErrIncompatibleDaemon)
+			return localdiscovery.Registry{ProtocolVersion: 5, InstanceID: "old"}, fmt.Errorf("%w: old protocol", clienttransport.ErrIncompatibleServer)
 		},
 		Launch: func(context.Context) error {
 			launches.Add(1)
@@ -193,7 +195,7 @@ func TestCoordinatorDoesNotReplaceDaemonDiscoveredUnderStartupLock(t *testing.T)
 	}
 	select {
 	case err := <-result:
-		if !errors.Is(err, ErrIncompatibleDaemon) {
+		if !errors.Is(err, clienttransport.ErrIncompatibleServer) {
 			t.Fatalf("Ensure() error = %v, want incompatible", err)
 		}
 	case <-time.After(time.Second):
@@ -224,8 +226,8 @@ func TestCoordinatorHonorsCancellationWhileWaitingForLock(t *testing.T) {
 	var launches atomic.Int32
 	coordinator := Coordinator{
 		Paths: paths,
-		Probe: func(context.Context) (Registry, error) {
-			return Registry{}, errors.New("not ready")
+		Probe: func(context.Context) (localdiscovery.Registry, error) {
+			return localdiscovery.Registry{}, errors.New("not ready")
 		},
 		Launch: func(context.Context) error {
 			launches.Add(1)

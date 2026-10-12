@@ -16,7 +16,7 @@ func TestResolveReturnsValidatedReadOnlyConnection(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(paths.ServerRegistry), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	record := registry{
+	record := Registry{
 		RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: version.SessionProtocolVersion,
 		KitVersion: version.Version, PID: 42, InstanceID: "instance_test", URL: "http://127.0.0.1:4321",
 	}
@@ -45,7 +45,7 @@ func TestResolveRejectsNonLoopbackRegistry(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(paths.ServerRegistry), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	record := registry{
+	record := Registry{
 		RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: version.SessionProtocolVersion,
 		KitVersion: version.Version, PID: 42, InstanceID: "instance_test", URL: "http://example.com:4321",
 	}

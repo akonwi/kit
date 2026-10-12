@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package server
+package daemonctl
 
 import (
 	"os/exec"

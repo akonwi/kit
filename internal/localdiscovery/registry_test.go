@@ -1,9 +1,10 @@
-package server
+package localdiscovery
 
 import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -100,13 +101,76 @@ func TestClearRegistrationRemovesRegistryBeforeNextPublication(t *testing.T) {
 	if err := writePrivateFile(paths.ServerRegistry, []byte("old")); err != nil {
 		t.Fatalf("write registry: %v", err)
 	}
-	if err := clearRegistration(paths); err != nil {
-		t.Fatalf("clearRegistration() error = %v", err)
+	if err := Clear(paths); err != nil {
+		t.Fatalf("Clear() error = %v", err)
 	}
 	if err := writePrivateFile(paths.ServerToken, []byte("new")); err != nil {
 		t.Fatalf("publish new token: %v", err)
 	}
 	if err := writePrivateFile(paths.ServerRegistry, []byte("new")); err != nil {
 		t.Fatalf("publish new registry: %v", err)
+	}
+}
+
+func publishedRegistry(instanceID string) Registry {
+	return Registry{
+		RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: version.SessionProtocolVersion,
+		KitVersion: "dev", PID: 1, InstanceID: instanceID, URL: "http://127.0.0.1:4321", StartedAt: time.Now().UTC(),
+	}
+}
+
+func TestPublishIsDiscoverableAndRollsBackItsToken(t *testing.T) {
+	t.Parallel()
+	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	token := strings.Repeat("a", 64)
+	if err := Publish(paths, token, publishedRegistry("first")); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	registry, connection, err := Discover(paths)
+	if err != nil || registry.InstanceID != "first" || connection.InstanceID != "first" || connection.Token != token {
+		t.Fatalf("Discover() = %+v, %+v, %v", registry, connection, err)
+	}
+
+	// A registry that already exists makes publication fail without leaving the
+	// newly written token behind.
+	if err := os.Remove(paths.ServerToken); err != nil {
+		t.Fatal(err)
+	}
+	if err := Publish(paths, token, publishedRegistry("second")); err == nil {
+		t.Fatal("Publish() replaced an existing registry")
+	}
+	if _, err := os.Stat(paths.ServerToken); !os.IsNotExist(err) {
+		t.Fatalf("failed publication left its token: %v", err)
+	}
+	if registry, err := Load(paths); err != nil || registry.InstanceID != "first" {
+		t.Fatalf("existing registry = %+v, %v, want first", registry, err)
+	}
+}
+
+func TestWithdrawRemovesOnlyItsOwnPublication(t *testing.T) {
+	t.Parallel()
+	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Publish(paths, strings.Repeat("b", 64), publishedRegistry("current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := Withdraw(paths, "previous"); err != nil {
+		t.Fatalf("Withdraw(previous) error = %v", err)
+	}
+	if registry, err := Load(paths); err != nil || registry.InstanceID != "current" {
+		t.Fatalf("another instance's withdrawal changed the publication: %+v, %v", registry, err)
+	}
+	if err := Withdraw(paths, "current"); err != nil {
+		t.Fatalf("Withdraw(current) error = %v", err)
+	}
+	for _, path := range []string{paths.ServerRegistry, paths.ServerToken} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s remains after withdrawal: %v", path, err)
+		}
 	}
 }

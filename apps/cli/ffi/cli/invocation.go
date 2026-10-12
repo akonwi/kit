@@ -11,8 +11,8 @@ import (
 	kit "github.com/akonwi/kit/api"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
+	"github.com/akonwi/kit/internal/daemonctl"
 	"github.com/akonwi/kit/internal/identifier"
-	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/settings"
 	kittheme "github.com/akonwi/kit/internal/theme"
 )
@@ -186,7 +186,7 @@ func (e Environment) Prepare(ctx context.Context, invocation Invocation, stderr 
 	}
 
 	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
-	_, health, err := kitserver.NewClient(e.paths).Probe(probeContext)
+	_, health, err := daemonctl.NewClient(e.paths).Probe(probeContext)
 	probeCancel()
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", err)
@@ -203,7 +203,7 @@ func (e Environment) Prepare(ctx context.Context, invocation Invocation, stderr 
 			authenticated = false
 		}
 	}
-	manager := kitserver.NewManager(e.paths)
+	manager := daemonctl.NewManager(e.paths)
 	credentialStore := auth.NewStore(e.paths.Auth)
 	login, err := auth.NewOpenAICodexDeviceLogin(auth.OpenAICodexDeviceLoginOptions{
 		Store: credentialStore,

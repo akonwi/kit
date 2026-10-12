@@ -15,6 +15,8 @@ import (
 	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
+	"github.com/akonwi/kit/internal/daemonctl"
+	"github.com/akonwi/kit/internal/localdiscovery"
 )
 
 func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
@@ -36,7 +38,7 @@ func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
 	if !ok || model.Provider != "openai-codex" {
 		t.Fatalf("Codex model = %#v, %v", model, ok)
 	}
-	if source := sources[auth.OpenAICodexProviderID]; source != CredentialSourceEnvironment {
+	if source := sources[auth.OpenAICodexProviderID]; source != localdiscovery.CredentialSourceEnvironment {
 		t.Fatalf("credential source = %q", source)
 	}
 }
@@ -57,7 +59,7 @@ func TestProvidersFromEnvironmentUsesCredentialStoreByDefault(t *testing.T) {
 		t.Fatal("stored-credential Codex provider was not registered")
 	}
 	for _, providerID := range []string{auth.OpenAIProviderID, auth.AnthropicProviderID, auth.OpenCodeGoProviderID, auth.OpenAICodexProviderID} {
-		if source := sources[providerID]; source != CredentialSourceStore {
+		if source := sources[providerID]; source != localdiscovery.CredentialSourceStore {
 			t.Fatalf("credential source for %s = %q", providerID, source)
 		}
 	}
@@ -134,10 +136,10 @@ func TestRunServesHealthAndStopsGracefully(t *testing.T) {
 		})
 	}()
 
-	client := NewClient(paths)
+	client := daemonctl.NewClient(paths)
 	probeContext, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer probeCancel()
-	var registry Registry
+	var registry localdiscovery.Registry
 	for {
 		var err error
 		registry, _, err = client.Probe(probeContext)
@@ -172,7 +174,7 @@ func TestRunServesHealthAndStopsGracefully(t *testing.T) {
 
 	stopContext, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stopCancel()
-	if err := NewManager(paths).Stop(stopContext); err != nil {
+	if err := daemonctl.NewManager(paths).Stop(stopContext); err != nil {
 		t.Fatalf("Manager.Stop() error = %v", err)
 	}
 	select {

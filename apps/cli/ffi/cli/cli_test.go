@@ -11,7 +11,8 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
-	kitserver "github.com/akonwi/kit/internal/server"
+	"github.com/akonwi/kit/internal/daemonctl"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/version"
 )
 
@@ -33,9 +34,9 @@ func TestServerStatusShowsDaemonAndClientCompatibility(t *testing.T) {
 		{name: "unready compatible daemon", protocol: version.SessionProtocolVersion, release: version.Version, verdict: compatibleVerdict},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			registry := kitserver.Registry{PID: 42, URL: "http://127.0.0.1:2345", KitVersion: tc.release, ProtocolVersion: tc.protocol}
+			registry := localdiscovery.Registry{PID: 42, URL: "http://127.0.0.1:2345", KitVersion: tc.release, ProtocolVersion: tc.protocol}
 			var output bytes.Buffer
-			writeServerStatus(&output, registry, kitserver.Health{DatabaseReady: tc.ready})
+			writeServerStatus(&output, registry, daemonctl.Health{DatabaseReady: tc.ready})
 			readiness := "database: not ready\n"
 			if tc.ready {
 				readiness = "database: ready\n"

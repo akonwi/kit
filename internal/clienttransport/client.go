@@ -192,12 +192,19 @@ func (c *Client) CloseIdleConnections() {
 	c.sessionHTTP.CloseIdleConnections()
 }
 
-// Probe verifies server identity, authentication, compatibility, and readiness.
+// Probe verifies the resolved server's identity, authentication, and readiness.
 func (c *Client) Probe(ctx context.Context, requireDatabase bool) (Connection, Health, error) {
 	connection, err := c.connection()
 	if err != nil {
 		return Connection{}, Health{}, err
 	}
+	return c.ProbeConnection(ctx, connection, requireDatabase)
+}
+
+// ProbeConnection verifies identity, authentication, and readiness for a
+// connection the caller already resolved, so the result describes exactly that
+// publication rather than one resolved again.
+func (c *Client) ProbeConnection(ctx context.Context, connection Connection, requireDatabase bool) (Connection, Health, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, connection.URL+"/v1/health", nil)
 	if err != nil {
 		return Connection{}, Health{}, fmt.Errorf("create health request: %w", err)

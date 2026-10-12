@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package server
+package localdiscovery
 
 import "os"
 
