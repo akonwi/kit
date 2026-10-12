@@ -112,13 +112,13 @@ struct SubagentTests {
         for dark in [false, true] {
             let theme = ThemeConfiguration.decode("").theme(dark: dark)
             let view = HStack(spacing: 0) {
-                SubagentsPopover(state: store).frame(width: 360)
+                SubagentsPanel(state: store)
                 Rectangle().fill(theme.border).frame(width: 1)
                 AgentPane(state: store, name: "reviewer").frame(width: 630)
             }.environment(\.mica, theme).environment(\.colorScheme, dark ? .dark : .light)
-                .foregroundStyle(theme.text).background(theme.surface).frame(width: 991, height: 600)
+                .foregroundStyle(theme.text).background(theme.surface).frame(width: 1151, height: 600)
             let host = NSHostingView(rootView: view)
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 991, height: 600),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1151, height: 600),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = host

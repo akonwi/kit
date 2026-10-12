@@ -283,7 +283,6 @@ private actor MutationStub: SessionMutationClient {
             let view = VStack(spacing: 12) {
                 Spacer(minLength: 0)
                 ComposerView(state: state)
-                SessionFooter(state: state)
             }.environment(\.mica, theme).environment(\.colorScheme, dark ? .dark : .light)
                 .foregroundStyle(theme.text).background(theme.surface).frame(width: 840, height: 320)
             let host = NSHostingView(rootView: view)
@@ -308,8 +307,8 @@ private actor MutationStub: SessionMutationClient {
 
     @Test func retryCountdownUsesServerDeadline() {
         let now = Date(timeIntervalSince1970: 0)
-        #expect(SessionFooter.secondsRemaining("1970-01-01T00:00:05.500Z", now: now) == 6)
-        #expect(SessionFooter.secondsRemaining("1970-01-01T00:00:05Z", now: now.addingTimeInterval(10)) == 0)
+        #expect(ActivityLine.secondsRemaining("1970-01-01T00:00:05.500Z", now: now) == 6)
+        #expect(ActivityLine.secondsRemaining("1970-01-01T00:00:05Z", now: now.addingTimeInterval(10)) == 0)
     }
 }
 

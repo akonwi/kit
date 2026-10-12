@@ -43,7 +43,11 @@ struct SessionComposerRegion: View {
     var body: some View {
         VStack(spacing: 8) {
             if state.interactions.isEmpty {
-                PendingActivityView(activity: state.unavailable ? nil : state.activity)
+                PendingActivityView(line: state.unavailable ? nil : ActivityLine.resolve(
+                    activity: state.activity,
+                    compaction: state.compactionOperation.pending ? state.compactionOperation.title : nil,
+                    retryAt: state.selected?.providerRetryAt,
+                    replaying: state.replaying, notice: state.notice))
             }
             if let flow = state.interactions.first {
                 InteractionCard(flow: flow, pendingCount: state.interactions.count) { state.finishInteraction(cancelled: $0) }
@@ -66,12 +70,12 @@ struct SessionComposerRegion: View {
     }
 }
 
-/// Session status and workspace controls below the tiles, and the session's
-/// shell and queue monitors, which run whichever panes are shown.
-struct SessionStatusRegion: View {
+/// The session's shell and queue monitors, which run whichever panes are shown.
+struct SessionMonitors: View {
     @Bindable var state: SessionStore
     var body: some View {
-        SessionFooter(state: state)
+        Color.clear
+            .accessibilityHidden(true)
             .onChange(of: state.bashOperation.error, initial: true) { state.syncBashFeedback() }
             .onChange(of: state.bashOperation.pending) { state.syncBashFeedback() }
             .task(id: "bash/\(state.serverID)/\(state.selectedID)/\(state.unavailable)") {

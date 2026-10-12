@@ -195,6 +195,14 @@ final class SessionStore {
 
     var isTemporary: Bool { TemporarySessions.shared.contains(server: serverID, session: selectedID) }
     var scratchpadClient: (any ScratchpadClient)? { catalogClient as? any ScratchpadClient }
+    /// Closes a workspace tab, saving the scratchpad first so a draft isn't lost.
+    func closePane(_ pane: WorkspacePane) {
+        let workspace = ui.workspace
+        if pane == .scratchpad, let client = scratchpadClient {
+            Task { await workspace.closeScratchpad(client: client, session: selectedID) }
+        } else { workspace.close(pane) }
+    }
+
     var canOpenScratchpad: Bool { (isDemo || scratchpadClient != nil) && !isTemporary && !unavailable }
     @ObservationIgnored private var annotationStates: [String: AnnotationState] = [:]
     var annotationState: AnnotationState {

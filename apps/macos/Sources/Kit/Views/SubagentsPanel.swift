@@ -1,6 +1,8 @@
 import SwiftUI
 
-struct SubagentsPopover: View {
+/// The session's configured subagents, shown inside the command palette.
+/// Choosing one opens its conversation pane.
+struct SubagentsPanel: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
     @State private var dismissalTarget: SubagentRoster.Item?
@@ -13,7 +15,12 @@ struct SubagentsPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Subagents").font(.kit(size: 13, weight: .semibold)).padding(16)
+            HStack {
+                Text("Subagents").font(.kit(size: 16, weight: .medium))
+                Spacer()
+                Button { state.ui.palette = false } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).keyboardShortcut(.cancelAction).accessibilityLabel("Close subagents")
+            }.padding(20)
             Rule()
             if state.subagentDismissal.pending {
                 KitSpinner("Dismissing conversation…").padding(12)
@@ -43,7 +50,8 @@ struct SubagentsPopover: View {
                     Button("Retry") { state.attach() }.buttonStyle(MicaButtonStyle(compact: true))
                 }.font(.kit(size: 12)).padding(16)
             }
-        }.frame(width: 360).foregroundStyle(theme.text).background(theme.surface)
+        }.frame(width: 520).foregroundStyle(theme.text).background(theme.surface)
+            .onExitCommand { state.ui.palette = false }
             .alert("Dismiss this conversation and stop its outstanding work?", isPresented: Binding(
                 get: { dismissalTarget != nil }, set: { if !$0 { dismissalTarget = nil } }
             ), presenting: dismissalTarget) { agent in
@@ -58,8 +66,8 @@ struct SubagentsPopover: View {
     }
 
     private func row(_ agent: SubagentRoster.Item) -> some View {
-        SubagentPopoverRow(agent: agent) {
-            state.ui.subagentsPresented = false
+        SubagentPanelRow(agent: agent) {
+            state.ui.palette = false
             state.ui.workspace.open(.agent(agent.name))
         }.contextMenu {
             if agent.canDismiss {
@@ -77,7 +85,7 @@ struct SubagentsPopover: View {
     }
 }
 
-private struct SubagentPopoverRow: View {
+private struct SubagentPanelRow: View {
     @Environment(\.mica) private var theme
     let agent: SubagentRoster.Item
     let open: () -> Void

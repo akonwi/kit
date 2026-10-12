@@ -97,8 +97,11 @@ tile's composer, editor, or transcript focuses that tile.
 The Agent pane has its own composer, activity card, queued messages, and interaction
 dock, all addressing the parent session, and Diff comments go to it. A subagent pane
 shows that subagent's activity card and queued task count; it has no composer. Enter submits; Cmd+Enter inserts a newline. Cmd+P opens commands;
-Cmd+, opens settings. Session workspace controls (Diff, Scratchpad, Subagents, Open
-file, and Commands) are centered in the footer below the tiles, with status on the left. The session bar above the workspace shows the
+Cmd+, opens settings. The Tile menu splits, zooms, equalizes, focuses, and resizes
+tiles and moves tabs between them; `docs/design/macos-client.md` lists the shortcuts.
+Diff, Scratchpad, files, and subagents open from the Tile and Session menus and the
+command palette. There is no footer: compaction, provider retry, and notices appear
+in the Agent pane's activity card. The session bar above the workspace shows the
 cwd, Git branch, pull request, and plugin footer items.
 
 File views read from the session server and support highlighted, selectable
@@ -113,11 +116,10 @@ bounces its Dock icon. Closely timed events share one bounce; initial snapshots
 and reconnects do not replay attention feedback. No notification permission is needed.
 
 Session feedback appears above the composer. Confirmations fade after five seconds;
-hovering or keyboard focus keeps them visible. Persistent warnings remain available in the footer’s notice list. Dismissing a
-card or its list entry removes the notice from both surfaces. Notices are local
+hovering or keyboard focus keeps them visible. Notices are local
 to each session and do not send system notifications. Compaction outcomes, shell
 operation errors, run failures, and subagent-definition diagnostics use this surface;
-compaction progress stays in the footer, while reload progress appears in the command
+compaction progress appears in the Agent pane's activity card, while reload progress appears in the command
 palette until hidden or complete. Hiding the palette does not stop the reload.
 Input-specific errors remain at their source.
 

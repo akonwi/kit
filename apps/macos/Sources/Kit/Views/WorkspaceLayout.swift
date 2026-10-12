@@ -2,11 +2,11 @@
 import AppKit
 import SwiftUI
 
-/// Space between tiles, and between the tiles and the status bar.
+/// Space between tiles.
 let tileGap: CGFloat = 6
 private let tabStripHeight: CGFloat = 34
 
-/// A session's workspace: its split tree of tiles above the session status bar.
+/// A session's workspace: its split tree of tiles.
 struct WorkspaceLayout: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
@@ -16,70 +16,69 @@ struct WorkspaceLayout: View {
 
     var body: some View {
         let workspace = state.ui.workspace
-        VStack(spacing: tileGap) {
-            GeometryReader { geometry in
-                let bounds = CGRect(origin: .zero, size: geometry.size)
-                let layout = workspace.root.layout(in: bounds, gap: tileGap)
-                // A zoomed tile fills the workspace; hidden tiles keep their
-                // frames so their panes don't resize while out of view.
-                let frames = layout.tiles.merging(workspace.zoomedTile.map { [$0: bounds] } ?? [:]) { $1 }
-                let running = Set((state.selected?.subagents?.items ?? []).filter { $0.status == "running" }.map(\.name))
-                let visible = workspace.visibleTiles
-                let resolve: (WorkspacePane, CGPoint) -> TileDropTarget? = { pane, point in
-                    TileDropTarget.resolve(point, tiles: visible, frames: frames,
-                        tabs: { tile in (workspace.tiles[tile]?.panes ?? []).compactMap { tabFrames.frames[$0] } },
-                        stripHeight: tabStripHeight, gap: tileGap)
-                        .flatMap { workspace.canMove(pane, to: $0) ? $0 : nil }
-                }
-                ZStack(alignment: .topLeading) {
-                    if workspace.zoomedTile == nil {
-                        ForEach(layout.splits, id: \.id) { split in
-                            divider(split, workspace: workspace)
-                        }
-                    }
-                    ForEach(workspace.visibleTiles, id: \.self) { id in
-                        let frame = frames[id] ?? .zero
-                        TileChrome(state: state, workspace: workspace, id: id, running: running, resolve: resolve, tabFrames: tabFrames)
-                            .frame(width: frame.width, height: frame.height)
-                            .offset(x: frame.minX, y: frame.minY)
-                    }
-                    // Pane identity is independent of its tile. Moving, splitting,
-                    // or zooming changes geometry and visibility without
-                    // remounting editors.
-                    ForEach(workspace.panes) { pane in
-                        let tile = workspace.tile(containing: pane)
-                        let content = Self.contentFrame(tile.flatMap { frames[$0] } ?? .zero)
-                        let visible = workspace.isVisible(pane)
-                        paneBody(pane)
-                            .id(state.serverID + "|" + state.selectedID + "|" + pane.id)
-                            .frame(width: content.width, height: content.height)
-                            .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 3, bottomTrailingRadius: 3))
-                            .offset(x: content.minX, y: content.minY)
-                            .opacity(visible ? 1 : 0)
-                            .allowsHitTesting(visible).disabled(!visible).accessibilityHidden(!visible)
-                            .simultaneousGesture(TapGesture().onEnded { if let tile { workspace.focus(tile: tile) } })
-                    }
-                    // Borders sit above pane content so the focus ring stays whole.
-                    ForEach(workspace.visibleTiles, id: \.self) { id in
-                        let frame = frames[id] ?? .zero
-                        let focused = workspace.focusedTile == id && workspace.root.tiles.count > 1
-                        RoundedRectangle(cornerRadius: 4)
-                            .strokeBorder(focused ? theme.focusBorder : theme.border)
-                            .frame(width: frame.width, height: frame.height)
-                            .offset(x: frame.minX, y: frame.minY)
-                            .allowsHitTesting(false)
-                    }
-                    TabDragOverlay(workspace: workspace, frames: frames, tabFrames: tabFrames)
-                }
-                .coordinateSpace(.named(Self.space))
-                .background(WorkspaceFocusBridge(workspace: workspace,
-                    frames: frames.filter { visible.contains($0.key) },
-                    overlayOpen: { [ui = state.ui] in ui.palette || ui.filePicker }))
+        GeometryReader { geometry in
+            let bounds = CGRect(origin: .zero, size: geometry.size)
+            let layout = workspace.root.layout(in: bounds, gap: tileGap)
+            // A zoomed tile fills the workspace; hidden tiles keep their
+            // frames so their panes don't resize while out of view.
+            let frames = layout.tiles.merging(workspace.zoomedTile.map { [$0: bounds] } ?? [:]) { $1 }
+            let running = Set((state.selected?.subagents?.items ?? []).filter { $0.status == "running" }.map(\.name))
+            let visible = workspace.visibleTiles
+            let resolve: (WorkspacePane, CGPoint) -> TileDropTarget? = { pane, point in
+                TileDropTarget.resolve(point, tiles: visible, frames: frames,
+                    tabs: { tile in (workspace.tiles[tile]?.panes ?? []).compactMap { tabFrames.frames[$0] } },
+                    stripHeight: tabStripHeight, gap: tileGap)
+                    .flatMap { workspace.canMove(pane, to: $0) ? $0 : nil }
             }
-            SessionStatusRegion(state: state)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border))
+            ZStack(alignment: .topLeading) {
+                if workspace.zoomedTile == nil {
+                    ForEach(layout.splits, id: \.id) { split in
+                        divider(split, workspace: workspace)
+                    }
+                }
+                ForEach(workspace.visibleTiles, id: \.self) { id in
+                    let frame = frames[id] ?? .zero
+                    TileChrome(state: state, workspace: workspace, id: id, running: running, resolve: resolve, tabFrames: tabFrames)
+                        .frame(width: frame.width, height: frame.height)
+                        .offset(x: frame.minX, y: frame.minY)
+                }
+                // Pane identity is independent of its tile. Moving, splitting,
+                // or zooming changes geometry and visibility without
+                // remounting editors.
+                ForEach(workspace.panes) { pane in
+                    let tile = workspace.tile(containing: pane)
+                    let content = Self.contentFrame(tile.flatMap { frames[$0] } ?? .zero)
+                    let visible = workspace.isVisible(pane)
+                    paneBody(pane)
+                        .id(state.serverID + "|" + state.selectedID + "|" + pane.id)
+                        .frame(width: content.width, height: content.height)
+                        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 3, bottomTrailingRadius: 3))
+                        .offset(x: content.minX, y: content.minY)
+                        .opacity(visible ? 1 : 0)
+                        .allowsHitTesting(visible).disabled(!visible).accessibilityHidden(!visible)
+                        .simultaneousGesture(TapGesture().onEnded { if let tile { workspace.focus(tile: tile) } })
+                }
+                // Borders sit above pane content so the focus ring stays whole.
+                ForEach(workspace.visibleTiles, id: \.self) { id in
+                    let frame = frames[id] ?? .zero
+                    let focused = workspace.focusedTile == id && workspace.root.tiles.count > 1
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(focused ? theme.focusBorder : theme.border)
+                        .frame(width: frame.width, height: frame.height)
+                        .offset(x: frame.minX, y: frame.minY)
+                        .allowsHitTesting(false)
+                }
+                TabDragOverlay(workspace: workspace, frames: frames, tabFrames: tabFrames)
+            }
+            .coordinateSpace(.named(Self.space))
+            .background(WorkspaceFocusBridge(workspace: workspace,
+                frames: frames.filter { visible.contains($0.key) },
+                overlayOpen: { [ui = state.ui] in ui.palette || ui.filePicker }))
+            .onGeometryChange(for: CGSize.self) { $0.size } action: {
+                workspace.bounds = CGRect(origin: .zero, size: $0)
+            }
         }
+        .background(SessionMonitors(state: state))
     }
 
     /// The part of a tile below its tab strip, inside its border.
@@ -218,9 +217,11 @@ private struct WorkspaceTab: View {
         .onHover { hovering = $0 }
         .simultaneousGesture(DragGesture(minimumDistance: 4, coordinateSpace: .named(WorkspaceLayout.space))
             .onChanged { value in
+                guard !workspace.dragCancelled(pane) else { return }
                 workspace.tabDrag = .init(pane: pane, location: value.location, target: resolve(pane, value.location))
             }
             .onEnded { value in
+                guard !workspace.dragCancelled(pane, ending: true) else { return }
                 // Resolve at release so the drop matches the pointer, not the last update.
                 if let target = resolve(pane, value.location) { workspace.move(pane, to: target) }
                 workspace.tabDrag = nil
@@ -248,7 +249,7 @@ private struct WorkspaceTab: View {
         }
     }
 
-    private func close() { WorkspaceTabActions.close(pane, state: state, workspace: workspace) }
+    private func close() { state.closePane(pane) }
 }
 
 /// The drop preview and a floating copy of the dragged tab, drawn above
@@ -293,6 +294,7 @@ private struct TabDragOverlay: View {
             }
         }
         .allowsHitTesting(false)
+        .background(TabDragCancellation(workspace: workspace, active: workspace.tabDrag != nil))
     }
 
     /// The x position of the gap before tab `index`, or after the last tab.
@@ -300,6 +302,35 @@ private struct TabDragOverlay: View {
         let tabs = (workspace.tiles[tile]?.panes ?? []).compactMap { tabFrames.frames[$0] }
         let x = index < tabs.count ? tabs[index].minX : (tabs.last?.maxX ?? frame.minX + 6)
         return min(max(x, frame.minX + 2), frame.maxX - 2)
+    }
+}
+
+/// Esc cancels a tab drag. The mouse is held during a drag, so the key goes
+/// to the window rather than any SwiftUI focus; a local monitor catches it
+/// only while a drag is in progress.
+private struct TabDragCancellation: View {
+    let workspace: WorkspaceState
+    let active: Bool
+    @State private var monitor: Any?
+
+    var body: some View {
+        Color.clear
+            .onChange(of: active, initial: true) {
+                if active, monitor == nil {
+                    monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [workspace] event in
+                        guard event.keyCode == 53, workspace.tabDrag != nil else { return event }
+                        workspace.cancelTabDrag()
+                        return nil
+                    }
+                } else if !active, let monitor {
+                    NSEvent.removeMonitor(monitor)
+                    self.monitor = nil
+                }
+            }
+            .onDisappear {
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                monitor = nil
+            }
     }
 }
 
@@ -328,15 +359,8 @@ private struct WorkspaceTabActions: View {
         }
         if pane.closable {
             Divider()
-            Button("Close Tab") { Self.close(pane, state: state, workspace: workspace) }
+            Button("Close Tab") { state.closePane(pane) }
         }
-    }
-
-    /// Closes a tab, saving the scratchpad first so a draft isn't lost.
-    static func close(_ pane: WorkspacePane, state: SessionStore, workspace: WorkspaceState) {
-        if pane == .scratchpad, let client = state.scratchpadClient {
-            Task { await workspace.closeScratchpad(client: client, session: state.selectedID) }
-        } else { workspace.close(pane) }
     }
 }
 

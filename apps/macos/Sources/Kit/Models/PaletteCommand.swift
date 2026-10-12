@@ -55,6 +55,12 @@ struct PaletteCommand: Identifiable {
             .init(id: "Open Code Review", name: "diffs", description: "Browse diffs", icon: "chevron.left.forwardslash.chevron.right", demoOnly: false),
             .init(id: "Open Scratchpad", name: "scratchpad", description: "Open scratchpad", icon: "note.text"),
             .init(id: "Find workspace file", name: "files", description: "Find workspace file", icon: "doc.text.magnifyingglass"),
+            .init(id: "Subagents", name: "subagents", description: "Browse subagents", icon: "person.2", aliases: ["delegates"]),
+            .init(id: "Split right", name: "split-right", description: "Move the selected tab into a new tile on the right", icon: "rectangle.split.2x1", aliases: ["tile"]),
+            .init(id: "Split down", name: "split-down", description: "Move the selected tab into a new tile below", icon: "rectangle.split.1x2", aliases: ["tile"]),
+            .init(id: "Zoom tile", name: "zoom", description: "Zoom or unzoom the focused tile", icon: "arrow.up.left.and.arrow.down.right", aliases: ["tile", "maximize"]),
+            .init(id: "Equalize tiles", name: "equalize", description: "Size every tile evenly", icon: "rectangle.split.3x1", aliases: ["tile", "balance"]),
+            .init(id: "Join all tabs", name: "join-tabs", description: "Gather every tab into one tile", icon: "rectangle", aliases: ["tile", "merge"]),
             .init(id: "Switch appearance", name: "appearance", description: "Switch to \(dark ? "light" : "dark") appearance", icon: "circle.lefthalf.filled", aliases: ["theme", "colors"])
         ]
     }

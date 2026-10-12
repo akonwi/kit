@@ -57,7 +57,10 @@ struct KitApp: App {
         .defaultSize(width: 1220, height: 880)
         .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
-        .commands { SessionCommands(windows: windows) }
+        .commands {
+            SessionCommands(windows: windows)
+            TileCommands()
+        }
         Settings {
             SettingsView(themeLibrary: themeLibrary)
                 .environment(\.installedThemes, themeLibrary.themes)
@@ -82,8 +85,19 @@ private struct SessionCommands: Commands {
             Button("Close Tab") { closeTab() }
                 .keyboardShortcut("w", modifiers: .command)
                 .disabled(window == nil)
+            Button("Close Session Tab") { closeSessionTab() }
+                .keyboardShortcut("w", modifiers: [.command, .shift])
+                .disabled(window == nil)
         }
         CommandMenu("Session") {
+            Button("Command Palette…") { store?.ui.palette = true }
+                .keyboardShortcut("p", modifiers: .command)
+                .disabled(store == nil)
+            Button("Subagents…") {
+                store?.ui.subagentsPresented = true
+                store?.ui.palette = true
+            }.disabled(store?.selected == nil)
+            Divider()
             Button("Show Previous Tab") { window?.selectAdjacent(-1) }
                 .keyboardShortcut("[", modifiers: [.command, .shift])
                 .disabled((window?.tabs.count ?? 0) < 2)
@@ -104,8 +118,20 @@ private struct SessionCommands: Commands {
         }
     }
 
-    /// Closes the selected tab; a window showing only the launcher closes.
+    private var store: SessionStore? { window?.selectedTab.store }
+
+    /// Closes the focused tile's selected tab. The Agent tab can't close, so
+    /// on it, or without a session, this closes the session tab instead.
     private func closeTab() {
+        if let store, store.selected != nil, store.ui.workspace.selected.closable {
+            store.closePane(store.ui.workspace.selected)
+        } else {
+            closeSessionTab()
+        }
+    }
+
+    /// Closes the selected session tab; a window showing only the launcher closes.
+    private func closeSessionTab() {
         guard let window else { return }
         if window.tabs.count == 1, window.selectedTab.isLauncher {
             window.window?.performClose(nil)
@@ -113,4 +139,78 @@ private struct SessionCommands: Commands {
             window.close(window.selectedTab)
         }
     }
+}
+
+/// Workspace and tile commands for the selected session. Shortcuts follow
+/// Ghostty's split bindings where they overlap.
+private struct TileCommands: Commands {
+    @FocusedValue(\.sessionWindow) private var window
+
+    /// The selected session's store, once its workspace is showing.
+    private var store: SessionStore? {
+        guard let store = window?.selectedTab.store, store.selected != nil else { return nil }
+        return store
+    }
+    private var workspace: WorkspaceState? { store?.ui.workspace }
+
+    var body: some Commands {
+        CommandMenu("Tile") {
+            Button("Open Diff") { workspace?.open(.review) }
+                .disabled(!(store?.catalogClient is any DiffClient))
+            Button("Open Scratchpad") { workspace?.open(.scratchpad) }
+                .disabled(store?.canOpenScratchpad != true)
+            Button("Open File…") { store?.showFiles(intent: "open") }
+                .keyboardShortcut("o", modifiers: .command)
+                .disabled(store == nil || store?.unavailable == true)
+            Divider()
+            Button("Split Right") { if let workspace { workspace.split(workspace.selected, .right) } }
+                .keyboardShortcut("d", modifiers: .command)
+                .disabled(!(workspace.map { $0.canSplit($0.selected) } ?? false))
+            Button("Split Down") { if let workspace { workspace.split(workspace.selected, .bottom) } }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .disabled(!(workspace.map { $0.canSplit($0.selected) } ?? false))
+            Button(workspace?.zoomedTile == nil ? "Zoom Tile" : "Unzoom Tile") { workspace?.toggleZoom() }
+                .keyboardShortcut(.return, modifiers: [.command, .shift])
+                .disabled((workspace?.root.tiles.count ?? 0) < 2)
+            Button("Equalize Tiles") { workspace?.equalize() }
+                .keyboardShortcut("=", modifiers: [.command, .control])
+                .disabled((workspace?.root.tiles.count ?? 0) < 2)
+            Button("Join All Tabs") { if let workspace { workspace.joinTiles(selecting: workspace.selected) } }
+                .disabled((workspace?.root.tiles.count ?? 0) < 2)
+            Divider()
+            Menu("Focus Tile") {
+                ForEach(Self.directions, id: \.0) { name, direction, key in
+                    Button(name) { workspace?.focus(direction) }
+                        .keyboardShortcut(key, modifiers: [.command, .option])
+                        .disabled(workspace?.canFocus(direction) != true)
+                }
+            }
+            Menu("Move Tab") {
+                ForEach(Self.directions, id: \.0) { name, direction, key in
+                    Button(name) { workspace?.moveSelectedTab(direction) }
+                        .keyboardShortcut(key, modifiers: [.command, .option, .shift])
+                        .disabled(workspace?.canMoveSelectedTab(direction) != true)
+                }
+            }
+            Menu("Resize Tile") {
+                ForEach(Self.directions, id: \.0) { name, direction, key in
+                    Button("Move Divider \(name)") { workspace?.resize(direction) }
+                        .keyboardShortcut(key, modifiers: [.command, .control])
+                        .disabled(workspace == nil || workspace?.zoomedTile != nil)
+                }
+            }
+            Divider()
+            Button("Show Previous Tab in Tile") { workspace?.selectAdjacentTab(-1) }
+                .keyboardShortcut(.tab, modifiers: [.control, .shift])
+                .disabled(workspace?.canSelectAdjacentTab() != true)
+            Button("Show Next Tab in Tile") { workspace?.selectAdjacentTab(1) }
+                .keyboardShortcut(.tab, modifiers: .control)
+                .disabled(workspace?.canSelectAdjacentTab() != true)
+        }
+    }
+
+    private static let directions: [(String, TileDirection, KeyEquivalent)] = [
+        ("Left", .left, .leftArrow), ("Right", .right, .rightArrow),
+        ("Up", .up, .upArrow), ("Down", .down, .downArrow),
+    ]
 }

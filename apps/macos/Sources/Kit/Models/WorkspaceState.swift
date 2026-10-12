@@ -60,6 +60,12 @@ final class WorkspaceState {
     private(set) var zoomedTile: UUID?
     /// The tab being dragged, if any.
     var tabDrag: TabDrag?
+    /// A tab whose drag was cancelled with Esc; its gesture ignores the rest
+    /// of the drag and drops nothing.
+    @ObservationIgnored private(set) var cancelledDrag: WorkspacePane?
+    /// The tiles' bounds when last laid out, for spatial focus and keyboard
+    /// resizing. Not observed: layout shouldn't re-render the workspace.
+    @ObservationIgnored var bounds = CGRect(x: 0, y: 0, width: 1000, height: 1000)
 
     struct TabDrag: Equatable {
         var pane: WorkspacePane
@@ -202,6 +208,92 @@ final class WorkspaceState {
     }
 
     func setRatio(_ ratio: Double, for split: UUID) { root = root.settingRatio(split, to: ratio) }
+
+    // MARK: Keyboard commands
+
+    /// Focuses the nearest tile in `direction`, ending a zoom.
+    func focus(_ direction: TileDirection) {
+        guard let neighbor = root.neighbor(of: focusedTile, direction, in: bounds) else { return }
+        zoomedTile = nil
+        focus(tile: neighbor)
+    }
+
+    func canFocus(_ direction: TileDirection) -> Bool {
+        root.neighbor(of: focusedTile, direction, in: bounds) != nil
+    }
+
+    /// Tiles never shrink below this from the keyboard, matching divider drags.
+    static let minimumTileSize = CGSize(width: 160, height: 120)
+    static let resizeStep: CGFloat = 40
+
+    /// Moves the focused tile's nearest divider on `direction`'s axis one step
+    /// toward `direction`. A step that would shrink a tile below the minimum
+    /// size is refused.
+    func resize(_ direction: TileDirection) {
+        guard zoomedTile == nil else { return }
+        let resized = root.resizing(focusedTile, direction, by: Self.resizeStep, in: bounds, gap: tileGap)
+        guard resized != root else { return }
+        let before = root.layout(in: bounds, gap: tileGap).tiles
+        let after = resized.layout(in: bounds, gap: tileGap).tiles
+        // A tile already below the minimum, as in a small window, may still grow.
+        let fits = after.allSatisfy { id, frame in
+            let old = before[id] ?? frame
+            return (frame.width >= Self.minimumTileSize.width || frame.width >= old.width)
+                && (frame.height >= Self.minimumTileSize.height || frame.height >= old.height)
+        }
+        if fits { root = resized }
+    }
+
+    /// Moves the focused tile's selected tab into the neighboring tile in
+    /// `direction`. At the workspace's edge, the tab splits into a new tile on
+    /// that side instead, if its tile has others.
+    func moveSelectedTab(_ direction: TileDirection) {
+        guard let target = moveTarget(direction) else { return }
+        move(selected, to: target)
+    }
+
+    func canMoveSelectedTab(_ direction: TileDirection) -> Bool { moveTarget(direction) != nil }
+
+    private func moveTarget(_ direction: TileDirection) -> TileDropTarget? {
+        let target: TileDropTarget
+        if let neighbor = root.neighbor(of: focusedTile, direction, in: bounds) {
+            target = TileDropTarget(tile: neighbor, edge: .center)
+        } else {
+            let edge: TileDropEdge = switch direction {
+            case .left: .left
+            case .right: .right
+            case .up: .top
+            case .down: .bottom
+            }
+            target = TileDropTarget(tile: focusedTile, edge: edge)
+        }
+        return canMove(selected, to: target) ? target : nil
+    }
+
+    /// Selects the tab `offset` places from the focused tile's selected tab,
+    /// wrapping around.
+    func selectAdjacentTab(_ offset: Int) {
+        guard let tile = tiles[focusedTile], tile.panes.count > 1,
+              let index = tile.panes.firstIndex(of: tile.selected) else { return }
+        let count = tile.panes.count
+        select(tile.panes[((index + offset) % count + count) % count])
+    }
+
+    func canSelectAdjacentTab() -> Bool { (tiles[focusedTile]?.panes.count ?? 0) > 1 }
+
+    /// Ends a tab drag without dropping it.
+    func cancelTabDrag() {
+        guard let drag = tabDrag else { return }
+        cancelledDrag = drag.pane
+        tabDrag = nil
+    }
+
+    /// Whether the drag of `pane` was cancelled. Ending the gesture clears it.
+    func dragCancelled(_ pane: WorkspacePane, ending: Bool = false) -> Bool {
+        guard cancelledDrag == pane else { return false }
+        if ending { cancelledDrag = nil }
+        return true
+    }
 
     private func removeTile(_ id: UUID) {
         guard let remaining = root.removing(id) else { return }

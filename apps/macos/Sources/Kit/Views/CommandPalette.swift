@@ -40,6 +40,8 @@ struct CommandPalette: View {
                 reloadProgress(operation: reloadProgressOperation)
             } else if let command = pluginSelection {
                 PluginCommandArguments(state: state, command: command) { pluginSelection = nil }
+            } else if state.ui.subagentsPresented {
+                SubagentsPanel(state: state)
             } else if showingDetails {
                 SessionDetailsView(state: state) { showingDetails = false }
             } else if showingMCP {
@@ -65,6 +67,7 @@ struct CommandPalette: View {
         }, target: $disposalTarget, deleting: $deleting))
         .onChange(of: state.ui.palette) { _, presented in
             if !presented {
+                state.ui.subagentsPresented = false
                 reloadSessionID = nil
                 reloadProgressOperation = nil
             }
@@ -251,6 +254,11 @@ struct CommandPalette: View {
             }
             return
         }
+        if name == "Subagents" {
+            focused = false
+            state.ui.subagentsPresented = true
+            return
+        }
         if name == "Session details" {
             focused = false
             showingDetails = true
@@ -294,6 +302,11 @@ struct CommandPalette: View {
         if name == "Open Code Review" { state.ui.workspace.open(.review) }
         else if name == "Open Scratchpad" { state.ui.workspace.open(.scratchpad) }
         else if name == "Find workspace file" { state.showFiles(intent: "open") }
+        else if name == "Split right" { state.ui.workspace.split(state.ui.workspace.selected, .right) }
+        else if name == "Split down" { state.ui.workspace.split(state.ui.workspace.selected, .bottom) }
+        else if name == "Zoom tile" { state.ui.workspace.toggleZoom() }
+        else if name == "Equalize tiles" { state.ui.workspace.equalize() }
+        else if name == "Join all tabs" { state.ui.workspace.joinTiles(selecting: state.ui.workspace.selected) }
         else if name.hasPrefix("Switch") { appearance = theme.dark ? "light" : "dark" }
         else { state.select(state.selectedID) }
     }

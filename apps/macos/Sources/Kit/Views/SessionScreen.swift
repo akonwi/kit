@@ -124,10 +124,6 @@ struct SessionScreen: View {
                 }
             }
         }
-        .background {
-            Button("Open command palette") { state.ui.palette = true }
-                .keyboardShortcut("p", modifiers: .command).hidden()
-        }
     }
 }
 

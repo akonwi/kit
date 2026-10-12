@@ -61,6 +61,38 @@ testing but leaves it in the view tree and able to become first responder, so
 the focus bridge moves the keyboard away from it. Views that must also stop
 drawing, such as terminals, are detached from hidden hosts instead.
 
+### Tile commands
+
+The Tile menu, the command palette, and keyboard shortcuts act on the focused
+tile and its selected tab. Shortcuts follow Ghostty's split bindings where they
+overlap.
+
+| Command | Shortcut |
+| --- | --- |
+| Split right / down | ⌘D / ⇧⌘D |
+| Zoom or unzoom the focused tile | ⇧⌘↩ |
+| Equalize tiles | ⌃⌘= |
+| Focus the tile left, right, up, or down | ⌥⌘ + arrow |
+| Move the selected tab to the neighboring tile | ⇧⌥⌘ + arrow |
+| Move the nearest divider toward the arrow | ⌃⌘ + arrow |
+| Previous / next tab in the tile | ⌃⇧Tab / ⌃Tab |
+| Close the selected tab | ⌘W |
+| Close the session tab | ⇧⌘W |
+| Open file | ⌘O |
+| Command palette | ⌘P |
+
+Focus moves by on-screen position, not tree order, and ends a zoom. Moving a
+tab past the workspace's edge splits it into a new tile on that side, if its
+tile has other tabs. A keyboard resize moves 40 pt and stops before a tile
+would shrink below 160 × 120 pt. The Agent tab can't close, so ⌘W on it
+closes the session tab. Esc cancels a tab drag.
+
+There is no footer below the tiles. Status that the footer showed (compaction,
+provider retry countdown, replay, local notices) appears in the Agent pane's
+activity card, ranked by urgency below a provider retry. Diff, Scratchpad,
+files, and the subagent list open from the Tile and Session menus and the
+command palette.
+
 ### Appearance and themes
 
 Appearance is **System**, **Light**, or **Dark**, with a theme assigned to Light
@@ -192,8 +224,8 @@ acknowledged result retries the read, not the mutation. Cwd change and reload ar
 separate operations.
 
 Explicit compaction keeps an operation identity through recovery and refreshes
-the snapshot/stream afterwards. Its pending state belongs in the footer, with no
-secondary modal. Automatic compaction events are matched to their current identity.
+the snapshot/stream afterwards. Its pending state belongs in the Agent pane's
+activity card, with no secondary modal. Automatic compaction events are matched to their current identity.
 
 Prompt-template completion uses server metadata and submits arguments unchanged
 to the prompt-command endpoint. Expansion happens on the server. Prompt commands
