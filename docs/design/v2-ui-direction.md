@@ -4,7 +4,7 @@
 
 Active direction. Accepted rules move into `.agents/skills/design/SKILL.md` as
 they are decided; unresolved topics remain explicit explorations here.
-Implementation progress is tracked in `backlog/tui.md`.
+Outstanding work is tracked in [`tui` issues](https://github.com/akonwi/kit/issues?q=is%3Aopen+label%3Atui).
 
 ## Research baseline
 
@@ -324,8 +324,8 @@ Shift+Tab    move focus in the reverse direction
 Escape       cancel the innermost reversible interaction
 ```
 
-Previous/next tab selection is a separate intent whose default bindings remain
-part of `TUI-KEY-001`. Modal pickers, dialogs, and interaction docks intercept
+Previous/next tab selection is a separate intent whose default bindings are not
+yet decided. Modal pickers, dialogs, and interaction docks intercept
 focus traversal within their active layer. Every action remains rebindable and
 visible hints come from the active intent registry.
 
@@ -347,4 +347,6 @@ candidate v2 states:
    simplifications?
 
 Palette ranking is decided: commands rank by fuzzy score alone, without recency,
-type, or scope weighting. See `TUI-CMD-010` in `backlog/tui.md`.
+type, or scope weighting. A universal palette that also ranks files, panes,
+sessions, and subagents is not planned; explorers remain commands that open
+their own pickers.

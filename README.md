@@ -7,7 +7,7 @@ plugins. Windows is not supported.
 Kit is implemented in Go, with its terminal client written in
 [Ard](https://ard.run). Its architecture is recorded in
 [`docs/adrs/0001-native-go-architecture.md`](docs/adrs/0001-native-go-architecture.md),
-and release scope is tracked in [`backlog/README.md`](backlog/README.md).
+and outstanding work is tracked in [Kit issues](https://github.com/akonwi/kit/issues).
 
 ## Architecture
 

@@ -7,8 +7,7 @@ Accepted
 ## Context
 
 Kit needs one semantic syntax-highlighting service for retained files and diffs.
-Transcript rendering will use the same service for Markdown fences under
-`TUI-TRANSCRIPT-002`. The service must preserve readable plain text under parser
+Transcript rendering will use the same service for Markdown fences. The service must preserve readable plain text under parser
 or query failure, remain independent of renderer themes, and support structural
 query predicates and bounded language injections.
 
@@ -34,7 +33,7 @@ native resource closure. Renderers resolve semantic roles at paint time.
 Unsupported languages and all parser, query, timeout, limit, or validation
 failures produce sanitized plain text. File and Diff surfaces consume this
 service directly. Transcript Markdown fences use the same semantic service;
-that renderer integration is owned by `TUI-TRANSCRIPT-002` rather than this
+that renderer integration is owned by the transcript renderer rather than this
 ADR.
 
 Grammar and query revisions, generated sources that cannot be consumed from Go

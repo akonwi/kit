@@ -30,9 +30,7 @@ The rewrite has these hard constraints:
 - Kit retains a native TUI and semantic browser client, but drops `web-tui`;
 - custom plugins are isolated child processes using a language-neutral RPC
   protocol;
-- the system is always single-user, including remote deployments;
-- the rewrite is releasable only after the initial production-replacement scope
-  in the backlog is complete.
+- the system is always single-user, including remote deployments.
 
 ## Decision
 
@@ -354,17 +352,13 @@ Non-loopback deployments require TLS from a trusted tunnel or reverse proxy
 unless the user makes an explicit insecure development choice. Host and Origin
 validation remain active.
 
-### Delivery and backlog
+### Delivery
 
 Development proceeds through end-to-end slices that prove risky boundaries
 without making every target client or integration an initial-release dependency.
 The first production release is a local, terminal-first replacement with in-place
 configuration reuse and fresh native sessions; later milestones add the semantic web client, remote attach, and
 external plugins.
-
-The release gate is the R1 scope in the backlog, not complete behavioral parity
-with a historical baseline. Relevant changes made on production `main` during
-the rewrite are triaged explicitly as R1, Post-R1, or superseded work.
 
 Recorded replacement decisions include:
 
@@ -428,8 +422,8 @@ to hold shared types.
 
 ## Scope boundaries
 
-The architecture does not commit Kit to the following capabilities unless they
-are added to the backlog:
+The architecture does not commit Kit to the following capabilities unless an issue
+tracks them:
 
 - daemon-wide multiplexed external plugins;
 - automatic plugin restart policies;
@@ -437,13 +431,12 @@ are added to the backlog:
 - a Kit-managed TLS certificate authority or public cloud control plane;
 - exact resumption of interrupted provider streams or side-effecting tools;
 - multiplexing several session bindings over one live event connection;
-- native session tabs beyond the initial backlog scope;
-- idle session and daemon eviction policy, tracked by `CORE-LIFE-007` in the
-  [core backlog](../../backlog/core.md).
+- native session tabs;
+- idle session and daemon eviction policy, tracked by [#132](https://github.com/akonwi/kit/issues/132).
 
 ## Related
 
-- [`../../backlog/README.md`](../../backlog/README.md)
+- [Kit issues](https://github.com/akonwi/kit/issues)
 - [0002: Internalize the droids agent core](./0002-internalize-agent-core.md)
 - [0003: Provider credential storage](./0003-provider-credential-storage.md)
 - Historical implementation and ADRs at Git commit `5c6e112`

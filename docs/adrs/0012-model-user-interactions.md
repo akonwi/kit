@@ -144,13 +144,12 @@ state after settlement.
 - A model run may remain blocked while no capable client is attached.
 - Sequential interaction tools can hold the remainder of a tool batch until the
   user responds.
-- Pending interaction recovery across server restart is outside R1 and tracked
-  by `CORE-INT-003` in the [core backlog](../../backlog/core.md).
+- Pending interaction recovery across server restart is tracked by
+  [#133](https://github.com/akonwi/kit/issues/133).
 
 ## Related
 
 - [0001: Native Go architecture](./0001-native-go-architecture.md)
 - [0004: Define the droids agent runtime boundary](./0004-droids-agent-runtime-boundary.md)
 - [0011: Use SSE for session event delivery](./0011-use-sse-for-session-events.md)
-- [`../../backlog/core.md`](../../backlog/core.md)
-- [`../../backlog/tui.md`](../../backlog/tui.md)
+- [Kit issues](https://github.com/akonwi/kit/issues)

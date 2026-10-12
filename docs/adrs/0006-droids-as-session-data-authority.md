@@ -251,8 +251,8 @@ context, and only then submits new intent.
 The server may make a best-effort determination about an ambiguous request from
 the current droid state. This initial design does not add a durable Kit request
 receipt or droid admission idempotency token. Strong replay of an ambiguous
-network command is outside this decision and is not committed without a backlog
-requirement. This explicitly supersedes ADR 0001's requirement that every client prompt generation
+network command is outside this decision and is not committed without a tracking
+issue. This explicitly supersedes ADR 0001's requirement that every client prompt generation
 be durably reserved before acknowledgement; reconnect-and-resynchronize replaces
 automatic ambiguous command replay for this protocol generation.
 

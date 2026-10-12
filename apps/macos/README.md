@@ -14,7 +14,7 @@ The script builds and packages `apps/macos/dist/Kit.app`, then launches it.
 `--build` packages without launching. Xcode is required for the editor dependency's
 resource generation. The development bundle is ad-hoc signed and must not be
 published. The separately signed macOS app release procedure is documented below;
-bundled-daemon work remains on the backlog.
+bundled-daemon work is tracked by [#143](https://github.com/akonwi/kit/issues/143).
 
 Start a compatible Kit daemon separately. The app discovers it through
 `$KIT_HOME/run`, defaulting to `~/.kit/run`, and checks identity and protocol
@@ -156,7 +156,7 @@ inputs used by `ThemeTests`, not app resources.
 - [Source editing and highlighting decision](../../docs/adrs/0013-native-source-editing-and-highlighting.md)
 - [Native design language](../../docs/design/macos-design-language.md)
 - [Client implementation reference](../../docs/design/macos-client.md)
-- [Outstanding work](../../backlog/macos.md)
+- [Outstanding work](https://github.com/akonwi/kit/issues?q=is%3Aopen+label%3Amacos)
 
 ### Settings
 

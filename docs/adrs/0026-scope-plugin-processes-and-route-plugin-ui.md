@@ -210,5 +210,4 @@ method.
 - Reload is prompt and bounded but can interrupt plugin operations. Neither
   reload nor crash recovery provides rollback or exactly-once external effects.
 
-Implementation requirements remain in the [core plugin backlog](../../backlog/core.md)
-and [TUI plugin backlog](../../backlog/tui.md).
+Outstanding plugin work is tracked in [Kit issues](https://github.com/akonwi/kit/issues).

@@ -23,9 +23,9 @@ Activate this skill when the user asks to commit changes, prepare a commit, or r
 
 Provide a clear summary of the changes in the working tree.
 
-### 3. Update Backlog if Needed
+### 3. Reference Issues if Needed
 
-If the changes complete or substantially address an item from `backlog/README.md`, update that backlog file before committing.
+If the changes complete a GitHub issue, add `Closes #N` to the commit or pull request body. If they only partly address one, reference it with `Refs #N` and update the issue with what remains.
 
 ### 4. Run Validation Checks
 

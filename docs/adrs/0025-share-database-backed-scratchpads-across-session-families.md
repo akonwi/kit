@@ -420,6 +420,4 @@ tool.
 - [ADR 0011: Use SSE for session event delivery](0011-use-sse-for-session-events.md)
 - [ADR 0017: Create top-level sessions from model tools](0017-create-top-level-sessions-from-model-tools.md)
 - [ADR 0018: Retain native workspace panes in full-width tabs](0018-retained-native-workspace-shell.md)
-- [Core backlog](../../backlog/core.md)
-- [Native TUI backlog](../../backlog/tui.md)
-- [Native macOS backlog](../../backlog/macos.md)
+- [Kit issues](https://github.com/akonwi/kit/issues)

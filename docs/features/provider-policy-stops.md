@@ -30,4 +30,4 @@ calls from a failed response are diagnostic records, not actions to execute.
 
 This does not subscribe to project safety-alert webhooks or infer the outcome of
 an external task from an alert. Broader async-tool behavior is tracked by
-`CORE-GPT6-005` in the [core backlog](../../backlog/core.md).
+[#119](https://github.com/akonwi/kit/issues/119).

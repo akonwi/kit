@@ -370,7 +370,6 @@ remain part of the shell contract.
 - [ADR 0001: Native Go application architecture](0001-native-go-architecture.md)
 - [ADR 0020: Add file, diff, and review workspace
   surfaces](0020-file-diff-review-workspace-surfaces.md)
-- [Native TUI backlog](../../backlog/tui.md)
-- [Core and protocol backlog](../../backlog/core.md)
+- [Kit issues](https://github.com/akonwi/kit/issues)
 - [V2 UI direction](../design/v2-ui-direction.md)
 - [TUI tool activity presentation](../design/tui-tool-activity.md)

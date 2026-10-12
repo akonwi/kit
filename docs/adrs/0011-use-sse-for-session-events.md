@@ -94,4 +94,4 @@ separately rather than routing ordinary commands through the event stream.
 
 - [0001: Native Go architecture](./0001-native-go-architecture.md)
 - [0006: Make droids authoritative for session conversation data](./0006-droids-as-session-data-authority.md)
-- [`../../backlog/README.md`](../../backlog/README.md)
+- [Kit issues](https://github.com/akonwi/kit/issues)

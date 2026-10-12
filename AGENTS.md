@@ -6,7 +6,8 @@ Kit is a standalone, single-user, terminal-first coding agent distributed as one
 Go executable for macOS and Linux. Windows is intentionally unsupported. The
 current rewrite architecture is canonical in
 [`docs/adrs/0001-native-go-architecture.md`](docs/adrs/0001-native-go-architecture.md),
-and release scope is tracked in [`backlog/README.md`](backlog/README.md).
+and outstanding work is tracked in [Kit issues](https://github.com/akonwi/kit/issues) and the
+[Kit project](https://github.com/users/akonwi/projects/4).
 
 Kit uses `~/.kit` by default. Set `KIT_HOME` to an explicit isolated directory
 for development and tests when production state must not be read or mutated.
@@ -30,8 +31,8 @@ The native TUI is written in Ard with Cooper in `apps/cli`
 and releases build the `kit` executable from it. The maintained clients are the
 native TUI and the native macOS app (`apps/macos`).
 
-The semantic browser client (`apps/web`, `backlog/web.md`) is not actively
-maintained. Do not plan, update, validate, or add backlog items for it as part
+The semantic browser client (`apps/web`) is not actively maintained. Do not
+plan, update, validate, or file issues for it as part
 of other work, including protocol and contract changes, unless explicitly
 asked.
 
@@ -65,10 +66,12 @@ asked.
 - Once an interface is accepted, implement through it rather than bypassing it
   for expediency.
 - Record architectural decisions under `docs/adrs/`. Record all outstanding and
-  deferred work in `backlog/`; do not maintain work lists under `docs/`.
+  deferred work as GitHub issues in `akonwi/kit`, labeled `core`, `tui`, or
+  `macos` and added to the Kit project; do not maintain work lists in the
+  repository.
 - Write ADRs as descriptions of the proposed or accepted target state and its
   rationale. Do not narrate previous implementations or historical state in an
-  ADR; put necessary historical comparisons in migration documents, the backlog,
+  ADR; put necessary historical comparisons in migration documents, issues,
   or commit history instead.
 
 ## Go conventions
@@ -123,5 +126,5 @@ development/build-time dependency only and must not become a user runtime
 requirement.
 
 Before publishing a release, follow `.agents/skills/release/SKILL.md` and
-report material limitations honestly. Open backlog items track future work;
-they are not automatic release blockers.
+report material limitations honestly. Open issues track future work; they
+are not automatic release blockers.

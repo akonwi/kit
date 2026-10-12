@@ -21,7 +21,7 @@ Activate this skill when the user says any variation of:
 
 - Check `git status`, `git diff` (staged and unstaged), and recent commits
 - Understand the scope: what files changed, what the change intends to do
-- Check for any related context in `backlog/README.md` or `docs/`
+- Check for any related context in GitHub issues (`gh issue list`) or `docs/`
 
 ### 2. Activate Relevant Skills
 
@@ -66,7 +66,7 @@ Check for these common issues, organized by category:
 - Renderer-specific assumptions isolated from domain logic
 - Changes follow established interfaces and abstractions
 - Design decisions captured in `docs/` when appropriate
-- Outstanding work captured in `backlog/`
+- Outstanding work captured as GitHub issues
 
 #### Commit Quality
 - Changes are logically grouped (not too large, not too granular)
