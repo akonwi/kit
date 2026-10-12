@@ -2,47 +2,96 @@
 import AppKit
 import SwiftUI
 
+/// Space between tiles, and between the tiles and the composer.
+let tileGap: CGFloat = 6
+private let tabStripHeight: CGFloat = 34
+
+/// A session's workspace: its split tree of tiles above the shared composer.
 struct WorkspaceLayout: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
+
     var body: some View {
-        @Bindable var workspace = state.ui.workspace
-        VStack(spacing: 0) {
+        let workspace = state.ui.workspace
+        VStack(spacing: tileGap) {
             GeometryReader { geometry in
-                let split = workspace.groups.count == 2
-                let left = split ? ((geometry.size.width - 5) * workspace.splitFraction).rounded() : geometry.size.width
+                let bounds = CGRect(origin: .zero, size: geometry.size)
+                let layout = workspace.root.layout(in: bounds, gap: tileGap)
+                // A zoomed tile fills the workspace; hidden tiles keep their
+                // frames so their panes don't resize while out of view.
+                let frames = layout.tiles.merging(workspace.zoomedTile.map { [$0: bounds] } ?? [:]) { $1 }
+                let running = Set((state.selected?.subagents?.items ?? []).filter { $0.status == "running" }.map(\.name))
                 ZStack(alignment: .topLeading) {
-                    if split {
-                        WorkspaceSplitDivider(fraction: $workspace.splitFraction, color: theme.border)
+                    if workspace.zoomedTile == nil {
+                        ForEach(layout.splits, id: \.id) { split in
+                            divider(split, workspace: workspace)
+                        }
                     }
-                    ForEach(Array(workspace.groups.indices), id: \.self) { group in
-                        WorkspaceTabStrip(state: state, workspace: workspace, group: group,
-                            runningAgents: Set((state.selected?.subagents?.items ?? []).filter { $0.status == "running" }.map(\.name)))
-                            .frame(width: group == 0 ? left : geometry.size.width - left - 5)
-                            .offset(x: group == 0 ? 0 : left + 5)
+                    ForEach(workspace.visibleTiles, id: \.self) { id in
+                        let frame = frames[id] ?? .zero
+                        TileChrome(state: state, workspace: workspace, id: id, running: running)
+                            .frame(width: frame.width, height: frame.height)
+                            .offset(x: frame.minX, y: frame.minY)
                     }
-                    // Pane identity is independent of its group. Moving or selecting
-                    // tabs changes geometry and visibility without remounting editors.
+                    // Pane identity is independent of its tile. Moving, splitting,
+                    // or zooming changes geometry and visibility without
+                    // remounting editors.
                     ForEach(workspace.panes) { pane in
-                        let group = workspace.groups.firstIndex(where: { $0.contains(pane) }) ?? 0
+                        let tile = workspace.tile(containing: pane)
+                        let content = Self.contentFrame(tile.flatMap { frames[$0] } ?? .zero)
                         let visible = workspace.isVisible(pane)
-                        let stripHeight: CGFloat = workspace.panes.count > 1 ? 39 : 0
                         paneBody(pane)
                             .id(state.serverID + "|" + state.selectedID + "|" + pane.id)
-                            .frame(width: group == 0 ? left : geometry.size.width - left - 5,
-                                   height: max(0, geometry.size.height - stripHeight))
-                            .clipped()
-                            .offset(x: group == 0 ? 0 : left + 5, y: stripHeight)
+                            .frame(width: content.width, height: content.height)
+                            .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 3, bottomTrailingRadius: 3))
+                            .offset(x: content.minX, y: content.minY)
                             .opacity(visible ? 1 : 0)
                             .allowsHitTesting(visible).disabled(!visible).accessibilityHidden(!visible)
-                            .simultaneousGesture(TapGesture().onEnded { workspace.focusedGroup = group; workspace.contentFocused = true })
+                            .simultaneousGesture(TapGesture().onEnded { if let tile { workspace.focus(tile: tile) } })
+                    }
+                    // Borders sit above pane content so the focus ring stays whole.
+                    ForEach(workspace.visibleTiles, id: \.self) { id in
+                        let frame = frames[id] ?? .zero
+                        let focused = workspace.contentFocused && workspace.focusedTile == id && workspace.root.tiles.count > 1
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(focused ? theme.focusBorder : theme.border)
+                            .frame(width: frame.width, height: frame.height)
+                            .offset(x: frame.minX, y: frame.minY)
+                            .allowsHitTesting(false)
                     }
                 }
             }
             SessionComposerRegion(state: state)
+                .background(theme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border))
                 .simultaneousGesture(TapGesture().onEnded { workspace.contentFocused = false })
-        }.background(theme.surface)
+        }
     }
+
+    /// The part of a tile below its tab strip, inside its border.
+    static func contentFrame(_ tile: CGRect) -> CGRect {
+        CGRect(x: tile.minX + 1, y: tile.minY + tabStripHeight,
+               width: max(0, tile.width - 2), height: max(0, tile.height - tabStripHeight - 1))
+    }
+
+    private func divider(_ split: TileTree.SplitFrame, workspace: WorkspaceState) -> some View {
+        let horizontal = split.axis == .horizontal
+        let offset = horizontal ? split.gap.minX - split.frame.minX : split.gap.minY - split.frame.minY
+        let length = (horizontal ? split.frame.width : split.frame.height) - tileGap
+        return TileDivider(axis: split.axis, offset: offset, color: theme.accent) { position in
+            guard length > 0 else { return }
+            // Keep both sides usable: at least 160 pt wide or 120 pt tall.
+            let minimum = min(horizontal ? 160 : 120, length / 2)
+            let first = min(max(position - tileGap / 2, minimum), length - minimum)
+            workspace.setRatio(Double(first / length), for: split.id)
+        } onDoubleClick: {
+            workspace.equalize(split: split.id)
+        }
+        .frame(width: split.gap.width, height: split.gap.height)
+        .offset(x: split.gap.minX, y: split.gap.minY)
+    }
+
     @ViewBuilder private func paneBody(_ pane: WorkspacePane) -> some View {
         switch pane {
         case .conversation: SessionView(state: state)
@@ -54,104 +103,178 @@ struct WorkspaceLayout: View {
     }
 }
 
-private struct WorkspaceTabStrip: View {
+/// A tile's surface and tab strip. Pane content is laid over it separately.
+private struct TileChrome: View {
     @Environment(\.mica) private var theme
     let state: SessionStore
-    @Bindable var workspace: WorkspaceState
-    let group: Int
-    let runningAgents: Set<String>
+    let workspace: WorkspaceState
+    let id: UUID
+    let running: Set<String>
+    @State private var hovering = false
+
     var body: some View {
-        if workspace.panes.count > 1, workspace.groups.indices.contains(group) {
-            ScrollView(.horizontal) {
-                HStack(spacing: 0) {
-                    ForEach(workspace.groups[group]) { pane in
-                        WorkspaceTab(state: state, workspace: workspace, pane: pane, group: group,
-                            running: { if case .agent(let name) = pane { return runningAgents.contains(name) }; return false }())
-                    }
+        let tile = workspace.tiles[id]
+        let focused = workspace.contentFocused && workspace.focusedTile == id
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 0) {
+                        ForEach(tile?.panes ?? []) { pane in
+                            WorkspaceTab(state: state, workspace: workspace, pane: pane,
+                                selected: tile?.selected == pane, focused: focused,
+                                running: { if case .agent(let name) = pane { return running.contains(name) }; return false }())
+                        }
+                    }.frame(maxHeight: .infinity)
+                }.scrollIndicators(.hidden)
+                if let selected = tile?.selected, focused || hovering {
+                    HStack(spacing: 2) {
+                        TileIconButton(symbol: "rectangle.split.2x1", help: "Split Right") { workspace.split(selected, .right) }
+                            .disabled(!workspace.canSplit(selected))
+                        TileIconButton(symbol: "rectangle.split.1x2", help: "Split Down") { workspace.split(selected, .bottom) }
+                            .disabled(!workspace.canSplit(selected))
+                        TileIconButton(symbol: workspace.zoomedTile == id ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                                       help: workspace.zoomedTile == id ? "Unzoom" : "Zoom") {
+                            workspace.focus(tile: id); workspace.toggleZoom()
+                        }.disabled(workspace.root.tiles.count < 2)
+                    }.padding(.leading, 8).padding(.trailing, 2)
                 }
-            }.scrollIndicators(.hidden)
-            .frame(height: 39)
-            .background(theme.surface)
+            }
+            .padding(.horizontal, 6)
+            .frame(height: tabStripHeight)
             .overlay(alignment: .bottom) { Rule() }
+            Spacer(minLength: 0)
         }
+        .background(theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .simultaneousGesture(TapGesture().onEnded { workspace.focus(tile: id) })
     }
 }
 
 private struct WorkspaceTab: View {
     @Environment(\.mica) private var theme
     let state: SessionStore
-    @Bindable var workspace: WorkspaceState
+    let workspace: WorkspaceState
     let pane: WorkspacePane
-    let group: Int
+    let selected: Bool
+    /// Whether this tab's tile is focused.
+    let focused: Bool
     let running: Bool
     @State private var hovering = false
-    @FocusState private var focused: Bool
-    private var selected: Bool { workspace.selections.indices.contains(group) && workspace.selections[group] == pane }
+    @FocusState private var keyboardFocused: Bool
+
     var body: some View {
-        Button { workspace.select(pane) } label: {
-            HStack(spacing: 6) {
-                if case .agent = pane {
-                    Group {
-                        if running { KitSpinner().accessibilityLabel("Running") }
-                        else { RobotTabIcon() }
-                    }.frame(width: 15, height: 15)
+        HStack(spacing: 8) {
+            Button { workspace.select(pane) } label: {
+                HStack(spacing: 8) {
+                    icon.frame(width: 14, height: 14)
+                    Text(pane.title).lineLimit(1).truncationMode(.middle)
+                        .font(.kit(size: 12, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? theme.text : theme.muted)
                 }
-                else if let icon { Image(systemName: icon).font(.kit(size: 12)) }
-                Text(pane.title).lineLimit(1).truncationMode(.middle)
-            }.font(.kit(size: 12))
-                .foregroundStyle(selected ? theme.text : theme.muted)
-                .padding(.horizontal, 12).frame(height: 38)
+                .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
-        }.buttonStyle(.plain).focused($focused)
-            .overlay(alignment: .bottom) {
-                if selected { Rectangle().fill(workspace.contentFocused && workspace.focusedGroup == group ? theme.accent : theme.border).frame(height: 2) }
             }
-            .overlay(alignment: .trailing) {
-                if pane.closable && (hovering || focused) {
-                    Button { close() } label: {
-                        Image(systemName: "xmark").font(.kit(size: 9)).frame(width: 24, height: 28)
-                            .background(theme.surface)
-                    }.buttonStyle(.plain).padding(.trailing, 2).accessibilityLabel("Close \(pane.title)")
+            .buttonStyle(.plain)
+            .focused($keyboardFocused)
+            if pane.closable && (selected || hovering || keyboardFocused) {
+                Button(action: close) {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(theme.muted)
+                        .frame(width: 14, height: 14).contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close \(pane.title)")
             }
-            .onHover { hovering = $0 }
-            .onChange(of: focused) { if focused { workspace.select(pane) } }
-            .contextMenu { WorkspaceTabActions(state: state, workspace: workspace, pane: pane) }
-            .accessibilityAddTraits(selected ? .isSelected : [])
+        }
+        .padding(.horizontal, 10)
+        .frame(maxHeight: .infinity)
+        .overlay(alignment: .bottom) {
+            if selected { Rectangle().fill(focused ? theme.accent : theme.strongBorder).frame(height: 2) }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onChange(of: keyboardFocused) { if keyboardFocused { workspace.select(pane) } }
+        .contextMenu { WorkspaceTabActions(state: state, workspace: workspace, pane: pane) }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
-    private var icon: String? {
-        switch pane {
-        case .file: "doc"
-        case .review: "chevron.left.forwardslash.chevron.right"
-        case .scratchpad: "note.text"
-        default: nil
+
+    /// Paper shows an icon on the selected tab only; a running subagent keeps
+    /// its spinner either way.
+    @ViewBuilder private var icon: some View {
+        let tint = selected && focused ? theme.accent : theme.muted
+        if case .agent = pane, running {
+            KitSpinner().accessibilityLabel("Running")
+        } else if selected {
+            switch pane {
+            case .agent: RobotTabIcon().foregroundStyle(tint)
+            case .conversation: Image(systemName: "bubble.left").font(.system(size: 12)).foregroundStyle(tint)
+            case .review: Image(systemName: "chevron.left.forwardslash.chevron.right").font(.system(size: 11)).foregroundStyle(tint)
+            case .scratchpad: Image(systemName: "note.text").font(.system(size: 12)).foregroundStyle(tint)
+            case .file: Image(systemName: "doc").font(.system(size: 12)).foregroundStyle(tint)
+            }
         }
     }
-    private func close() {
-        if pane == .scratchpad, let client = state.scratchpadClient {
-            Task { await workspace.closeScratchpad(client: client, session: state.selectedID) }
-        } else { workspace.close(pane) }
-    }
+
+    private func close() { WorkspaceTabActions.close(pane, state: state, workspace: workspace) }
 }
 
 private struct WorkspaceTabActions: View {
     let state: SessionStore
     let workspace: WorkspaceState
     let pane: WorkspacePane
+
     var body: some View {
-        Button(workspace.groups.count == 1 ? "Move to split right" : "Move to other group") { workspace.moveToOtherGroup(pane) }
-            .disabled(workspace.panes.count < 2)
-        if workspace.groups.count > 1 {
-            Button("Join all tabs") { workspace.joinGroups(selecting: pane) }
+        Button("Split Right") { workspace.split(pane, .right) }.disabled(!workspace.canSplit(pane))
+        Button("Split Down") { workspace.split(pane, .bottom) }.disabled(!workspace.canSplit(pane))
+        if workspace.root.tiles.count > 1 {
+            Button("Join All Tabs") { workspace.joinTiles(selecting: pane) }
+            Divider()
+            Button(workspace.zoomedTile == nil ? "Zoom Tile" : "Unzoom Tile") {
+                if let tile = workspace.tile(containing: pane) { workspace.focus(tile: tile) }
+                workspace.toggleZoom()
+            }
+            Button("Equalize Tiles") { workspace.equalize() }
         }
         if pane.closable {
             Divider()
-            Button("Close tab") {
-                if pane == .scratchpad, let client = state.scratchpadClient {
-                    Task { await workspace.closeScratchpad(client: client, session: state.selectedID) }
-                } else { workspace.close(pane) }
-            }
+            Button("Close Tab") { Self.close(pane, state: state, workspace: workspace) }
         }
+    }
+
+    /// Closes a tab, saving the scratchpad first so a draft isn't lost.
+    static func close(_ pane: WorkspacePane, state: SessionStore, workspace: WorkspaceState) {
+        if pane == .scratchpad, let client = state.scratchpadClient {
+            Task { await workspace.closeScratchpad(client: client, session: state.selectedID) }
+        } else { workspace.close(pane) }
+    }
+}
+
+/// A 24 pt icon button for a tile's tab strip.
+private struct TileIconButton: View {
+    @Environment(\.mica) private var theme
+    @Environment(\.isEnabled) private var enabled
+    let symbol: String
+    let help: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12))
+                .foregroundStyle(theme.muted)
+                .frame(width: 24, height: 24)
+                .background(hovering && enabled ? theme.hover : .clear, in: RoundedRectangle(cornerRadius: 3))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(enabled ? 1 : 0.45)
+        .onHover { hovering = $0 }
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 
@@ -163,6 +286,7 @@ private struct RobotTabIcon: View {
         }
     }
 }
+
 struct ScratchpadPane: View {
     @Environment(\.mica) private var theme
     let state: SessionStore

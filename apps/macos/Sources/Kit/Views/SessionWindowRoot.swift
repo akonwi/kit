@@ -72,9 +72,11 @@ struct SessionWindowRoot: View {
         }
     }
 
-    /// The selected tab's content, inset from the window frame as a tile.
+    /// The selected tab's content, inset from the window frame. An open
+    /// session draws its own tiles; anything else sits in a single tile.
     private func tile(model: SessionWindowModel, tab: SessionTab, theme: MicaTheme) -> some View {
-        VStack(spacing: 0) {
+        let tiled = tab.store?.selected != nil
+        return VStack(spacing: 0) {
             if let error = windows.restoration.error {
                 HStack {
                     Text(error).textSelection(.enabled)
@@ -84,11 +86,11 @@ struct SessionWindowRoot: View {
             SessionTabContent(model: model, tab: tab, localConnectionRequest: $localConnectionRequest)
                 .id(tab.id)
         }
-        .background(theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border))
-        .padding([.trailing, .bottom], 6)
-        .padding(.leading, placement == .top ? 6 : 0)
+        .background(tiled ? .clear : theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: tiled ? 0 : 4))
+        .overlay { if !tiled { RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border) } }
+        .padding([.trailing, .bottom], tileGap)
+        .padding(.leading, placement == .top ? tileGap : 0)
     }
 }
 

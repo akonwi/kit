@@ -83,9 +83,13 @@ another window already shows brings that window forward. Search matches session 
 arrow keys navigate and Return opens. New session accepts a working directory,
 optional name, model, and thinking level.
 
-Within a session, Agent, files, and subagents occupy retained workspace tabs.
-Use a tab's context menu to split, move, join, or close panes.
-The shared composer always addresses the parent session. Enter submits;
+Within a session, the workspace is a split tree of tiles, and each tile holds tabs
+for Agent, files, Diff, Scratchpad, and subagents. New panes open in the focused
+tile. A tile's split buttons or a tab's context menu move a tab into a new tile on
+the right or below. Drag the gap between tiles to resize them; double-click it to
+even them out. Zoom fills the workspace with one tile. Closing a tile's last tab
+removes the tile. Each session keeps its arrangement while the app runs.
+The shared composer below the tiles always addresses the parent session. Enter submits;
 Cmd+Enter inserts a newline. Cmd+P opens commands; Cmd+, opens settings.
 Session workspace controls (Diff, Scratchpad, Subagents, Open file, and Commands)
 are centered in the footer, with status on the left. They remain available when an

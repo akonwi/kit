@@ -29,7 +29,7 @@ struct WorkspaceTests {
         state.send()
         #expect(state.messages.first?.text.contains("Keep the reopen control.") == true)
         #expect(state.ui.workspace.notes.isEmpty)
-        #expect(state.ui.workspace.visible)
+        #expect(state.ui.workspace.panes == [.conversation, .scratchpad, .review])
     }
 
     @Test func mentionReplacesOnlyTrailingToken() {

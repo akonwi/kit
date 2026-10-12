@@ -26,7 +26,10 @@ struct SessionScreen: View {
         let isDark = windowScheme == .dark
         let theme = ThemeConfiguration.decode(themeConfiguration).theme(dark: isDark, installed: installedThemes)
         let serverID = state.serverID
-        let content = VStack(spacing: 0) {
+        // An open session's tiles sit on the window frame; anything else
+        // fills the window's single tile.
+        let tiled = state.selected != nil
+        let content = VStack(spacing: tiled ? tileGap : 0) {
             if state.unavailable {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
@@ -42,7 +45,9 @@ struct SessionScreen: View {
                         .disabled(state.connectionState == .loading)
                     Button("Open another session") { navigation.openLauncher() }
                 }.font(.kit(size: 12)).padding(16).background(theme.raised)
-                Rule()
+                .clipShape(RoundedRectangle(cornerRadius: tiled ? 4 : 0))
+                .overlay { if tiled { RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border) } }
+                if !tiled { Rule() }
             }
             Group {
                 if state.selected == nil {
@@ -74,7 +79,7 @@ struct SessionScreen: View {
         .onChange(of: ForkFirstTurnFailures.shared.revision) { state.applyForkFirstTurnFailure() }
         .font(.kit(size: 13))
         .foregroundStyle(theme.text)
-        .background(theme.surface)
+        .background(tiled ? .clear : theme.surface)
         .environment(\.mica, theme)
         .environment(\.transcriptSessionLink, TranscriptSessionLink(serverID: serverID) { id in
             navigation.openSession(id)
