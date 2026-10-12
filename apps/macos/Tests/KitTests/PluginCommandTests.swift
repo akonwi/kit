@@ -39,7 +39,10 @@ private actor PluginCommandMock: PluginCommandClient {
         #expect(old.argName == "text")
         #expect(old.selectionID != replacement.selectionID)
         let rows = PaletteCommand.pluginCatalog([old])
-        #expect(rows.map(\.name) == ["demo.echo"])
+        // As in the TUI: the plugin's local name, with the plugin as metadata.
+        #expect(rows.map(\.name) == ["echo"])
+        #expect(rows.map(\.meta) == ["demo"])
+        #expect(rows.map(\.hint) == ["<text>"])
         #expect(rows.map(\.description) == ["Echo literal arguments"])
         #expect(rows.first?.plugin?.instance == "host:1")
         #expect(throws: ClientError.self) { try PluginCommand.project([wire(), wire()]) }

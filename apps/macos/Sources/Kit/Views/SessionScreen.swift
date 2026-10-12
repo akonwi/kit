@@ -101,12 +101,12 @@ struct SessionScreen: View {
         .accessibilityHidden(state.ui.palette || state.ui.filePicker)
         .overlay {
             if state.ui.palette || state.ui.filePicker {
-                GeometryReader { _ in
+                GeometryReader { proxy in
                     ZStack {
                         Color.clear.contentShape(Rectangle()).onTapGesture {
                             state.ui.palette = false; state.ui.filePicker = false
                         }
-                        SessionPickerOverlayLayout(palette: state.ui.palette) {
+                        SessionPickerOverlayLayout(palette: state.ui.palette, frame: proxy.frame(in: .global)) {
                             Group {
                                 if state.ui.palette { CommandPalette(state: state) { id in
                                     navigation.openSession(id)
@@ -116,9 +116,9 @@ struct SessionScreen: View {
                             .environment(\.mica, theme)
                             .font(.kit(size: 13))
                             .preferredColorScheme(windowScheme)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.border, lineWidth: 1))
-                            .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border, lineWidth: 1))
+                            .shadow(color: .black.opacity(theme.dark ? 0.5 : 0.18), radius: 24, y: 18)
                         }
                     }
                 }
@@ -131,6 +131,13 @@ struct SessionScreen: View {
 // to a taller nested screen at the minimum window height.
 struct SessionPickerOverlayLayout: Layout {
     let palette: Bool
+    /// The overlay's frame in window coordinates. The palette is placed
+    /// against the window, not the tiles it covers.
+    var frame: CGRect = .zero
+
+    /// The palette's distance from the top of the window: a quarter of its
+    /// height, like the TUI's picker placement.
+    static func paletteTop(windowHeight: CGFloat) -> CGFloat { windowHeight * 0.25 }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
@@ -139,15 +146,28 @@ struct SessionPickerOverlayLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let child = subviews.first else { return }
         let size = child.sizeThatFits(.unspecified)
-        let top = Self.topOffset(availableHeight: bounds.height, pickerHeight: size.height, palette: palette)
-        child.place(at: CGPoint(x: bounds.minX + max(0, (bounds.width - size.width) / 2), y: bounds.minY + top),
-                    proposal: ProposedViewSize(size))
+        let x = palette
+            ? Self.leadingOffset(availableWidth: bounds.width, pickerWidth: size.width, originX: frame.minX,
+                                 // The window's trailing tile gap lies outside the overlay.
+                                 windowWidth: frame.maxX + tileGap)
+            : max(0, (bounds.width - size.width) / 2)
+        // The window's bottom tile gap lies outside the overlay.
+        let top = Self.topOffset(availableHeight: bounds.height, pickerHeight: size.height, palette: palette,
+                                 originY: frame.minY, windowHeight: frame.maxY + tileGap)
+        child.place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + top), proposal: ProposedViewSize(size))
     }
 
-    static func topOffset(availableHeight: CGFloat, pickerHeight: CGFloat, palette: Bool) -> CGFloat {
+    static func topOffset(availableHeight: CGFloat, pickerHeight: CGFloat, palette: Bool,
+                          originY: CGFloat = 0, windowHeight: CGFloat? = nil) -> CGFloat {
         if !palette { return min(100, availableHeight * 0.14) }
-        let preferred = availableHeight * 0.30
+        let window = windowHeight ?? originY + availableHeight
         // Leave room for the panel's downward shadow as well as its content.
-        return min(preferred, max(0, availableHeight - pickerHeight - 32))
+        return max(0, min(paletteTop(windowHeight: window) - originY, availableHeight - pickerHeight - 32))
+    }
+
+    /// Centres the palette on the window while keeping it inside the overlay.
+    static func leadingOffset(availableWidth: CGFloat, pickerWidth: CGFloat, originX: CGFloat, windowWidth: CGFloat) -> CGFloat {
+        let centred = windowWidth / 2 - originX - pickerWidth / 2
+        return min(max(0, centred), max(0, availableWidth - pickerWidth))
     }
 }

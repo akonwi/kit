@@ -5,7 +5,12 @@ import Observation
 @MainActor @Observable
 final class SessionUIState {
     var palette = false {
-        didSet { if palette && !oldValue { paletteGeneration = UUID() } }
+        didSet {
+            if palette && !oldValue { paletteGeneration = UUID() }
+            // The palette's view is gone once it closes, so the screen it was
+            // showing is reset here; each opening starts at the command list.
+            if !palette { subagentsPresented = false }
+        }
     }
     @ObservationIgnored private(set) var paletteGeneration = UUID()
     var subagentsPresented = false

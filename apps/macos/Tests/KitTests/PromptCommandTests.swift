@@ -73,7 +73,7 @@ private actor PalettePromptClient: PromptCommandClient {
         let prompt = PromptCommand(name: "claude-fix", description: "Fix an issue", source: "claude_project",
                                    location: "/repo/.claude/commands/claude-fix.md")
         #expect(prompt.sourceLabel == "claude")
-        #expect(PaletteCommand.promptCatalog([prompt]).first?.aliases == ["/claude-fix", "claude", "/repo/.claude/commands/claude-fix.md"])
+        #expect(PaletteCommand.promptCatalog([prompt]).first?.searchTerms == ["claude", "/repo/.claude/commands/claude-fix.md"])
         var session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "Test", model: "test/model", thinking: "off",
                                      workspace: "Test", date: "", messages: [])
         session.promptCommands = [prompt]

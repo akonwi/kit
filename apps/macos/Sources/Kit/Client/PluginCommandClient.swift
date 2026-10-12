@@ -21,6 +21,10 @@ struct PluginCommand: Decodable, Sendable, Equatable, Identifiable {
     let description: String
     let argName: String?
     var name: String { id }
+    /// The contributing plugin; `id` is validated as `pluginID.localID`.
+    var pluginID: String { String(id.prefix { $0 != "." }) }
+    /// The command's name within its plugin.
+    var localID: String { id.firstIndex(of: ".").map { String(id[id.index(after: $0)...]) } ?? id }
     var selectionID: String { "plugin:" + id + ":" + instance }
 
     static func safeText(_ value: String, limit: Int) -> Bool {

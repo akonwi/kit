@@ -96,7 +96,10 @@ Focusing a tile moves the keyboard to its composer or editor, and clicking into 
 tile's composer, editor, or transcript focuses that tile.
 The Agent pane has its own composer, activity card, queued messages, and interaction
 dock, all addressing the parent session, and Diff comments go to it. A subagent pane
-shows that subagent's activity card and queued task count; it has no composer. Enter submits; Cmd+Enter inserts a newline. Cmd+P opens commands;
+shows that subagent's activity card and queued task count; it has no composer. Enter submits; Cmd+Enter inserts a newline. Cmd+P, or `/` in an
+empty composer, opens the command palette. It lists the TUI's commands, prompt and
+plugin commands, and the tile commands; Tab completes the selected command so its
+arguments can be typed after it, as in `cd ~/src` or `review auth module`.
 Cmd+, opens settings. The Tile menu splits, zooms, equalizes, focuses, and resizes
 tiles and moves tabs between them; `docs/design/macos-client.md` lists the shortcuts.
 Diff, Scratchpad, files, and subagents open from the Tile and Session menus and the

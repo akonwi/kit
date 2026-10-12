@@ -2,6 +2,9 @@ import SwiftUI
 
 struct RenameSessionView: View {
     @Bindable var state: SessionStore
+    var initialName = ""
+    /// Saves on appear, for a name typed after `name`.
+    var submitImmediately = false
     var back: () -> Void
     @Environment(\.mica) private var theme
     @State private var name = ""
@@ -11,33 +14,35 @@ struct RenameSessionView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Rename session").font(.kit(size: 16, weight: .medium))
-            TextField("Session name", text: $name)
-                .textFieldStyle(.roundedBorder).focused($focused)
-                .accessibilityLabel("Session name").onSubmit { save() }
-                .onExitCommand(perform: dismiss)
-                .disabled(saving)
-            if let error { Text(error).foregroundStyle(theme.danger).fixedSize(horizontal: false, vertical: true) }
-            if !name.isEmpty && SessionName.normalized(name) == nil {
-                Text("Use a non-empty name without control characters, up to 256 bytes.").foregroundStyle(theme.warning)
-            }
-            HStack {
-                Button("Back", action: back).disabled(saving)
-                Spacer()
-                if saving { KitSpinner() }
-                Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
-                Button("Rename", action: save)
-                    .disabled(saving || SessionName.normalized(name) == nil || state.renameUnavailableReason != nil)
-            }
+        PaletteSheet(title: "Rename session", detail: state.selected?.title) {
+            VStack(alignment: .leading, spacing: 10) {
+                PaletteTextInput(prompt: "Session name", text: $name)
+                    .focused($focused).onSubmit { save() }
+                    .disabled(saving)
+                if let error {
+                    Text(error).font(.kit(size: 12)).foregroundStyle(theme.danger).fixedSize(horizontal: false, vertical: true)
+                }
+                if !name.isEmpty && SessionName.normalized(name) == nil {
+                    Text("Use a non-empty name without control characters, up to 256 bytes.")
+                        .font(.kit(size: 12)).foregroundStyle(theme.warning)
+                }
+            }.padding(16)
+        } actions: {
+            Button("Back", action: back).disabled(saving)
+            Spacer()
+            if saving { KitSpinner() }
+            Button("Cancel", action: dismiss)
+            Button("Rename", action: save)
+                .buttonStyle(MicaButtonStyle(primary: true, compact: true))
+                .disabled(saving || SessionName.normalized(name) == nil || state.renameUnavailableReason != nil)
         }
-        .font(.kit(size: 13)).padding(20).frame(width: 520)
-        .foregroundStyle(theme.text).background(theme.surface)
+        .buttonStyle(MicaButtonStyle(compact: true))
         .task {
-            name = state.selected?.title ?? ""
+            name = initialName
+            if submitImmediately { save() }
             // Wait for the palette search field to leave the responder chain.
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-            focused = true
+            if !saving { focused = true }
         }
         .onExitCommand(perform: dismiss)
         .onDisappear { dismissed = true }

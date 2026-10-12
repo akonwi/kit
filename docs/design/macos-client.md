@@ -51,6 +51,37 @@ Closing a picker returns focus to the editor or tile that had it, unless the
 picker's action moved focus itself: a mention returns to the composer, and an
 opened file takes focus in its tile.
 
+### Command palette
+
+The palette opens with ⌘P, or by typing / into an empty composer. It sits
+a quarter of the window's height below its top, like the TUI's pickers,
+centred on the window, with no scrim, so the
+workspace stays readable behind it. It lists the TUI's catalog (built-in,
+prompt, and plugin commands) plus the Mac's appearance and tile commands, sorted
+by name, in the TUI's row layout: monospace name, argument hint, description,
+and the prompt's source or the command's plugin on the right. Plugin commands
+show their name within the plugin. A command that can't run now stays listed,
+dimmed, with its reason before the description, such as "idle only" while a
+turn runs; choosing it shows the reason as a toast. `login` is listed but not
+available until the app can sign in to providers.
+
+Matching follows the TUI: the command word is ranked against names first, then
+descriptions and aliases, so typing arguments never changes the selection. A
+leading / is ignored. When the list overflows, the last visible row is cut in
+half to show that it scrolls; there is no "more" row. When nothing matches, the
+list area shows a centred message naming the query, and the card keeps its
+height.
+
+Tab completes the selected command into the search field, where its arguments
+are typed inline and Return runs it. `cd path`, `name title`, and
+`fork message` run directly, and their form stays open to show progress or a
+failure to retry; without an argument they open the form. A fork that finishes
+after the palette closes offers to open it from a toast. Prompt and plugin
+commands receive their arguments literally. `model`, `thinking`, and
+`tabs` open a list in the same style, and `debug`, `mcp`, `sessions`, and
+`subagents` open nested screens with a 48 pt title row. Esc closes the palette
+from any screen. The footer shows only the tab complete hint.
+
 ### Tile focus
 
 Focusing a tile, by its tab strip, a command, or a dropped tab, moves the

@@ -12,13 +12,7 @@ struct SessionPickerView: View {
     @State private var deleting = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Open session").font(.kit(size: 16, weight: .medium))
-                Spacer()
-                Button { close() } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.plain).keyboardShortcut(.cancelAction).accessibilityLabel("Close session picker")
-            }.padding(20)
+        PaletteSheet(title: "Open session", height: PaletteMetrics.height) {
             SessionLauncherContent(sessions: catalog.sessions, connecting: catalog.connecting,
                 connected: catalog.client != nil, error: catalog.error, open: open,
                 refresh: { Task { await catalog.refreshSessions() } },
@@ -26,7 +20,7 @@ struct SessionPickerView: View {
                 rename: { deleting = false; target = $0 },
                 delete: { deleting = true; target = $0 })
         }
-        .frame(width: 620, height: 490)
+        .onExitCommand(perform: close)
         .foregroundStyle(theme.text)
         .background(theme.surface)
         .modifier(SessionCatalogActions(client: client, refresh: { await catalog.refreshSessions() },

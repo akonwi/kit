@@ -75,7 +75,7 @@ final class SessionStore {
         if !(catalogClient is any SessionCompactionClient) { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }
         if connectionState != .connected { return "Connect to compact" }
-        if running { return "Wait for the current turn" }
+        if running { return "idle only" }
         if compactionOperation.pending || selected?.activeCompactionID != nil { return "Compaction in progress" }
         if directoryChange.pending || reloadOperation.pending || configuration.changing { return "Wait for the current change" }
         return nil
@@ -165,7 +165,7 @@ final class SessionStore {
         if connectionState != .connected && directoryChange.request == nil { return "Connect to change directory" }
         if compactionOperation.pending { return "Wait for compaction" }
         if reloadOperation.pending { return "Wait for session reload" }
-        if running { return "Wait for the current turn" }
+        if running { return "idle only" }
         return nil
     }
     func changeDirectory(_ path: String) async -> Bool {
