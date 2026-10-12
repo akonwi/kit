@@ -32,7 +32,6 @@ struct SessionSidebar: View {
 
     var body: some View {
         let groups = model.groups
-        let numbers = Dictionary(uniqueKeysWithValues: model.displayedTabs.enumerated().map { ($1.id, $0 + 1) })
         VStack(spacing: 0) {
             HStack {
                 Spacer()
@@ -61,7 +60,7 @@ struct SessionSidebar: View {
                                 .help(group.directory)
                             }
                             ForEach(group.tabs) { tab in
-                                SessionSidebarRow(tab: tab, number: numbers[tab.id],
+                                SessionSidebarRow(tab: tab,
                                                   selected: tab.id == model.selectedTabID,
                                                   select: { model.select(tab) },
                                                   close: { model.close(tab) })
@@ -88,7 +87,6 @@ struct SessionSidebar: View {
 private struct SessionSidebarRow: View {
     @Environment(\.mica) private var theme
     let tab: SessionTab
-    let number: Int?
     let selected: Bool
     let select: () -> Void
     let close: () -> Void
@@ -105,8 +103,6 @@ private struct SessionSidebarRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if hovering {
                     ChromeIconButton(symbol: "xmark", size: 10, frame: 18, help: "Close tab", action: close)
-                } else if let number, number <= 9 {
-                    Text("⌘\(number)").font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
                 }
             }
             .padding(.horizontal, 8)
