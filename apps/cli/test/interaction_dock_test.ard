@@ -377,6 +377,11 @@ test fn a_confirmation_answers_from_letters_and_buttons() Void!Str {
       "└──────────────────────────────────────────────────────────┘",
     ],
   )
+  let body = terminal.frame().cell(
+    2,
+    6,
+  ).expect("detail cell").style.foreground.expect("detail color")
+  try testing::assert(same(body, theme::system().foreground), "the detail uses the normal text color")
   press(terminal, "n", shift: true)
   let declined = try only_response(state)
   try testing::assert((not unsafe::is_nil(declined.Confirmed)) and not declined.Confirmed.@, "N declines")

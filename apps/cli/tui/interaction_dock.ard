@@ -632,7 +632,7 @@ impl Dock {
           self.props.themes,
           "interaction.{self.props.request.ID}.{key}",
           source,
-          base: ui::text_style(foreground: colors.muted),
+          base: ui::text_style(foreground: colors.foreground),
         ),
       ],
       key: "interaction.{key}",
