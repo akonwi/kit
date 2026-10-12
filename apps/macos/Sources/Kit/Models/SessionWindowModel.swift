@@ -47,6 +47,8 @@ final class SessionWindowModel: Identifiable {
     private(set) var tabs: [SessionTab]
     private(set) var selectedTabID: UUID
     @ObservationIgnored weak var window: NSWindow?
+    /// Keeps the window's traffic lights in the chrome row while it is open.
+    @ObservationIgnored var trafficLights: TrafficLightPlacement?
     /// Called after tabs or selection change, to record restoration intent.
     @ObservationIgnored var onChange: (SessionWindowModel) -> Void = { _ in }
 

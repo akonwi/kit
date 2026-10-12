@@ -78,6 +78,7 @@ final class SessionWindowRegistry: NSObject {
         }
         guard model.window !== window else { return }
         model.window = window
+        model.trafficLights = TrafficLightPlacement(window: window)
         window.tabbingMode = .disallowed
         NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose(_:)),
                                                name: NSWindow.willCloseNotification, object: window)
@@ -90,6 +91,7 @@ final class SessionWindowRegistry: NSObject {
         NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
         model.closeAll()
         model.window = nil
+        model.trafficLights = nil
         models[model.id] = nil
         // Quitting keeps open windows for the next launch; closing forgets.
         if !terminating { restoration.remove(model.id) }
