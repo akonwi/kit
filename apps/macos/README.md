@@ -88,8 +88,9 @@ Use a tab's context menu to split, move, join, or close panes.
 The shared composer always addresses the parent session. Enter submits;
 Cmd+Enter inserts a newline. Cmd+P opens commands; Cmd+, opens settings.
 Session workspace controls (Diff, Scratchpad, Subagents, Open file, and Commands)
-are centered in the footer, with status on the left and cwd/Git information on the
-right. They remain available when an interaction replaces the composer.
+are centered in the footer, with status on the left. They remain available when an
+interaction replaces the composer. The session bar above the workspace shows the
+cwd, Git branch, pull request, and plugin footer items.
 
 File views read from the session server and support highlighted, selectable
 content. The Diff toolbar opens working-tree, branch, and commit comparisons with

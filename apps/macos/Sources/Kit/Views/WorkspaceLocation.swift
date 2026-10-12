@@ -62,22 +62,59 @@ struct WorkspaceLocation: View {
         let path = session?.cwd ?? session?.workspace ?? ""
         let displayPath = Self.homeRelative(path)
         let head = Self.repositoryLabel(session)
-        let repository = Self.repositoryText(session)
         let dirtyNote = session?.gitDirty == true ? " · uncommitted changes" : " · clean"
-        HStack(spacing: 4) {
-            ViewThatFits(in: .horizontal) {
-                Text(displayPath).fixedSize()
-                Text(Self.shortened(displayPath)).lineLimit(1).truncationMode(.head)
+        HStack(spacing: 12) {
+            if !path.isEmpty {
+                HStack(spacing: 5) {
+                    Image(systemName: "folder").font(.system(size: 10))
+                    ViewThatFits(in: .horizontal) {
+                        Text(displayPath).fixedSize()
+                        Text(Self.shortened(displayPath)).lineLimit(1).truncationMode(.head)
+                    }
+                }
+                .help(path)
             }
-            if let repository {
-                // SwiftUI's attributed-text link opens through the environment's
-                // openURL action and limits activation to the PR text range.
-                Text(repository)
-                    .lineLimit(1).truncationMode(.middle).layoutPriority(1)
+            if let branch = Self.branchLabel(session) {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.triangle.branch").font(.system(size: 10))
+                    Text(branch).lineLimit(1).truncationMode(.middle)
+                }
+                .layoutPriority(1)
+                .help(head.map { "Git snapshot: \($0)\(dirtyNote)" } ?? "")
+            }
+            if let number = Self.pullRequestNumber(session), let destination = Self.pullRequestDestination(session) {
+                PullRequestChip(number: number, destination: destination).layoutPriority(2)
             }
         }
-        .font(.kit(size: 12, design: .monospaced))
-        .help(path + (head.map { "\nGit snapshot: \($0)\(dirtyNote)" } ?? ""))
-        .frame(maxWidth: 340, alignment: .trailing)
+        .font(.kit(size: 11, design: .monospaced))
+        .foregroundStyle(theme.muted)
+        .lineLimit(1)
+    }
+    @Environment(\.mica) private var theme
+}
+
+/// Opens the session branch's pull request.
+private struct PullRequestChip: View {
+    @Environment(\.mica) private var theme
+    @Environment(\.openURL) private var openURL
+    let number: Int
+    let destination: URL
+
+    var body: some View {
+        Button { openURL(destination) } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.triangle.pull").font(.system(size: 10))
+                Text("PR #\(number)")
+            }
+            .foregroundStyle(theme.text)
+            .padding(.horizontal, 6)
+            .frame(height: 20)
+            .background(theme.frameHover, in: RoundedRectangle(cornerRadius: 3))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help(destination.absoluteString)
+        .accessibilityLabel("Open pull request \(number)")
     }
 }

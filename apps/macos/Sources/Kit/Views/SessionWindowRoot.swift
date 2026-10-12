@@ -32,6 +32,9 @@ struct SessionWindowRoot: View {
             case .top:
                 VStack(spacing: 0) {
                     SessionTopTabs(model: model, placement: $placement)
+                    if !tab.isLauncher {
+                        SessionBar(tab: tab, showsTitle: false).padding(.horizontal, 6)
+                    }
                     tile(model: model, tab: tab, theme: theme)
                 }
             }

@@ -39,7 +39,7 @@ final class SessionTab: Identifiable {
 
     var isLauncher: Bool { identity.session.isEmpty }
     /// The live session once opened; until then, its catalog entry.
-    private var session: SessionExcerpt? {
+    var session: SessionExcerpt? {
         store?.selected ?? catalog?.sessions.first { $0.id == identity.session }
     }
     var title: String { session?.title ?? (isLauncher ? "New session" : identity.session) }

@@ -1,19 +1,37 @@
 import SwiftUI
 
-/// The selected session's title row above its tiles in side-tab layout.
+/// The selected session's bar above its tiles: its title (with side tabs),
+/// working directory, Git branch, pull request, and plugin footer items.
 struct SessionBar: View {
     @Environment(\.mica) private var theme
     let tab: SessionTab
+    /// With top tabs, the title is on the tab and the bar is a shorter row.
+    var showsTitle = true
 
     var body: some View {
-        HStack(spacing: 14) {
-            Text(tab.title)
-                .font(.kit(size: 13, weight: .semibold))
-                .lineLimit(1).truncationMode(.tail)
-            Spacer(minLength: 0)
+        let session = tab.session
+        HStack(spacing: 24) {
+            HStack(spacing: 14) {
+                if showsTitle {
+                    Text(tab.title)
+                        .font(.kit(size: 13, weight: .semibold))
+                        .lineLimit(1).truncationMode(.tail)
+                        .layoutPriority(2)
+                }
+                if !tab.isLauncher, session?.pluginFooter?.locationHidden != true {
+                    WorkspaceLocation(session: session)
+                }
+            }
+            .layoutPriority(1)
+            if !tab.isLauncher {
+                // Plugin items take what the title and location leave.
+                PluginFooterView(session: session)
+            } else {
+                Spacer(minLength: 0)
+            }
         }
         .padding(.leading, 8).padding(.trailing, 14)
-        .frame(height: SessionChrome.rowHeight)
+        .frame(height: showsTitle ? SessionChrome.rowHeight : SessionChrome.compactRowHeight)
         .background(WindowTitlebarRegion())
     }
 }
@@ -21,6 +39,8 @@ struct SessionBar: View {
 enum SessionChrome {
     /// The window's top row: traffic lights, session tabs, and the session bar.
     static let rowHeight: CGFloat = 44
+    /// The session bar below top tabs.
+    static let compactRowHeight: CGFloat = 32
 }
 
 /// Side-tab layout: session tabs grouped by project.

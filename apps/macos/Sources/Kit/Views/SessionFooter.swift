@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Session-scoped status and workspace location, matching the TUI footer roles.
+/// Session status and workspace controls. Location and plugin items are in
+/// the session bar.
 struct SessionFooter: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
@@ -13,8 +14,7 @@ struct SessionFooter: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 SessionFooterControls(state: state)
                     .fixedSize()
-                PluginFooterView(session: state.selected)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
             }
             .font(.kit(size: 12))
             .foregroundStyle(theme.muted)

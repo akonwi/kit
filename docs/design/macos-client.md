@@ -163,7 +163,7 @@ only refresh workspace state.
 
 Repository metadata also comes from the server. Activity coalesces VCS refreshes;
 prose deltas do not cause reads. Missing repositories or metadata failures leave
-the cwd visible. The footer shows branch or detached identity and the dirty marker.
+the cwd visible. The session bar shows branch or detached identity and the dirty marker.
 
 ## Session operations
 
