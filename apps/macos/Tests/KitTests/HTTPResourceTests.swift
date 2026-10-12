@@ -36,12 +36,12 @@ private final class StalledResponse: URLProtocol, @unchecked Sendable {
 }
 
 struct HTTPResourceTests {
-    private func client(_ port: Int) throws -> HTTPClient {
+    private func client(_ port: Int, requestTimeout: TimeInterval = HTTPClient.requestTimeout) throws -> HTTPClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StalledResponse.self]
         return try HTTPClient(endpoint: URL(string: "http://127.0.0.1:\(port)")!,
                               token: "test", instance: "test", serverID: "test",
-                              configuration: configuration)
+                              configuration: configuration, requestTimeout: requestTimeout)
     }
     private func waitFor(_ condition: () -> Bool) async throws {
         for _ in 0..<100 {
@@ -52,7 +52,8 @@ struct HTTPResourceTests {
     }
 
     @Test func errorResponsesCloseBodiesWhileClientIsRetained() async throws {
-        let client = try client(18001)
+        // A stalled error body ends only at the request timeout, so keep it short.
+        let client = try client(18001, requestTimeout: 0.25)
         for _ in 0..<20 {
             await #expect(throws: (any Error).self) { try await client.sessions() }
         }

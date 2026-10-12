@@ -62,8 +62,12 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     private let session: URLSession
     private let api: Client
 
+    /// How long a request may wait for more data before failing.
+    static let requestTimeout: TimeInterval = 45
+
     init(endpoint: URL, token: String, instance: String, serverID: String,
-         configuration: URLSessionConfiguration = .ephemeral) throws {
+         configuration: URLSessionConfiguration = .ephemeral,
+         requestTimeout: TimeInterval = HTTPClient.requestTimeout) throws {
         guard endpoint.scheme == "http", ["127.0.0.1", "::1", "[::1]"].contains(endpoint.host ?? ""),
               endpoint.port != nil, endpoint.user == nil, endpoint.password == nil,
               endpoint.query == nil, endpoint.fragment == nil, endpoint.path.isEmpty || endpoint.path == "/",
@@ -71,7 +75,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         self.endpoint = endpoint; self.token = token; self.instance = instance; self.serverID = serverID
         let configuration = configuration.copy() as! URLSessionConfiguration
         configuration.connectionProxyDictionary = [:]
-        configuration.timeoutIntervalForRequest = 45
+        configuration.timeoutIntervalForRequest = requestTimeout
         configuration.timeoutIntervalForResource = .infinity
         let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
         self.session = session
