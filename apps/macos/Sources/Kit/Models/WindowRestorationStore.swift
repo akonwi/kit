@@ -1,20 +1,30 @@
 import Foundation
 import Observation
 
-/// Intent only: server data, credentials, and drafts have separate owners.
+/// Restoration intent only: which windows were open, their session tabs in
+/// order, and each window's selected session. Server data, credentials, and
+/// drafts have separate owners.
 @MainActor @Observable
 final class WindowRestorationStore {
-    struct Group: Codable, Equatable {
+    struct Window: Codable, Equatable, Identifiable {
+        var id: UUID
+        var sessions: [SessionIdentity]
+        var selected: SessionIdentity?
+    }
+    /// Version 1 saved one session per window, grouped by native window tabs.
+    private struct LegacyGroup: Codable {
         var sessions: [SessionIdentity]
         var selected: SessionIdentity?
     }
     private struct Manifest: Codable {
         let version: Int
-        var sessions: [SessionIdentity]
-        var groups: [Group]?
+        var windows: [Window]?
+        var sessions: [SessionIdentity]?
+        var groups: [LegacyGroup]?
     }
-    private(set) var groups: [Group] = []
-    private(set) var sessions: [SessionIdentity] = []
+    static let maximumSessions = 100
+
+    private(set) var windows: [Window] = []
     private(set) var error: String?
     private let url: URL
 
@@ -24,73 +34,83 @@ final class WindowRestorationStore {
             let data = try Data(contentsOf: url)
             guard data.count <= 1024 * 1024 else { throw ClientError.oversized }
             let manifest = try JSONDecoder().decode(Manifest.self, from: data)
-            guard manifest.version == 1, manifest.sessions.count <= 100 else { throw ClientError.invalidPayload }
-            var seen = Set<SessionIdentity>()
-            sessions = manifest.sessions.filter { !$0.server.isEmpty && !$0.session.isEmpty && seen.insert($0).inserted }
-            groups = normalized(manifest.groups ?? [])
+            switch manifest.version {
+            case 1: windows = Self.migrate(sessions: manifest.sessions ?? [], groups: manifest.groups ?? [])
+            case 2: windows = Self.normalized(manifest.windows ?? [])
+            default: throw ClientError.invalidPayload
+            }
         } catch let issue as CocoaError where issue.code == .fileReadNoSuchFile {
         } catch { self.error = "Could not restore windows: " + error.localizedDescription }
     }
 
-    func remember(_ identity: SessionIdentity, replacing old: SessionIdentity? = nil) {
-        guard !identity.server.isEmpty, !identity.session.isEmpty else { return }
-        let previous = sessions
-        if let old, old != identity {
-            sessions.removeAll { $0 == old }
-            groups = groups.map { group in
-                Group(sessions: group.sessions.map { $0 == old ? identity : $0 },
-                      selected: group.selected == old ? identity : group.selected)
-            }
+    /// Every restorable session, in window order.
+    var sessions: [SessionIdentity] { windows.flatMap(\.sessions) }
+
+    func window(_ id: UUID) -> Window? { windows.first { $0.id == id } }
+
+    /// Records a window's session tabs. A window without sessions is not
+    /// restoration intent and is forgotten. A session belongs to one window.
+    func update(_ window: Window) {
+        var next = windows
+        let sessions = Set(window.sessions)
+        next = next.map { saved in
+            guard saved.id != window.id else { return saved }
+            var trimmed = saved
+            trimmed.sessions.removeAll { sessions.contains($0) }
+            return trimmed
         }
-        if !sessions.contains(identity) { sessions.append(identity) }
-        if sessions != previous { save() }
-    }
-
-    func forget(_ identity: SessionIdentity) {
-        let previous = sessions
-        sessions.removeAll { $0 == identity }
-        groups = normalized(groups)
-        if sessions != previous { save() }
-    }
-
-    func group(containing identity: SessionIdentity) -> Group? {
-        groups.first { $0.sessions.contains(identity) }
-    }
-
-    /// Update attached windows without discarding restoration intent for scenes
-    /// whose connections/root views have not finished loading yet.
-    func rememberGroups(_ visible: [Group]) {
-        var result = visible
-        let observed = Set(visible.flatMap(\.sessions))
-        for old in groups {
-            let missing = old.sessions.filter { !observed.contains($0) && sessions.contains($0) }
-            guard !missing.isEmpty else { continue }
-            if let index = result.firstIndex(where: { group in group.sessions.contains { old.sessions.contains($0) } }) {
-                let members = Set(result[index].sessions + missing)
-                result[index].sessions = old.sessions.filter { members.contains($0) }
-                    + result[index].sessions.filter { !old.sessions.contains($0) }
-                if let selected = old.selected, missing.contains(selected) { result[index].selected = selected }
-            } else { result.append(Group(sessions: missing, selected: old.selected)) }
+        if let index = next.firstIndex(where: { $0.id == window.id }) {
+            next[index] = window
+        } else {
+            next.append(window)
         }
-        let next = normalized(result)
-        guard next != groups else { return }
-        groups = next
+        commit(Self.normalized(next))
+    }
+
+    func remove(_ id: UUID) {
+        commit(windows.filter { $0.id != id })
+    }
+
+    private func commit(_ next: [Window]) {
+        guard next != windows else { return }
+        windows = next
         save()
     }
 
-    private func normalized(_ source: [Group]) -> [Group] {
+    private static func normalized(_ source: [Window]) -> [Window] {
         var seen = Set<SessionIdentity>()
-        return source.compactMap { group in
-            let members = group.sessions.filter { sessions.contains($0) && seen.insert($0).inserted }
+        var windowIDs = Set<UUID>()
+        var count = 0
+        return source.compactMap { window in
+            guard windowIDs.insert(window.id).inserted else { return nil }
+            let members = window.sessions.filter { identity in
+                guard !identity.server.isEmpty, !identity.session.isEmpty,
+                      count < maximumSessions, seen.insert(identity).inserted else { return false }
+                count += 1
+                return true
+            }
             guard !members.isEmpty else { return nil }
-            return Group(sessions: members, selected: group.selected.flatMap { members.contains($0) ? $0 : nil } ?? members.first)
+            let selected = window.selected.flatMap { members.contains($0) ? $0 : nil } ?? members.first
+            return Window(id: window.id, sessions: members, selected: selected)
         }
+    }
+
+    /// Native tab groups become windows; sessions outside any group open in a
+    /// window of their own.
+    private static func migrate(sessions: [SessionIdentity], groups: [LegacyGroup]) -> [Window] {
+        let known = Set(sessions)
+        var windows = groups.map { group in
+            Window(id: UUID(), sessions: group.sessions.filter { known.contains($0) }, selected: group.selected)
+        }
+        let grouped = Set(windows.flatMap(\.sessions))
+        windows += sessions.filter { !grouped.contains($0) }.map { Window(id: UUID(), sessions: [$0], selected: $0) }
+        return normalized(windows)
     }
 
     func save() {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(Manifest(version: 1, sessions: sessions, groups: groups)).write(to: url, options: .atomic)
+            try JSONEncoder().encode(Manifest(version: 2, windows: windows)).write(to: url, options: .atomic)
             error = nil
         } catch { self.error = "Could not save open windows: " + error.localizedDescription }
     }

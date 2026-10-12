@@ -9,6 +9,9 @@ struct MicaTheme: Equatable {
     var surface: Color { token("bg", fallback: neutral(1, 0.14)) }
     var raised: Color { token("bgSurface", fallback: neutral(0.973, 0.17)) }
     var hover: Color { token("bgMuted", fallback: neutral(0.952, 0.20)) }
+    /// The window frame behind tiles: session tabs and the session bar.
+    var frame: Color { raised.mix(with: hover, by: 0.7) }
+    var frameHover: Color { hover.mix(with: border, by: 0.3) }
     var border: Color { token("borderDefault", fallback: neutral(0.89, 0.30)) }
     var strongBorder: Color { token("borderDefault", fallback: neutral(0.74, 0.46)) }
     var text: Color { token("textPrimary", fallback: neutral(0.18, 0.96)) }

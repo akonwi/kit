@@ -29,9 +29,6 @@ struct SessionLauncherView: View {
         .background(theme.surface)
         .tint(theme.accent)
         .preferredColorScheme(scheme)
-        .navigationTitle("Kit")
-        .toolbarBackground(theme.surface, for: .windowToolbar)
-        .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
         .frame(minWidth: 680, minHeight: 540)
         .sheet(isPresented: $creating) {
             if let client = app.client as? any SessionCreationClient {

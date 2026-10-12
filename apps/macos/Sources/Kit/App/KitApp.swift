@@ -1,20 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// Route AppKit's tab-bar action before SwiftUI's window controller consumes it.
+/// The bundle's principal class.
 @objc(KitApplication)
-final class KitApplication: NSApplication {
-    weak var sessionWindows: SessionWindowRegistry?
-
-    override func sendAction(_ action: Selector, to target: Any?, from sender: Any?) -> Bool {
-        if action == #selector(NSResponder.newWindowForTab(_:)), let sessionWindows {
-            let source = (sender as? NSView)?.window ?? (sender as? NSWindow) ?? keyWindow ?? mainWindow
-            sessionWindows.showLauncher(from: source)
-            return true
-        }
-        return super.sendAction(action, to: target, from: sender)
-    }
-}
+final class KitApplication: NSApplication {}
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -33,9 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sessionWindows.terminating = true
         return .terminateNow
     }
-    @objc func newWindowForTab(_ sender: Any?) { sessionWindows.showLauncher() }
     func applicationDidFinishLaunching(_ notification: Notification) {
-        (NSApp as? KitApplication)?.sessionWindows = sessionWindows
+        NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -68,7 +56,7 @@ struct KitApp: App {
 
         .defaultSize(width: 1220, height: 880)
         .windowResizability(.contentMinSize)
-        .windowToolbarStyle(.unified)
+        .windowStyle(.hiddenTitleBar)
         .commands { SessionCommands(windows: windows) }
         Settings {
             SettingsView(themeLibrary: themeLibrary)
@@ -80,11 +68,49 @@ struct KitApp: App {
 private struct SessionCommands: Commands {
     let windows: SessionWindowRegistry
     @Environment(\.openWindow) private var openWindow
+    @FocusedValue(\.sessionWindow) private var window
+    @AppStorage(SessionTabPlacement.storageKey) private var placement = SessionTabPlacement.side
+
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("New Tab") {
-                windows.showLauncher { openWindow(id: "session", value: $0) }
-            }.keyboardShortcut("t", modifiers: .command)
+            Button("New Tab") { window?.openLauncher() }
+                .keyboardShortcut("t", modifiers: .command)
+                .disabled(window == nil)
+            Button("New Window") { openWindow(id: "session", value: SessionWindowRequest(windowID: UUID())) }
+                .keyboardShortcut("n", modifiers: .command)
+            Divider()
+            Button("Close Tab") { closeTab() }
+                .keyboardShortcut("w", modifiers: .command)
+                .disabled(window == nil)
+        }
+        CommandMenu("Session") {
+            Button("Show Previous Tab") { window?.selectAdjacent(-1) }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+                .disabled((window?.tabs.count ?? 0) < 2)
+            Button("Show Next Tab") { window?.selectAdjacent(1) }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+                .disabled((window?.tabs.count ?? 0) < 2)
+            Divider()
+            ForEach(1...9, id: \.self) { number in
+                Button("Show Tab \(number)") { window?.select(index: number - 1) }
+                    .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
+                    .disabled((window?.tabs.count ?? 0) < number)
+            }
+            Divider()
+            Picker("Session Tabs", selection: $placement) {
+                Text("In Sidebar").tag(SessionTabPlacement.side)
+                Text("On Top").tag(SessionTabPlacement.top)
+            }
+        }
+    }
+
+    /// Closes the selected tab; a window showing only the launcher closes.
+    private func closeTab() {
+        guard let window else { return }
+        if window.tabs.count == 1, window.selectedTab.isLauncher {
+            window.window?.performClose(nil)
+        } else {
+            window.close(window.selectedTab)
         }
     }
 }

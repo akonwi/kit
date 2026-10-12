@@ -1,21 +1,24 @@
 import SwiftUI
 
+/// Requests that open sessions as tabs of the current window.
+struct SessionNavigation {
+    var openSession: (String) -> Void = { _ in }
+    var openLauncher: () -> Void = {}
+}
+
+extension EnvironmentValues {
+    @Entry var sessionNavigation = SessionNavigation()
+}
+
+/// One session tab's content. The tab owns the store and its stream; this
+/// view only presents it.
 struct SessionScreen: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("themeConfiguration") private var themeConfiguration = ""
     @Environment(\.installedThemes) private var installedThemes
-    @Environment(\.openWindow) private var openWindow
-    let windows: SessionWindowRegistry
+    @Environment(\.sessionNavigation) private var navigation
+    @Bindable var state: SessionStore
     var onSelection: (String) -> Void = { _ in }
-    @State private var state: SessionStore
-
-    init(fixture: Fixture, sessionID: String? = nil, windows: SessionWindowRegistry, client: (any SessionClient)? = nil, onSelection: @escaping (String) -> Void = { _ in }) {
-        self.windows = windows
-        self.onSelection = onSelection
-        // SwiftUI can construct this value repeatedly without retaining its State.
-        // Selecting here must not start a stream; attachment belongs to onAppear.
-        _state = State(initialValue: SessionStore(fixture: fixture, client: client, sessionID: sessionID))
-    }
 
     var body: some View {
         @Bindable var ui = state.ui
@@ -37,9 +40,7 @@ struct SessionScreen: View {
                     Spacer()
                     Button(state.connectionState == .loading ? "Retrying…" : "Retry") { state.attach() }
                         .disabled(state.connectionState == .loading)
-                    Button("Open another session") {
-                        windows.showLauncher { openWindow(id: "session", value: $0) }
-                    }
+                    Button("Open another session") { navigation.openLauncher() }
                 }.font(.kit(size: 12)).padding(16).background(theme.raised)
                 Rule()
             }
@@ -69,20 +70,14 @@ struct SessionScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: .kitSessionDeleted)) { notification in
             if let identity = notification.object as? SessionIdentity { state.sessionDeleted(identity) }
         }
-        .onAppear { state.attach(); onSelection(state.selectedID) }
         .onChange(of: state.selectedID) { onSelection(state.selectedID) }
         .onChange(of: ForkFirstTurnFailures.shared.revision) { state.applyForkFirstTurnFailure() }
-        .onDisappear { state.detach() }
-        .navigationTitle(state.selected?.title ?? "Kit")
-        .navigationSubtitle((state.isTemporary ? "Temporary · " : "") + (state.selected?.workspace ?? ""))
-        .toolbarBackground(theme.raised, for: .windowToolbar)
-        .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
         .font(.kit(size: 13))
         .foregroundStyle(theme.text)
         .background(theme.surface)
         .environment(\.mica, theme)
         .environment(\.transcriptSessionLink, TranscriptSessionLink(serverID: serverID) { id in
-            windows.openSession(id, serverID: serverID) { openWindow(id: "session", value: $0) }
+            navigation.openSession(id)
         })
         .font(.kit(size: 13))
         .tint(theme.accent)
@@ -108,7 +103,7 @@ struct SessionScreen: View {
                         SessionPickerOverlayLayout(palette: state.ui.palette) {
                             Group {
                                 if state.ui.palette { CommandPalette(state: state) { id in
-                                    windows.openSession(id, serverID: state.serverID) { openWindow(id: "session", value: $0) }
+                                    navigation.openSession(id)
                                 } }
                                 else { FileMentionPicker(state: state) }
                             }
@@ -127,14 +122,6 @@ struct SessionScreen: View {
             Button("Open command palette") { state.ui.palette = true }
                 .keyboardShortcut("p", modifiers: .command).hidden()
         }
-        .background {
-            SessionWindowBridge(registry: windows, serverID: state.serverID, sessionID: state.selectedID,
-                                sessions: state.sessions, colorScheme: windowScheme,
-                                tabStatus: state.tabStatus, sessionTitle: state.selected?.title ?? "Kit") {
-                openWindow(id: "session", value: $0)
-            }.frame(width: 0, height: 0)
-        }
-        .onDisappear { state.stop() }
     }
 }
 

@@ -73,9 +73,13 @@ that these gates have passed.
 
 ## Navigation
 
-Saved native session windows and tab groups restore on launch. Without a saved
-layout, Kit shows the session launcher rather than selecting a session itself.
-Cmd+T opens the launcher in a native tab. Search matches session names and paths;
+Each window holds session tabs, grouped by project in a sidebar or shown in a
+strip along the top; the toggle beside the tabs, or Session > Session Tabs,
+switches between them. Open windows and their tabs restore on launch. Without a
+saved layout, Kit shows the session launcher rather than selecting a session
+itself. Cmd+T opens the launcher in a new tab, Cmd+W closes the tab, Cmd+1–9
+select tabs, and Cmd+Shift+[ and ] move between them. Opening a session that
+another window already shows brings that window forward. Search matches session names and paths;
 arrow keys navigate and Return opens. New session accepts a working directory,
 optional name, model, and thinking level.
 
