@@ -41,7 +41,24 @@ without an internal scrollbar.
 
 The command palette and other pickers take keyboard focus when opened, support
 navigation and dismissal, and keep background controls from accepting input.
-Closing a picker returns focus to the editor or tile that had it.
+Closing a picker returns focus to the editor or tile that had it, unless the
+picker's action moved focus itself: a mention returns to the composer, and an
+opened file takes focus in its tile.
+
+### Tile focus
+
+Focusing a tile, by its tab strip, a command, or a dropped tab, moves the
+keyboard to its selected pane: the Scratchpad and file editors, or a
+subagent's message box. Panes without an editor, such as Agent and Diff, only
+take the keyboard away from other tiles and hidden tabs; the shared composer
+keeps it if it had it. Clicking into a tile's editor or transcript focuses
+that tile, and the composer taking the keyboard moves attention to it.
+
+Hidden tabs stay mounted at zero opacity with hit testing off, so switching
+tabs never remounts an editor. SwiftUI keeps a hidden AppKit view out of hit
+testing but leaves it in the view tree and able to become first responder, so
+the focus bridge moves the keyboard away from it. Views that must also stop
+drawing, such as terminals, are detached from hidden hosts instead.
 
 ### Appearance and themes
 

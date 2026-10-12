@@ -98,7 +98,7 @@ struct FileMentionPicker: View {
             .onExitCommand { dismiss() }
     }
 
-    private func dismiss() { state.ui.filePicker = false; state.ui.composerFocus += 1 }
+    private func dismiss() { state.ui.filePicker = false }
     private func choose() {
         guard files.indices.contains(selection) else { return }
         state.chooseFile(files[selection])

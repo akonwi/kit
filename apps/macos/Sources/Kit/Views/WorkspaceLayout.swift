@@ -72,8 +72,12 @@ struct WorkspaceLayout: View {
                     TabDragOverlay(workspace: workspace, frames: frames, tabFrames: tabFrames)
                 }
                 .coordinateSpace(.named(Self.space))
+                .background(WorkspaceFocusBridge(workspace: workspace,
+                    frames: frames.filter { visible.contains($0.key) },
+                    overlayOpen: { [ui = state.ui] in ui.palette || ui.filePicker }))
             }
             SessionComposerRegion(state: state)
+                .workspaceFocusTarget(.composer)
                 .background(theme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border))
@@ -411,6 +415,7 @@ struct ScratchpadPane: View {
                 @Bindable var workspace = workspace
                 ScratchpadEditor(text: $workspace.scratchpad, documentVersion: pad.documentVersion,
                     editorState: $workspace.scratchpadPosition)
+                    .workspaceFocusTarget(.pane(.scratchpad))
             }
             if pad.status != .saved {
                 Rule()
@@ -519,20 +524,23 @@ struct FilePane: View {
                     Button("Cancel") { state.annotationState.cancelEditor() }
                 }.font(.kit(size: 11)).foregroundStyle(theme.muted).padding(12)
             }
-            if let preview {
-                if let client = state.catalogClient as? any AnnotationClient {
-                    AnnotatedFileEditor(file: preview, position: $position, annotations: state.annotationState,
-                        client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false)
-                        .id(preview.workspace.workspaceId + preview.revision).clipped()
+            Group {
+                if let preview {
+                    if let client = state.catalogClient as? any AnnotationClient {
+                        AnnotatedFileEditor(file: preview, position: $position, annotations: state.annotationState,
+                            client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false)
+                            .id(preview.workspace.workspaceId + preview.revision).clipped()
+                    } else {
+                        ReadOnlyFileEditor(path: path, source: preview.content, position: $position)
+                    }
+                } else if let file = workspace.fixture.files.first(where: { $0.path == path }) {
+                    ReadOnlyFileEditor(path: path, source: file.content)
                 } else {
-                    ReadOnlyFileEditor(path: path, source: preview.content, position: $position)
+                    Text(loading ? "Loading file…" : error == nil ? "File preview unavailable" : "Refresh to try again")
+                        .foregroundStyle(theme.muted).frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            } else if let file = workspace.fixture.files.first(where: { $0.path == path }) {
-                ReadOnlyFileEditor(path: path, source: file.content)
-            } else {
-                Text(loading ? "Loading file…" : error == nil ? "File preview unavailable" : "Refresh to try again")
-                    .foregroundStyle(theme.muted).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .workspaceFocusTarget(.pane(.file(path)))
             Text((entry?.stale == true && preview != nil ? "Read-only · Preview may be out of date" : "Read-only") + (preview?.truncated == true ? " · Preview truncated" : ""))
                 .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
         }.onChange(of: state.annotationState.evidenceConflict) {

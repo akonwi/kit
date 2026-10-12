@@ -92,6 +92,8 @@ it will land. A tile's split buttons or a tab's context menu also move a tab int
 new tile on the right or below. Drag the gap between tiles to resize them; double-click it to
 even them out. Zoom fills the workspace with one tile. Closing a tile's last tab
 removes the tile. Each session keeps its arrangement while the app runs.
+Focusing a tile moves the keyboard to its editor or subagent message box, and clicking
+into a tile's editor or transcript focuses that tile.
 The shared composer below the tiles always addresses the parent session. Enter submits;
 Cmd+Enter inserts a newline. Cmd+P opens commands; Cmd+, opens settings.
 Session workspace controls (Diff, Scratchpad, Subagents, Open file, and Commands)

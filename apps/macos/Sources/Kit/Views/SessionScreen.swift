@@ -103,7 +103,7 @@ struct SessionScreen: View {
                 GeometryReader { _ in
                     ZStack {
                         Color.clear.contentShape(Rectangle()).onTapGesture {
-                            state.ui.palette = false; state.ui.filePicker = false; state.ui.composerFocus += 1
+                            state.ui.palette = false; state.ui.filePicker = false
                         }
                         SessionPickerOverlayLayout(palette: state.ui.palette) {
                             Group {

@@ -87,7 +87,9 @@ struct AgentPane: View {
                         enabled: state.canSendSubagent && agent != nil, active: active,
                         focused: $focused, focusRequest: focusRequest) {
                             Task { await state.sendToSubagent(name, conversation: conversationID) }
-                        }.padding(16)
+                        }
+                        .workspaceFocusTarget(.pane(.agent(name)))
+                        .padding(16)
                 }
             }
         }

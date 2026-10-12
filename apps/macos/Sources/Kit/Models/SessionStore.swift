@@ -769,6 +769,7 @@ final class SessionStore {
             } else { ui.draft += (ui.draft.isEmpty || ui.draft.last?.isWhitespace == true ? "" : " ") + "@" + path + " " }
         }
         ui.filePicker = false
-        ui.composerFocus += 1
+        // An opened file takes focus in its tile; a mention returns to the composer.
+        if ui.filePickerIntent != "open" { ui.composerFocus += 1 }
     }
 }
