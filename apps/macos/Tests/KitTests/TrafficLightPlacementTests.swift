@@ -31,4 +31,14 @@ import Testing
         #expect(frames().map(\.minX) == expected.map(\.minX))
         #expect(frames().map(\.minY) == expected.map { $0.minY - 200 })
     }
+
+    @Test func doubleClickFollowsTheSystemTitleBarSetting() {
+        typealias Action = WindowTitlebarRegion.DoubleClickAction
+        #expect(WindowTitlebarRegion.doubleClickAction(setting: nil, miniaturize: false) == .zoom)
+        #expect(WindowTitlebarRegion.doubleClickAction(setting: nil, miniaturize: true) == .minimize)
+        let cases: [(String, Action)] = [("Maximize", .zoom), ("Fill", .fill), ("Minimize", .minimize), ("None", .none)]
+        for (setting, action) in cases {
+            #expect(WindowTitlebarRegion.doubleClickAction(setting: setting, miniaturize: true) == action)
+        }
+    }
 }

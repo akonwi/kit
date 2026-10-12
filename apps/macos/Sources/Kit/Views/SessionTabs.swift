@@ -14,8 +14,7 @@ struct SessionBar: View {
         }
         .padding(.leading, 8).padding(.trailing, 14)
         .frame(height: SessionChrome.rowHeight)
-        .contentShape(Rectangle())
-        .gesture(WindowDragGesture())
+        .background(WindowTitlebarRegion())
     }
 }
 
@@ -39,8 +38,7 @@ struct SessionSidebar: View {
             }
             .padding(.horizontal, 8)
             .frame(height: SessionChrome.rowHeight)
-            .contentShape(Rectangle())
-            .gesture(WindowDragGesture())
+            .background(WindowTitlebarRegion())
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     ForEach(groups) { group in
@@ -125,6 +123,7 @@ struct SessionTopTabs: View {
     @Environment(\.mica) private var theme
     let model: SessionWindowModel
     @Binding var placement: SessionTabPlacement
+    @State private var viewportWidth: CGFloat = 0
 
     var body: some View {
         let selectedDirectory = model.selectedTab.directory
@@ -143,8 +142,13 @@ struct SessionTopTabs: View {
                             .id(tab.id)
                         }
                     }
+                    // Space beside the tabs belongs to the scroll view, so it
+                    // carries the titlebar behavior itself.
+                    .frame(minWidth: viewportWidth, maxHeight: .infinity, alignment: .leading)
+                    .background(WindowTitlebarRegion())
                 }
                 .scrollIndicators(.never)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
                 .onChange(of: model.selectedTabID) { proxy.scrollTo(model.selectedTabID) }
             }
             ChromeIconButton(symbol: "plus", frame: 28, help: "New session tab (⌘T)") { model.openLauncher() }
@@ -152,8 +156,7 @@ struct SessionTopTabs: View {
         }
         .padding(.leading, 16).padding(.trailing, 10)
         .frame(height: SessionChrome.rowHeight)
-        .contentShape(Rectangle())
-        .gesture(WindowDragGesture())
+        .background(WindowTitlebarRegion())
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Session tabs")
     }
