@@ -1116,16 +1116,14 @@ func unresolvedToolCalls(state durableRuntime) ([]ToolCall, error) {
 		return nil, nil
 	}
 	var calls []ToolCall
+	// Every admitted call of the step resumes, including ones that completed
+	// before a later call's hook parked: the step's results are committed
+	// together, and prepareTool returns a completed call's stored result.
+	// Skipping them would drop their results from context and strand their
+	// records, so the turn could never settle.
 	for _, call := range assistant.ToolCalls() {
-		if tool, exists := state.Tools[call.ID]; exists && tool.Phase != toolPhaseCompleted {
+		if _, exists := state.Tools[call.ID]; exists {
 			calls = append(calls, call)
-		}
-	}
-	if len(calls) == 0 {
-		for _, call := range assistant.ToolCalls() {
-			if _, exists := state.Tools[call.ID]; exists {
-				calls = append(calls, call)
-			}
 		}
 	}
 	return calls, nil
