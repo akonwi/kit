@@ -36,6 +36,19 @@ enum WorkspacePane: Hashable, Identifiable {
         }
     }
     var closable: Bool { self != .conversation }
+
+    /// The pane with this identity, or nil for an unknown or empty one.
+    init?(id: String) {
+        switch id {
+        case "conversation": self = .conversation
+        case "review": self = .review
+        case "scratchpad": self = .scratchpad
+        default:
+            if id.hasPrefix("agent:"), id.count > 6 { self = .agent(String(id.dropFirst(6))) }
+            else if id.hasPrefix("file:"), id.count > 5 { self = .file(String(id.dropFirst(5))) }
+            else { return nil }
+        }
+    }
 }
 
 /// A leaf of the workspace's split tree: a tab group of panes.
@@ -208,6 +221,63 @@ final class WorkspaceState {
     }
 
     func setRatio(_ ratio: Double, for split: UUID) { root = root.settingRatio(split, to: ratio) }
+
+    // MARK: Restoration
+
+    /// The layout as restoration intent.
+    var arrangement: TileArrangement {
+        func node(_ tree: TileTree) -> TileArrangement.Node {
+            switch tree {
+            case .tile(let id):
+                let tile = tiles[id] ?? WorkspaceTile(panes: [], selected: .conversation)
+                return .tile(.init(panes: tile.panes.map(\.id), selected: tile.selected.id))
+            case .split(let split):
+                return .split(.init(axis: split.axis == .horizontal ? .horizontal : .vertical,
+                                    ratio: split.ratio, first: node(split.first), second: node(split.second)))
+            }
+        }
+        return TileArrangement(root: node(root), focused: root.tiles.firstIndex(of: focusedTile) ?? 0,
+                               zoomed: zoomedTile != nil)
+    }
+
+    /// Replaces the layout with a saved one. Unknown and repeated panes are
+    /// dropped, tiles left without tabs collapse into their siblings, and the
+    /// Agent tab is kept, in the first tile if the layout lost it.
+    func restore(_ arrangement: TileArrangement) {
+        var seen = Set<WorkspacePane>()
+        var restored: [UUID: WorkspaceTile] = [:]
+        func build(_ node: TileArrangement.Node, depth: Int) -> TileTree? {
+            switch node {
+            case .tile(let saved):
+                guard restored.count < TileArrangement.maximumTiles else { return nil }
+                let panes = saved.panes.compactMap(WorkspacePane.init(id:)).filter { pane in
+                    seen.count < TileArrangement.maximumPanes && seen.insert(pane).inserted
+                }
+                guard let first = panes.first else { return nil }
+                let id = UUID()
+                let selected = WorkspacePane(id: saved.selected).flatMap { panes.contains($0) ? $0 : nil } ?? first
+                restored[id] = WorkspaceTile(panes: panes, selected: selected)
+                return .tile(id)
+            case .split(let split):
+                guard depth < TileArrangement.maximumDepth else { return nil }
+                let first = build(split.first, depth: depth + 1)
+                let second = build(split.second, depth: depth + 1)
+                guard let first, let second else { return first ?? second }
+                let ratio = split.ratio.isFinite ? split.ratio : 0.5
+                return .split(.init(id: UUID(), axis: split.axis == .horizontal ? .horizontal : .vertical,
+                                    ratio: min(max(ratio, TileTree.ratioRange.lowerBound), TileTree.ratioRange.upperBound),
+                                    first: first, second: second))
+            }
+        }
+        guard let tree = build(arrangement.root, depth: 0), let leading = tree.tiles.first else { return }
+        if !seen.contains(.conversation) { restored[leading]?.panes.insert(.conversation, at: 0) }
+        root = tree
+        tiles = restored
+        panes = tree.tiles.flatMap { restored[$0]?.panes ?? [] }
+        let order = tree.tiles
+        focusedTile = order[min(max(arrangement.focused, 0), order.count - 1)]
+        zoomedTile = arrangement.zoomed && order.count > 1 ? focusedTile : nil
+    }
 
     // MARK: Keyboard commands
 

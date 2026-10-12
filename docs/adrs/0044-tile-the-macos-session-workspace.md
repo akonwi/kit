@@ -62,8 +62,11 @@ number of tiles beyond what the window can usefully show.
 - Only the focused tile's selected tab has an accent underline. Other tiles
   keep a neutral underline on their selected tab.
 
-Each session keeps its own arrangement while the application runs. There are no
-saved or named layouts.
+Each session keeps its own arrangement. Relaunch restores the arrangement of
+every open session tab with the tab: its split tree and ratios, each tile's tabs
+and selected tab, the focused tile, and zoom. Closing a session tab forgets its
+arrangement, so reopening the session later starts with the Agent tab alone.
+There are no saved or named layouts.
 
 ### Panes
 
@@ -124,7 +127,8 @@ interface never uses web content.
 
 Session tabs, tile trees, split ratios, focus, zoom, selected tabs, and native
 views are client-local presentation state. They are not written to session
-records or shared settings. The server stays authoritative for sessions,
+records or shared settings; the application keeps arrangements with its own
+window restoration intent. The server stays authoritative for sessions,
 conversations, subagents, and interactions.
 
 ## Consequences

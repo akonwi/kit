@@ -75,7 +75,7 @@ that these gates have passed.
 
 Each window holds session tabs, grouped by project in a sidebar or shown in a
 strip along the top; the toggle beside the tabs, or Session > Session Tabs,
-switches between them. Open windows and their tabs restore on launch. Without a
+switches between them. Open windows, their tabs, and each tab's tile layout restore on launch. Without a
 saved layout, Kit shows the session launcher rather than selecting a session
 itself. Cmd+T opens the launcher in a new tab, Cmd+W closes the tab, Cmd+1–9
 select tabs, and Cmd+Shift+[ and ] move between them. Opening a session that
@@ -91,7 +91,7 @@ a tile's edge (or into the gap beside it) to split that tile; a preview shows wh
 it will land. A tile's split buttons or a tab's context menu also move a tab into a
 new tile on the right or below. Drag the gap between tiles to resize them; double-click it to
 even them out. Zoom fills the workspace with one tile. Closing a tile's last tab
-removes the tile. Each session keeps its arrangement while the app runs.
+removes the tile. Each open session tab keeps its arrangement across relaunch; closing the tab forgets it.
 Focusing a tile moves the keyboard to its composer or editor, and clicking into a
 tile's composer, editor, or transcript focuses that tile.
 The Agent pane has its own composer, activity card, queued messages, and interaction

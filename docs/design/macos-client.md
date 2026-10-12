@@ -19,11 +19,17 @@ recent sessions with their working directories and update times. Search, arrow
 keys, and Return open a session without a pointer. The transcript, composer, and
 workspace panes stay hidden until a session is explicitly chosen.
 
-Relaunch restores only intentionally opened sessions: each window's session tabs
-and its selected session. Closing a session removes it from restoration intent,
-and quitting keeps the open sessions for the next launch. Whether tile
-arrangements are restored is tracked by
-[#160](https://github.com/akonwi/kit/issues/160).
+Relaunch restores only intentionally opened sessions: each window's session tabs,
+its selected session, and each tab's tile arrangement. Closing a session removes
+it, and its arrangement, from restoration intent; quitting keeps the open
+sessions for the next launch. Layout changes are recorded half a second after
+they settle, and immediately when the app quits.
+
+A restored arrangement is repaired rather than rejected. Panes the app no longer
+knows are dropped, a tile left without tabs collapses into its sibling, the
+Agent tab returns to the first tile if missing, ratios are clamped, and zoom
+needs more than one tile. Arrangements are stored as an optional field of the
+version 2 window manifest, so an earlier build still restores windows and tabs.
 
 ### Composer
 

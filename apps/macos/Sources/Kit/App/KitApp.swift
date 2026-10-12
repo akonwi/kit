@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        sessionWindows.captureLayouts()
         sessionWindows.terminating = true
         return .terminateNow
     }

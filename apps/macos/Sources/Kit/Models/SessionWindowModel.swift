@@ -29,6 +29,8 @@ final class SessionTab: Identifiable {
     let id = UUID()
     fileprivate(set) var identity: SessionIdentity
     fileprivate(set) var store: SessionStore?
+    /// A restored tile layout, applied when the tab's store is created.
+    fileprivate var savedArrangement: TileArrangement?
     /// The window's session catalog, which describes tabs not yet opened.
     private weak var catalog: AppModel?
 
@@ -66,17 +68,27 @@ final class SessionWindowModel: Identifiable {
     @ObservationIgnored weak var window: NSWindow?
     /// Keeps the window's traffic lights in the chrome row while it is open.
     @ObservationIgnored var trafficLights: TrafficLightPlacement?
-    /// Called after tabs or selection change, to record restoration intent.
+    /// Called after tabs, selection, or tile layouts change, to record
+    /// restoration intent.
     @ObservationIgnored var onChange: (SessionWindowModel) -> Void = { _ in }
+    /// A pending capture of tile layout changes, which can arrive with every
+    /// divider drag step.
+    @ObservationIgnored private var layoutCapture: Task<Void, Never>?
+    static let layoutCaptureDelay: Duration = .milliseconds(500)
 
     static let defaultServer = "local-v2"
 
-    init(id: UUID, sessions: [SessionIdentity] = [], selected: SessionIdentity? = nil) {
+    init(id: UUID, sessions: [SessionIdentity] = [], selected: SessionIdentity? = nil,
+         layouts: [SessionIdentity: TileArrangement] = [:]) {
         self.id = id
         let app = app
         let tabs = sessions.isEmpty
             ? [SessionTab(identity: Self.launcherIdentity, catalog: app)]
-            : sessions.map { SessionTab(identity: $0, catalog: app) }
+            : sessions.map { identity in
+                let tab = SessionTab(identity: identity, catalog: app)
+                tab.savedArrangement = layouts[identity]
+                return tab
+            }
         self.tabs = tabs
         selectedTabID = (selected.flatMap { identity in tabs.first { $0.identity == identity } } ?? tabs[0]).id
     }
@@ -94,6 +106,26 @@ final class SessionWindowModel: Identifiable {
     /// Session identities to restore, in tab order; launcher tabs are not intent.
     var sessions: [SessionIdentity] { tabs.filter { !$0.isLauncher }.map(\.identity) }
     var selectedSession: SessionIdentity? { selectedTab.isLauncher ? nil : selectedTab.identity }
+    /// Tile layouts to restore, for session tabs whose layout isn't the default.
+    var layouts: [SessionIdentity: TileArrangement] {
+        var result: [SessionIdentity: TileArrangement] = [:]
+        for tab in tabs where !tab.isLauncher {
+            if let arrangement = tab.store?.ui.workspace.arrangement ?? tab.savedArrangement, !arrangement.isDefault {
+                result[tab.identity] = arrangement
+            }
+        }
+        return result
+    }
+
+    var hasPendingLayoutCapture: Bool { layoutCapture != nil }
+
+    /// Records pending layout changes now, as when the app quits.
+    func captureLayouts() {
+        guard layoutCapture != nil else { return }
+        layoutCapture?.cancel()
+        layoutCapture = nil
+        onChange(self)
+    }
 
     func tab(for identity: SessionIdentity) -> SessionTab? {
         tabs.first { !$0.isLauncher && $0.identity == identity }
@@ -174,6 +206,7 @@ final class SessionWindowModel: Identifiable {
         }
         if tab.store?.selectedID != identity.session { release(tab) }
         tab.identity = identity
+        tab.savedArrangement = nil
         onChange(self)
     }
 
@@ -195,10 +228,13 @@ final class SessionWindowModel: Identifiable {
         guard !tab.isLauncher, tab.identity.server.isEmpty || tab.identity.server == client.serverID else { return nil }
         if let store = tab.store, store.serverID == client.serverID { return store }
         let store = SessionStore(fixture: Fixture(sessions: app.sessions), client: client, sessionID: tab.identity.session)
+        if let arrangement = tab.savedArrangement { store.ui.workspace.restore(arrangement) }
+        tab.savedArrangement = nil
         tab.store = store
         tab.recordedStatus = store.tabStatus
         store.attach()
         observeStatus(of: tab, store: store)
+        observeLayout(of: tab, store: store)
         return store
     }
 
@@ -216,6 +252,29 @@ final class SessionWindowModel: Identifiable {
                 self.record(store.tabStatus, for: tab)
                 self.observeStatus(of: tab, store: store)
             }
+        }
+    }
+
+    /// Captures the tab's tile layout shortly after it changes.
+    private func observeLayout(of tab: SessionTab, store: SessionStore) {
+        withObservationTracking {
+            _ = store.ui.workspace.arrangement
+        } onChange: { [weak self, weak tab, weak store] in
+            Task { @MainActor in
+                guard let self, let tab, let store, tab.store === store else { return }
+                self.scheduleLayoutCapture()
+                self.observeLayout(of: tab, store: store)
+            }
+        }
+    }
+
+    private func scheduleLayoutCapture() {
+        layoutCapture?.cancel()
+        layoutCapture = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.layoutCaptureDelay)
+            guard !Task.isCancelled, let self else { return }
+            self.layoutCapture = nil
+            self.onChange(self)
         }
     }
 

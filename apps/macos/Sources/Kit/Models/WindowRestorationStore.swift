@@ -2,14 +2,51 @@ import Foundation
 import Observation
 
 /// Restoration intent only: which windows were open, their session tabs in
-/// order, and each window's selected session. Server data, credentials, and
-/// drafts have separate owners.
+/// order, each window's selected session, and each open session's tile
+/// layout. Server data, credentials, and drafts have separate owners.
 @MainActor @Observable
 final class WindowRestorationStore {
     struct Window: Codable, Equatable, Identifiable {
         var id: UUID
         var sessions: [SessionIdentity]
         var selected: SessionIdentity?
+        /// Tile layouts of open session tabs. Tabs with the default layout
+        /// have none.
+        var layouts: [SessionIdentity: TileArrangement] = [:]
+
+        init(id: UUID, sessions: [SessionIdentity], selected: SessionIdentity?,
+             layouts: [SessionIdentity: TileArrangement] = [:]) {
+            self.id = id
+            self.sessions = sessions
+            self.selected = selected
+            self.layouts = layouts
+        }
+
+        private struct Layout: Codable {
+            var session: SessionIdentity
+            var arrangement: TileArrangement
+        }
+        private enum CodingKeys: String, CodingKey { case id, sessions, selected, layouts }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(UUID.self, forKey: .id)
+            sessions = try container.decode([SessionIdentity].self, forKey: .sessions)
+            selected = try container.decodeIfPresent(SessionIdentity.self, forKey: .selected)
+            // Windows saved before layouts existed have none.
+            let saved = try container.decodeIfPresent([Layout].self, forKey: .layouts) ?? []
+            layouts = Dictionary(saved.map { ($0.session, $0.arrangement) }) { first, _ in first }
+        }
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(id, forKey: .id)
+            try container.encode(sessions, forKey: .sessions)
+            try container.encodeIfPresent(selected, forKey: .selected)
+            // Tab order keeps the file stable between saves.
+            let saved = sessions.compactMap { session in layouts[session].map { Layout(session: session, arrangement: $0) } }
+            if !saved.isEmpty { try container.encode(saved, forKey: .layouts) }
+        }
     }
     /// Version 1 saved one session per window, grouped by native window tabs.
     private struct LegacyGroup: Codable {
@@ -91,7 +128,8 @@ final class WindowRestorationStore {
             }
             guard !members.isEmpty else { return nil }
             let selected = window.selected.flatMap { members.contains($0) ? $0 : nil } ?? members.first
-            return Window(id: window.id, sessions: members, selected: selected)
+            let layouts = window.layouts.filter { members.contains($0.key) && !$0.value.isDefault }
+            return Window(id: window.id, sessions: members, selected: selected, layouts: layouts)
         }
     }
 
@@ -110,6 +148,8 @@ final class WindowRestorationStore {
     func save() {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // Layouts are an optional field of version 2, which earlier
+            // builds ignore, so downgrading keeps windows and tabs.
             try JSONEncoder().encode(Manifest(version: 2, windows: windows)).write(to: url, options: .atomic)
             error = nil
         } catch { self.error = "Could not save open windows: " + error.localizedDescription }
