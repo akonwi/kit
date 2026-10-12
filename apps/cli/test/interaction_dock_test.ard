@@ -1000,3 +1000,128 @@ test fn a_filterable_plugin_select_is_a_plain_list() Void!Str {
     "the plain list chooses by keyboard",
   )
 }
+
+fn proceed() protocol::InteractionRequest {
+  protocol::InteractionRequest{
+    ID: "interaction_proceed",
+    TurnID: "turn-1",
+    ToolCallID: "call-1",
+    Kind: protocol::InteractionSelect,
+    Title: "How do you want to proceed?",
+    Options: [
+      protocol::InteractionOption{ID: "both", Label: "Update issue #17 (dependency, details, checklist)"},
+      protocol::InteractionOption{ID: "issue", Label: "Update issue #17 only"},
+      protocol::InteractionOption{ID: "sync", Label: "Sync cooper-distribution with upstream main"},
+      protocol::InteractionOption{ID: "neither", Label: "Neither for now"},
+    ],
+  }
+}
+
+// Regression: labels were cut at 32 cells even when the row had room for them.
+test fn option_labels_use_the_width_the_row_has() Void!Str {
+  let terminal = headless::new(72, 13)
+  defer terminal.destroy()
+  let renderer = mount(terminal, model(proceed()))
+  defer renderer.destroy()
+  expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────────────────┐",
+      "│ How do you want to proceed?                                          │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│▌A   Update issue #17 (dependency, details, checklist)                │",
+      "│ B   Update issue #17 only                                            │",
+      "│ C   Sync cooper-distribution with upstream main                      │",
+      "│ D   Neither for now                                                  │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ ↑↓ move · enter/space select · esc cancel                    Cancel  │",
+      "└──────────────────────────────────────────────────────────────────────┘",
+    ],
+  )
+}
+
+test fn option_labels_truncate_at_the_edge_of_a_narrow_row() Void!Str {
+  let terminal = headless::new(40, 13)
+  defer terminal.destroy()
+  let renderer = mount(terminal, model(proceed()))
+  defer renderer.destroy()
+  expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────┐",
+      "│ How do you want to proceed?          │",
+      "├──────────────────────────────────────┤",
+      "│▌A   Update issue #17 (dependency, de…│",
+      "│ B   Update issue #17 only            │",
+      "│ C   Sync cooper-distribution with up…│",
+      "│ D   Neither for now                  │",
+      "├──────────────────────────────────────┤",
+      "│ ↑↓ move · enter/space sele…  Cancel  │",
+      "└──────────────────────────────────────┘",
+    ],
+  )
+}
+
+fn detailed() protocol::InteractionRequest {
+  let request = mut proceed()
+  request.Options = [
+    protocol::InteractionOption{
+      ID: "both",
+      Label: "Update issue #17 (dependency, details, checklist)",
+      Detail: "Records the Cooper dependency and its remaining checklist",
+    },
+    protocol::InteractionOption{
+      ID: "issue",
+      Label: "Update issue #17 only",
+      Detail: "Leaves the fork alone",
+    },
+  ]
+  request.@
+}
+
+test fn labels_and_details_show_in_full_when_the_row_fits_them() Void!Str {
+  let terminal = headless::new(130, 11)
+  defer terminal.destroy()
+  let renderer = mount(terminal, model(detailed()))
+  defer renderer.destroy()
+  let shown = rows(terminal)
+  try testing::assert(
+    shown.at(6).or("") == "│▌A   Update issue #17 (dependency, details, checklist)  Records the Cooper dependency and its remaining checklist               │",
+    "row 6: {shown.at(6).or("")}",
+  )
+  testing::assert(
+    shown.at(7).or("") == "│ B   Update issue #17 only                              Leaves the fork alone                                                   │",
+    "row 7: {shown.at(7).or("")}",
+  )
+}
+
+// A row too narrow for both columns gives up detail width first and keeps the
+// gap between them.
+test fn details_give_way_to_labels_in_a_row_too_narrow_for_both() Void!Str {
+  let terminal = headless::new(72, 11)
+  defer terminal.destroy()
+  let renderer = mount(terminal, model(detailed()))
+  defer renderer.destroy()
+  expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────────────────┐",
+      "│ How do you want to proceed?                                          │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│▌A   Update issue #17 (dependency, details, c…  Records the Cooper de…│",
+      "│ B   Update issue #17 only                      Leaves the fork alone │",
+      "├──────────────────────────────────────────────────────────────────────┤",
+      "│ ↑↓ move · enter/space select · esc cancel                    Cancel  │",
+      "└──────────────────────────────────────────────────────────────────────┘",
+    ],
+  )
+}

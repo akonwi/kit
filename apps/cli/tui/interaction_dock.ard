@@ -58,6 +58,19 @@ enum Mode {
   unsupported,
 }
 
+// The natural widths of an option list's columns, shared by every row so
+// details line up. A row too narrow for both shrinks the details faster
+// than the labels, by `detail_yield`, and truncates each with an ellipsis.
+private struct OptionColumns {
+  label: Int,
+  detail: Int,
+  // Cells between the columns, when there are details.
+  gap: Int,
+}
+
+// How much faster details give up width than labels.
+let detail_yield = 4.0
+
 struct Dock {
   props: mut Props,
   context: cui::Context?,
@@ -748,17 +761,23 @@ impl Dock {
     let options = self.choices()
     let multiple = self.mode() == Mode::multiple
     mut labels = 1
+    mut details = 0
     for option in options {
-      labels = match option.Label.size() > labels {
-        true => option.Label.size(),
-        false => labels,
-      }
+      labels = max(labels, ui::text_width(option.Label))
+      details = max(details, ui::text_width(option.Detail))
     }
     let checkbox = match multiple {
       true => 4,
       false => 0,
     }
-    let label_width = clamp(labels, 1, 32) + checkbox
+    let columns = OptionColumns{
+      label: labels + checkbox,
+      detail: details,
+      gap: match details > 0 {
+        true => 2,
+        false => 0,
+      },
+    }
     let indices = mut List::new<Int>()
     mut index = 0
     while index < options.size() {
@@ -788,7 +807,7 @@ impl Dock {
             option_key(item)
           },
           render_item: fn(item: Int) cui::View {
-            self.option_row(colors, options.at(item).expect("option"), item, label_width, multiple)
+            self.option_row(colors, options.at(item).expect("option"), item, columns, multiple)
           },
           row_height: 1,
           estimated_height: 1,
@@ -844,7 +863,7 @@ impl Dock {
     colors: theme::Theme,
     option: protocol::InteractionOption,
     index: Int,
-    label_width: Int,
+    columns: OptionColumns,
     multiple: Bool,
   ) cui::View {
     let selected = index == self.cursor
@@ -885,6 +904,7 @@ impl Dock {
             true => "▌",
             false => " ",
           },
+          styles: ui::style(flex_shrink: 0.0),
           text_style: ui::text_style(foreground: colors.primary),
         ),
         cui::box(
@@ -894,14 +914,25 @@ impl Dock {
         cui::box(
           label.@,
           styles: ui::style(
-            width: ui::cells(label_width + 2),
-            flex_shrink: 0.0,
+            // The gap before the detail is padding, so truncation keeps it.
+            flex_basis: ui::cells(columns.label + columns.gap),
+            flex_shrink: 1.0,
+            padding: ui::Edges{
+              top: ui::cells(0),
+              right: ui::cells(columns.gap),
+              bottom: ui::cells(0),
+              left: ui::cells(0),
+            },
             flex_direction: ui::FlexDirection::row,
           ),
         ),
         cui::text(
           option.Detail,
-          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+          styles: ui::style(
+            flex_grow: 1.0,
+            flex_shrink: detail_yield,
+            flex_basis: ui::cells(columns.detail),
+          ),
           text_style: ui::text_style(foreground: colors.muted),
           wrap: ui::TextWrap::none,
           overflow: ui::TextOverflow::ellipsis,
@@ -1112,6 +1143,13 @@ private fn overflow_row(colors: theme::Theme, key: Str, arrow: Str, hidden: Int)
 
 private fn option_key(index: Int) Str {
   "option.{index}"
+}
+
+private fn max(left: Int, right: Int) Int {
+  match left > right {
+    true => left,
+    false => right,
+  }
 }
 
 private fn clamp(value: Int, low: Int, high: Int) Int {
