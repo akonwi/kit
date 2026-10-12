@@ -147,5 +147,4 @@ launch failures are shown to the user.
 
 ## Outstanding work
 
-Clipboard image ingestion is tracked by `TUI-ATT-003` through `TUI-ATT-006` in
-the [native TUI backlog](../../backlog/tui.md).
+Clipboard image ingestion is tracked by [#96](https://github.com/akonwi/kit/issues/96) through [#99](https://github.com/akonwi/kit/issues/99).

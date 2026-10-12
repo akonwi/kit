@@ -135,8 +135,8 @@ applicable. Do not restore imports of retired internal client stacks or add
 caller-owned reconnect loops.
 
 Document public lifecycle, cancellation, error, or compatibility behavior when
-it changes. Add outstanding or deferred client work to `backlog/`, not to an
-ADR or an informal checklist.
+it changes. File outstanding or deferred client work as a GitHub issue, not in
+an ADR or an informal checklist.
 
 The semantic browser client is not maintained and is updated only when work on
 it is explicitly requested.

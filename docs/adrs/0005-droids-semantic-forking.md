@@ -336,4 +336,4 @@ Trade-offs:
 - [0002: Internalize the droids agent core during the rewrite](./0002-internalize-agent-core.md)
 - [0004: Model a droid as an autonomous agent runtime](./0004-droids-agent-runtime-boundary.md)
 - [Droids API and SDK specification](../droids-sdk.md)
-- [Kit v2 backlog](../../backlog/README.md)
+- [Kit issues](https://github.com/akonwi/kit/issues)

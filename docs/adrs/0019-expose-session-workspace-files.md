@@ -436,7 +436,7 @@ This contract does not define filesystem watch events, recursive tree snapshots,
 server-side fuzzy search, arbitrary revision-pinned ranges, durable file
 snapshots, or workspace mutation operations. It also does not own Git status,
 diff/review contracts, syntax highlighting, or client pane behavior. Those
-capabilities require their own accepted contract and backlog requirement; this
+capabilities require their own accepted contract and tracking issue; this
 ADR does not commit Kit to implementing them.
 
 ## Related
@@ -444,5 +444,4 @@ ADR does not commit Kit to implementing them.
 - [0001: Native Go application architecture](0001-native-go-architecture.md)
 - [0013: Bound initial transcript snapshots](0013-bound-initial-transcript-snapshots.md)
 - [`../features/session-cwd.md`](../features/session-cwd.md)
-- [`../../backlog/core.md`](../../backlog/core.md) (`CORE-WORK-001`)
-- [Native TUI backlog](../../backlog/tui.md)
+- [Kit issues](https://github.com/akonwi/kit/issues)

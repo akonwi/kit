@@ -27,11 +27,10 @@ Renderers consume these capabilities through session-client interfaces and never
 use display cwd or host filesystem access as I/O authority.
 
 Workspace file contracts are accepted in
-[ADR 0019](0019-expose-session-workspace-files.md) and implemented by
-`CORE-WORK-001`. Draft annotation identity, lifetime, anchors, and message
+[ADR 0019](0019-expose-session-workspace-files.md). Draft annotation identity, lifetime, anchors, and message
 submission are defined by
-[ADR 0022](0022-model-draft-annotations-as-session-inputs.md). Diff and review
-target surfaces remain blocked on `CORE-DIFF-001` and `CORE-REVIEW-001`.
+[ADR 0022](0022-model-draft-annotations-as-session-inputs.md). Review target
+surfaces remain blocked on [#135](https://github.com/akonwi/kit/issues/135).
 
 ### Workspace file picker
 
@@ -182,5 +181,4 @@ workspace controller and must not weaken its client-local lifecycle boundaries.
 - [ADR 0018: Retain native workspace panes in full-width tabs](0018-retained-native-workspace-shell.md)
 - [ADR 0019: Expose session workspace files through bounded contracts](0019-expose-session-workspace-files.md)
 - [ADR 0022: Model draft annotations as session inputs](0022-model-draft-annotations-as-session-inputs.md)
-- [Native TUI backlog](../../backlog/tui.md)
-- [Core and protocol backlog](../../backlog/core.md)
+- [Kit issues](https://github.com/akonwi/kit/issues)

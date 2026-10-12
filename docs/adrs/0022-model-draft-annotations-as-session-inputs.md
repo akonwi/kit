@@ -363,5 +363,4 @@ message, only the immutable submitted snapshot remains.
 
 - [ADR 0019: Expose session workspace files through bounded contracts](0019-expose-session-workspace-files.md)
 - [ADR 0020: Add file, diff, and review workspace surfaces](0020-file-diff-review-workspace-surfaces.md)
-- [Core backlog](../../backlog/core.md)
-- [Native TUI backlog](../../backlog/tui.md)
+- [Kit issues](https://github.com/akonwi/kit/issues)

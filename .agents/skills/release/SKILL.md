@@ -26,9 +26,8 @@ Kit's command line and server); see `apps/cli/README.md`. A release candidate
 
 1. Inspect `git status --short`, the current branch, and recent release tags.
    Do not include unrelated changes. Release from reviewed, committed `main`.
-   Read the release scope in `backlog/README.md` and the core/TUI backlogs to
-   identify relevant changes and limitations. Open backlog items are tracked
-   work, not automatic release blockers; report material limitations honestly.
+   Check open issues (`gh issue list`) to identify relevant limitations. Open
+   issues are tracked work, not automatic release blockers; report material limitations honestly.
 
 2. Review commits since the last published release (`gh release list` and
    `git log <previous-tag>..HEAD`). Choose a patch for fixes and maintenance,
@@ -123,8 +122,8 @@ Kit's command line and server); see `apps/cli/README.md`. A release candidate
    brew update && brew upgrade akonwi/tap/kit && brew test kit
    ```
    Verify manual extraction/install too. Follow the migration guidance and
-   report any unverified distribution behavior without treating open backlog
-   items as release gates.
+   report any unverified distribution behavior without treating open issues
+   as release gates.
 
 8. Report the version, validation results and platform limits, release commit,
    tag, GitHub release URL, and Homebrew tap commit. Never imply a local dry run
