@@ -60,6 +60,16 @@ final class WorkspaceState {
     private(set) var zoomedTile: UUID?
     /// False while the shared composer, not a tile, has the user's attention.
     var contentFocused = true
+    /// The tab being dragged, if any.
+    var tabDrag: TabDrag?
+
+    struct TabDrag: Equatable {
+        var pane: WorkspacePane
+        /// Pointer location in the workspace's coordinate space.
+        var location: CGPoint
+        /// Where the tab would land; nil where a drop does nothing.
+        var target: TileDropTarget?
+    }
 
     var selected: WorkspacePane { tiles[focusedTile]?.selected ?? .conversation }
     /// Tiles on screen: the zoomed tile, or every leaf.
@@ -136,6 +146,14 @@ final class WorkspaceState {
             focus(tile: id)
         }
         zoomedTile = nil
+    }
+
+    /// Whether moving `pane` to `target` would change anything. A tab can't
+    /// join its own tile, and a tile's only tab can't split away from it.
+    func canMove(_ pane: WorkspacePane, to target: TileDropTarget) -> Bool {
+        guard let source = tile(containing: pane), let from = tiles[source], tiles[target.tile] != nil else { return false }
+        if source == target.tile { return target.edge != .center && from.panes.count > 1 }
+        return true
     }
 
     /// Moves a pane into a new tile beside its own, on `edge`.

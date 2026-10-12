@@ -10,6 +10,8 @@ private let tabStripHeight: CGFloat = 34
 struct WorkspaceLayout: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
+    /// The tiles' coordinate space, shared by layout, tab drags, and drops.
+    static let space = "workspace-tiles"
 
     var body: some View {
         let workspace = state.ui.workspace
@@ -21,6 +23,11 @@ struct WorkspaceLayout: View {
                 // frames so their panes don't resize while out of view.
                 let frames = layout.tiles.merging(workspace.zoomedTile.map { [$0: bounds] } ?? [:]) { $1 }
                 let running = Set((state.selected?.subagents?.items ?? []).filter { $0.status == "running" }.map(\.name))
+                let visible = workspace.visibleTiles
+                let resolve: (WorkspacePane, CGPoint) -> TileDropTarget? = { pane, point in
+                    TileDropTarget.resolve(point, tiles: visible, frames: frames, stripHeight: tabStripHeight, gap: tileGap)
+                        .flatMap { workspace.canMove(pane, to: $0) ? $0 : nil }
+                }
                 ZStack(alignment: .topLeading) {
                     if workspace.zoomedTile == nil {
                         ForEach(layout.splits, id: \.id) { split in
@@ -29,7 +36,7 @@ struct WorkspaceLayout: View {
                     }
                     ForEach(workspace.visibleTiles, id: \.self) { id in
                         let frame = frames[id] ?? .zero
-                        TileChrome(state: state, workspace: workspace, id: id, running: running)
+                        TileChrome(state: state, workspace: workspace, id: id, running: running, resolve: resolve)
                             .frame(width: frame.width, height: frame.height)
                             .offset(x: frame.minX, y: frame.minY)
                     }
@@ -59,7 +66,9 @@ struct WorkspaceLayout: View {
                             .offset(x: frame.minX, y: frame.minY)
                             .allowsHitTesting(false)
                     }
+                    TabDragOverlay(workspace: workspace, frames: frames)
                 }
+                .coordinateSpace(.named(Self.space))
             }
             SessionComposerRegion(state: state)
                 .background(theme.surface)
@@ -110,6 +119,7 @@ private struct TileChrome: View {
     let workspace: WorkspaceState
     let id: UUID
     let running: Set<String>
+    let resolve: (WorkspacePane, CGPoint) -> TileDropTarget?
     @State private var hovering = false
 
     var body: some View {
@@ -122,7 +132,8 @@ private struct TileChrome: View {
                         ForEach(tile?.panes ?? []) { pane in
                             WorkspaceTab(state: state, workspace: workspace, pane: pane,
                                 selected: tile?.selected == pane, focused: focused,
-                                running: { if case .agent(let name) = pane { return running.contains(name) }; return false }())
+                                running: { if case .agent(let name) = pane { return running.contains(name) }; return false }(),
+                                resolve: resolve)
                         }
                     }.frame(maxHeight: .infinity)
                 }.scrollIndicators(.hidden)
@@ -161,6 +172,7 @@ private struct WorkspaceTab: View {
     /// Whether this tab's tile is focused.
     let focused: Bool
     let running: Bool
+    let resolve: (WorkspacePane, CGPoint) -> TileDropTarget?
     @State private var hovering = false
     @FocusState private var keyboardFocused: Bool
 
@@ -194,7 +206,17 @@ private struct WorkspaceTab: View {
             if selected { Rectangle().fill(focused ? theme.accent : theme.strongBorder).frame(height: 2) }
         }
         .contentShape(Rectangle())
+        .opacity(workspace.tabDrag?.pane == pane ? 0.4 : 1)
         .onHover { hovering = $0 }
+        .simultaneousGesture(DragGesture(minimumDistance: 4, coordinateSpace: .named(WorkspaceLayout.space))
+            .onChanged { value in
+                workspace.tabDrag = .init(pane: pane, location: value.location, target: resolve(pane, value.location))
+            }
+            .onEnded { value in
+                // Resolve at release so the drop matches the pointer, not the last update.
+                if let target = resolve(pane, value.location) { workspace.move(pane, to: target.tile, edge: target.edge) }
+                workspace.tabDrag = nil
+            })
         .onChange(of: keyboardFocused) { if keyboardFocused { workspace.select(pane) } }
         .contextMenu { WorkspaceTabActions(state: state, workspace: workspace, pane: pane) }
         .accessibilityElement(children: .contain)
@@ -219,6 +241,43 @@ private struct WorkspaceTab: View {
     }
 
     private func close() { WorkspaceTabActions.close(pane, state: state, workspace: workspace) }
+}
+
+/// The drop preview and a floating copy of the dragged tab, drawn above
+/// every tile. Reading the drag here keeps pointer updates from
+/// re-evaluating the whole workspace.
+private struct TabDragOverlay: View {
+    @Environment(\.mica) private var theme
+    let workspace: WorkspaceState
+    let frames: [UUID: CGRect]
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+            if let drag = workspace.tabDrag {
+                if let target = drag.target, let frame = frames[target.tile] {
+                    let zone = target.preview(in: frame)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(theme.accent.opacity(0.14))
+                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.accent, lineWidth: 1.5))
+                        .frame(width: zone.width, height: zone.height)
+                        .offset(x: zone.minX, y: zone.minY)
+                        .animation(.easeOut(duration: 0.12), value: target)
+                }
+                Text(drag.pane.title)
+                    .font(.kit(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.text)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(theme.raised, in: RoundedRectangle(cornerRadius: 3))
+                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border))
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                    .fixedSize()
+                    .offset(x: drag.location.x + 10, y: drag.location.y + 10)
+            }
+        }
+        .allowsHitTesting(false)
+    }
 }
 
 private struct WorkspaceTabActions: View {
