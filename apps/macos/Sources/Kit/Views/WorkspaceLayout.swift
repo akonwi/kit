@@ -12,6 +12,7 @@ struct WorkspaceLayout: View {
     @Bindable var state: SessionStore
     /// The tiles' coordinate space, shared by layout, tab drags, and drops.
     static let space = "workspace-tiles"
+    @State private var tabFrames = TabFrames()
 
     var body: some View {
         let workspace = state.ui.workspace
@@ -25,7 +26,9 @@ struct WorkspaceLayout: View {
                 let running = Set((state.selected?.subagents?.items ?? []).filter { $0.status == "running" }.map(\.name))
                 let visible = workspace.visibleTiles
                 let resolve: (WorkspacePane, CGPoint) -> TileDropTarget? = { pane, point in
-                    TileDropTarget.resolve(point, tiles: visible, frames: frames, stripHeight: tabStripHeight, gap: tileGap)
+                    TileDropTarget.resolve(point, tiles: visible, frames: frames,
+                        tabs: { tile in (workspace.tiles[tile]?.panes ?? []).compactMap { tabFrames.frames[$0] } },
+                        stripHeight: tabStripHeight, gap: tileGap)
                         .flatMap { workspace.canMove(pane, to: $0) ? $0 : nil }
                 }
                 ZStack(alignment: .topLeading) {
@@ -36,7 +39,7 @@ struct WorkspaceLayout: View {
                     }
                     ForEach(workspace.visibleTiles, id: \.self) { id in
                         let frame = frames[id] ?? .zero
-                        TileChrome(state: state, workspace: workspace, id: id, running: running, resolve: resolve)
+                        TileChrome(state: state, workspace: workspace, id: id, running: running, resolve: resolve, tabFrames: tabFrames)
                             .frame(width: frame.width, height: frame.height)
                             .offset(x: frame.minX, y: frame.minY)
                     }
@@ -66,7 +69,7 @@ struct WorkspaceLayout: View {
                             .offset(x: frame.minX, y: frame.minY)
                             .allowsHitTesting(false)
                     }
-                    TabDragOverlay(workspace: workspace, frames: frames)
+                    TabDragOverlay(workspace: workspace, frames: frames, tabFrames: tabFrames)
                 }
                 .coordinateSpace(.named(Self.space))
             }
@@ -120,6 +123,7 @@ private struct TileChrome: View {
     let id: UUID
     let running: Set<String>
     let resolve: (WorkspacePane, CGPoint) -> TileDropTarget?
+    let tabFrames: TabFrames
     @State private var hovering = false
 
     var body: some View {
@@ -134,6 +138,9 @@ private struct TileChrome: View {
                                 selected: tile?.selected == pane, focused: focused,
                                 running: { if case .agent(let name) = pane { return running.contains(name) }; return false }(),
                                 resolve: resolve)
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(WorkspaceLayout.space)) } action: {
+                                tabFrames.frames[pane] = $0
+                            }
                         }
                     }.frame(maxHeight: .infinity)
                 }.scrollIndicators(.hidden)
@@ -214,7 +221,7 @@ private struct WorkspaceTab: View {
             }
             .onEnded { value in
                 // Resolve at release so the drop matches the pointer, not the last update.
-                if let target = resolve(pane, value.location) { workspace.move(pane, to: target.tile, edge: target.edge) }
+                if let target = resolve(pane, value.location) { workspace.move(pane, to: target) }
                 workspace.tabDrag = nil
             })
         .onChange(of: keyboardFocused) { if keyboardFocused { workspace.select(pane) } }
@@ -250,12 +257,20 @@ private struct TabDragOverlay: View {
     @Environment(\.mica) private var theme
     let workspace: WorkspaceState
     let frames: [UUID: CGRect]
+    let tabFrames: TabFrames
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.clear
             if let drag = workspace.tabDrag {
-                if let target = drag.target, let frame = frames[target.tile] {
+                if let target = drag.target, let index = target.index, let frame = frames[target.tile] {
+                    // An insertion marker in the strip, between tabs.
+                    let x = insertionX(index, in: target.tile, frame: frame)
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(theme.accent)
+                        .frame(width: 2, height: 20)
+                        .offset(x: x - 1, y: frame.minY + (tabStripHeight - 20) / 2)
+                } else if let target = drag.target, let frame = frames[target.tile] {
                     let zone = target.preview(in: frame)
                     RoundedRectangle(cornerRadius: 4)
                         .fill(theme.accent.opacity(0.14))
@@ -278,6 +293,19 @@ private struct TabDragOverlay: View {
         }
         .allowsHitTesting(false)
     }
+
+    /// The x position of the gap before tab `index`, or after the last tab.
+    private func insertionX(_ index: Int, in tile: UUID, frame: CGRect) -> CGFloat {
+        let tabs = (workspace.tiles[tile]?.panes ?? []).compactMap { tabFrames.frames[$0] }
+        let x = index < tabs.count ? tabs[index].minX : (tabs.last?.maxX ?? frame.minX + 6)
+        return min(max(x, frame.minX + 2), frame.maxX - 2)
+    }
+}
+
+/// Where each tab sits in the workspace's coordinate space, for strip
+/// drops. Not observed: geometry changes shouldn't re-render the workspace.
+final class TabFrames {
+    var frames: [WorkspacePane: CGRect] = [:]
 }
 
 private struct WorkspaceTabActions: View {

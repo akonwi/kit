@@ -85,7 +85,8 @@ optional name, model, and thinking level.
 
 Within a session, the workspace is a split tree of tiles, and each tile holds tabs
 for Agent, files, Diff, Scratchpad, and subagents. New panes open in the focused
-tile. Drag a tab onto another tile's tab strip or middle to move it there, or near
+tile. Drag a tab along a tab strip to reorder it or onto another tile's strip or
+middle to move it there, or near
 a tile's edge (or into the gap beside it) to split that tile; a preview shows where
 it will land. A tile's split buttons or a tab's context menu also move a tab into a
 new tile on the right or below. Drag the gap between tiles to resize them; double-click it to

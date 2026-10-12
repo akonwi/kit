@@ -128,15 +128,24 @@ final class WorkspaceState {
     /// Moves a pane into `target`'s tab group, or onto one of its edges as a
     /// new tile. The source tile is removed if the move empties it.
     func move(_ pane: WorkspacePane, to target: UUID, edge: TileDropEdge) {
-        guard let source = tile(containing: pane), tiles[target] != nil, var from = tiles[source],
+        move(pane, to: TileDropTarget(tile: target, edge: edge))
+    }
+
+    /// Moves a pane to a drop target. A strip drop with an index inserts the
+    /// tab at that gap, which reorders it within its own tile.
+    func move(_ pane: WorkspacePane, to drop: TileDropTarget) {
+        guard canMove(pane, to: drop), let source = tile(containing: pane), var from = tiles[source],
               let index = from.panes.firstIndex(of: pane) else { return }
-        if source == target && (edge == .center || from.panes.count == 1) { return }
+        let target = drop.tile, edge = drop.edge
         from.panes.remove(at: index)
         if from.selected == pane, !from.panes.isEmpty { from.selected = from.panes[min(index, from.panes.count - 1)] }
         tiles[source] = from
         if from.panes.isEmpty { removeTile(source) }
         if edge == .center {
-            tiles[target]?.panes.append(pane)
+            // Gaps count the moved tab while it was still in its own strip.
+            let gap = source == target && (drop.index ?? 0) > index ? drop.index! - 1 : drop.index
+            let count = tiles[target]?.panes.count ?? 0
+            tiles[target]?.panes.insert(pane, at: min(max(gap ?? count, 0), count))
             tiles[target]?.selected = pane
             focus(tile: target)
         } else {
@@ -151,9 +160,13 @@ final class WorkspaceState {
     /// Whether moving `pane` to `target` would change anything. A tab can't
     /// join its own tile, and a tile's only tab can't split away from it.
     func canMove(_ pane: WorkspacePane, to target: TileDropTarget) -> Bool {
-        guard let source = tile(containing: pane), let from = tiles[source], tiles[target.tile] != nil else { return false }
-        if source == target.tile { return target.edge != .center && from.panes.count > 1 }
-        return true
+        guard let source = tile(containing: pane), let from = tiles[source], tiles[target.tile] != nil,
+              let position = from.panes.firstIndex(of: pane) else { return false }
+        guard source == target.tile else { return true }
+        if target.edge != .center { return from.panes.count > 1 }
+        // Within its own strip, a tab moves only if it lands in another gap.
+        guard let index = target.index else { return false }
+        return index != position && index != position + 1
     }
 
     /// Moves a pane into a new tile beside its own, on `edge`.

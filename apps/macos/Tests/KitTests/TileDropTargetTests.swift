@@ -17,9 +17,24 @@ struct TileDropTargetTests {
     }
 
     @Test func tabStripsAddToTheTile() {
-        #expect(target(10, 5) == .init(tile: a, edge: .center))
-        #expect(target(990, 30) == .init(tile: b, edge: .center))
-        #expect(target(600, 330) == .init(tile: c, edge: .center))
+        #expect(target(10, 5) == .init(tile: a, edge: .center, index: 0))
+        #expect(target(990, 30) == .init(tile: b, edge: .center, index: 0))
+        #expect(target(600, 330) == .init(tile: c, edge: .center, index: 0))
+    }
+
+    @Test func stripDropsLandInTheGapNearestThePointer() {
+        // A's tabs: 6–86, 86–186, 186–246.
+        let tabs = [CGRect(x: 6, y: 0, width: 80, height: 34), CGRect(x: 86, y: 0, width: 100, height: 34),
+                    CGRect(x: 186, y: 0, width: 60, height: 34)]
+        func strip(_ x: CGFloat) -> TileDropTarget? {
+            TileDropTarget.resolve(CGPoint(x: x, y: 17), tiles: [a, b, c], frames: frames,
+                tabs: { $0 == a ? tabs : [] }, stripHeight: 34, gap: 6)
+        }
+        #expect(strip(20) == .init(tile: a, edge: .center, index: 0))
+        #expect(strip(60) == .init(tile: a, edge: .center, index: 1))
+        #expect(strip(140) == .init(tile: a, edge: .center, index: 2))
+        #expect(strip(230) == .init(tile: a, edge: .center, index: 3))
+        #expect(strip(400) == .init(tile: a, edge: .center, index: 3))
     }
 
     @Test func contentSplitsNearAnEdgeAndJoinsInTheMiddle() {
@@ -73,5 +88,29 @@ struct TileDropTargetTests {
         workspace.open(.scratchpad)
         #expect(workspace.canMove(.review, to: .init(tile: right, edge: .bottom)))
         #expect(!workspace.canMove(.conversation, to: .init(tile: first, edge: .center)))
+    }
+
+    @MainActor @Test func stripDropsReorderAndInsertTabs() {
+        let workspace = WorkspaceState(demo: false)
+        let first = workspace.focusedTile
+        workspace.open(.review)
+        workspace.open(.scratchpad)
+        // Agent, Diff, Scratchpad. Gaps either side of a tab leave it in place.
+        #expect(!workspace.canMove(.review, to: .init(tile: first, edge: .center, index: 1)))
+        #expect(!workspace.canMove(.review, to: .init(tile: first, edge: .center, index: 2)))
+        workspace.move(.review, to: .init(tile: first, edge: .center, index: 3))
+        #expect(workspace.tiles[first]?.panes == [.conversation, .scratchpad, .review])
+        workspace.move(.review, to: .init(tile: first, edge: .center, index: 0))
+        #expect(workspace.tiles[first]?.panes == [.review, .conversation, .scratchpad])
+        #expect(workspace.selected == .review)
+
+        workspace.split(.scratchpad, .right)
+        let right = workspace.focusedTile
+        workspace.move(.review, to: .init(tile: right, edge: .center, index: 0))
+        #expect(workspace.tiles[right]?.panes == [.review, .scratchpad])
+        workspace.move(.conversation, to: .init(tile: right, edge: .center, index: 1))
+        #expect(workspace.tiles[first] == nil)
+        #expect(workspace.root == .tile(right))
+        #expect(workspace.tiles[right] == WorkspaceTile(panes: [.review, .conversation, .scratchpad], selected: .conversation))
     }
 }

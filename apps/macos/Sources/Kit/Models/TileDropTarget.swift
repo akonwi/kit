@@ -6,23 +6,31 @@ import Foundation
 struct TileDropTarget: Equatable {
     let tile: UUID
     let edge: TileDropEdge
+    /// For a drop on a tab strip, the gap between tabs it lands in: 0 is
+    /// before the first tab, and the tab count is after the last. Nil
+    /// appends to the tile's tabs.
+    var index: Int? = nil
 
     /// Share of a tile's content, measured from each edge, that splits it.
     static let edgeBand: CGFloat = 0.3
 
     /// Resolves a pointer location against the visible tiles' frames.
     ///
-    /// Over a tab strip, the tab joins that tile. Over content, the nearest
+    /// Over a tab strip, the tab joins that tile at the gap between tabs
+    /// nearest the pointer; `tabs` gives a tile's tab frames in order. Over content, the nearest
     /// edge splits the tile when the pointer is within `edgeBand` of it,
     /// judged relative to the content's size so the zones meet at the
     /// corners' diagonals (as in Ghostty's split drop zones); otherwise the
     /// tab joins the tile. In a gap, the nearest tile edge within `gap`
     /// wins, so a drop between two tiles splits between them.
     static func resolve(_ point: CGPoint, tiles: [UUID], frames: [UUID: CGRect],
+                        tabs: (UUID) -> [CGRect] = { _ in [] },
                         stripHeight: CGFloat, gap: CGFloat) -> TileDropTarget? {
         let placed = tiles.compactMap { id in frames[id].map { (id, $0) } }
         if let (id, frame) = placed.first(where: { $0.1.contains(point) }) {
-            if point.y < frame.minY + stripHeight { return TileDropTarget(tile: id, edge: .center) }
+            if point.y < frame.minY + stripHeight {
+                return TileDropTarget(tile: id, edge: .center, index: insertion(at: point.x, among: tabs(id)))
+            }
             let content = CGRect(x: frame.minX, y: frame.minY + stripHeight,
                                  width: frame.width, height: max(1, frame.height - stripHeight))
             let distances: [(TileDropEdge, CGFloat)] = [
@@ -48,6 +56,12 @@ struct TileDropTarget: Equatable {
             }
         }
         return best?.target
+    }
+
+    /// The gap between tabs nearest `x`: the number of tabs whose middle
+    /// lies before it.
+    static func insertion(at x: CGFloat, among tabs: [CGRect]) -> Int {
+        tabs.filter { $0.midX < x }.count
     }
 
     /// The area a drop preview covers within the target tile.
