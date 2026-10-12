@@ -118,9 +118,11 @@ While Kit is inactive, a completed or failed turn or a new input request briefly
 bounces its Dock icon. Closely timed events share one bounce; initial snapshots
 and reconnects do not replay attention feedback. No notification permission is needed.
 
-Session feedback appears above the composer. Confirmations fade after five seconds;
-hovering or keyboard focus keeps them visible. Notices are local
-to each session and do not send system notifications. Compaction outcomes, shell
+Session toasts float at the top right of the workspace. Confirmations expire after
+ten seconds; hovering or keyboard focus keeps them visible, and warnings and
+errors that need acknowledgement stay until dismissed. Every toast can be
+dismissed with ×. Toasts are local to each session and do not send system
+notifications. Compaction outcomes, shell
 operation errors, run failures, and subagent-definition diagnostics use this surface;
 compaction progress appears in the Agent pane's activity card, while reload progress appears in the command
 palette until hidden or complete. Hiding the palette does not stop the reload.

@@ -158,11 +158,11 @@ import Testing
         #expect(item.detail == "Skill ‘vaxis-ui’ was already loaded and omitted.")
         #expect(item.reloadReport?.diagnostics.first?.sourcePath == "/Users/akonwi/kit/skills/vaxis-ui/SKILL.md")
         let compact = NSHostingView(rootView: SessionFeedbackCard(item: item, close: {})
-            .environment(\.mica, MicaTheme(dark: true)).frame(width: 356))
+            .environment(\.mica, MicaTheme(dark: true)).frame(width: ToastMetrics.width))
         let expanded = NSHostingView(rootView: SessionFeedbackCard(item: item, close: {}, reportExpanded: true)
-            .environment(\.mica, MicaTheme(dark: true)).frame(width: 564))
-        #expect(compact.fittingSize.width == 356)
-        #expect(expanded.fittingSize.width == 564)
+            .environment(\.mica, MicaTheme(dark: true)).frame(width: ToastMetrics.reportWidth))
+        #expect(compact.fittingSize.width == 360)
+        #expect(expanded.fittingSize.width == 560)
         #expect(expanded.fittingSize.height > compact.fittingSize.height)
         #expect(expanded.fittingSize.height < 360) // Ordinary evidence has no bounded scroll pane.
         let closedSources = NSHostingView(rootView: SessionReloadEvidenceView(report: report, outerScrollable: false)
@@ -198,7 +198,9 @@ import Testing
             host.frame = NSRect(origin: .zero, size: host.fittingSize)
             host.layoutSubtreeIfNeeded()
             #expect(host.bounds.width == 600)
-            #expect(host.bounds.height >= 80 && host.bounds.height < 160)
+            // Title and one detail line, with no actions: the detail fits, so
+            // there is nothing to open.
+            #expect(host.bounds.height >= 50 && host.bounds.height < 72)
             let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: bitmap)
             try #require(bitmap.representation(using: .png, properties: [:]))

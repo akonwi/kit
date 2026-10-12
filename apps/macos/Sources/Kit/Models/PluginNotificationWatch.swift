@@ -48,9 +48,9 @@ extension SessionFeedback {
         if notification.persistent, retained.count >= 32 {
             for item in retained.prefix(retained.count - 31) { clear(key: item.key) }
         }
-        show(key: "plugin-alert:" + UUID().uuidString, title: notification.title + " · " + notification.pluginID,
+        show(key: "plugin-alert:" + UUID().uuidString, title: notification.title,
              detail: notification.detail, tone: notification.variant == "error" ? .error : notification.variant == "warning" ? .warning : .info,
-             persistent: notification.persistent)
+             persistent: notification.persistent, source: notification.pluginID)
     }
     func clearTransientPluginNotifications() {
         for item in items where item.key.hasPrefix("plugin-alert:") && !item.persistent { clear(key: item.key) }

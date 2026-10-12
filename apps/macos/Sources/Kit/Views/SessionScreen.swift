@@ -94,7 +94,7 @@ struct SessionScreen: View {
                 SessionFeedbackView(feedback: state.feedback)
                     .environment(\.mica, theme)
                     .id(state.serverID + "|" + state.selectedID)
-                    .padding(.top, 16).padding(.trailing, 16)
+                    .padding(.top, 12).padding(.trailing, 12)
             }
         }
         .disabled(state.ui.palette || state.ui.filePicker)

@@ -82,6 +82,29 @@ commands receive their arguments literally. `model`, `thinking`, and
 `subagents` open nested screens with a 48 pt title row. Esc closes the palette
 from any screen. The footer shows only the tab complete hint.
 
+### Toasts
+
+Toasts report outcomes, warnings, and errors that aren't part of the
+conversation. They float at the top right of the workspace, 12 pt below the
+session bar and in from the right edge, over whatever tile is there, so they
+don't move when tiles split or resize. Each session has its own stack.
+
+A toast is a 360 pt surface card with a 1 pt border in its tone's colour,
+4 pt corners, and a soft shadow. Its icon and medium-weight title use the
+tone's colour: accent for info, warning, and danger. A plugin's id sits beside
+the title. The detail is muted and clamped to two lines; Details appears only
+when the text runs past them, and opens it in place, scrolling past 220 pt.
+A reload report's Details widens its card to 560 pt. Actions are 22 pt
+bordered buttons, and choosing one also dismisses the toast.
+
+Every toast has ×. Toasts that need acknowledgement stay until it's clicked;
+the rest also expire after 10 s. Expiry pauses while the pointer is over the
+stack, while a toast has focus, and while the window is inactive. Up to four
+toasts stack newest first, 8 pt apart. From five, the newest shows with two
+card edges below it and an "N more" button that lists them all, with
+Collapse to fold them again; expiry keeps running underneath. Clicking a
+toast's body does nothing, so its text can be selected and copied.
+
 ### Tile focus
 
 Focusing a tile, by its tab strip, a command, or a dropped tab, moves the
