@@ -119,29 +119,41 @@ private struct SessionSidebarRow: View {
 }
 
 /// Top-tab layout: traffic lights, session tabs, new tab, and placement.
+/// Tabs that do not fit scroll; faded edges and a count show what is hidden,
+/// and the selected tab scrolls into view.
 struct SessionTopTabs: View {
     @Environment(\.mica) private var theme
     let model: SessionWindowModel
     @Binding var placement: SessionTabPlacement
     @State private var viewportWidth: CGFloat = 0
+    @State private var offset: CGFloat = 0
+    @State private var frames: [UUID: ClosedRange<CGFloat>] = [:]
 
     var body: some View {
         let selectedDirectory = model.selectedTab.directory
+        let tabs = model.displayedTabs
+        let overflow = SessionTabOverflow(frames: frames, offset: offset, viewport: viewportWidth)
+        let hidden = tabs.filter { overflow.hides($0.id) }
         HStack(spacing: 6) {
             // The traffic lights occupy this space.
             Color.clear.frame(width: 68, height: 1)
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
                     HStack(spacing: 2) {
-                        ForEach(model.displayedTabs) { tab in
+                        ForEach(tabs) { tab in
                             SessionTopTab(tab: tab, selected: tab.id == model.selectedTabID,
                                           project: tab.directory != selectedDirectory && !tab.directory.isEmpty
                                             ? URL(fileURLWithPath: tab.directory).lastPathComponent : nil,
                                           select: { model.select(tab) },
                                           close: { model.close(tab) })
                             .id(tab.id)
+                            .onGeometryChange(for: ClosedRange<CGFloat>.self) {
+                                let frame = $0.frame(in: .named(Self.space))
+                                return frame.minX...frame.maxX
+                            } action: { frames[tab.id] = $0 }
                         }
                     }
+                    .coordinateSpace(.named(Self.space))
                     // Space beside the tabs belongs to the scroll view, so it
                     // carries the titlebar behavior itself.
                     .frame(minWidth: viewportWidth, maxHeight: .infinity, alignment: .leading)
@@ -149,7 +161,22 @@ struct SessionTopTabs: View {
                 }
                 .scrollIndicators(.never)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
-                .onChange(of: model.selectedTabID) { proxy.scrollTo(model.selectedTabID) }
+                .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x } action: { _, x in offset = x }
+                .mask {
+                    HStack(spacing: 0) {
+                        LinearGradient(colors: [.black.opacity(overflow.hiddenBefore ? 0 : 1), .black],
+                                       startPoint: .leading, endPoint: .trailing).frame(width: 32)
+                        Rectangle()
+                        LinearGradient(colors: [.black, .black.opacity(overflow.hiddenAfter ? 0 : 1)],
+                                       startPoint: .leading, endPoint: .trailing).frame(width: 96)
+                    }
+                }
+                .onChange(of: model.selectedTabID) { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(model.selectedTabID) } }
+                .onAppear { proxy.scrollTo(model.selectedTabID) }
+            }
+            .onChange(of: tabs.map(\.id)) { frames = frames.filter { id, _ in tabs.contains { $0.id == id } } }
+            if !hidden.isEmpty {
+                SessionTabOverflowMenu(hidden: hidden) { model.select($0) }
             }
             ChromeIconButton(symbol: "plus", frame: 28, help: "New session tab (⌘T)") { model.openLauncher() }
             SessionTabPlacementToggle(placement: $placement).padding(.leading, 6)
@@ -159,6 +186,51 @@ struct SessionTopTabs: View {
         .background(WindowTitlebarRegion())
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Session tabs")
+    }
+
+    private static let space = "SessionTopTabs"
+}
+
+/// Which top tabs are not fully visible in the scrolled strip.
+struct SessionTabOverflow {
+    let frames: [UUID: ClosedRange<CGFloat>]
+    let offset: CGFloat
+    let viewport: CGFloat
+
+    func hides(_ id: UUID) -> Bool {
+        guard viewport > 0, let frame = frames[id] else { return false }
+        return frame.lowerBound - offset < -1 || frame.upperBound - offset > viewport + 1
+    }
+    var hiddenBefore: Bool { viewport > 0 && frames.values.contains { $0.lowerBound - offset < -1 } }
+    var hiddenAfter: Bool { viewport > 0 && frames.values.contains { $0.upperBound - offset > viewport + 1 } }
+}
+
+/// The count of hidden session tabs; choosing one selects it.
+private struct SessionTabOverflowMenu: View {
+    @Environment(\.mica) private var theme
+    let hidden: [SessionTab]
+    let select: (SessionTab) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(hidden) { tab in
+                Button(tab.status.label.map { "\(tab.title) — \($0)" } ?? tab.title) { select(tab) }
+            }
+        } label: {
+            Text("+\(hidden.count)")
+                .font(.kit(size: 11, design: .monospaced))
+                .foregroundStyle(theme.muted)
+                .padding(.horizontal, 7)
+                .frame(height: 22)
+                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border))
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("\(hidden.count) more session\(hidden.count == 1 ? "" : "s")")
+        .accessibilityLabel("\(hidden.count) more sessions")
     }
 }
 
