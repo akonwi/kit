@@ -162,10 +162,7 @@ func TestConnectEndpointAuthenticatesAndChecksCompatibility(t *testing.T) {
 		response.Header().Set("Content-Type", "application/json")
 		switch request.URL.Path {
 		case "/v1/health":
-			_ = json.NewEncoder(response).Encode(httpapi.Health{
-				InstanceID: instanceID, PID: 42, KitVersion: version.Version,
-				ProtocolVersion: version.SessionProtocolVersion, DatabaseReady: true,
-			})
+			_ = json.NewEncoder(response).Encode(compatibleHealth(instanceID))
 		case "/v1/sessions":
 			if request.Header.Get(httpapi.ProtocolHeader) == "" {
 				http.Error(response, "missing protocol", http.StatusBadRequest)
@@ -197,10 +194,7 @@ func TestConnectedClientsHaveIndependentLifetimes(t *testing.T) {
 		response.Header().Set("Content-Type", "application/json")
 		switch request.URL.Path {
 		case "/v1/health":
-			_ = json.NewEncoder(response).Encode(httpapi.Health{
-				InstanceID: instanceID, PID: 42, KitVersion: version.Version,
-				ProtocolVersion: version.SessionProtocolVersion, DatabaseReady: true,
-			})
+			_ = json.NewEncoder(response).Encode(compatibleHealth(instanceID))
 		case "/v1/sessions":
 			_ = json.NewEncoder(response).Encode(protocol.SessionList{Sessions: []protocol.SessionInfo{}})
 		default:
@@ -238,10 +232,7 @@ func TestAttachedSessionOperationsReturnClientClosedAfterClose(t *testing.T) {
 		response.Header().Set("Content-Type", "application/json")
 		switch request.URL.Path {
 		case "/v1/health":
-			_ = json.NewEncoder(response).Encode(httpapi.Health{
-				InstanceID: instanceID, PID: 42, KitVersion: version.Version,
-				ProtocolVersion: version.SessionProtocolVersion, DatabaseReady: true,
-			})
+			_ = json.NewEncoder(response).Encode(compatibleHealth(instanceID))
 		case "/v1/sessions/" + sessionID:
 			snapshotRequests.Add(1)
 			_ = json.NewEncoder(response).Encode(validWatchSnapshot(sessionID, "stream_test", 0))
@@ -292,5 +283,102 @@ func TestConnectEndpointDoesNotFollowRedirects(t *testing.T) {
 	case <-contacted:
 		t.Fatal("redirect destination was contacted")
 	default:
+	}
+}
+
+const (
+	testServerID  = "server_0123456789abcdef0123456789abcdef"
+	testMachineID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+)
+
+// compatibleHealth is the health of a ready server speaking this client's protocol.
+func compatibleHealth(instanceID string) httpapi.Health {
+	return httpapi.Health{
+		InstanceID: instanceID, PID: 42, KitVersion: version.Version,
+		ProtocolVersion: version.SessionProtocolVersion, DatabaseReady: true,
+		ServerID: testServerID, MachineID: testMachineID, Home: "/home/kit",
+	}
+}
+
+func healthServer(t *testing.T, health func() httpapi.Health) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/health" {
+			http.NotFound(response, request)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(response).Encode(health())
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestServerReportsIdentityAndMachineLocality(t *testing.T) {
+	const instanceID = "instance_test"
+	server := healthServer(t, func() httpapi.Health { return compatibleHealth(instanceID) })
+	client, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret", instanceID)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	cases := []struct {
+		name  string
+		local func() (string, error)
+		same  bool
+	}{
+		{name: "matching machine", local: func() (string, error) { return testMachineID, nil }, same: true},
+		{name: "other machine", local: func() (string, error) { return strings.Repeat("f", 64), nil }, same: false},
+		{name: "unknown local machine", local: func() (string, error) { return "", errors.New("unavailable") }, same: false},
+	}
+	for _, test := range cases {
+		client.localMachineID = test.local
+		info, err := client.Server(t.Context())
+		if err != nil {
+			t.Fatalf("%s: Server() error = %v", test.name, err)
+		}
+		want := ServerInfo{
+			ID: testServerID, KitVersion: version.Version, ProtocolVersion: version.SessionProtocolVersion,
+			Home: "/home/kit", SameMachine: test.same,
+		}
+		if info != want {
+			t.Fatalf("%s: Server() = %+v, want %+v", test.name, info, want)
+		}
+	}
+}
+
+func TestConnectRejectsMalformedServerIdentity(t *testing.T) {
+	const instanceID = "instance_test"
+	cases := map[string]func(*httpapi.Health){
+		"server id":  func(health *httpapi.Health) { health.ServerID = "server_bad" },
+		"machine id": func(health *httpapi.Health) { health.MachineID = "ABC" },
+		"home":       func(health *httpapi.Health) { health.Home = "relative/home" },
+	}
+	for name, corrupt := range cases {
+		server := healthServer(t, func() httpapi.Health {
+			health := compatibleHealth(instanceID)
+			corrupt(&health)
+			return health
+		})
+		_, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret", instanceID)))
+		var protocolErr *ProtocolError
+		if !errors.As(err, &protocolErr) {
+			t.Fatalf("%s: Connect() error = %v, want ProtocolError", name, err)
+		}
+	}
+}
+
+func TestConnectReportsOtherProtocolsAsIncompatibleBeforeIdentity(t *testing.T) {
+	const instanceID = "instance_test"
+	server := healthServer(t, func() httpapi.Health {
+		return httpapi.Health{
+			InstanceID: instanceID, PID: 42, KitVersion: "0.0.1",
+			ProtocolVersion: version.SessionProtocolVersion - 1, DatabaseReady: true,
+		}
+	})
+	_, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret", instanceID)))
+	if !errors.Is(err, ErrIncompatibleServer) {
+		t.Fatalf("Connect() error = %v, want ErrIncompatibleServer", err)
 	}
 }

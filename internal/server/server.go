@@ -30,6 +30,7 @@ import (
 	"github.com/akonwi/kit/internal/mcpruntime"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
+	"github.com/akonwi/kit/internal/serveridentity"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/sessiontool"
 	"github.com/akonwi/kit/internal/settings"
@@ -316,6 +317,10 @@ func Run(ctx context.Context, options RunOptions) error {
 		return fmt.Errorf("listen on loopback: %w", err)
 	}
 
+	identity, err := loadServerIdentity(paths)
+	if err != nil {
+		return err
+	}
 	token, err := newToken()
 	if err != nil {
 		return err
@@ -351,6 +356,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		streamShutdown: streamShutdown,
 		expectedHost:   listener.Addr().String(),
 		registry:       registry,
+		identity:       identity,
 		token:          token,
 		store:          store,
 		logger:         logger,
@@ -421,6 +427,7 @@ type localHandlerOptions struct {
 	baseURL      string
 	expectedHost string
 	registry     localdiscovery.Registry
+	identity     serverIdentity
 	token        string
 	store        *storage.Store
 	sessions     sessionService
@@ -449,6 +456,7 @@ func newHandler(options localHandlerOptions) http.Handler {
 			InstanceID: options.registry.InstanceID, PID: options.registry.PID,
 			KitVersion: options.registry.KitVersion, ProtocolVersion: options.registry.ProtocolVersion,
 			DatabaseReady: options.store.Ready(ctx) == nil, Providers: options.providers(ctx),
+			ServerID: options.identity.serverID, MachineID: options.identity.machineID, Home: options.identity.home,
 		}, nil
 	})
 	httpapi.Handle(mux, lifecycleOptions, httpapi.Shutdown, func(context.Context, httpapi.ServerPath, httpapi.NoBody) (httpapi.ShutdownResult, error) {
@@ -662,6 +670,27 @@ func writeJSON(writer http.ResponseWriter, status int, value any) {
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.WriteHeader(status)
 	_ = json.NewEncoder(writer).Encode(value)
+}
+
+// serverIdentity is the stable identity reported through health.
+type serverIdentity struct {
+	serverID, machineID, home string
+}
+
+func loadServerIdentity(paths apphome.Paths) (serverIdentity, error) {
+	serverID, err := serveridentity.ServerID(paths)
+	if err != nil {
+		return serverIdentity{}, fmt.Errorf("load server id: %w", err)
+	}
+	machineID, err := serveridentity.MachineID(paths)
+	if err != nil {
+		return serverIdentity{}, fmt.Errorf("load machine id: %w", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return serverIdentity{}, fmt.Errorf("resolve server user home: %w", err)
+	}
+	return serverIdentity{serverID: serverID, machineID: machineID, home: filepath.Clean(home)}, nil
 }
 
 func newToken() (string, error) {

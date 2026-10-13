@@ -3841,53 +3841,75 @@ extension Components {
         internal struct Health: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/Health/databaseReady`.
             internal var databaseReady: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/Health/home`.
+            internal var home: Swift.String
             /// - Remark: Generated from `#/components/schemas/Health/instanceId`.
             internal var instanceId: Swift.String
             /// - Remark: Generated from `#/components/schemas/Health/kitVersion`.
             internal var kitVersion: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Health/machineId`.
+            internal var machineId: Swift.String
             /// - Remark: Generated from `#/components/schemas/Health/pid`.
             internal var pid: Swift.Int
             /// - Remark: Generated from `#/components/schemas/Health/protocolVersion`.
             internal var protocolVersion: Swift.Int
             /// - Remark: Generated from `#/components/schemas/Health/providers`.
             internal var providers: [Swift.String]
+            /// - Remark: Generated from `#/components/schemas/Health/serverId`.
+            internal var serverId: Swift.String
             /// Creates a new `Health`.
             ///
             /// - Parameters:
             ///   - databaseReady:
+            ///   - home:
             ///   - instanceId:
             ///   - kitVersion:
+            ///   - machineId:
             ///   - pid:
             ///   - protocolVersion:
             ///   - providers:
+            ///   - serverId:
             internal init(
                 databaseReady: Swift.Bool,
+                home: Swift.String,
                 instanceId: Swift.String,
                 kitVersion: Swift.String,
+                machineId: Swift.String,
                 pid: Swift.Int,
                 protocolVersion: Swift.Int,
-                providers: [Swift.String]
+                providers: [Swift.String],
+                serverId: Swift.String
             ) {
                 self.databaseReady = databaseReady
+                self.home = home
                 self.instanceId = instanceId
                 self.kitVersion = kitVersion
+                self.machineId = machineId
                 self.pid = pid
                 self.protocolVersion = protocolVersion
                 self.providers = providers
+                self.serverId = serverId
             }
             internal enum CodingKeys: String, CodingKey {
                 case databaseReady
+                case home
                 case instanceId
                 case kitVersion
+                case machineId
                 case pid
                 case protocolVersion
                 case providers
+                case serverId
             }
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.databaseReady = try container.decode(
                     Swift.Bool.self,
                     forKey: .databaseReady
+                )
+                self.home = try container.decode(
+                    Swift.String.self,
+                    forKey: .home
                 )
                 self.instanceId = try container.decode(
                     Swift.String.self,
@@ -3896,6 +3918,10 @@ extension Components {
                 self.kitVersion = try container.decode(
                     Swift.String.self,
                     forKey: .kitVersion
+                )
+                self.machineId = try container.decode(
+                    Swift.String.self,
+                    forKey: .machineId
                 )
                 self.pid = try container.decode(
                     Swift.Int.self,
@@ -3909,13 +3935,20 @@ extension Components {
                     [Swift.String].self,
                     forKey: .providers
                 )
+                self.serverId = try container.decode(
+                    Swift.String.self,
+                    forKey: .serverId
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "databaseReady",
+                    "home",
                     "instanceId",
                     "kitVersion",
+                    "machineId",
                     "pid",
                     "protocolVersion",
-                    "providers"
+                    "providers",
+                    "serverId"
                 ])
             }
         }

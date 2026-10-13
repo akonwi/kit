@@ -9,11 +9,13 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/akonwi/kit/internal/httpapi"
+	"github.com/akonwi/kit/internal/serveridentity"
 	"github.com/akonwi/kit/internal/version"
 )
 
@@ -60,6 +62,9 @@ type Connection struct {
 	ProtocolVersion         int
 	KitVersion              string
 	VerifyPublishedIdentity bool
+	// ServerID, MachineID, and Home are learned from a compatible server's
+	// health; they are empty until ProbeCompatible succeeds.
+	ServerID, MachineID, Home string
 }
 
 // Resolver returns the current authenticated server connection.
@@ -261,14 +266,42 @@ func (c *Client) ProbeConnection(ctx context.Context, connection Connection, req
 
 // ProbeCompatible verifies a ready, compatible server.
 func (c *Client) ProbeCompatible(ctx context.Context) (Connection, error) {
-	connection, _, err := c.Probe(ctx, true)
+	connection, health, err := c.Probe(ctx, true)
 	if err != nil {
 		return Connection{}, err
 	}
 	if err := CheckCompatibility(connection.ProtocolVersion, connection.KitVersion); err != nil {
 		return Connection{}, err
 	}
+	// Identity is validated only after compatibility, so a server from another
+	// protocol is reported as incompatible rather than malformed.
+	if err := validateIdentity(health); err != nil {
+		return Connection{}, err
+	}
+	connection.ServerID = health.ServerID
+	connection.MachineID = health.MachineID
+	connection.Home = health.Home
 	return connection, nil
+}
+
+func validateIdentity(health Health) error {
+	if !serveridentity.ValidServerID(health.ServerID) {
+		return protocolErrorf("server returned invalid server id %q", health.ServerID)
+	}
+	if !serveridentity.ValidMachineID(health.MachineID) {
+		return protocolErrorf("server returned invalid machine id %q", health.MachineID)
+	}
+	if !validHome(health.Home) {
+		return protocolErrorf("server returned invalid home directory %q", health.Home)
+	}
+	return nil
+}
+
+func validHome(home string) bool {
+	if home == "" || len(home) > 4096 || !path.IsAbs(home) || path.Clean(home) != home {
+		return false
+	}
+	return !strings.ContainsFunc(home, func(r rune) bool { return r < 0x20 || r == 0x7f })
 }
 
 // ErrIncompatibleServer indicates an authenticated incompatible server.

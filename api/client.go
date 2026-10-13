@@ -11,6 +11,7 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/localdiscovery"
+	"github.com/akonwi/kit/internal/serveridentity"
 )
 
 // ErrClientClosed indicates an operation attempted after Client.Close.
@@ -85,6 +86,8 @@ type Client struct {
 	cancel         context.CancelFunc
 	closed         bool
 	closeTransport func()
+	// localMachineID derives this client's machine identifier. Tests replace it.
+	localMachineID func() (string, error)
 }
 
 // Connect authenticates and verifies a compatible server without managing its lifecycle.
@@ -137,7 +140,7 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 
 func newClient(transport operationTransport, closeTransport func()) *Client {
 	lifetime, cancel := context.WithCancel(context.Background())
-	return &Client{transport: transport, lifetime: lifetime, cancel: cancel, closeTransport: closeTransport}
+	return &Client{transport: transport, lifetime: lifetime, cancel: cancel, closeTransport: closeTransport, localMachineID: localMachineID}
 }
 
 func validateEndpoint(address string) (string, error) {
@@ -287,6 +290,57 @@ func (c *Client) ProbeCompatibility(ctx context.Context) error {
 	}
 	_, err = c.compatibility.ProbeCompatible(operation)
 	return projectError(err)
+}
+
+// ServerInfo describes the server a Client is connected to.
+type ServerInfo struct {
+	// ID identifies the server's Kit home across server restarts.
+	ID string
+	// KitVersion is the server's Kit release label.
+	KitVersion string
+	// ProtocolVersion is the server's session protocol version.
+	ProtocolVersion int
+	// Home is the server user's home directory, for presenting server paths.
+	Home string
+	// SameMachine reports whether the server runs on this client's machine.
+	// It is false when this client's machine identifier is unavailable.
+	SameMachine bool
+}
+
+// Server verifies that the connected server remains ready and compatible and
+// returns its identity.
+func (c *Client) Server(ctx context.Context) (ServerInfo, error) {
+	operation, cancel, err := c.operationContext(ctx)
+	if err != nil {
+		return ServerInfo{}, err
+	}
+	defer cancel()
+	if c.compatibility == nil {
+		return ServerInfo{}, errors.New("compatibility transport is unavailable")
+	}
+	connection, err := c.compatibility.ProbeCompatible(operation)
+	if err != nil {
+		return ServerInfo{}, projectError(err)
+	}
+	return ServerInfo{
+		ID: connection.ServerID, KitVersion: connection.KitVersion, ProtocolVersion: connection.ProtocolVersion,
+		Home: connection.Home, SameMachine: c.isLocalMachine(connection.MachineID),
+	}, nil
+}
+
+func (c *Client) isLocalMachine(serverMachineID string) bool {
+	local, err := c.localMachineID()
+	return err == nil && local != "" && local == serverMachineID
+}
+
+// localMachineID derives this client's machine identifier from the effective
+// Kit home, matching how a server on this machine derives its own.
+func localMachineID() (string, error) {
+	paths, err := apphome.Resolve("")
+	if err != nil {
+		return "", err
+	}
+	return serveridentity.MachineID(paths)
 }
 
 // Models returns the server's model catalog.

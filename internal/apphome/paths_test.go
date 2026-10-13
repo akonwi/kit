@@ -70,6 +70,8 @@ func TestFromHomeBuildsLayout(t *testing.T) {
 		"registry":   filepath.Join(home, "run", "server.json"),
 		"token":      filepath.Join(home, "run", "server.token"),
 		"log":        filepath.Join(home, "logs", "server.log"),
+		"server id":  filepath.Join(home, "server-id"),
+		"machine id": filepath.Join(home, "machine-id"),
 	}
 	actual := map[string]string{
 		"database":   paths.Database,
@@ -82,6 +84,8 @@ func TestFromHomeBuildsLayout(t *testing.T) {
 		"registry":   paths.ServerRegistry,
 		"token":      paths.ServerToken,
 		"log":        paths.ServerLog,
+		"server id":  paths.ServerID,
+		"machine id": paths.MachineID,
 	}
 	for name, want := range checks {
 		if got := actual[name]; got != want {

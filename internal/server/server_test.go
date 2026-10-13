@@ -17,6 +17,7 @@ import (
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/daemonctl"
 	"github.com/akonwi/kit/internal/localdiscovery"
+	"github.com/akonwi/kit/internal/serveridentity"
 )
 
 func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
@@ -140,9 +141,10 @@ func TestRunServesHealthAndStopsGracefully(t *testing.T) {
 	probeContext, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer probeCancel()
 	var registry localdiscovery.Registry
+	var health daemonctl.Health
 	for {
 		var err error
-		registry, _, err = client.Probe(probeContext)
+		registry, health, err = client.Probe(probeContext)
 		if err == nil {
 			break
 		}
@@ -154,6 +156,22 @@ func TestRunServesHealthAndStopsGracefully(t *testing.T) {
 	}
 	if registry.PID != os.Getpid() {
 		t.Errorf("PID = %d, want in-process test PID %d", registry.PID, os.Getpid())
+	}
+	serverID, err := serveridentity.ServerID(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	machineID, err := serveridentity.MachineID(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.ServerID != serverID || health.MachineID != machineID || health.Home != filepath.Clean(userHome) {
+		t.Errorf("health identity = (%q, %q, %q), want persisted server %q, machine %q, home %q",
+			health.ServerID, health.MachineID, health.Home, serverID, machineID, filepath.Clean(userHome))
 	}
 	info, err := os.Stat(paths.ServerToken)
 	if err != nil {
