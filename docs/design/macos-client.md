@@ -241,7 +241,8 @@ spins. The activity card is hidden while a request waits.
 Keys follow the TUI dock, except that option letters are keys rather than j
 and k. Esc or × cancels. y and n answer a confirmation; a
 plugin's confirmation, or one with a default, highlights an answer that Tab or
-the arrows switch and Return chooses, and otherwise the affirmative leads. A
+the arrows switch and Return chooses, and otherwise the affirmative is primary.
+Decline sits left of confirm. A
 single choice answers on click, Return, Space, or its letter (A–Z), so a plain
 select has no footer; a multiple choice toggles on click, Space, or its letter,
 and Return continues. The arrows move the highlight. Tab
