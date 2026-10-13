@@ -50,11 +50,15 @@ Submodules and nested repositories are never traversed.
 
 ### Coherent observations
 
-The server uses sanitized, bounded, direct-exec Git plumbing only for exact
-HEAD/tree objects, semantic index records, eligible untracked paths, effective
-attributes, and allowlisted config. Every repository invocation disables
-fsmonitor, pager, prompts, inherited Git configuration, lazy fetch, and replace
-objects. Git never receives live content for conversion or diffing.
+The server trusts sanitized, bounded, direct-exec Git plumbing to discover
+changed paths. Cached and worktree raw diffs identify tracked candidates, and
+Git's ignore-aware untracked listing adds eligible new paths. The 4,000-path
+candidate limit therefore bounds changes, not repository size. Repository
+invocations disable fsmonitor, pager, prompts, inherited Git configuration,
+lazy fetch, replace objects, external diffs, and text conversion. Changed-path
+discovery also neutralizes configured clean/process filters. Submodule
+worktrees are excluded from changed-path discovery and retained conservatively
+as unresolved gitlinks.
 
 One attempt records control state, repeats it before content reads, acquires and
 hashes live files through ADR 0019's descriptor-anchored workspace authority,
@@ -85,29 +89,33 @@ other candidate change is `stale_target`; requested file change is
 
 ### Supported content
 
-Conflicted and intent-to-add paths receive summaries but no hunks. Assume-
-unchanged is only an index hint and remains supported. Skip-worktree or sparse
-index rejects the target. Symlinks, special files, binary text projections,
-and unavailable objects have typed file states. Gitlinks/submodules, nested
-repositories, oversized files, aggregate-budget overflow, and unexamined
-candidates are unresolved with unknown changedness and make the observation
+Conflicted and intent-to-add paths receive summaries but no hunks. Git's
+assume-unchanged hint is honored, so paths hidden by it are not diff candidates.
+Skip-worktree or sparse index rejects the target. Symlinks, special files,
+binary text projections, and unavailable objects have typed file states.
+Gitlinks/submodules, nested repositories, oversized files, aggregate-budget
+overflow, and unexamined candidates are unresolved with unknown changedness
+and make the observation
 incomplete; index metadata never manufactures live submodule changedness.
 
-Git resolves attribute precedence, but Kit executes no filter, external diff,
-textconv, encoding, ident, pager, hook, helper, or remote operation. R1 supports
-only literal/no-op old-side projection: filter/encoding/ident must be absent or
-unset; `-text` is literal; explicit LF text is supported only for already
-normalized blobs; unspecified text requires `core.autocrlf=false`. Automatic
-text detection and CRLF-producing transformations are `unsupported_transform`.
+Git resolves attribute precedence, but Kit does not execute filters when
+discovering, retaining, or presenting content. External diff, textconv,
+encoding, ident, pager, hook, credential, and remote helpers remain disabled.
+R1 supports only literal/no-op old-side projection: filter/encoding/ident must
+be absent or unset; `-text` is literal; explicit LF text is supported only for
+already normalized blobs; unspecified text requires `core.autocrlf=false`.
+Automatic text detection and CRLF-producing transformations are
+`unsupported_transform`.
 `-diff` is binary; named diff drivers are ignored.
 
 A regular path is called changed only after complete evidence on both sides;
 verified absence is exact evidence for additions and deletions. Text must be
-complete UTF-8 without NUL, at most 1 MiB, 100,000 logical lines, and 64 KiB per line. Aggregate observation content is at most 32 MiB across 4,000
-candidates. Non-canonical or unsafe Git path bytes are counted as
-`unsupported_path` omissions and make the observation incomplete; they are
-never lossy-encoded. Git symlinks are classified with a no-follow workspace
-operation rather than ADR 0019's final-symlink file read.
+complete UTF-8 without NUL, at most 1 MiB, 100,000 logical lines, and 64 KiB
+per line. Aggregate observation content is at most 32 MiB across 4,000
+Git-reported changed candidates. Non-canonical or unsafe Git path bytes are
+counted as `unsupported_path` omissions and make the observation incomplete;
+they are never lossy-encoded. Git symlinks are classified with a no-follow
+workspace operation rather than ADR 0019's final-symlink file read.
 
 ### Semantic contract
 

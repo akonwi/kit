@@ -57,6 +57,48 @@ func TestRepositoryAuthorityRejectsIncludesAlternatesAndArbitraryGitfile(t *test
 		})
 	}
 }
+func TestParseConfigRecordsRetainsExactFilterNames(t *testing.T) {
+	config := map[string]string{}
+	filters := map[string]bool{}
+	data := []byte("filter.Alpha.clean\nhelper\x00filter.Alpha.required\ntrue\x00filter.beta.process\nhelper\x00diff.Alpha.textconv\nhelper\x00")
+	if err := parseConfigRecords(config, filters, data); err != nil {
+		t.Fatal(err)
+	}
+	if len(filters) != 2 || !filters["Alpha"] || !filters["beta"] {
+		t.Fatalf("filters = %v", filters)
+	}
+	if config["filter.alpha.clean"] != "helper" {
+		t.Fatalf("config = %v", config)
+	}
+}
+
+func TestObserveDoesNotEnterSubmoduleWorktree(t *testing.T) {
+	source := fixture(t)
+	parent := fixture(t)
+	git(t, parent, "-c", "protocol.file.allow=always", "submodule", "add", "-q", source, "sub")
+	git(t, parent, "commit", "-qam", "add submodule")
+
+	marker := filepath.Join(t.TempDir(), "entered")
+	helper := filepath.Join(t.TempDir(), "helper")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	submodule := filepath.Join(parent, "sub")
+	git(t, submodule, "config", "core.fsmonitor", helper)
+	if err := os.WriteFile(filepath.Join(submodule, "a.txt"), []byte("dirty\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, page := observeFixture(t, parent)
+	file := summaries(page)["sub"]
+	if file.Reason != "submodule" || page.Observation.Complete {
+		t.Fatalf("submodule = %+v, observation = %+v", file, page.Observation)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("entered submodule worktree")
+	}
+}
+
 func TestConflictAssumeUnchangedAndGitlinkClassification(t *testing.T) {
 	d := fixture(t)
 	git(t, d, "checkout", "-qb", "side")
@@ -83,8 +125,8 @@ func TestConflictAssumeUnchangedAndGitlinkClassification(t *testing.T) {
 		t.Fatal(e)
 	}
 	_, p = observeFixture(t, d)
-	if summaries(p)["a.txt"].Change != "modified" {
-		t.Fatalf("assume-unchanged hidden: %+v", p.Files)
+	if len(p.Files) != 0 {
+		t.Fatalf("Git-reported assume-unchanged path: %+v", p.Files)
 	}
 	git(t, d, "update-index", "--no-assume-unchanged", "a.txt")
 	git(t, d, "checkout", "--", "a.txt")

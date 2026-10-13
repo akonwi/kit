@@ -119,6 +119,9 @@ func TestObjectSymlinkEscapingAuthorityIsRejected(t *testing.T) {
 	if e = os.Symlink(outside, loose); e != nil {
 		t.Fatal(e)
 	}
+	if e = os.WriteFile(filepath.Join(d, "a.txt"), []byte("changed\n"), 0o600); e != nil {
+		t.Fatal(e)
+	}
 	if e = observeError(t, d); e == nil {
 		t.Fatal("accepted object-store symlink")
 	}

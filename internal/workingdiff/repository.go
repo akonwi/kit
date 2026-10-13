@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -24,6 +25,7 @@ type repository struct {
 	linked                        bool
 	authorityDigest               [32]byte
 	config                        map[string]string
+	filters                       []string
 }
 type boundedWriter struct {
 	b     bytes.Buffer
@@ -263,31 +265,38 @@ func (s *Service) discoverRepository(ctx context.Context, root string) (*reposit
 			return nil, unsupported("metadata_authority")
 		}
 	}
-	configs := []string{filepath.Join(repo.common, "config")}
-	if repo.linked {
-		configs = append(configs, filepath.Join(repo.gitdir, "config.worktree"))
-	}
-	for _, p := range configs {
-		_, e := readSmall(p, 1<<20)
-		if errors.Is(e, os.ErrNotExist) {
-			continue
+	filterNames := map[string]bool{}
+	loadConfig := func(path string) error {
+		_, err := readSmall(path, 1<<20)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
 		}
-		if e != nil {
-			return nil, unsupported("config_authority")
+		if err != nil {
+			return unsupported("config_authority")
 		}
-		bad, e := unsafeMeta(p)
-		if e != nil || bad {
-			return nil, unsupported("metadata_authority")
+		bad, err := unsafeMeta(path)
+		if err != nil || bad {
+			return unsupported("metadata_authority")
 		}
-		parsed, runErr := s.runner.run(ctx, nil, nil, 1<<20, "config", "--file", p, "--no-includes", "-z", "--list")
-		if runErr != nil {
+		parsed, err := s.runner.run(ctx, nil, nil, 1<<20, "config", "--file", path, "--no-includes", "-z", "--list")
+		if err != nil {
 			if ctx.Err() != nil {
-				return nil, ctx.Err()
+				return ctx.Err()
 			}
-			return nil, unsupported("config_authority")
+			return unsupported("config_authority")
 		}
-		if err := parseConfigRecords(repo.config, parsed); err != nil {
-			return nil, unsupported("config_authority")
+		if err := parseConfigRecords(repo.config, filterNames, parsed); err != nil {
+			return unsupported("config_authority")
+		}
+		return nil
+	}
+	if err := loadConfig(filepath.Join(repo.common, "config")); err != nil {
+		return nil, err
+	}
+	worktreeConfig, validWorktreeConfig := gitBool(repo.config["extensions.worktreeconfig"])
+	if validWorktreeConfig && worktreeConfig == "true" {
+		if err := loadConfig(filepath.Join(repo.gitdir, "config.worktree")); err != nil {
+			return nil, err
 		}
 	}
 	copy(repo.authorityDigest[:], authority.Sum(nil))
@@ -329,6 +338,10 @@ func (s *Service) discoverRepository(ctx context.Context, root string) (*reposit
 	if repo.config["core.sparsecheckout"] == "true" || repo.config["core.sparsecheckoutcone"] == "true" {
 		return nil, unsupported("sparse_checkout")
 	}
+	for name := range filterNames {
+		repo.filters = append(repo.filters, name)
+	}
+	sort.Strings(repo.filters)
 	repo.config = semanticConfig(repo.config)
 	return repo, nil
 }
@@ -343,13 +356,25 @@ func gitBool(v string) (string, bool) {
 	}
 }
 
-func parseConfigRecords(dst map[string]string, data []byte) error {
+func parseConfigRecords(dst map[string]string, filters map[string]bool, data []byte) error {
 	for _, record := range splitNUL(data) {
 		key, value, ok := strings.Cut(string(record), "\n")
 		if !ok || key == "" {
 			return errors.New("malformed git config output")
 		}
-		dst[strings.ToLower(key)] = strings.ToLower(value)
+		lowerKey := strings.ToLower(key)
+		dst[lowerKey] = strings.ToLower(value)
+		if strings.HasPrefix(lowerKey, "filter.") {
+			for _, suffix := range []string{".clean", ".process", ".required"} {
+				if strings.HasSuffix(lowerKey, suffix) {
+					name := key[len("filter.") : len(key)-len(suffix)]
+					if name != "" {
+						filters[name] = true
+					}
+					break
+				}
+			}
+		}
 	}
 	return nil
 }

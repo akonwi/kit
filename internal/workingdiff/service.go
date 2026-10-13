@@ -456,6 +456,23 @@ func (s *Service) observeControl(ctx context.Context, r *repository) (control, e
 			c.index[p] = ii
 		}
 	}
+	diffArgs := make([]string, 0, len(r.filters)*6+9)
+	for _, name := range r.filters {
+		diffArgs = append(diffArgs,
+			"-c", "filter."+name+".clean=",
+			"-c", "filter."+name+".process=",
+			"-c", "filter."+name+".required=false",
+		)
+	}
+	diffArgs = append(diffArgs, "diff-files", "--raw", "-z", "--no-renames", "--abbrev=64", "--no-ext-diff", "--no-textconv", "--ignore-submodules=all")
+	worktreeDiff, e := s.runner.run(ctx, r, nil, 16<<20, diffArgs...)
+	if e != nil {
+		return c, commandFailure(ctx)
+	}
+	worktree, ok := rawDiffPaths(worktreeDiff)
+	if !ok {
+		return c, commandFailure(ctx)
+	}
 	other, e := s.runner.run(ctx, r, nil, 16<<20, "-c", "core.excludesFile=/dev/null", "ls-files", "--others", "--exclude-standard", "-z")
 	if e != nil {
 		return c, commandFailure(ctx)
@@ -472,14 +489,21 @@ func (s *Service) observeControl(ctx context.Context, r *repository) (control, e
 		c.untracked[p] = true
 	}
 	set := map[string]bool{}
-	for p := range c.tree {
+	for p := range visible {
 		set[p] = true
 	}
-	for p := range c.index {
+	for p := range worktree {
 		set[p] = true
 	}
 	for p := range c.untracked {
 		set[p] = true
+	}
+	// Git must not enter submodule worktrees. Retain each gitlink as an
+	// unresolved candidate instead, preserving conservative changedness.
+	for p, entry := range c.index {
+		if entry.mode == 0160000 {
+			set[p] = true
+		}
 	}
 	for p := range set {
 		c.candidates = append(c.candidates, p)
@@ -532,6 +556,7 @@ func (s *Service) observeControl(ctx context.Context, r *repository) (control, e
 	h := sha256.New()
 	h.Write([]byte(c.head))
 	h.Write(idx)
+	h.Write(worktreeDiff)
 	h.Write(other)
 	h.Write(itaVisible)
 	h.Write(itaInvisible)

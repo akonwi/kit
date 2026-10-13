@@ -71,6 +71,51 @@ func TestObserveBulkTrackedRepositoryWithoutRepeatingWorkspaceNameBudget(t *test
 	}
 }
 
+func TestObserveCandidateLimitCountsChangesNotTrackedFiles(t *testing.T) {
+	d := t.TempDir()
+	git(t, d, "init", "-q")
+	git(t, d, "config", "user.name", "Test")
+	git(t, d, "config", "user.email", "test@example.com")
+	for index := 0; index < protocol.MaxDiffCandidates; index++ {
+		name := filepath.Join(d, fmt.Sprintf("tracked-%04d.txt", index))
+		if err := os.WriteFile(name, []byte("base\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, d, "add", ".")
+	git(t, d, "commit", "-qm", "large base")
+	if err := os.WriteFile(filepath.Join(d, "tracked-3998.txt"), []byte("unstaged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "tracked-3999.txt"), []byte("staged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, d, "add", "tracked-3999.txt")
+	if err := os.WriteFile(filepath.Join(d, "zz-untracked.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ws := workspace.NewService()
+	service, err := NewService(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceID := ws.Ref("session_test", d).WorkspaceID
+	page, err := service.Observe(t.Context(), "session_test", d, protocol.ObserveWorkingTreeInput{WorkspaceID: workspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Files) != 3 ||
+		page.Files[0].Path != "tracked-3998.txt" || page.Files[0].Change != "modified" ||
+		page.Files[1].Path != "tracked-3999.txt" || page.Files[1].Change != "modified" ||
+		page.Files[2].Path != "zz-untracked.txt" || page.Files[2].Change != "added" {
+		t.Fatalf("files = %+v", page.Files)
+	}
+	if !page.Observation.Complete || page.Observation.Truncation != nil {
+		t.Fatalf("observation = %+v", page.Observation)
+	}
+}
+
 func TestReadFileDiffPaginatesCompleteSemanticHunks(t *testing.T) {
 	d := t.TempDir()
 	git(t, d, "init", "-q")
@@ -176,13 +221,14 @@ func TestStaleFileAndHostileHelpersNotExecuted(t *testing.T) {
 	if e := os.WriteFile(script, []byte("#!/bin/sh\ntouch '"+marker+"'\ncat\n"), 0700); e != nil {
 		t.Fatal(e)
 	}
-	if e := os.WriteFile(filepath.Join(d, ".gitattributes"), []byte("*.txt filter=evil diff=evil\n"), 0600); e != nil {
+	if e := os.WriteFile(filepath.Join(d, ".gitattributes"), []byte("*.txt filter=Evil diff=evil\n"), 0600); e != nil {
 		t.Fatal(e)
 	}
 	git(t, d, "add", ".gitattributes")
 	git(t, d, "commit", "-qm", "attrs")
 	git(t, d, "config", "core.fsmonitor", script)
-	git(t, d, "config", "filter.evil.clean", script)
+	git(t, d, "config", "extensions.worktreeConfig", "true")
+	git(t, d, "config", "--worktree", "filter.Evil.clean", script)
 	git(t, d, "config", "diff.evil.textconv", script)
 	git(t, d, "config", "core.pager", script)
 	if e := os.WriteFile(filepath.Join(d, "a.txt"), []byte("changed\n"), 0600); e != nil {
