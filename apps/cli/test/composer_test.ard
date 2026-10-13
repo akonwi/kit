@@ -210,11 +210,11 @@ fn mount(terminal: headless::TestApp, value: mut Model) cui::Renderer {
   )
 }
 
-fn key(name: Str, text: Str?) mut event::KeyEvent {
+fn key(name: Str, text: Str?, kind: event::KeyEventType?) mut event::KeyEvent {
   event::key(
     name,
     text.or(""),
-    event::KeyEventType::press,
+    kind.or(event::KeyEventType::press),
     event::Modifiers{
       shift: false,
       ctrl: false,
@@ -554,7 +554,7 @@ test fn up_restores_queued_follow_ups_only_while_any_are_queued() Void!Str {
   testing::assert(value.restores == 1, "Up restores the queue, even with a draft")
 }
 
-test fn enter_offers_a_blank_draft_as_empty() Void!Str {
+test fn enter_offers_a_blank_draft_once_as_empty() Void!Str {
   let terminal = headless::new(48, 8)
   defer terminal.destroy()
   let value = model()
@@ -566,10 +566,11 @@ test fn enter_offers_a_blank_draft_as_empty() Void!Str {
   terminal.key(character(" "))
   terminal.flush()
   terminal.key(key("return"))
+  terminal.key(key("return", kind: event::KeyEventType::repeat))
   terminal.flush()
   testing::assert(
     value.submissions == 1 and value.submitted == "",
-    "the shell decides what an empty draft sends",
+    "the shell decides what an empty draft sends, and repeats do not send it again",
   )
 }
 

@@ -1005,10 +1005,11 @@ impl cui::Component for Composer {
       ui::default_text_area_bindings(),
       ui::TextAreaAction::insert_newline,
       [keymap::key("return", shift: true)],
+    ).bind(
+      keymap::key("return"),
+      ui::TextAreaAction::submit,
+      keymap::Trigger::press,
     ).bind(keymap::key("w", shift: true, ctrl: true), ui::TextAreaAction::delete_word_forward)
-    let send = keymap::simple_command("composer.submit", "Send", fn() Bool {
-      self.request_submit()
-    })
     let open_palette = keymap::simple_command("palette.open", "Open command palette", fn() Bool {
       self.request_palette()
     })
@@ -1117,7 +1118,6 @@ impl cui::Component for Composer {
       bindings.push(keymap::binding(keymap::key("return"), choose.with()))
       bindings.push(keymap::binding(keymap::key("escape"), dismiss.with()))
     } else {
-      bindings.push(keymap::binding(keymap::key("return"), send.with()))
       if self.draft == "" {
         bindings.push(keymap::binding(keymap::key("/"), open_palette.with()))
       }
@@ -1163,9 +1163,11 @@ impl cui::Component for Composer {
       on_input: fn(value: Str, context: cui::Context) {
         self.input(value)
       },
+      on_submit: fn(value: Str, context: cui::Context) {
+        self.request_submit()
+      },
       key_bindings: editing,
       commands: [
-        send,
         open_palette,
         restore,
         recall,
