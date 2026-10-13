@@ -6,6 +6,8 @@ import ImageIO
 struct ComposerView: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
+    /// Square top corners where the queued tray sits on the composer.
+    var joinedTop = false
     @State private var mentions = ComposerMentionState()
     @State private var history = ComposerHistoryState()
     @State private var pickerAnchor = ComposerPickerAnchor()
@@ -149,8 +151,8 @@ struct ComposerView: View {
         }
         .background(ComposerPickerAnchorView(anchor: pickerAnchor))
         .background(theme.raised)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder((focused || attachmentDropTargeted) ? theme.focusBorder : theme.border, lineWidth: 1))
+        .clipShape(shape)
+        .overlay(shape.strokeBorder((focused || attachmentDropTargeted) ? theme.focusBorder : theme.border, lineWidth: 1))
         .onDrop(of: [UTType.fileURL.identifier, UTType.image.identifier], isTargeted: $attachmentDropTargeted,
                 perform: acceptAttachments)
         .task(id: state.selectedID) { await state.loadComposer() }
@@ -190,12 +192,16 @@ struct ComposerView: View {
             state.annotationState.records.isEmpty && state.ui.workspace.notes.isEmpty && state.ui.attachments.isEmpty && state.ui.serverAttachmentIDs.isEmpty && state.ui.uploads.items.isEmpty
     }
 
+    private var shape: UnevenRoundedRectangle {
+        let top: CGFloat = joinedTop ? 0 : 4
+        return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: 4,
+                                      bottomTrailingRadius: 4, topTrailingRadius: top)
+    }
+
+    /// Input the composer can't send, or a queue error with no tray to show it.
     private var showOperationDetails: Bool {
-        switch state.operations.submission {
-        case .rejected: return true
-        default:
-            return (state.operations.queue?.count ?? 0) > 0 || state.operations.queueError != nil
-        }
+        if case .rejected = state.operations.submission { return true }
+        return state.operations.queueError != nil && (state.operations.queue?.count ?? 0) == 0
     }
 
     private func acceptAttachments(_ providers: [NSItemProvider]) -> Bool {

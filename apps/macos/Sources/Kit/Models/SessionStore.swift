@@ -679,7 +679,11 @@ final class SessionStore {
         guard !annotations.contains(where: \.stale) else { operations.reject("Source changed. Replace or delete stale annotations before sending."); return }
         let annotationIDs = annotations.map(\.id)
         let text = ui.draft + review
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachmentIDs.isEmpty || !annotationIDs.isEmpty else { return }
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, attachmentIDs.isEmpty, annotationIDs.isEmpty {
+            // As in the TUI, Return in an empty composer sends the queue to the running turn.
+            if running, (operations.queue?.count ?? 0) > 0 { changeQueue(.promote) }
+            return
+        }
         let id = selectedID
         if let command = PromptCommand.invocation(ui.draft) {
             guard (selected?.promptCommands ?? []).contains(where: { $0.name == command.name }) else {

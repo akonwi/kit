@@ -283,13 +283,8 @@ struct SessionFeedbackCard: View {
         HStack(spacing: 8) {
             if let title = item.actionTitle, let action = item.action {
                 // Acting on a toast resolves it.
-                Button { action(); close() } label: {
-                    Text(title).font(.kit(size: 12)).foregroundStyle(theme.text)
-                        .padding(.horizontal, 8).frame(height: 22)
-                        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).focused($focused)
+                Button(title) { action(); close() }
+                    .buttonStyle(SmallButtonStyle(bordered: true)).focused($focused)
             }
             if hasMore && !item.detail.isEmpty {
                 Button {

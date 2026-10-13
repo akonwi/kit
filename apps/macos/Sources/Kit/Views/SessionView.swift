@@ -56,10 +56,15 @@ struct SessionComposerRegion: View {
                 }
             }
             if let flow = state.interactions.first {
+                queuedTray(joined: false)
                 InteractionCard(flow: flow, pendingCount: state.interactions.count) { state.finishInteraction(cancelled: $0) }
                     .id(flow.id).frame(maxWidth: .infinity)
             } else {
-                ComposerView(state: state)
+                // The tray and composer share a border line.
+                VStack(spacing: -1) {
+                    queuedTray(joined: true)
+                    ComposerView(state: state, joinedTop: showsQueue)
+                }
             }
             if !state.isDemo && !state.unavailable && state.connectionState != .connected {
                 HStack {
@@ -73,6 +78,19 @@ struct SessionComposerRegion: View {
         .padding([.horizontal, .bottom], 14)
         .frame(maxWidth: .infinity)
         .background(theme.surface)
+    }
+
+    private var showsQueue: Bool { !state.isDemo && (state.operations.queue?.count ?? 0) > 0 }
+
+    @ViewBuilder private func queuedTray(joined: Bool) -> some View {
+        if showsQueue, let queue = state.operations.queue {
+            let operations = state.operations
+            QueuedTray(queue: queue, error: operations.queueError,
+                       enabled: !state.unavailable && !operations.queuePending && !operations.sending && !operations.uncertain,
+                       running: state.running,
+                       edit: { state.changeQueue(.edit) }, clear: { state.changeQueue(.remove) },
+                       sendNow: { state.changeQueue(.promote) }, joined: joined)
+        }
     }
 }
 

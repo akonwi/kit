@@ -56,7 +56,10 @@ private actor MutationStub: SessionMutationClient {
         queue = WireFollowUpQueue(count: 0, previews: [], annotationIds: nil)
         return WireRestoreFollowUpsResult(messages: [WirePromptInput(text: "Restored", attachmentIds: ["attachment"], annotationIds: nil)], queue: queue)
     }
+    var promotions = 0
+    func queueFollowUp(_ preview: String) { queue = WireFollowUpQueue(count: 1, previews: [preview], annotationIds: nil) }
     func promoteFollowUps(_ session: String) async throws -> WirePromoteFollowUpsResult {
+        promotions += 1
         queue = WireFollowUpQueue(count: 0, previews: [], annotationIds: nil)
         return WirePromoteFollowUpsResult(promoted: 1, queue: queue)
     }
@@ -219,6 +222,19 @@ private actor MutationStub: SessionMutationClient {
         #expect(state.ui.draft == "Restored")
         #expect(state.ui.serverAttachmentIDs == ["attachment"])
         #expect(state.operations.queue?.count == 0)
+    }
+    @Test func returnInAnEmptyComposerSendsTheQueueToTheRunningTurn() async throws {
+        let client = MutationStub()
+        await client.beginRun()
+        await client.queueFollowUp("Also run the split tree tests")
+        let state = try await store(client)
+        defer { state.detach() }
+        try await wait { state.operations.queue?.count == 1 }
+        state.ui.draft = "  "
+        state.send()
+        try await wait { await client.promotions == 1 }
+        try await wait { state.operations.queue?.count == 0 }
+        #expect(await client.calls.isEmpty)
     }
     @Test func queuedReceiptBecomesSentOnceItsTurnIsObserved() async throws {
         let client = MutationStub()

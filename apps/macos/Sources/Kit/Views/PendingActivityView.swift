@@ -113,12 +113,7 @@ struct PendingActivityView: View {
         Image(systemName: "exclamationmark.circle").font(.system(size: 12)).foregroundStyle(theme.danger)
         Text(message).foregroundStyle(theme.danger).lineLimit(1).truncationMode(.tail).help(message)
             .frame(maxWidth: .infinity, alignment: .leading)
-        Button(action: retry) {
-            Text("Retry").font(.kit(size: 12)).foregroundStyle(theme.text)
-                .padding(.horizontal, 8).frame(height: 22)
-                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border))
-                .contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        Button("Retry", action: retry).buttonStyle(SmallButtonStyle(bordered: true))
     }
 
     private var spinner: some View { KitSpinner().foregroundStyle(theme.accent) }

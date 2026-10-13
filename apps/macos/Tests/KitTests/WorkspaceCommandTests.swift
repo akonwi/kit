@@ -114,4 +114,20 @@ struct WorkspaceCommandTests {
         #expect(LiveActivity.latestLine(thinking) == "Recursing would fix it.")
         #expect(LiveActivity.latestLine(" \n") == nil)
     }
+
+    @Test func queuedTrayShowsThreePreviewsThenCountsTheRest() throws {
+        func queue(_ count: Int, _ previews: [String]) throws -> FollowUpState {
+            try FollowUpState(WireFollowUpQueue(count: count, previews: previews, annotationIds: nil))
+        }
+        let five = try QueuedTray.rows(queue(5, ["One", "Two", "Three", "Four", "Five"]))
+        #expect(five.previews == ["One", "Two", "Three"])
+        #expect(five.more == 2)
+        // The server may send fewer previews than it queued.
+        let partial = try QueuedTray.rows(queue(4, ["One", "Two"]))
+        #expect(partial.previews == ["One", "Two"])
+        #expect(partial.more == 2)
+        let two = try QueuedTray.rows(queue(2, ["One", "Two"]))
+        #expect(two.previews == ["One", "Two"])
+        #expect(two.more == 0)
+    }
 }

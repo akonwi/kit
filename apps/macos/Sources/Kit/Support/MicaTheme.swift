@@ -72,6 +72,38 @@ struct MicaButtonStyle: ButtonStyle {
     }
 }
 
+/// A 22 pt text button for actions inside cards: toasts, the activity card,
+/// and the queued tray. The bordered form marks the card's main action.
+struct SmallButtonStyle: ButtonStyle {
+    var bordered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        Label(configuration: configuration, bordered: bordered)
+    }
+
+    private struct Label: View {
+        @Environment(\.mica) private var theme
+        @Environment(\.isEnabled) private var enabled
+        @State private var hovering = false
+        let configuration: Configuration
+        let bordered: Bool
+
+        var body: some View {
+            configuration.label
+                .font(.kit(size: 12)).foregroundStyle(theme.text).lineLimit(1)
+                .padding(.horizontal, 8).frame(height: 22)
+                .background(hovering || configuration.isPressed ? theme.hover : .clear,
+                            in: RoundedRectangle(cornerRadius: 3))
+                .overlay {
+                    if bordered { RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border) }
+                }
+                .contentShape(Rectangle())
+                .opacity(enabled ? 1 : 0.45)
+                .onHover { hovering = enabled && $0 }
+        }
+    }
+}
+
 struct Rule: View {
     @Environment(\.mica) private var theme
     var body: some View { Rectangle().fill(theme.border).frame(height: 1) }

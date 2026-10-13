@@ -220,6 +220,13 @@ to send again. The client never automatically resubmits prompts. Queue restorati
 returns all queued messages to the composer together; individual queue editing
 and deletion are unsupported.
 
+Queued messages sit in a tray joined to the top of the Agent composer, or above
+the interaction dock while one is open. Its header reads "N queued" with Edit
+(restore to the composer), Clear, and Send now (steer the running turn). It
+shows the server's first three previews, numbered, then "N more". Rows aren't
+clickable. As in the TUI, Return in an empty composer sends the queue while a
+turn runs.
+
 ## Transcript rendering
 
 `NativeTranscript` uses reusable NSTableView rows hosting SwiftUI content. History
