@@ -30,6 +30,7 @@ import (
 	"github.com/akonwi/kit/internal/mcpruntime"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
+	"github.com/akonwi/kit/internal/serveraccess"
 	"github.com/akonwi/kit/internal/serveridentity"
 	"github.com/akonwi/kit/internal/serverlisten"
 	kitsession "github.com/akonwi/kit/internal/session"
@@ -366,9 +367,8 @@ func Run(ctx context.Context, options RunOptions) error {
 	streamShutdown, endStreams := context.WithCancel(context.Background())
 	defer endStreams()
 	handler := newHandler(localHandlerOptions{
-		baseURL:        baseURL,
 		streamShutdown: streamShutdown,
-		expectedHost:   strings.TrimPrefix(baseURL, "http://"),
+		access:         accessPolicy(settingsStore, logger),
 		registry:       registry,
 		identity:       identity,
 		token:          token,
@@ -438,16 +438,16 @@ func Run(ctx context.Context, options RunOptions) error {
 }
 
 type localHandlerOptions struct {
-	baseURL      string
-	expectedHost string
-	registry     localdiscovery.Registry
-	identity     serverIdentity
-	token        string
-	store        *storage.Store
-	sessions     sessionService
-	attachments  attachmentService
-	providers    func(context.Context) []string
-	requestStop  func()
+	// access decides which Host and Origin headers name this daemon.
+	access      serveraccess.Policy
+	registry    localdiscovery.Registry
+	identity    serverIdentity
+	token       string
+	store       *storage.Store
+	sessions    sessionService
+	attachments attachmentService
+	providers   func(context.Context) []string
+	requestStop func()
 	// streamShutdown ends open event streams when it is done.
 	streamShutdown context.Context
 	// logger receives causes of failed requests; nil disables reporting.
@@ -485,11 +485,11 @@ func newHandler(options localHandlerOptions) http.Handler {
 	}
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Host != options.expectedHost {
+		if !options.access.HostAllowed(request.Host) {
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusMisdirectedRequest, httpapi.ErrorInvalidHost, "invalid host", nil))
 			return
 		}
-		if origin := request.Header.Get("Origin"); origin != "" && origin != options.baseURL {
+		if !options.access.OriginAllowed(request.Header.Get("Origin"), request.Host) {
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusForbidden, httpapi.ErrorForbidden, "forbidden", nil))
 			return
 		}
@@ -711,6 +711,22 @@ func listenAddress(override string, store *settings.Store, logger *slog.Logger) 
 		return serverlisten.MustParse(serverlisten.Default), nil
 	}
 	return serverlisten.MustParse(current.ServerListen), nil
+}
+
+// accessPolicy reads the allowed hosts and origins from settings. Settings
+// that cannot be read leave only loopback hosts and same-host origins.
+func accessPolicy(store *settings.Store, logger *slog.Logger) serveraccess.Policy {
+	current, warnings, err := store.Load()
+	if err != nil {
+		logger.Warn("settings unavailable; accepting only loopback hosts", "error", err)
+		return serveraccess.Policy{}
+	}
+	for _, warning := range warnings {
+		if warning.Field == "server.allowedHosts" || warning.Field == "server.allowedOrigins" {
+			logger.Warn("ignoring invalid access setting", "error", warning)
+		}
+	}
+	return serveraccess.NewPolicy(current.ServerAllowedHosts, current.ServerAllowedOrigins)
 }
 
 // serverIdentity is the stable identity reported through health.
