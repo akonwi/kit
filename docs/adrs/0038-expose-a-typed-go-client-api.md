@@ -87,7 +87,9 @@ provided.
 `Connect` accepts an explicit target. The initial targets are local daemon
 discovery and an explicitly configured server endpoint. Target construction
 contains transport-specific configuration; operations performed after
-connection do not.
+connection do not. [ADR 0045](./0045-connect-clients-to-local-ssh-and-network-servers.md)
+adds attach-only Kit home and SSH targets, lets an endpoint learn its server
+instance from health, and has every target re-resolve after a server restart.
 
 The package hides:
 

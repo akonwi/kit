@@ -12,7 +12,7 @@ the canonical server and session protocol over authenticated HTTP with SSE event
 delivery ([ADR 0011](./0011-use-sse-for-session-events.md)). The native TUI and
 the semantic browser client are the first two viewports. The same protocol is
 intended to serve local daemons discovered through the run directory and
-explicitly exposed remote servers started with `kit serve`.
+explicitly exposed remote servers.
 
 A desktop application is a third viewport. Candidate approaches were evaluated:
 an Electron or webview shell around the browser client, a Rust/GPUI application
@@ -39,7 +39,7 @@ The local daemon is the default endpoint, not a special code path:
 
 ```text
 Kit.app ── server client ──▶ local daemon   (discovered or started)
-        ── server client ──▶ kit serve host (explicit remote endpoint)
+        ── server client ──▶ served Kit server (explicit remote endpoint)
 ```
 
 - The application discovers or starts the local daemon using the same run
@@ -47,9 +47,11 @@ Kit.app ── server client ──▶ local daemon   (discovered or started)
   executable inside its bundle so it can start the daemon in the internal
   daemon role without a separate installation.
 - The application accepts explicit remote endpoints and stores them as named
-  servers. Remote authentication uses the token contract defined for CLI
-  clients; the application never places credentials in URLs and stores tokens
-  in the macOS Keychain.
+  servers in the registry shared with the TUI. Remote authentication uses the
+  device tokens and pairing of
+  [ADR 0045](./0045-connect-clients-to-local-ssh-and-network-servers.md); the
+  application never places credentials in URLs and stores tokens in the macOS
+  Keychain. SSH servers use the bundled `kit` executable as a tunnel helper.
 - Kit does not terminate TLS. Remote endpoints are reached through user-managed
   HTTPS reverse proxies or private tunnels, and the application treats plain
   HTTP to non-loopback hosts as an explicit insecure choice.
@@ -59,7 +61,7 @@ Kit.app ── server client ──▶ local daemon   (discovered or started)
 - Server capability discovery drives feature availability. Workspace operations
   execute on the server host, never on the client machine. Local-only
   affordances such as opening a path in Finder are offered only when the server
-  is the local daemon.
+  runs on the same machine, as determined by its reported machine identity.
 
 ### Protocol boundary
 
