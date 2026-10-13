@@ -13,6 +13,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/akonwi/kit/internal/serverlisten"
 	"github.com/akonwi/kit/internal/theme"
 	"golang.org/x/sys/unix"
 )
@@ -30,6 +31,9 @@ type Settings struct {
 	// ReadClaudeConfigs enables discovery of Claude Code configuration, which is
 	// a project's .claude/commands directory. It defaults to true.
 	ReadClaudeConfigs bool
+	// ServerListen is the daemon listen address from server.listen, or empty
+	// for the default loopback address on an ephemeral port.
+	ServerListen string
 
 	fields map[string]json.RawMessage
 }
@@ -250,6 +254,21 @@ func (s *Store) load() (Settings, []Warning, error) {
 			result.ReadClaudeConfigs = true
 		}
 	}
+	if raw, ok := fields["server"]; ok {
+		var server map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &server); err != nil || server == nil {
+			warnings = append(warnings, Warning{Field: "server", Err: errors.New("must be an object; ignoring")})
+		} else if encoded, ok := server["listen"]; ok {
+			var listen string
+			if err := json.Unmarshal(encoded, &listen); err != nil {
+				warnings = append(warnings, Warning{Field: "server.listen", Err: errors.New("must be a string; using " + serverlisten.Default)})
+			} else if address, err := serverlisten.Parse(listen); err != nil {
+				warnings = append(warnings, Warning{Field: "server.listen", Err: fmt.Errorf("%w; using %s", err, serverlisten.Default)})
+			} else {
+				result.ServerListen = address.String()
+			}
+		}
+	}
 	if raw, ok := fields["modelOverrides"]; ok {
 		var overrides map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &overrides); err != nil {
@@ -313,7 +332,7 @@ func defaultSettings() Settings {
 
 func cloneSettings(source Settings) Settings {
 	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, CompactionModel: source.CompactionModel, DiffWrapLines: source.DiffWrapLines,
-		PromptCacheRetention: source.PromptCacheRetention, ReadClaudeConfigs: source.ReadClaudeConfigs, fields: make(map[string]json.RawMessage, len(source.fields))}
+		PromptCacheRetention: source.PromptCacheRetention, ReadClaudeConfigs: source.ReadClaudeConfigs, ServerListen: source.ServerListen, fields: make(map[string]json.RawMessage, len(source.fields))}
 	if source.ModelOverrides != nil {
 		result.ModelOverrides = make(map[string]ModelOverride, len(source.ModelOverrides))
 		for selector, override := range source.ModelOverrides {

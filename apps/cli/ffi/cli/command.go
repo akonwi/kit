@@ -349,19 +349,29 @@ func newServerCommand(deps commandDependencies) *cobra.Command {
 	}
 	for _, action := range []struct {
 		name, description string
+		listen            bool
 	}{
-		{name: "start", description: "Start or discover the server"},
+		{name: "start", description: "Start or discover the server", listen: true},
 		{name: "status", description: "Inspect server status"},
 		{name: "stop", description: "Stop the server"},
-		{name: "restart", description: "Restart the server"},
+		{name: "restart", description: "Restart the server", listen: true},
 	} {
 		action := action
-		command.AddCommand(&cobra.Command{
+		var listen string
+		subcommand := &cobra.Command{
 			Use: action.name, Short: action.description, Args: cobra.NoArgs,
 			RunE: func(command *cobra.Command, _ []string) error {
-				return resultForCode(deps.server(command.Context(), []string{action.name}, command.OutOrStdout(), command.ErrOrStderr()))
+				arguments := []string{action.name}
+				if listen != "" {
+					arguments = append(arguments, "--listen", listen)
+				}
+				return resultForCode(deps.server(command.Context(), arguments, command.OutOrStdout(), command.ErrOrStderr()))
 			},
-		})
+		}
+		if action.listen {
+			subcommand.Flags().StringVar(&listen, "listen", "", "listen on host:port instead of the server.listen setting")
+		}
+		command.AddCommand(subcommand)
 	}
 	return command
 }

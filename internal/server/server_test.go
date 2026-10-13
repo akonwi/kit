@@ -3,12 +3,15 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -208,5 +211,66 @@ func TestRunServesHealthAndStopsGracefully(t *testing.T) {
 	}
 	if _, err := os.Stat(paths.ServerToken); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("token still exists after shutdown: %v", err)
+	}
+}
+
+func TestRunListensOnTheRequestedAddress(t *testing.T) {
+	t.Parallel()
+	reserved, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := reserved.Addr().(*net.TCPAddr).Port
+	_ = reserved.Close()
+
+	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- Run(ctx, RunOptions{
+			Paths: paths, Listen: fmt.Sprintf("127.0.0.1:%d", port),
+			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		})
+	}()
+
+	client := daemonctl.NewClient(paths)
+	probeContext, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer probeCancel()
+	var registry localdiscovery.Registry
+	for {
+		registry, _, err = client.Probe(probeContext)
+		if err == nil {
+			break
+		}
+		select {
+		case <-probeContext.Done():
+			t.Fatalf("daemon did not become ready: %v", err)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if want := fmt.Sprintf("http://127.0.0.1:%d", port); registry.URL != want {
+		t.Fatalf("published URL = %q, want %q", registry.URL, want)
+	}
+
+	cancel()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("daemon did not stop")
+	}
+}
+
+func TestRunRejectsAnUnreachableListenOverride(t *testing.T) {
+	t.Parallel()
+	err := Run(context.Background(), RunOptions{
+		Paths: apphome.FromHome(filepath.Join(t.TempDir(), "kit")), Listen: "192.168.1.10:7777",
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err == nil || !strings.Contains(err.Error(), "loopback address or 0.0.0.0/::") {
+		t.Fatalf("Run() error = %v, want the listen address rule", err)
 	}
 }

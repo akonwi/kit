@@ -14,6 +14,7 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/securefs"
+	"github.com/akonwi/kit/internal/serverlisten"
 	"github.com/gofrs/flock"
 )
 
@@ -21,15 +22,33 @@ import (
 // a mutation to the persisted credential store.
 var ErrEnvironmentCredentialsActive = errors.New("running daemon uses environment credentials")
 
+// ErrListenMismatch indicates that the running daemon does not listen on the
+// requested address.
+var ErrListenMismatch = errors.New("running daemon does not listen on the requested address")
+
 // Manager discovers, starts, inspects, and stops the local daemon.
 type Manager struct {
 	paths  apphome.Paths
 	client *Client
+	listen *serverlisten.Address
+}
+
+// Option configures a Manager.
+type Option func(*Manager)
+
+// WithListen starts the daemon on address instead of its configured listener
+// and requires an already running daemon to serve that address.
+func WithListen(address serverlisten.Address) Option {
+	return func(m *Manager) { m.listen = &address }
 }
 
 // NewManager creates a daemon lifecycle manager.
-func NewManager(paths apphome.Paths) *Manager {
-	return &Manager{paths: paths, client: NewClient(paths)}
+func NewManager(paths apphome.Paths, options ...Option) *Manager {
+	manager := &Manager{paths: paths, client: NewClient(paths)}
+	for _, option := range options {
+		option(manager)
+	}
+	return manager
 }
 
 // Ensure returns a compatible local daemon, starting one if needed.
@@ -41,7 +60,14 @@ func (m *Manager) Ensure(ctx context.Context) (localdiscovery.Registry, error) {
 		PollInterval: 50 * time.Millisecond,
 		StartTimeout: 10 * time.Second,
 	}
-	return coordinator.Ensure(ctx)
+	registry, err := coordinator.Ensure(ctx)
+	if err != nil {
+		return localdiscovery.Registry{}, err
+	}
+	if m.listen != nil && !m.listen.Serves(registry.URL) {
+		return localdiscovery.Registry{}, fmt.Errorf("%w: it serves %s, not %s; restart it to change the address", ErrListenMismatch, registry.URL, m.listen)
+	}
+	return registry, nil
 }
 
 // Status returns the currently registered daemon, including an older version or
@@ -248,7 +274,11 @@ func (m *Manager) launch(ctx context.Context) error {
 	}
 	defer input.Close()
 
-	command := exec.Command(daemonExecutable, "__server", "--home", m.paths.Home)
+	arguments := []string{"__server", "--home", m.paths.Home}
+	if m.listen != nil {
+		arguments = append(arguments, "--listen", m.listen.String())
+	}
+	command := exec.Command(daemonExecutable, arguments...)
 	command.Dir = m.paths.Home
 	command.Stdin = input
 	command.Stdout = logFile

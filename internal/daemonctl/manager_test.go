@@ -3,6 +3,7 @@ package daemonctl
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/localdiscovery"
+	"github.com/akonwi/kit/internal/serverlisten"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/gofrs/flock"
 )
@@ -352,5 +354,59 @@ func TestManagerLaunchHonorsCanceledContext(t *testing.T) {
 	}
 	if _, err := os.Stat(paths.ServerRegistry); !os.IsNotExist(err) {
 		t.Fatalf("canceled launch published a daemon: %v", err)
+	}
+}
+
+func TestEnsureRequiresARunningDaemonToServeTheRequestedAddress(t *testing.T) {
+	t.Parallel()
+	const (
+		token      = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+		instanceID = "listen-instance"
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+token || request.Header.Get(instanceHeader) != instanceID {
+			http.Error(writer, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		writeJSON(writer, http.StatusOK, Health{
+			InstanceID: instanceID, PID: os.Getpid(), KitVersion: version.Version,
+			ProtocolVersion: version.SessionProtocolVersion, DatabaseReady: true,
+		})
+	}))
+	defer server.Close()
+	port := server.Listener.Addr().(*net.TCPAddr).Port
+
+	for _, test := range []struct {
+		listen  string
+		wantErr error
+	}{
+		{listen: "127.0.0.1:0"},
+		{listen: "127.0.0.1:" + strconv.Itoa(port)},
+		{listen: "0.0.0.0:" + strconv.Itoa(port)},
+		{listen: "127.0.0.1:" + strconv.Itoa(port+1), wantErr: ErrListenMismatch},
+	} {
+		paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+		if err := paths.Ensure(); err != nil {
+			t.Fatal(err)
+		}
+		lifetime := flock.New(paths.ServerLock)
+		if locked, err := lifetime.TryLock(); err != nil || !locked {
+			t.Fatalf("hold daemon lifetime = %v, %v", locked, err)
+		}
+		registry := localdiscovery.Registry{
+			RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: version.SessionProtocolVersion,
+			KitVersion: version.Version, PID: os.Getpid(), InstanceID: instanceID,
+			URL: server.URL, StartedAt: time.Now().UTC(),
+		}
+		if err := localdiscovery.Publish(paths, token, registry); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err := NewManager(paths, WithListen(serverlisten.MustParse(test.listen))).Ensure(ctx)
+		cancel()
+		_ = lifetime.Unlock()
+		if !errors.Is(err, test.wantErr) {
+			t.Fatalf("Ensure() with listen %s error = %v, want %v", test.listen, err, test.wantErr)
+		}
 	}
 }

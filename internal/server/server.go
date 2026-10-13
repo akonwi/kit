@@ -31,6 +31,7 @@ import (
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
 	"github.com/akonwi/kit/internal/serveridentity"
+	"github.com/akonwi/kit/internal/serverlisten"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/sessiontool"
 	"github.com/akonwi/kit/internal/settings"
@@ -59,6 +60,9 @@ type RunOptions struct {
 	Providers         droids.Providers
 	CredentialSources map[string]localdiscovery.CredentialSource
 	SystemPrompt      string
+	// Listen overrides the server.listen setting for this process. Empty uses
+	// the setting, or loopback on an ephemeral port when it is unset.
+	Listen string
 }
 
 // Run serves the authenticated local daemon until cancellation or shutdown.
@@ -312,9 +316,20 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err := sessionManager.StartPeerQueries(ctx); err != nil {
 		return fmt.Errorf("start peer query delivery: %w", err)
 	}
-	listener, err = net.Listen("tcp4", "127.0.0.1:0")
+	address, err := listenAddress(options.Listen, settingsStore, logger)
 	if err != nil {
-		return fmt.Errorf("listen on loopback: %w", err)
+		return err
+	}
+	listener, err = address.Listen()
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", address, err)
+	}
+	baseURL, err := address.LoopbackURL(listener.Addr())
+	if err != nil {
+		return err
+	}
+	if address.Exposed() {
+		logger.Warn("daemon listens beyond loopback", "address", address.String())
 	}
 
 	identity, err := loadServerIdentity(paths)
@@ -330,7 +345,6 @@ func Run(ctx context.Context, options RunOptions) error {
 		return err
 	}
 	startedAt := time.Now().UTC()
-	baseURL := "http://" + listener.Addr().String()
 	registry := localdiscovery.Registry{
 		RegistryVersion:   version.LocalRegistryVersion,
 		ProtocolVersion:   version.SessionProtocolVersion,
@@ -354,7 +368,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	handler := newHandler(localHandlerOptions{
 		baseURL:        baseURL,
 		streamShutdown: streamShutdown,
-		expectedHost:   listener.Addr().String(),
+		expectedHost:   strings.TrimPrefix(baseURL, "http://"),
 		registry:       registry,
 		identity:       identity,
 		token:          token,
@@ -670,6 +684,33 @@ func writeJSON(writer http.ResponseWriter, status int, value any) {
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.WriteHeader(status)
 	_ = json.NewEncoder(writer).Encode(value)
+}
+
+// listenAddress selects the explicit override, then the server.listen
+// setting, then the default loopback address. An invalid override fails
+// startup; an invalid setting falls back to the default with a warning.
+func listenAddress(override string, store *settings.Store, logger *slog.Logger) (serverlisten.Address, error) {
+	if override != "" {
+		address, err := serverlisten.Parse(override)
+		if err != nil {
+			return serverlisten.Address{}, err
+		}
+		return address, nil
+	}
+	current, warnings, err := store.Load()
+	if err != nil {
+		logger.Warn("settings unavailable; listening on the default address", "error", err)
+		return serverlisten.MustParse(serverlisten.Default), nil
+	}
+	for _, warning := range warnings {
+		if warning.Field == "server" || warning.Field == "server.listen" {
+			logger.Warn("ignoring invalid listen setting", "error", warning)
+		}
+	}
+	if current.ServerListen == "" {
+		return serverlisten.MustParse(serverlisten.Default), nil
+	}
+	return serverlisten.MustParse(current.ServerListen), nil
 }
 
 // serverIdentity is the stable identity reported through health.
