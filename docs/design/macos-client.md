@@ -149,9 +149,15 @@ closes the session tab. Esc cancels a tab drag.
 
 There is no footer below the tiles. Status that the footer showed (compaction,
 provider retry countdown, replay, local notices) appears in the Agent pane's
-activity card, ranked by urgency below a provider retry. Diff, Scratchpad,
-files, and the subagent list open from the Tile and Session menus and the
-command palette.
+activity card. Diff, Scratchpad, files, and the subagent list open from the
+Tile and Session menus and the command palette.
+
+The activity card shows one line, chosen in this order: a failed stop, a failed
+turn start, a provider retry with its live countdown and attempt, compaction,
+the live activity (latest thinking line, or "Working…"), then a local notice.
+Failures appear in red with a Retry button; local composer validation stays at
+the composer. The card has no thinking panel: the complete reasoning is in the
+transcript's tool drawers.
 
 ### Appearance and themes
 

@@ -43,11 +43,17 @@ struct SessionComposerRegion: View {
     var body: some View {
         VStack(spacing: 8) {
             if state.interactions.isEmpty {
-                PendingActivityView(line: state.unavailable ? nil : ActivityLine.resolve(
+                let line = state.unavailable ? nil : ActivityLine.resolve(
                     activity: state.activity,
                     compaction: state.compactionOperation.pending ? state.compactionOperation.title : nil,
                     retryAt: state.selected?.providerRetryAt,
-                    replaying: state.replaying, notice: state.notice))
+                    retryAttempt: state.selected?.providerRetryCount,
+                    startFailure: state.operations.startFailure,
+                    stopFailure: state.operations.abortError,
+                    notice: state.notice)
+                PendingActivityView(line: line) {
+                    if case .failedToStop = line { state.abortRun() } else { state.send() }
+                }
             }
             if let flow = state.interactions.first {
                 InteractionCard(flow: flow, pendingCount: state.interactions.count) { state.finishInteraction(cancelled: $0) }

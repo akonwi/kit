@@ -81,7 +81,7 @@ struct SessionEventProjectionTests {
         let initial = try JSONDecoder().decode(WireSessionSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
         var state = try SessionEventProjection(initial)
         #expect(state.session.activeCompactionID == "compact_a")
-        #expect(state.session.activity == "Compacting context…")
+        #expect(state.session.activity == "Compacting session…")
         try state.apply(event("compaction.completed", ["compactionId": "older"]))
         #expect(state.session.activeCompactionID == "compact_a")
         try state.apply(event("compaction.completed", ["compactionId": "compact_a"]))
@@ -319,6 +319,18 @@ struct SessionEventProjectionTests {
         #expect(state.session.messages.count == 0)
         try state.apply(event("assistant.completed", ["messageId": "m", "text": "Hello world"]))
         #expect(state.session.messages.map(\.text) == ["Hello world"])
+        try state.apply(event("turn.completed", ["status": "completed"]))
+        #expect(state.session.activity == nil)
+    }
+    @Test func activityCardShowsTheLatestThinkingLineUntilWorkResumes() throws {
+        var state = try SessionEventProjection(snapshot())
+        try state.apply(event("turn.started"))
+        try state.apply(event("assistant.started", ["messageId": "m"]))
+        try state.apply(event("assistant.thinking.delta", ["messageId": "m", "delta": "The tree is split.\n\n", "contentIndex": 0]))
+        try state.apply(event("assistant.thinking.delta", ["messageId": "m", "delta": "Checking `equalized()`", "contentIndex": 0]))
+        #expect(state.session.activity == "Checking `equalized()`")
+        try state.apply(event("tool.started", ["messageId": "m", "toolCallId": "a", "toolName": "bash"]))
+        #expect(state.session.activity == "Working…")
         try state.apply(event("turn.completed", ["status": "completed"]))
         #expect(state.session.activity == nil)
     }

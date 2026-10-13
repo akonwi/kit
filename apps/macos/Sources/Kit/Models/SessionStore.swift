@@ -453,6 +453,7 @@ final class SessionStore {
         bashOperation.merge(into: demo?.messages ?? replica.messages)
     }
     var activity: String? { replica.activity }
+    /// The running turn's streamed thinking, for the activity card.
     var model: String { demo?.model ?? selected?.model ?? "" }
     /// The active model's label when its session inputs are known to exclude images.
     var imageRejectingModel: String? {
@@ -719,7 +720,7 @@ final class SessionStore {
     func applyForkFirstTurnFailure() {
         guard !isDemo, let failure = ForkFirstTurnFailures.shared.take(SessionIdentity(server: serverID, session: selectedID)) else { return }
         if ui.draft.isEmpty { ui.draft = failure.message }
-        operations.reject(failure.error)
+        operations.fail(failure.error)
     }
 
     func recoverSubmission() {

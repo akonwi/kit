@@ -192,9 +192,9 @@ struct ComposerView: View {
 
     private var showOperationDetails: Bool {
         switch state.operations.submission {
-        case .failed: return true
+        case .rejected: return true
         default:
-            return (state.operations.queue?.count ?? 0) > 0 || state.operations.queueError != nil || state.operations.abortError != nil
+            return (state.operations.queue?.count ?? 0) > 0 || state.operations.queueError != nil
         }
     }
 

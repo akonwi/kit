@@ -91,11 +91,27 @@ struct WorkspaceCommandTests {
     @Test func activitySlotReportsTheMostUrgentStatus() {
         let retry = "1970-01-01T00:00:05Z"
         #expect(ActivityLine.resolve(activity: "Reading", compaction: "Compacting session…", retryAt: retry,
-                                     replaying: true, notice: "Local preview only") == .retrying(at: retry))
+                                     startFailure: "session is unavailable", stopFailure: "connection lost",
+                                     notice: "Local preview only") == .failedToStop("connection lost"))
+        #expect(ActivityLine.resolve(activity: "Reading", retryAt: retry, startFailure: "session is unavailable")
+                == .failedToStart("session is unavailable"))
+        #expect(ActivityLine.resolve(activity: "Reading", compaction: "Compacting session…", retryAt: retry, retryAttempt: 2,
+                                     notice: "Local preview only") == .retrying(at: retry, attempt: 2))
         #expect(ActivityLine.resolve(activity: "Reading", compaction: "Compacting session…") == .compacting("Compacting session…"))
-        #expect(ActivityLine.resolve(activity: "Reading", replaying: true) == .working("Reading"))
-        #expect(ActivityLine.resolve(activity: "", replaying: true, notice: "Local preview only") == .replaying)
         #expect(ActivityLine.resolve(activity: nil, notice: "Local preview only") == .notice("Local preview only"))
         #expect(ActivityLine.resolve(activity: nil) == nil)
+    }
+
+    @Test func activityLabelsAreStatusAndEverythingElseIsAThought() {
+        #expect(ActivityLine.resolve(activity: "Working…") == .working("Working…"))
+        #expect(ActivityLine.resolve(activity: "Thinking…") == .working("Thinking…"))
+        #expect(ActivityLine.resolve(activity: "Compacting session…") == .compacting("Compacting session…"))
+        #expect(ActivityLine.resolve(activity: "Checking `equalized()`") == .thinking("Checking `equalized()`"))
+    }
+
+    @Test func thinkingShowsItsLastNonBlankLine() {
+        let thinking = "The tree is split.\n\n  Recursing would fix it.  \n   \n"
+        #expect(LiveActivity.latestLine(thinking) == "Recursing would fix it.")
+        #expect(LiveActivity.latestLine(" \n") == nil)
     }
 }

@@ -24,19 +24,12 @@ struct ComposerOperationsView: View {
                 }.frame(height: min(132, CGFloat(queue.previews.count) * 32))
                 Rule()
             }
-            switch state.operations.submission {
-            case .idle, .pending, .acknowledged, .uncertain: EmptyView()
-            case .failed(let message):
-                HStack {
-                    Text(message).foregroundStyle(theme.danger)
-                    Spacer()
-                    Button("Retry", action: state.send)
-                }
+            // Input that can't be sent stays here; a turn that failed to
+            // start or stop is reported in the activity card.
+            if case .rejected(let message) = state.operations.submission {
+                Text(message).foregroundStyle(theme.danger)
             }
             if let error = state.operations.queueError { Text(error).foregroundStyle(theme.danger) }
-            if let error = state.operations.abortError {
-                HStack { Text(error).foregroundStyle(theme.danger); Button("Retry stop", action: state.abortRun) }
-            }
         }.font(.kit(size: 12)).buttonStyle(.plain).padding(.horizontal, 16).padding(.top, 12)
     }
 }
