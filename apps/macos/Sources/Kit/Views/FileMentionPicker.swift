@@ -66,7 +66,6 @@ struct FileMentionPicker: View {
                                 Image(systemName: "doc")
                                 Text(file).font(.kit(size: 12, design: .monospaced)).lineLimit(2).multilineTextAlignment(.leading)
                                 Spacer()
-                                if selection == index { Image(systemName: "return") }
                             }.padding(12).background(selection == index ? theme.hover : Color.clear).contentShape(Rectangle())
                         }.buttonStyle(.plain).padding(.horizontal, 8).id(file)
                     }
@@ -82,9 +81,6 @@ struct FileMentionPicker: View {
                 if let first = matches.first { proxy.scrollTo(first, anchor: .top) }
             }
             }
-            Rule()
-            HStack { Text("↑ ↓ navigate   ↵ \(state.ui.filePickerIntent == "open" ? "open" : "insert mention")"); Spacer(); Text("Esc cancel") }
-                .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(14)
         }.foregroundStyle(theme.text).background(theme.surface).frame(width: 600, height: 360)
             .task(id: state.serverID + "|" + state.selectedID + "|" + (state.selected?.cwd ?? "") + "|" + String(revision)) {
                 try? await Task.sleep(for: .milliseconds(100))

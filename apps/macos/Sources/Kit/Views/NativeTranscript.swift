@@ -684,8 +684,8 @@ private struct NativeMessageRow: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background {
                                     if message.role == "user" {
-                                        RoundedRectangle(cornerRadius: 10).fill(theme.raised)
-                                        RoundedRectangle(cornerRadius: 10).fill(theme.accent.opacity(theme.dark ? 0.18 : 0.12))
+                                        RoundedRectangle(cornerRadius: 4).fill(theme.raised)
+                                        RoundedRectangle(cornerRadius: 4).fill(theme.accent.opacity(theme.dark ? 0.18 : 0.12))
                                     }
                                 }
                                 .padding(.vertical, message.role == "user" ? 6 : 0)
