@@ -6,13 +6,17 @@ struct SessionView: View {
     @State private var latestOutOfView = false
     @State private var resumeRequest = 0
     @State private var reading = TranscriptReadingState()
+    @State private var height: CGFloat = .infinity
 
     var body: some View {
         VStack(spacing: 0) {
             TranscriptReadingNavigation(state: reading)
             transcript
-            SessionComposerRegion(state: state)
-        }.background(theme.surface)
+            // The interaction dock grows to half the pane, then scrolls.
+            SessionComposerRegion(state: state, dockHeight: height / 2)
+        }
+        .background(theme.surface)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
     }
 
     private var transcript: some View {
@@ -39,10 +43,14 @@ struct SessionView: View {
 /// dock. Everything here addresses the parent session's conversation.
 struct SessionComposerRegion: View {
     @Environment(\.mica) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var state: SessionStore
+    /// The tallest the interaction dock may grow.
+    var dockHeight: CGFloat = .infinity
     var body: some View {
+        let docked = state.dockedInteraction
         VStack(spacing: 8) {
-            if state.interactions.isEmpty {
+            if docked == nil {
                 let line = state.unavailable ? nil : ActivityLine.resolve(
                     activity: state.activity,
                     compaction: state.compactionOperation.pending ? state.compactionOperation.title : nil,
@@ -55,16 +63,24 @@ struct SessionComposerRegion: View {
                     if case .failedToStop = line { state.abortRun() } else { state.send() }
                 }
             }
-            if let flow = state.interactions.first {
+            if let flow = docked {
                 queuedTray(joined: false)
-                InteractionCard(flow: flow, pendingCount: state.interactions.count) { state.finishInteraction(cancelled: $0) }
-                    .id(flow.id).frame(maxWidth: .infinity)
+                let workspace = state.ui.workspace
+                // One dock for consecutive requests: the next one swaps in
+                // place instead of remounting.
+                InteractionDock(flow: flow, pendingCount: max(1, state.interactions.count),
+                                takesFocus: workspace.tile(containing: .conversation) == workspace.focusedTile,
+                                maxHeight: dockHeight) { state.finishInteraction(cancelled: $0) }
+                    .frame(maxWidth: .infinity)
+                    .transition(reduceMotion ? .opacity
+                                : .asymmetric(insertion: .opacity.combined(with: .offset(y: 10)), removal: .opacity))
             } else {
                 // The tray and composer share a border line.
                 VStack(spacing: -1) {
                     queuedTray(joined: true)
                     ComposerView(state: state, joinedTop: showsQueue)
                 }
+                .transition(.opacity)
             }
             if !state.isDemo && !state.unavailable && state.connectionState != .connected {
                 HStack {
@@ -78,6 +94,7 @@ struct SessionComposerRegion: View {
         .padding([.horizontal, .bottom], 14)
         .frame(maxWidth: .infinity)
         .background(theme.surface)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: docked == nil)
     }
 
     private var showsQueue: Bool { !state.isDemo && (state.operations.queue?.count ?? 0) > 0 }

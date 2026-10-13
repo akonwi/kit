@@ -83,8 +83,8 @@ private actor ComposerMock: ComposerClient {
                 .init(id: "question_b", prompt: "More?", detail: nil, kind: try #require(WireInteractionQuestionKind(rawValue: "text")), required: false, options: nil)],
             createdAt: "2026-09-13T00:00:00Z")
         let flow = try InteractionFlow(request: request)
-        #expect(flow.submitStep(option: "option_b") == false)
-        #expect(flow.advance(skip: true))
+        #expect(flow.choose(1) == false)
+        #expect(flow.skip())
         let response = try #require(flow.response(cancelled: false))
         #expect(response.requestId == "interaction_test")
         #expect(response.answers?["question_a"]?.optionIds == ["option_b"])

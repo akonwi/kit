@@ -3,60 +3,137 @@ import Testing
 
 @MainActor
 struct InteractionFlowTests {
-    @Test func keyboardSubmissionMatchesV2() {
+    @Test func guidedQuestionsAnswerAsInTheTUI() {
         let flow = InteractionFlow.planning()
-        #expect(flow.submitStep(option: "File workspace") == false)
+        #expect(flow.guided)
+        // A single choice answers when chosen and moves on.
+        #expect(flow.choose(1) == false)
         #expect(flow.step == 1)
-        flow.choose("Unit tests")
-        #expect(flow.submitStep(option: "Keyboard navigation") == false)
+        #expect(flow.answers[0].choices == ["File workspace"])
+        // A multiple choice toggles; Next answers with what is checked.
+        #expect(flow.mode == .multiple)
+        #expect(flow.choose(0) == false)
+        #expect(flow.choose(1) == false)
+        #expect(flow.choose(1) == false)
+        #expect(flow.step == 1)
+        #expect(flow.next() == false)
         #expect(flow.answers[1].choices == ["Unit tests"])
-        #expect(flow.step == 2)
-        flow.answers[2].text = "Keep keyboard support"
-        #expect(flow.submitStep(option: nil) == false)
+        flow.answers[2].text = "  Keep keyboard support  "
+        #expect(flow.next() == false)
+        #expect(flow.answers[2].text == "Keep keyboard support")
+        // A yes/no question has nothing for Next to send until answered.
+        #expect(flow.mode == .confirm)
+        #expect(flow.next() == false)
         #expect(flow.step == 3)
-        #expect(flow.submitStep(option: "Yes", selectBoolean: false) == false)
-        #expect(flow.answers[3].choices.isEmpty)
-        #expect(flow.submitStep(option: "No"))
-        #expect(flow.answers[3].choices == ["No"])
+        #expect(flow.confirm(false))
+        #expect(flow.answers[3].choices == ["false"])
     }
 
-    @Test func guidedAnswersSurviveNavigationAndOptionalSkip() {
+    @Test func backShowsTheEarlierAnswerHighlighted() {
         let flow = InteractionFlow.planning()
-        #expect(flow.canContinue == false)
-        #expect(flow.advance() == false)
+        _ = flow.choose(2)
+        #expect(flow.cursor == 0)
+        flow.back()
         #expect(flow.step == 0)
-        flow.choose("File workspace")
-        #expect(flow.advance() == false)
-        flow.choose("Unit tests")
-        flow.choose("Keyboard navigation")
-        flow.step = 0
-        #expect(flow.answers[0].choices == ["File workspace"])
-        flow.step = 1
-        #expect(flow.answers[1].choices == ["Unit tests", "Keyboard navigation"])
-        #expect(flow.advance() == false)
-        #expect(flow.advance(skip: true) == false)
-        #expect(flow.answers[2].skipped)
-        flow.choose("No")
-        #expect(flow.advance())
-        #expect(flow.summary.contains("Skipped"))
-        #expect(flow.summary.hasSuffix("No"))
+        #expect(flow.cursor == 2)
+        flow.back()
+        #expect(flow.step == 0)
     }
-    @Test func requiredConfirmationCannotBeSkippedOrSubmittedUnanswered() {
+
+    @Test func onlyOptionalQuestionsSkip() {
+        let flow = InteractionFlow.planning()
+        #expect(flow.skip() == false)
+        #expect(flow.step == 0)
+        flow.show(2)
+        // An empty answer to an optional question skips it.
+        #expect(flow.submitText() == false)
+        #expect(flow.answers[2].skipped)
+        #expect(flow.answered(2) == false)
+        flow.back()
+        flow.answers[2].text = "Preserve the draft"
+        #expect(flow.submitText() == false)
+        #expect(flow.answers[2].skipped == false)
+        #expect(flow.answered(2))
+        #expect(flow.summary.contains("Anything else to keep in mind?\nPreserve the draft"))
+    }
+
+    @Test func emptyMultipleChoiceSkipsOnlyWhenOptional() {
+        let flow = InteractionFlow.planning()
+        flow.show(1)
+        #expect(flow.continueMultiple() == false)
+        #expect(flow.step == 1)
+    }
+
+    @Test func modelConfirmationLeadsWithYesAndAnswersOnce() {
         let flow = InteractionFlow.approval()
-        #expect(flow.advance(skip: true) == false)
-        #expect(flow.advance() == false)
-        flow.choose("Deny")
-        #expect(flow.advance())
+        #expect(flow.guided == false)
+        #expect(flow.offersChoice == false)
+        #expect(flow.detail.contains("go test"))
+        #expect(flow.confirm(false))
         #expect(flow.summary.hasSuffix("Deny"))
     }
-    @Test func revisitingSkippedTextRecordsTheNewAnswer() {
+
+    @Test func movingTheHighlightStaysWithinTheOptions() {
         let flow = InteractionFlow.planning()
-        flow.step = 2
-        #expect(flow.advance(skip: true) == false)
-        flow.step = 2
-        flow.answers[2].text = "Preserve the draft"
-        #expect(flow.advance() == false)
-        #expect(flow.answers[2].skipped == false)
-        #expect(flow.summary.contains("Anything else to keep in mind?\nPreserve the draft"))
+        flow.move(-1)
+        #expect(flow.cursor == 0)
+        flow.move(5)
+        #expect(flow.cursor == 2)
+    }
+
+    @Test func requestsThisClientCantPresentCanStillBeCancelled() throws {
+        let request = WireInteractionRequest(id: "interaction_empty", sessionId: "s",
+            kind: try #require(WireInteractionKind(rawValue: "select")), title: "Pick one",
+            options: [], createdAt: "2026-10-12T00:00:00Z")
+        let flow = try InteractionFlow(request: request)
+        #expect(flow.mode == .unsupported)
+        #expect(flow.title == "Pick one")
+        #expect(flow.response(cancelled: false) == nil)
+        #expect(flow.response(cancelled: true)?.cancelled == true)
+    }
+
+    @Test func optionListLettersAndOverflowFollowTheTUI() {
+        #expect(DockOptionList.marker(0) == "A")
+        #expect(DockOptionList.marker(25) == "Z")
+        #expect(DockOptionList.marker(26) == "AA")
+        #expect(DockOptionList.marker(27) == "AB")
+        #expect(DockOptionList.index(forKey: "a", count: 3) == 0)
+        #expect(DockOptionList.index(forKey: "C", count: 3) == 2)
+        #expect(DockOptionList.index(forKey: "d", count: 3) == nil)
+        #expect(DockOptionList.index(forKey: "1", count: 3) == nil)
+        #expect(DockOptionList.hidden(count: 4, offset: 0) == (0, 0))
+        #expect(DockOptionList.hidden(count: 11, offset: 0) == (0, 5))
+        #expect(DockOptionList.hidden(count: 11, offset: 64) == (2, 3))
+        #expect(DockOptionList.hidden(count: 11, offset: 900) == (5, 0))
+    }
+
+    @Test func answeredRequestsStayDockedUntilTheHoldEnds() async throws {
+        let hold = InteractionHold(), flow = InteractionFlow.approval()
+        var released = 0
+        hold.hold(flow, for: .milliseconds(20)) { released += 1 }
+        #expect(hold.flow === flow)
+        // The main actor is shared with other tests, so wait for the timer.
+        for _ in 0..<200 where hold.flow != nil { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(hold.flow == nil)
+        #expect(released == 1)
+    }
+
+    @Test func aNextRequestTakesTheDockWithoutReturningToTheComposer() async throws {
+        let hold = InteractionHold()
+        var released = 0
+        hold.hold(InteractionFlow.approval(), for: .milliseconds(20)) { released += 1 }
+        hold.clear()
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(hold.flow == nil)
+        #expect(released == 0)
+        // Holding again replaces the earlier hold and its timer.
+        let second = InteractionFlow.planning()
+        hold.hold(InteractionFlow.approval(), for: .milliseconds(20)) { released += 1 }
+        hold.hold(second, for: .seconds(5)) { released += 10 }
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(hold.flow === second)
+        #expect(released == 0)
+        hold.release()
+        #expect(released == 10)
     }
 }

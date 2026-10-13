@@ -479,12 +479,22 @@ final class SessionStore {
     var approval: Bool { !interactions.isEmpty }
     private var liveInteractions: [String: [InteractionFlow]] = [:]
     var interactions: [InteractionFlow] { unavailable ? [] : demo?.interactions ?? liveInteractions[selectedID] ?? [] }
+    /// Keeps an answered request docked briefly so a plugin's next one replaces it.
+    let interactionHold = InteractionHold()
+    /// The request in the composer's place: the oldest pending one, or the
+    /// answered one still held.
+    var dockedInteraction: InteractionFlow? {
+        interactions.first ?? (unavailable ? nil : interactionHold.flow)
+    }
     private func reconcileInteractions(_ session: SessionExcerpt) {
         let previous = liveInteractions[session.id] ?? []
         liveInteractions[session.id] = (session.pendingInteractions ?? []).sorted { $0.createdAt < $1.createdAt }.compactMap { request in
             previous.first { $0.request?.id == request.id } ?? (try? InteractionFlow(request: request))
         }
-        if session.id == selectedID, !previous.isEmpty, liveInteractions[session.id]?.isEmpty == true { ui.composerFocus += 1 }
+        guard session.id == selectedID else { return }
+        if liveInteractions[session.id]?.isEmpty == false { interactionHold.clear(); return }
+        // A held request returns focus to the composer when its hold ends.
+        if !previous.isEmpty, interactionHold.flow == nil { ui.composerFocus += 1 }
     }
 
     init(fixture: Fixture, client: (any SessionClient)? = nil, sessionID: String? = nil) {
@@ -521,6 +531,7 @@ final class SessionStore {
 
     func select(_ id: String) {
         guard id != selectedID else { return }
+        interactionHold.clear()
         cancelPluginCommandWait()
         pluginNotifications.stop()
         feedback.clearTransientPluginNotifications()
@@ -586,12 +597,20 @@ final class SessionStore {
             Task { [weak self] in
                 do {
                     try await client.respond(id, input: input)
-                    if let self, self.selectedID == id { _ = try await self.replica.resynchronize() }
+                    guard let self, self.selectedID == id else { flow.submitting = false; return }
+                    // Held before resynchronizing, so the dock never empties
+                    // while a plugin's next request is on its way. It stays in
+                    // its sending state until something replaces it.
+                    self.interactionHold.hold(flow) { [weak self] in
+                        guard let self, self.selectedID == id else { return }
+                        if self.interactions.isEmpty { self.ui.composerFocus += 1 }
+                    }
+                    _ = try? await self.replica.resynchronize()
                 } catch {
                     flow.error = error.localizedDescription
+                    flow.submitting = false
                     if let self, self.selectedID == id { _ = try? await self.replica.resynchronize() }
                 }
-                flow.submitting = false
             }
             return
         }

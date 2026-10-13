@@ -91,11 +91,17 @@ private actor PluginCommandMock: PluginCommandClient {
         let flow = try InteractionFlow(request: request)
         #expect(flow.answers[0].text == "initial note")
         flow.answers[0].text = ""
-        #expect(flow.canContinue)
+        // Plugins may accept an empty answer.
+        #expect(flow.submitText())
         #expect(flow.response(cancelled: false)?.value == "")
         let confirm = WireInteractionRequest(plugin: owner, confirmLabel: "Show toast", cancelLabel: "Cancel", defaultValue: true, id: "interaction_confirm", sessionId: "session_one", kind: try #require(WireInteractionKind(rawValue: "confirm")), title: "Continue", createdAt: "2026-09-21T00:00:00Z")
         let confirmation = try InteractionFlow(request: confirm)
         #expect(confirmation.question.optionLabels == ["true": "Show toast", "false": "Cancel"])
-        #expect(confirmation.answers[0].choices == ["true"])
+        // The plugin's default is highlighted, for Return to choose.
+        #expect(confirmation.offersChoice)
+        #expect(confirmation.confirming)
+        #expect(confirmation.plugin == "demo")
+        #expect(confirmation.confirm(confirmation.confirming))
+        #expect(confirmation.response(cancelled: false)?.confirmed == true)
     }
 }

@@ -227,6 +227,40 @@ shows the server's first three previews, numbered, then "N more". Rows aren't
 clickable. As in the TUI, Return in an empty composer sends the queue while a
 turn runs.
 
+### Interaction dock
+
+A pending request takes the Agent composer's place until it is answered or
+cancelled; the draft and attachments come back after. The dock is a frame
+surface card with a header (warning question icon, title, then the plugin id,
+the guided step trail, and "1 of N" when more wait), the muted Markdown detail
+and the answer, and a footer of buttons. Back sits on the left from the second
+guided question; Skip appears for optional ones. Only y and n are hinted, inside
+their buttons. While a response is sent the buttons lock and the primary one
+spins. The activity card is hidden while a request waits.
+
+Keys follow the TUI dock, except that option letters are keys rather than j
+and k. Esc or × cancels. y and n answer a confirmation; a
+plugin's confirmation, or one with a default, highlights an answer that Tab or
+the arrows switch and Return chooses, and otherwise the affirmative leads. A
+single choice answers on click, Return, Space, or its letter (A–Z), so a plain
+select has no footer; a multiple choice toggles on click, Space, or its letter,
+and Return continues. The arrows move the highlight. Tab
+and Shift-Tab move between guided questions, and nothing is sent until the last
+one. Options are lettered A, B, C with a shared label column; six rows show, then
+the list scrolls with the hidden count at each edge. A request this client can't
+present shows that it can only be cancelled.
+
+The dock takes focus when it appears only if the Agent tile is focused. It grows
+to half the pane before its body scrolls.
+
+Consecutive requests share one dock. After an answer is accepted the dock stays
+in its sending state for 300 ms; a request arriving in that window, such as a
+plugin's next question, replaces it in place, and otherwise the composer
+returns. Moving forward through guided questions, or on to a plugin's next
+request, slides the body in from the trailing edge; Back slides it the other
+way. The title cross-fades and the height animates; the dock rises in when it appears and fades back
+to the composer when it goes. Reduce Motion keeps only the fades.
+
 ## Transcript rendering
 
 `NativeTranscript` uses reusable NSTableView rows hosting SwiftUI content. History
