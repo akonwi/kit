@@ -26,7 +26,8 @@ different server that appears at the same address.
 
 A server on another machine is reached at the URL it is served at, such as a
 tailnet or reverse-proxy address, with a device token obtained by
-[pairing](pairing.md):
+[pairing](pairing.md). [Remote deployment](remote-deployment.md) covers
+serving a server:
 
 1. On the server's machine, run `kit server pair`. It prints pairing links.
 2. On this machine, run `kit servers add NAME LINK`. This redeems the link,

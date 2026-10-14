@@ -121,7 +121,9 @@ Go clients use `kit.Pair(ctx, link, name)`, then
 `kit.Connect(ctx, kit.Endpoint(paired.ServerURL, kit.AccessToken(paired.Token)))`,
 and `Client.CreatePairing`, `Client.Devices`, and `Client.RevokeDevice`.
 
-To pair the Kit CLI on another machine and attach to this server, see
+For serving a server to other machines, see
+[Remote deployment](remote-deployment.md). To pair the Kit CLI on another
+machine and attach to this server, see
 [Attaching to other servers](attach.md#servers-at-a-url). A paired machine can
 print links for further devices with `kit pair NAME`. In the TUI, the **pair**
 command in the command palette issues a code on the attached server and shows
