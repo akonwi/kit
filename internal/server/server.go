@@ -66,6 +66,9 @@ type RunOptions struct {
 	// Listen overrides the server.listen setting for this process. Empty uses
 	// the setting, or loopback on an ephemeral port when it is unset.
 	Listen string
+	// Foreground marks a server run in the foreground under its own
+	// supervisor, which clients must not restart.
+	Foreground bool
 }
 
 // Run serves the authenticated local daemon until cancellation or shutdown.
@@ -358,6 +361,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		URL:               baseURL,
 		StartedAt:         startedAt,
 		CredentialSources: credentialSources,
+		Foreground:        options.Foreground,
 	}
 
 	if err := localdiscovery.Publish(paths, token, registry); err != nil {

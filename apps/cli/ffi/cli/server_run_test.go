@@ -65,6 +65,13 @@ func TestServerRunServesInTheForegroundUntilStopped(t *testing.T) {
 		t.Errorf("logs = %q, want server log lines on stderr", logs.String())
 	}
 
+	if registry, _, err := manager.Status(context.Background()); err != nil || !registry.Foreground {
+		t.Errorf("registry = %+v, %v; want a foreground server", registry, err)
+	}
+	if code, _, stderr := runCLI("server", "restart"); code != 1 || stderr != "kit: "+errForegroundRestart+"\n" {
+		t.Errorf("restart = %d, %q", code, stderr)
+	}
+
 	code, _, stderr := runCLI("server", "run")
 	if code != 1 || stderr != "kit: a server is already running for this Kit home; stop it with `kit server stop`\n" {
 		t.Errorf("second run = %d, %q", code, stderr)

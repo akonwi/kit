@@ -50,6 +50,11 @@ foreground and logs to stderr. It reads the same settings and accepts the same
 SIGTERM, or when `kit server stop` is run from another shell. It refuses to
 start while a server is already running for the same Kit home.
 
+Kit never restarts a foreground server, which would move it out of whatever
+started it: `kit server restart` refuses, and `kit server expose` only updates
+settings and says to restart it. Restart it with its service manager, such as
+`systemctl restart kit`.
+
 A systemd unit on a Linux host:
 
 ```ini

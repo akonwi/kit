@@ -426,7 +426,7 @@ func newServerCommand(deps commandDependencies) *cobra.Command {
 			},
 		},
 	)
-	var tailscale, off bool
+	var tailscale, off, force bool
 	var httpsPort int
 	expose := &cobra.Command{
 		Use:   "expose --tailscale",
@@ -444,12 +444,16 @@ func newServerCommand(deps commandDependencies) *cobra.Command {
 			if httpsPort < 1 || httpsPort > 65535 {
 				return usagef("--https-port must be between 1 and 65535")
 			}
-			options := defaultExposeOptions(httpsPort, stdoutIsTerminal())
+			if force && !off {
+				return usagef("--force applies only with --off")
+			}
+			options := defaultExposeOptions(httpsPort, force, stdoutIsTerminal())
 			return resultForCode(deps.expose(command.Context(), options, off, command.OutOrStdout(), command.ErrOrStderr()))
 		},
 	}
 	expose.Flags().BoolVar(&tailscale, "tailscale", false, "serve with Tailscale Serve")
 	expose.Flags().BoolVar(&off, "off", false, "stop serving and remove the settings expose added")
+	expose.Flags().BoolVar(&force, "force", false, "with --off, remove the settings even if the Serve handler cannot be confirmed removed")
 	expose.Flags().IntVar(&httpsPort, "https-port", 443, "tailnet HTTPS port to serve on")
 	command.AddCommand(pair, devices, expose)
 	return command

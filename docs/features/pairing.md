@@ -44,18 +44,33 @@ kit server expose --tailscale --off
 with Tailscale Serve and prints a pairing link for the served URL. It requires
 Tailscale to be running with HTTPS certificates enabled for the tailnet. It:
 
-- fixes `server.listen` to a loopback port when none is set or its port is
-  ephemeral, keeping the server's current port when one is running;
+- fixes `server.listen` to a port when none is set or its port is ephemeral,
+  keeping its host and the server's current port when one is running;
 - adds the machine's tailnet DNS name to `server.allowedHosts`;
 - restarts the server when those settings change, or starts it;
 - runs `tailscale serve --bg` to proxy `https://NAME.TAILNET.ts.net` to that
-  port. `--https-port` chooses another tailnet port, and it refuses a port
-  Tailscale already serves for something else.
+  port. `--https-port` chooses another tailnet port.
 
-It never uses Tailscale Funnel, so only devices on the tailnet can reach the
-server. It records what it added in `$KIT_HOME/tailscale-serve.json`; `--off`
-removes that Serve handler and only the settings it added, then restarts the
-server if it is running.
+It never uses Tailscale Funnel, and refuses a port where Funnel is on or that
+Tailscale already serves for something else. When `server.listen` is
+`0.0.0.0` or `::`, the server also accepts connections on every other
+interface, and `expose` says so.
+
+It records what it changed in `$KIT_HOME/tailscale-serve.json`. `--off`
+removes that Serve handler and only the settings it added, restoring an
+earlier `server.listen`, then restarts the server if it is running. If it
+cannot confirm the handler is gone, for example because Tailscale is not
+running, it changes nothing and fails; `--off --force` removes the settings
+anyway. A server exposed on one port must be stopped with `--off` before it is
+exposed on another.
+
+A server started with `kit server run` belongs to whatever started it, such as
+a service manager, so `expose` and `--off` update the settings and Serve but
+do not restart it; they say to restart it there.
+
+Once restarted with an allowed host and no paired device, the server also
+logs a 1-hour [startup link](#first-device-on-a-headless-server). Redeem the
+printed link promptly; once a device is paired, later starts log no links.
 
 ### First device on a headless server
 

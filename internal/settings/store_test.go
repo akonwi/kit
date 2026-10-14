@@ -536,22 +536,27 @@ func TestLoadServerAllowedHostsAndOrigins(t *testing.T) {
 func TestUpdateServerAccessKeepsOtherSettings(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "settings.json")
-	document := `{"theme":"dusk","server":{"allowedOrigins":["https://app.example.com"],"futureField":1}}`
+	document := `{"theme":"dusk","server":{"allowedHosts":["kit.example.com","bad host"],"allowedOrigins":["https://app.example.com"],"futureField":1}}`
 	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	store := newTestStore(t, path)
-	updated, err := store.UpdateServerAccess("127.0.0.1:7777", []string{"Studio.Tail3f2a.ts.net", "studio.tail3f2a.ts.net"})
+	updated, err := store.UpdateServerAccess(ServerAccessChange{
+		SetListen: true, Listen: "127.0.0.1:7777",
+		AddHosts: []string{"Studio.Tail3f2a.ts.net", "studio.tail3f2a.ts.net", "KIT.example.com"},
+	})
 	if err != nil {
 		t.Fatalf("UpdateServerAccess() error = %v", err)
 	}
-	if updated.ServerListen != "127.0.0.1:7777" || !slices.Equal(updated.ServerAllowedHosts, []string{"studio.tail3f2a.ts.net"}) {
+	if updated.ServerListen != "127.0.0.1:7777" || !slices.Equal(updated.ServerAllowedHosts, []string{"kit.example.com", "studio.tail3f2a.ts.net"}) {
 		t.Fatalf("updated = %+v", updated)
 	}
 	data, _ := os.ReadFile(path)
 	want := `{
   "server": {
     "allowedHosts": [
+      "kit.example.com",
+      "bad host",
       "studio.tail3f2a.ts.net"
     ],
     "allowedOrigins": [
@@ -567,35 +572,63 @@ func TestUpdateServerAccessKeepsOtherSettings(t *testing.T) {
 		t.Fatalf("file =\n%s\nwant\n%s", data, want)
 	}
 
-	if _, err := store.UpdateServerAccess("", nil); err != nil {
+	// Removing a host keeps the entries it does not name, including invalid
+	// ones; leaving listen unset keeps it.
+	if _, err := store.UpdateServerAccess(ServerAccessChange{RemoveHosts: []string{"STUDIO.tail3f2a.ts.net"}}); err != nil {
 		t.Fatal(err)
 	}
 	data, _ = os.ReadFile(path)
-	if !strings.Contains(string(data), `"futureField": 1`) || strings.Contains(string(data), "listen") || strings.Contains(string(data), "allowedHosts") {
-		t.Fatalf("cleared file =\n%s", data)
+	want = `{
+  "server": {
+    "allowedHosts": [
+      "kit.example.com",
+      "bad host"
+    ],
+    "allowedOrigins": [
+      "https://app.example.com"
+    ],
+    "futureField": 1,
+    "listen": "127.0.0.1:7777"
+  },
+  "theme": "dusk"
+}
+`
+	if string(data) != want {
+		t.Fatalf("file after removal =\n%s\nwant\n%s", data, want)
 	}
-	for _, invalid := range []struct {
-		listen string
-		hosts  []string
-	}{{listen: "192.168.1.10:7777"}, {hosts: []string{"bad host"}}} {
-		if _, err := store.UpdateServerAccess(invalid.listen, invalid.hosts); err == nil {
+	for _, invalid := range []ServerAccessChange{
+		{SetListen: true, Listen: "192.168.1.10:7777"},
+		{AddHosts: []string{"bad host"}},
+	} {
+		if _, err := store.UpdateServerAccess(invalid); err == nil {
 			t.Errorf("UpdateServerAccess(%+v) succeeded", invalid)
 		}
 	}
 }
 
-func TestUpdateServerAccessRemovesAnEmptyServerObject(t *testing.T) {
+func TestUpdateServerAccessRemovesEmptiedSettings(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "settings.json")
 	store := newTestStore(t, path)
-	if _, err := store.UpdateServerAccess("127.0.0.1:7777", nil); err != nil {
+	if _, err := store.UpdateServerAccess(ServerAccessChange{SetListen: true, Listen: "127.0.0.1:7777", AddHosts: []string{"kit.example.com"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.UpdateServerAccess("", nil); err != nil {
+	if _, err := store.UpdateServerAccess(ServerAccessChange{SetListen: true, RemoveHosts: []string{"kit.example.com"}}); err != nil {
 		t.Fatal(err)
 	}
-	data, _ := os.ReadFile(path)
-	if strings.Contains(string(data), "server") {
-		t.Fatalf("file =\n%s", data)
+	if data, _ := os.ReadFile(path); string(data) != "{}\n" {
+		t.Fatalf("file = %q", data)
+	}
+}
+
+func TestUpdateServerAccessRefusesAMalformedHostList(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"server":{"allowedHosts":"kit.example.com"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := newTestStore(t, path).UpdateServerAccess(ServerAccessChange{AddHosts: []string{"studio.tail3f2a.ts.net"}})
+	if err == nil || err.Error() != `update server access: settings field "server.allowedHosts" is not an array` {
+		t.Fatalf("error = %v", err)
 	}
 }

@@ -31,9 +31,8 @@ type tailnet interface {
 	// Status reports this machine's tailnet DNS name, without a trailing
 	// dot, and whether Tailscale is running with HTTPS certificates for it.
 	Status(ctx context.Context) (tailnetStatus, error)
-	// Served returns the proxy target of the HTTPS handler at host:port, or
-	// "" when none is configured.
-	Served(ctx context.Context, host string, port int) (string, error)
+	// Served describes the HTTPS handler at host:port.
+	Served(ctx context.Context, host string, port int) (servedHandler, error)
 	// Serve proxies HTTPS on port to target in the background.
 	Serve(ctx context.Context, port int, target string) error
 	// Unserve removes the HTTPS handler on port.
@@ -44,6 +43,14 @@ type tailnetStatus struct {
 	Running    bool
 	DNSName    string
 	HTTPSCerts bool
+}
+
+// servedHandler is Tailscale Serve's configuration for one host:port.
+type servedHandler struct {
+	// Proxy is the proxy target of the root handler, or "" when none is set.
+	Proxy string
+	// Funnel reports that Tailscale Funnel exposes host:port publicly.
+	Funnel bool
 }
 
 // tailscaleCLI runs the tailscale executable.
@@ -100,20 +107,22 @@ func (t tailscaleCLI) Status(ctx context.Context) (tailnetStatus, error) {
 	}, nil
 }
 
-func (t tailscaleCLI) Served(ctx context.Context, host string, port int) (string, error) {
+func (t tailscaleCLI) Served(ctx context.Context, host string, port int) (servedHandler, error) {
 	output, err := t.run(ctx, "serve", "status", "--json")
 	if err != nil {
-		return "", err
+		return servedHandler{}, err
 	}
 	var config struct {
 		Web map[string]struct {
 			Handlers map[string]struct{ Proxy string }
 		}
+		AllowFunnel map[string]bool
 	}
 	if err := json.Unmarshal(output, &config); err != nil {
-		return "", fmt.Errorf("decode tailscale serve status: %w", err)
+		return servedHandler{}, fmt.Errorf("decode tailscale serve status: %w", err)
 	}
-	return config.Web[net.JoinHostPort(host, strconv.Itoa(port))].Handlers["/"].Proxy, nil
+	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
+	return servedHandler{Proxy: config.Web[hostPort].Handlers["/"].Proxy, Funnel: config.AllowFunnel[hostPort]}, nil
 }
 
 func (t tailscaleCLI) Serve(ctx context.Context, port int, target string) error {
@@ -138,6 +147,9 @@ type exposure struct {
 	// AddedListen is the server.listen value expose set, or "" when the
 	// listener was already fixed.
 	AddedListen string `json:"addedListen,omitempty"`
+	// PreviousListen is the server.listen value AddedListen replaced, or ""
+	// when it was unset.
+	PreviousListen string `json:"previousListen,omitempty"`
 	// AddedHost reports whether expose added Host to server.allowedHosts.
 	AddedHost bool `json:"addedHost,omitempty"`
 }
@@ -196,13 +208,22 @@ type exposeOptions struct {
 	// ensure starts the server on an address, restarting it when changed.
 	ensure func(context.Context, apphome.Paths, serverlisten.Address, bool) error
 	// restart restarts the server when one is running.
-	restart   func(context.Context, apphome.Paths) error
-	httpsPort int
-	terminal  bool
+	restart func(context.Context, apphome.Paths) error
+	// foreground reports whether the running server was started with
+	// `kit server run`, so its supervisor, not Kit, must restart it.
+	foreground func(context.Context, apphome.Paths) bool
+	httpsPort  int
+	// force lets --off undo settings when the Serve handler cannot be
+	// confirmed removed.
+	force    bool
+	terminal bool
 }
 
-func defaultExposeOptions(httpsPort int, terminal bool) exposeOptions {
-	return exposeOptions{tailnet: findTailscale, ensure: ensureServer, restart: restartIfRunning, httpsPort: httpsPort, terminal: terminal}
+func defaultExposeOptions(httpsPort int, force, terminal bool) exposeOptions {
+	return exposeOptions{
+		tailnet: findTailscale, ensure: ensureServer, restart: restartIfRunning, foreground: runningInForeground,
+		httpsPort: httpsPort, force: force, terminal: terminal,
+	}
 }
 
 func runExpose(ctx context.Context, options exposeOptions, off bool, stdout, stderr io.Writer) int {
@@ -220,11 +241,7 @@ func runExpose(ctx context.Context, options exposeOptions, off bool, stdout, std
 	}
 	tailscale, err := options.tailnet()
 	if off {
-		if err != nil {
-			fmt.Fprintf(stderr, "kit: warning: %v; remove the Serve handler yourself with `tailscale serve reset` if it remains\n", err)
-			tailscale = nil
-		}
-		return unexpose(ctx, options, paths, store, tailscale, stdout, stderr)
+		return unexpose(ctx, options, paths, store, tailscale, err, stdout, stderr)
 	}
 	if err != nil {
 		return fail("%v", err)
@@ -238,25 +255,35 @@ func runExpose(ctx context.Context, options exposeOptions, off bool, stdout, std
 	case !status.HTTPSCerts:
 		return fail("your tailnet does not issue HTTPS certificates for %s; enable HTTPS in the Tailscale admin console's DNS settings, then try again", status.DNSName)
 	}
+	url := servedURL(status.DNSName, options.httpsPort)
+	previous, exposed, err := loadExposure(paths)
+	if err != nil {
+		return fail("%v", err)
+	}
+	if exposed && (previous.Host != status.DNSName || previous.HTTPSPort != options.httpsPort) {
+		return fail("this server is already exposed at %s; run `kit server expose --tailscale --off` first", servedURL(previous.Host, previous.HTTPSPort))
+	}
 	current, _, err := store.Load()
 	if err != nil {
 		return fail("load settings: %v", err)
 	}
-	previous, _, err := loadExposure(paths)
+
+	// Tailscale Serve proxies to a fixed port. An unset or ephemeral listener
+	// is fixed on its host, keeping the server's current port when it runs.
+	record := exposure{
+		Host: status.DNSName, HTTPSPort: options.httpsPort,
+		AddedListen: previous.AddedListen, PreviousListen: previous.PreviousListen, AddedHost: previous.AddedHost,
+	}
+	listen := current.ServerListen
+	if listen == "" {
+		listen = serverlisten.Default
+	}
+	address, err := serverlisten.Parse(listen)
 	if err != nil {
 		return fail("%v", err)
 	}
-
-	// Tailscale Serve proxies to a fixed loopback port.
-	listen := current.ServerListen
-	addedListen := previous.AddedListen
-	var address serverlisten.Address
-	if listen != "" {
-		if address, err = serverlisten.Parse(listen); err != nil {
-			return fail("%v", err)
-		}
-	}
-	if listen == "" || address.Port() == 0 {
+	change := settings.ServerAccessChange{}
+	if address.Port() == 0 {
 		port := 0
 		if registry, err := localdiscovery.Load(paths); err == nil {
 			port = registryPort(registry.URL)
@@ -266,47 +293,65 @@ func runExpose(ctx context.Context, options exposeOptions, off bool, stdout, std
 				return fail("choose a port: %v", err)
 			}
 		}
-		listen = "127.0.0.1:" + strconv.Itoa(port)
-		addedListen = listen
-		address = serverlisten.MustParse(listen)
+		fixed := strings.TrimSuffix(address.String(), ":0") + ":" + strconv.Itoa(port)
+		if address, err = serverlisten.Parse(fixed); err != nil {
+			return fail("%v", err)
+		}
+		change.SetListen, change.Listen = true, address.String()
+		record.AddedListen, record.PreviousListen = address.String(), current.ServerListen
 	}
-	target := "http://" + netip.AddrPortFrom(address.Loopback(), uint16(address.Port())).String()
+	record.Target = "http://" + netip.AddrPortFrom(address.Loopback(), uint16(address.Port())).String()
+	if !slices.Contains(current.ServerAllowedHosts, status.DNSName) {
+		change.AddHosts = []string{status.DNSName}
+		record.AddedHost = true
+	}
+	changed := change.SetListen || len(change.AddHosts) > 0
 
 	served, err := tailscale.Served(ctx, status.DNSName, options.httpsPort)
-	if err != nil {
+	switch {
+	case err != nil:
 		return fail("%v", err)
-	}
-	if served != "" && served != target && served != previous.Target {
-		return fail("%s already serves %s; choose another port with --https-port", servedURL(status.DNSName, options.httpsPort), served)
+	case served.Funnel:
+		return fail("Tailscale Funnel is on for %s, which would put this server on the public internet; turn it off with `tailscale funnel --https=%d off`, or choose another port with --https-port", url, options.httpsPort)
+	case served.Proxy != "" && served.Proxy != record.Target && served.Proxy != previous.Target:
+		return fail("%s already serves %s; choose another port with --https-port", url, served.Proxy)
 	}
 
-	hosts := current.ServerAllowedHosts
-	addedHost := previous.AddedHost && previous.Host == status.DNSName
-	if !slices.Contains(hosts, status.DNSName) {
-		hosts = append(slices.Clone(hosts), status.DNSName)
-		addedHost = true
-	}
-	changed := listen != current.ServerListen || len(hosts) != len(current.ServerAllowedHosts)
-	record := exposure{Host: status.DNSName, HTTPSPort: options.httpsPort, Target: target, AddedListen: addedListen, AddedHost: addedHost}
 	if err := saveExposure(paths, record); err != nil {
 		return fail("record exposure: %v", err)
 	}
 	if changed {
-		if _, err := store.UpdateServerAccess(listen, hosts); err != nil {
+		if _, err := store.UpdateServerAccess(change); err != nil {
 			return fail("%v", err)
 		}
 	}
-	if err := options.ensure(ctx, paths, address, changed); err != nil {
+	// A foreground server belongs to whatever started it, which must apply
+	// the new settings by restarting it.
+	supervised := options.foreground(ctx, paths)
+	if !supervised {
+		if err := options.ensure(ctx, paths, address, changed); err != nil {
+			return fail("%v", err)
+		}
+	}
+	if err := tailscale.Serve(ctx, options.httpsPort, record.Target); err != nil {
 		return fail("%v", err)
 	}
-	if err := tailscale.Serve(ctx, options.httpsPort, target); err != nil {
-		return fail("%v", err)
+	if served, err := tailscale.Served(ctx, status.DNSName, options.httpsPort); err != nil || served.Funnel {
+		return fail("could not confirm that Tailscale Funnel is off for %s; check `tailscale serve status`", url)
 	}
 
-	url := servedURL(status.DNSName, options.httpsPort)
 	fmt.Fprintf(stdout, "Serving on your tailnet at %s\n", url)
-	fmt.Fprintln(stdout, "Only devices on your tailnet can reach it. Stop with `kit server expose --tailscale --off`.")
+	if address.Exposed() {
+		fmt.Fprintf(stdout, "The server also listens on every interface (server.listen %s), so devices that\ncan reach this machine directly can connect too, with Kit's credentials as the\nonly barrier.", address)
+	} else {
+		fmt.Fprint(stdout, "Only devices on your tailnet can reach it.")
+	}
+	fmt.Fprintln(stdout, " Stop with `kit server expose --tailscale --off`.")
 	fmt.Fprintln(stdout)
+	if supervised && changed {
+		fmt.Fprintln(stdout, "The server runs in the foreground with `kit server run`. Restart it with whatever\nstarted it, such as its service manager, to apply the new settings, then pair a\ndevice with `kit server pair`.")
+		return 0
+	}
 	client, err := kit.Connect(ctx, kit.Local())
 	if err != nil {
 		return fail("connect to server: %v", err)
@@ -320,7 +365,11 @@ func runExpose(ctx context.Context, options exposeOptions, off bool, stdout, std
 	return 0
 }
 
-func unexpose(ctx context.Context, options exposeOptions, paths apphome.Paths, store *settings.Store, tailscale tailnet, stdout, stderr io.Writer) int {
+// unexpose removes the Serve handler and settings that expose added. Unless
+// forced, it keeps them and fails while the handler may still proxy to the
+// server's port: a process that later binds that port would be served on the
+// tailnet.
+func unexpose(ctx context.Context, options exposeOptions, paths apphome.Paths, store *settings.Store, tailscale tailnet, tailnetErr error, stdout, stderr io.Writer) int {
 	fail := func(format string, arguments ...any) int {
 		fmt.Fprintf(stderr, "kit: "+format+"\n", arguments...)
 		return 1
@@ -333,42 +382,48 @@ func unexpose(ctx context.Context, options exposeOptions, paths apphome.Paths, s
 		fmt.Fprintln(stdout, "This server is not exposed with --tailscale.")
 		return 0
 	}
-	// Remove the Serve handler only while it still proxies to this server.
-	if tailscale != nil {
-		served, err := tailscale.Served(ctx, record.Host, record.HTTPSPort)
-		if err == nil && served == record.Target {
+	url := servedURL(record.Host, record.HTTPSPort)
+	err = tailnetErr
+	if err == nil {
+		var served servedHandler
+		if served, err = tailscale.Served(ctx, record.Host, record.HTTPSPort); err == nil && served.Proxy == record.Target {
 			err = tailscale.Unserve(ctx, record.HTTPSPort)
 		}
-		if err != nil {
-			fmt.Fprintf(stderr, "kit: warning: %v; remove the Serve handler yourself if it remains\n", err)
+	}
+	if err != nil {
+		if !options.force {
+			return fail("%v\nCould not confirm that %s no longer proxies to %s. Fix Tailscale and try again,\nor remove the handler with `tailscale serve --https=%d off` and run\n`kit server expose --tailscale --off --force`.", err, url, record.Target, record.HTTPSPort)
 		}
+		fmt.Fprintf(stderr, "kit: warning: %v; remove the handler with `tailscale serve --https=%d off`\n", err, record.HTTPSPort)
 	}
 	current, _, err := store.Load()
 	if err != nil {
 		return fail("load settings: %v", err)
 	}
-	listen, hosts := current.ServerListen, current.ServerAllowedHosts
-	if record.AddedListen != "" && listen == record.AddedListen {
-		listen = ""
+	change := settings.ServerAccessChange{}
+	if record.AddedListen != "" && current.ServerListen == record.AddedListen {
+		change.SetListen, change.Listen = true, record.PreviousListen
 	}
-	if record.AddedHost {
-		hosts = slices.DeleteFunc(slices.Clone(hosts), func(host string) bool { return host == record.Host })
+	if record.AddedHost && slices.Contains(current.ServerAllowedHosts, record.Host) {
+		change.RemoveHosts = []string{record.Host}
 	}
-	changed := listen != current.ServerListen || len(hosts) != len(current.ServerAllowedHosts)
+	changed := change.SetListen || len(change.RemoveHosts) > 0
 	if changed {
-		if _, err := store.UpdateServerAccess(listen, hosts); err != nil {
+		if _, err := store.UpdateServerAccess(change); err != nil {
 			return fail("%v", err)
 		}
 	}
 	if err := os.Remove(exposurePath(paths)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fail("%v", err)
 	}
+	fmt.Fprintf(stdout, "Stopped serving %s on your tailnet.\n", url)
 	if changed {
-		if err := options.restart(ctx, paths); err != nil {
+		if options.foreground(ctx, paths) {
+			fmt.Fprintln(stdout, "The server runs in the foreground with `kit server run`. Restart it with whatever\nstarted it to apply the restored settings.")
+		} else if err := options.restart(ctx, paths); err != nil {
 			return fail("%v", err)
 		}
 	}
-	fmt.Fprintf(stdout, "Stopped serving %s on your tailnet.\n", servedURL(record.Host, record.HTTPSPort))
 	return 0
 }
 
