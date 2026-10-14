@@ -15,7 +15,9 @@ struct DiffDocument: Sendable {
     let side: String?
     private let oldRows: [Int: Int]
     private let newRows: [Int: Int]
-    var identity: String { observation.target.id + observation.revision + file.path + (file.fileRevision ?? "") + String(rows.count) + (side ?? "unified") }
+    /// What the editor shows. A new target revision that leaves the file
+    /// unchanged keeps the same identity, so its editor isn't rebuilt.
+    var identity: String { observation.target.id + file.path + (file.fileRevision ?? "") + String(rows.count) + (side ?? "unified") }
     var content: String { rows.map(\.text).joined(separator: "\n") + "\n" }
     /// The row between two hunks.
     static let gap = "⋯"

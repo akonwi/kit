@@ -449,9 +449,15 @@ Files appear as titled sections in one continuous vertical scroll surface. Each
 34 pt file header shows its path and counts, pins to the top while its section
 scrolls, and collapses the section on click. Hunks within a file are separated by
 a ⋯ gap row rather than a leading hunk header.
-Visible sections load on demand through serialized reads and retain independent
-line pagination. Each native editor sizes to its source and inline-note height;
-vertical wheel events pass to the containing diff scroll view.
+Files load through serialized reads and retain independent line pagination.
+After the file list arrives, the pane prefetches files' first pages in order,
+one at a time, until 50 files or 5,000 rows are loaded; past that, a file
+loads when it comes into view, along with the next three. A file you scroll
+to waits behind at most the one read in flight. Each native editor sizes to
+its source and inline-note height. The pane keeps each file's laid-out height
+with the file, and estimates an unwrapped file's height from its rows, so a
+file arrives at its size and keeps it when the lazy stack rebuilds its view.
+Vertical wheel events pass to the containing diff scroll view.
 Split mode pairs replacement runs and leaves
 unmatched rows blank without assigning them source coordinates. Both native
 editors share row heights so wrapped source and inline notes stay aligned.
@@ -463,8 +469,10 @@ failure states. Loading uses a braille spinner. A clean working tree reads
 refusals use the TUI's wording with a second explanatory line where it helps.
 Visible diff panes poll every 5 seconds without an indicator, deferring while a
 comment is being edited or saved. Unchanged revisions retain expanded pages and
-editor position; collapsed files stay collapsed across refreshes; hidden panes
-do not poll. Workspace invalidation discards in-flight
+editor position. A new revision keeps every fully loaded file whose file
+revision is unchanged, with its editor and height, and reloads only the files
+that changed. Collapsed files stay collapsed across refreshes; hidden panes do
+not poll. Workspace invalidation discards in-flight
 results, and operation generations prevent older reads from replacing new state.
 
 The native editor shares annotation inputs and notes with file tabs. A semantic

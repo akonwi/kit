@@ -275,6 +275,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
             gutter.needsDisplay = true
             parent.splitAlignment?.schedule()
             let height = ceil(manager.estimatedHeight()) + 8
+            if parent.document.diff != nil { DiffState.rowHeight = manager.estimateLineHeight() }
             if parent.contentHeightChanged != nil, abs(lastHeight - height) > 0.5 {
                 lastHeight = height
                 DispatchQueue.main.async { [weak self] in self?.parent.contentHeightChanged?(height) }

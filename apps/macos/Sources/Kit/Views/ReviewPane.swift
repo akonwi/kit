@@ -41,6 +41,11 @@ struct ReviewPane: View {
             let model = model, session = state.selectedID
             Task { await model.refresh(client: client, session: session) }
         }
+        // Fetch files ahead of the reader so they arrive at their size.
+        .task(id: "\(active)|\(model.observation?.target.id ?? "")|\(model.observation?.revision ?? "")|\(model.files.count)") {
+            guard active, let client else { return }
+            await model.prefetch(client: client, session: state.selectedID)
+        }
         .task(id: "\(state.selectedID)\(active)\(state.selected?.cwd ?? "")") {
             guard active, let client else { return }
             let model = model, session = state.selectedID, annotations = state.annotationState
@@ -348,9 +353,18 @@ private struct DiffFileBody: View {
     let active: Bool
     let sideBySide: Bool
     @State private var position = SourceEditorState()
-    @State private var contentHeight: CGFloat = 100
     private var reader: DiffState? { model.fileStates[file.path] }
     private var textual: Bool { file.contentState == "text" }
+
+    /// Which laid-out height applies: the document and how it's presented.
+    private func heightKey(_ document: DiffDocument) -> String {
+        "\(document.identity)|\(sideBySide)|\(model.wrapLines)"
+    }
+    /// The editor's last laid-out height, or one estimated from its rows so a
+    /// file that loaded off screen arrives at its size.
+    private func height(_ document: DiffDocument, rows: Int, in reader: DiffState) -> CGFloat {
+        reader.measuredHeights[heightKey(document)] ?? DiffState.estimatedHeight(rows: rows)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -359,15 +373,18 @@ private struct DiffFileBody: View {
             } else if let reader, let document = reader.document, !document.rows.isEmpty,
                       let client = state.catalogClient as? any AnnotationClient {
                 let canAnnotate = !model.stale && !reader.stale && !reader.loading
+                let key = heightKey(document)
                 if sideBySide {
-                    SplitDiffEditors(document: document, annotations: state.annotationState, client: client,
-                        session: state.selectedID, canAnnotate: canAnnotate, wrapLines: model.wrapLines)
+                    let pair = document.split()
+                    SplitDiffEditors(pair: pair, annotations: state.annotationState, client: client,
+                        session: state.selectedID, canAnnotate: canAnnotate, wrapLines: model.wrapLines,
+                        height: height(document, rows: pair.old.rows.count, in: reader)) { reader.measuredHeights[key] = $0 }
                         .id(document.identity)
                 } else {
                     AnnotatedFileEditor(diff: document, position: $position, annotations: state.annotationState,
                         client: client, session: state.selectedID, canAnnotate: canAnnotate,
-                        contentHeightChanged: { contentHeight = $0 }, wrapLines: model.wrapLines)
-                        .frame(height: contentHeight).id(document.identity).clipped()
+                        contentHeightChanged: { reader.measuredHeights[key] = $0 }, wrapLines: model.wrapLines)
+                        .frame(height: height(document, rows: document.rows.count, in: reader)).id(document.identity).clipped()
                 }
                 if let notice = reader.notice { DiffNoteRow(text: notice) }
                 if reader.lineCursor != nil {
@@ -392,7 +409,7 @@ private struct DiffFileBody: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: String(active) + (model.observation?.revision ?? "")) {
             guard active, textual, let client = state.catalogClient as? any DiffClient else { return }
-            await model.loadFile(file, client: client, session: state.selectedID)
+            await model.appeared(file, client: client, session: state.selectedID)
         }
     }
 
@@ -462,7 +479,7 @@ private extension DiffBanner where Actions == EmptyView {
 /// Old lines on the left, new on the right, kept row for row.
 private struct SplitDiffEditors: View {
     @Environment(\.mica) private var theme
-    let document: DiffDocument
+    let pair: (old: DiffDocument, new: DiffDocument)
     let annotations: AnnotationState
     let client: any AnnotationClient
     let session: String
@@ -470,12 +487,21 @@ private struct SplitDiffEditors: View {
     let wrapLines: Bool
     @State private var oldPosition = SourceEditorState()
     @State private var newPosition = SourceEditorState()
-    @State private var oldHeight: CGFloat = 100
-    @State private var newHeight: CGFloat = 100
+    @State private var oldHeight: CGFloat
+    @State private var newHeight: CGFloat
     @State private var alignment = DiffSplitAlignment()
+    /// Records the pair's laid-out height with the file.
+    let measured: (CGFloat) -> Void
+
+    /// Both sides start at `height`, the file's last or estimated height.
+    init(pair: (old: DiffDocument, new: DiffDocument), annotations: AnnotationState, client: any AnnotationClient,
+         session: String, canAnnotate: Bool, wrapLines: Bool, height: CGFloat, measured: @escaping (CGFloat) -> Void) {
+        self.pair = pair; self.annotations = annotations; self.client = client; self.session = session
+        self.canAnnotate = canAnnotate; self.wrapLines = wrapLines; self.measured = measured
+        _oldHeight = State(initialValue: height); _newHeight = State(initialValue: height)
+    }
 
     var body: some View {
-        let pair = document.split()
         HStack(alignment: .top, spacing: 0) {
             AnnotatedFileEditor(diff: pair.old, position: $oldPosition, annotations: annotations,
                 client: client, session: session, canAnnotate: canAnnotate,
@@ -487,5 +513,6 @@ private struct SplitDiffEditors: View {
                 contentHeightChanged: { newHeight = $0 }, wrapLines: wrapLines, splitAlignment: alignment)
                 .frame(maxWidth: .infinity).frame(height: max(oldHeight, newHeight)).clipped()
         }.frame(height: max(oldHeight, newHeight))
+        .onChange(of: max(oldHeight, newHeight)) { _, height in measured(height) }
     }
 }

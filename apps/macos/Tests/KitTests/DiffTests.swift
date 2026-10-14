@@ -41,9 +41,13 @@ actor DiffTestClient: DiffClient, AnnotationClient {
     }
     var revision = "diffrev_test"
     func advanceRevision() { revision = "diffrev_updated" }
+    /// Files whose content differs from the first revision.
+    var changed: Set<String> = []
+    func change(_ path: String) { changed.insert(path); advanceRevision() }
     func page(path: String = "main.swift") throws -> WireFileDiffPage {
         try JSONDecoder().decode(WireFileDiffPage.self, from: Data(DiffTestData.pageJSON
-            .replacingOccurrences(of: DiffTestData.hunk, with: tallFiles ? Self.tallHunk() : DiffTestData.hunk).replacingOccurrences(of: "diffrev_test", with: revision).replacingOccurrences(of: "main.swift", with: path).replacingOccurrences(of: "Bonjour 🌿", with: longLines ? String(repeating: "Long greeting ", count: 18) : "Bonjour 🌿").utf8))
+            .replacingOccurrences(of: DiffTestData.hunk, with: tallFiles ? Self.tallHunk() : DiffTestData.hunk)
+            .replacingOccurrences(of: "diff_file_test", with: changed.contains(path) ? "diff_file_changed" : "diff_file_test").replacingOccurrences(of: "diffrev_test", with: revision).replacingOccurrences(of: "main.swift", with: path).replacingOccurrences(of: "Bonjour 🌿", with: longLines ? String(repeating: "Long greeting ", count: 18) : "Bonjour 🌿").utf8))
     }
     var repeatCursor = false
     var slow = false
@@ -190,6 +194,51 @@ struct DiffTests {
         await task.value
         #expect(model.catalog == nil && model.document == nil)
         #expect(model.loading == false)
+    }
+
+    @MainActor @Test func prefetchLoadsFilesInOrderUntilTheBudgetIsSpent() async throws {
+        let client = DiffTestClient()
+        await client.setTallFiles()
+        let model = DiffState()
+        model.prefetchFileLimit = 5
+        await model.refresh(client: client, session: "session_test")
+        await model.prefetch(client: client, session: "session_test")
+        let first = (0..<5).map { "Sources/File\($0).swift" }
+        #expect(model.fileStates.keys.sorted() == first)
+        #expect(model.fileStates.values.allSatisfy { $0.document != nil })
+        // The selected file was read once by the target; the rest in list order.
+        #expect(await client.reads.map(\.path) == first)
+    }
+
+    @MainActor @Test func aFileComingIntoViewLoadsWithTheNextFew() async throws {
+        let client = DiffTestClient()
+        await client.setTallFiles()
+        let model = DiffState()
+        await model.refresh(client: client, session: "session_test")
+        await model.appeared(model.files[10], client: client, session: "session_test")
+        #expect(model.fileStates.keys.sorted() == (10...13).map { "Sources/File\($0).swift" })
+    }
+
+    @MainActor @Test func aNewRevisionKeepsUnchangedFilesAndReloadsChangedOnes() async throws {
+        let client = DiffTestClient()
+        await client.setTallFiles()
+        let model = DiffState()
+        model.prefetchFileLimit = 5
+        await model.refresh(client: client, session: "session_test")
+        await model.prefetch(client: client, session: "session_test")
+        let before = model.fileStates
+        before["Sources/File2.swift"]?.measuredHeights["laid out"] = 704
+        await client.change("Sources/File3.swift")
+        await model.poll(client: client, session: "session_test", canApply: { true })
+        #expect(model.observation?.revision == "diffrev_updated")
+        let kept = ["Sources/File0.swift", "Sources/File1.swift", "Sources/File2.swift", "Sources/File4.swift"]
+        #expect(model.fileStates.keys.sorted() == kept)
+        for path in kept {
+            #expect(model.fileStates[path] === before[path])
+            #expect(model.fileStates[path]?.document?.observation.revision == "diffrev_updated")
+            #expect(model.fileStates[path]?.document?.identity == before[path]?.document?.identity)
+        }
+        #expect(model.fileStates["Sources/File2.swift"]?.measuredHeights["laid out"] == 704)
     }
 
     @MainActor @Test func pollingPreservesExpandedPagesAndDefersDuringEditing() async throws {
@@ -439,7 +488,11 @@ extension InlineAnnotationEditorTests {
             (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews($0) }
         }
         try await Task.sleep(for: .milliseconds(1500))
-        #expect(state.ui.workspace.diff.files.count == 20)
+        let model = state.ui.workspace.diff
+        #expect(model.files.count == 20)
+        // Every file loads in the background before it is scrolled to.
+        #expect(model.fileStates.count == 20)
+        #expect(model.fileStates.values.allSatisfy { $0.document != nil })
         let outer = try #require(scrollViews(host).first)
         for step in 0..<20 {
             outer.contentView.scroll(to: NSPoint(x: 0, y: CGFloat(step) * 150))
@@ -447,6 +500,15 @@ extension InlineAnnotationEditorTests {
             try await Task.sleep(for: .milliseconds(40))
         }
         #expect(outer.contentView.bounds.minY > 2000)
+        // Files arrive at their size: each laid-out height matches the
+        // estimate from its rows that sized it before it was laid out.
+        let measured = model.fileStates.values.compactMap { reader in
+            reader.document.flatMap { document in reader.measuredHeights.first.map { (document.rows.count, $0.value) } }
+        }
+        #expect(measured.count >= 5)
+        for (rows, height) in measured {
+            #expect(DiffState.estimatedHeight(rows: rows) == height)
+        }
     }
 
     @Test func splitAndWrappedDiffsAlignRowsAndPreserveDraftAcrossModes() async throws {
