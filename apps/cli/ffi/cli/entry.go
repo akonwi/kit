@@ -13,7 +13,10 @@ type TUIOptions struct {
 	Context context.Context
 	Client  *kit.Client
 	// Server labels the attached server, or is empty for this home's own.
-	Server                string
+	Server string
+	// PairingURLs are the URLs that reach the attached server, for pairing
+	// links: the saved URL of a URL server, or a home's served URLs.
+	PairingURLs           []string
 	CWD                   string
 	Location              string
 	ResolveLocation       func(context.Context, string) string

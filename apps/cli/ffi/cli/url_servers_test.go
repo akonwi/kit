@@ -191,3 +191,33 @@ func runCLIInHome(t *testing.T, home string, args ...string) (int, string, strin
 	defer os.Setenv(apphome.EnvHome, previous)
 	return runCLI(args...)
 }
+
+func TestTheTUIPairsDevicesWithLinksAtEachURL(t *testing.T) {
+	serverHome := filepath.Join(t.TempDir(), "server")
+	if err := os.MkdirAll(serverHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	startDaemon(t, serverHome)
+	client, err := kit.Connect(t.Context(), kit.Home(serverHome))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	urls := []string{"https://kit.example.ts.net", "http://127.0.0.1:7781"}
+	pairing, err := CreatePairingLinks(t.Context(), client, urls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairing.Links) != 2 || len(pairing.Expires) != len("15:04") {
+		t.Fatalf("pairing = %+v", pairing)
+	}
+	code := pairing.Links[0][strings.Index(pairing.Links[0], "#"):]
+	for index, link := range pairing.Links {
+		if link != urls[index]+"/pair"+code {
+			t.Errorf("link %d = %q", index, link)
+		}
+	}
+	if _, err := CreatePairingLinks(t.Context(), client, nil); err == nil {
+		t.Fatal("pairing without a URL succeeded")
+	}
+}

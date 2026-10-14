@@ -133,7 +133,9 @@ type Environment struct {
 	// provider login; it is empty for a URL server.
 	serverPaths apphome.Paths
 	// server labels an attached server other than this home's own.
-	server    string
+	server string
+	// serverURL is the origin of a URL server.
+	serverURL string
 	cwd       string
 	settings  *settings.Store
 	themeName string
@@ -221,6 +223,7 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 		paths:           paths,
 		serverPaths:     serverPaths,
 		server:          target.Name,
+		serverURL:       target.URL,
 		cwd:             cwd,
 		settings:        settingsStore,
 		themeName:       loadedSettings.Theme,
@@ -347,6 +350,7 @@ func (e Environment) prepared(
 			Context:               ctx,
 			Client:                e.Client,
 			Server:                e.server,
+			PairingURLs:           e.pairingURLs(),
 			CWD:                   cwd,
 			Location:              interactiveLocation(ctx, cwd),
 			ResolveLocation:       interactiveLocation,
@@ -376,6 +380,14 @@ func (e Environment) prepared(
 		prepared.temporaryID = options.NewSessionID
 	}
 	return prepared
+}
+
+// pairingURLs lists the URLs that reach the attached server.
+func (e Environment) pairingURLs() []string {
+	if e.serverURL != "" {
+		return []string{e.serverURL}
+	}
+	return homeServedURLs(e.serverPaths, nil)
 }
 
 // errRemoteLogin reports provider login while attached to a URL server.

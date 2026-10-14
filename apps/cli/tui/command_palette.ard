@@ -183,6 +183,7 @@ private fn available_catalog(
     command_item("model", "Change session model", "engine", ""),
     command_item_with_hint("name", "[name]", "Rename session", "rename title", ""),
     command_item("new", "Start a new session", "", ""),
+    command_item("pair", "Pair another device with this server", "device link remote connect", ""),
     command_item("quit", "Exit Kit", "close exit", ""),
     command_item(
       "refresh-models",
@@ -263,6 +264,7 @@ enum ActionKind {
   rename,
   new_session,
   fork,
+  pair,
   refresh_models,
   reload,
   sessions,
@@ -437,6 +439,7 @@ private fn resolve_arguments(
       "name" => builtin(ActionKind::rename),
       "new" => builtin(ActionKind::new_session),
       "fork" => builtin(ActionKind::fork),
+      "pair" => builtin(ActionKind::pair),
       "refresh-models" => builtin(ActionKind::refresh_models),
       "reload" => builtin(ActionKind::reload),
       "sessions" => builtin(ActionKind::sessions),

@@ -1,0 +1,105 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/pairing
+use kit/tui/theme
+use go:strings
+
+struct Props {
+  links: [Str],
+  error: Str,
+}
+
+struct Host {
+  props: mut Props,
+}
+
+fn host(props: mut Props) mut Host {
+  (mut Host{props: props})
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    cui::box(
+      pairing::body(
+        theme::context(theme::store(theme::system())),
+        self.props.links,
+        "14:05",
+        self.props.error,
+        fn() {},
+      ),
+      styles: ui::style(flex_direction: ui::FlexDirection::column, width: ui::percent(100.0)),
+    )
+  }
+}
+
+// rows renders the dialog body for links or error and returns its
+// non-blank rows without trailing spaces.
+fn rows(links: [Str], error: Str) [Str] {
+  let terminal = headless::new(72, 12)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, cui::child(host, Props{links: links, error: error}))
+  defer renderer.destroy()
+  terminal.flush()
+  let result = mut List::new<Str>()
+  for line in strings::Split(terminal.frame().text(), "\n") {
+    result.push(strings::TrimRight(line, " "))
+  }
+  result.@
+}
+
+// shown is rows up to the last non-blank one, one per line.
+fn shown(lines: [Str]) Str {
+  mut last = 0
+  for index in 0..lines.size() {
+    if lines.at(index).or("") != "" {
+      last = index + 1
+    }
+  }
+  strings::Join(mut lines.slice(start: 0, end: last).expect("rows"), "\n")
+}
+
+test fn the_dialog_lists_a_link_per_url_and_how_to_use_it() Void!Str {
+  let actual = shown(
+    rows(
+      [
+        "https://kit.example.ts.net/pair#abcdefghijklmnopqrstuvwxyz",
+        "http://127.0.0.1:7781/pair#abcdefghijklmnopqrstuvwxyz",
+      ],
+      "",
+    ),
+  )
+  let expected = [
+    "On the other device, run:",
+    "kit servers add NAME LINK",
+    "",
+    "Use a link the other device can reach:",
+    "https://kit.example.ts.net/pair#abcdefghijklmnopqrstuvwxyz  ⧉",
+    "http://127.0.0.1:7781/pair#abcdefghijklmnopqrstuvwxyz  ⧉",
+    "",
+    "The links share one code, which works once, until 14:05.",
+  ]
+  testing::assert(actual == strings::Join(mut expected, "\n"), actual)
+}
+
+test fn a_single_link_needs_no_choice() Void!Str {
+  let actual = shown(rows(["https://kit.example.ts.net/pair#abcdefghijklmnopqrstuvwxyz"], ""))
+  let expected = [
+    "On the other device, run:",
+    "kit servers add NAME LINK",
+    "",
+    "https://kit.example.ts.net/pair#abcdefghijklmnopqrstuvwxyz  ⧉",
+    "",
+    "The link works once, until 14:05.",
+  ]
+  testing::assert(actual == strings::Join(mut expected, "\n"), actual)
+}
+
+test fn a_failed_request_shows_why() Void!Str {
+  let actual = shown(rows([], "Could not create a pairing code: server unavailable"))
+  testing::assert(actual == "Could not create a pairing code: server unavailable", actual)
+}

@@ -36,6 +36,7 @@ use kit/tui/layout
 use kit/tui/mcp
 use kit/tui/model
 use kit/tui/model_refresh
+use kit/tui/pairing
 use kit/tui/rename
 use kit/tui/scratchpad
 use kit/tui/session_debug
@@ -73,6 +74,7 @@ struct CommandPaletteModal {}
 struct AuthModal {}
 struct SessionDebugModal {}
 struct MCPStatusModal {}
+struct PairingModal {}
 struct ModelPickerModal {}
 struct ThemePickerModal {}
 struct ThinkingPickerModal {}
@@ -97,6 +99,7 @@ type Modal =
   | AuthModal
   | SessionDebugModal
   | MCPStatusModal
+  | PairingModal
   | ModelPickerModal
   | ThemePickerModal
   | ThinkingPickerModal
@@ -1508,6 +1511,7 @@ impl cui::Component for Shell {
       AuthModal => layers.push(self.auth_modal()),
       SessionDebugModal => layers.push(self.session_debug_modal()),
       MCPStatusModal => layers.push(self.mcp_status_modal()),
+      PairingModal => layers.push(self.pairing_modal()),
       ModelPickerModal => layers.push(self.model_picker_modal()),
       ThemePickerModal => layers.push(self.theme_picker_modal()),
       ThinkingPickerModal => layers.push(self.thinking_picker_modal()),
@@ -1875,6 +1879,7 @@ impl Shell {
       },
       command_palette::ActionKind::debug => { self.active_modal = SessionDebugModal{} },
       command_palette::ActionKind::mcp => { self.active_modal = MCPStatusModal{} },
+      command_palette::ActionKind::pair => { self.active_modal = PairingModal{} },
       command_palette::ActionKind::model => { self.active_modal = ModelPickerModal{} },
       command_palette::ActionKind::theme => { self.active_modal = ThemePickerModal{} },
       command_palette::ActionKind::thinking => { self.active_modal = ThinkingPickerModal{} },
@@ -1943,6 +1948,25 @@ impl Shell {
 
   // The connection flow owns its steps and attempts. Shell decides only what
   // an installed credential means for the root phase.
+  fn mut pairing_modal() cui::View {
+    cui::child(
+      pairing::new,
+      pairing::Props{
+        themes: self.props.themes,
+        client: self.props.options.Client,
+        lifetime: self.lifetime.expect("mounted shell"),
+        urls: self.props.options.PairingURLs,
+        dismiss: keymap::simple_command("pair.dismiss", "Close", fn() Bool {
+          self.dismiss_modal()
+        }),
+        copied: fn() {
+          self.notify("Copied to clipboard", "", toast::Variant::info, false)
+        },
+      },
+      key: "pairing",
+    )
+  }
+
   fn mut auth_modal() cui::View {
     auth::flow(
       auth::Props{

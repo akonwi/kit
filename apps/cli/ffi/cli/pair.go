@@ -280,3 +280,28 @@ func formatDeviceTime(value string) string {
 	}
 	return parsed.Local().Format("2006-01-02 15:04")
 }
+
+// PairingLinks is a new pairing code as the terminal client presents it.
+type PairingLinks struct {
+	// Links has one pairing link per URL that reaches the server.
+	Links []string
+	// Expires is the code's local expiry time, such as "14:05".
+	Expires string
+}
+
+// CreatePairingLinks issues a pairing code on the attached server and links
+// it at each of urls.
+func CreatePairingLinks(ctx context.Context, client *kit.Client, urls []string) (PairingLinks, error) {
+	if len(urls) == 0 {
+		return PairingLinks{}, errors.New("no URL reaches this server")
+	}
+	code, err := client.CreatePairing(ctx)
+	if err != nil {
+		return PairingLinks{}, err
+	}
+	links := make([]string, 0, len(urls))
+	for _, served := range urls {
+		links = append(links, code.Link(served))
+	}
+	return PairingLinks{Links: links, Expires: code.ExpiresAt.Local().Format("15:04")}, nil
+}

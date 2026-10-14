@@ -35,7 +35,8 @@ tailnet or reverse-proxy address, with a device token obtained by
 3. Run `kit attach NAME`, or `kit attach URL`.
 
 A paired device can pair another with `kit pair NAME`, which prints a link at
-the saved URL.
+the saved URL, or with **pair** in the TUI's command palette, which shows the
+links for the attached server with copy actions.
 
 When the server revokes this device, or its token expires, `kit servers` shows
 `needs pairing` and `kit attach` explains how to pair again. Get a new link
