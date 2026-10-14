@@ -822,11 +822,17 @@ test fn streaming_mermaid_fence_shows_source_until_it_closes() Void!Str {
 }
 
 test fn undrawable_mermaid_shows_source_with_the_reason() Void!Str {
-  let terminal = mount("```mermaid\nflowchart LR\n  A --> B\n```", 40, 6)
+  let terminal = mount("```mermaid\nclassDiagram\n  A <|-- B\n```", 40, 6)
   defer terminal.destroy()
   expect_prefix_rows(
     terminal,
-    [" flowchart LR", "   A --> B", "Diagram not drawn: flowcharts aren't", "drawn yet", ""],
+    [
+      " classDiagram",
+      "   A <|-- B",
+      "Diagram not drawn: `classDiagram`",
+      "diagrams aren't drawn yet",
+      "",
+    ],
   )
 }
 

@@ -7,6 +7,7 @@ use cooper/testing as headless
 use cooper/ui
 use kit/tui/code
 use kit/tui/mermaid/canvas
+use kit/tui/mermaid/flowchart
 use kit/tui/mermaid/sequence
 use kit/tui/theme
 use go:strings
@@ -92,7 +93,7 @@ private fn render_lines(source: Str) canvas::Canvas!Str {
     header == "" => Result::err("the diagram is empty"),
     kind == "sequenceDiagram" and header == kind => sequence::render(body.@, title),
     kind == "sequenceDiagram" => Result::err("unexpected text after `sequenceDiagram`"),
-    kind == "flowchart" or kind == "graph" => Result::err("flowcharts aren't drawn yet"),
+    kind == "flowchart" or kind == "graph" => flowchart::render(header, body.@, title),
     _ => Result::err("`{kind}` diagrams aren't drawn yet"),
   }
 }
@@ -374,7 +375,7 @@ test fn unsupported_diagrams_explain_why_they_are_not_drawn() Void!Str {
     render("sequenceDiagram\n" + strings::Repeat("A->>B: hi\n", 2000)),
   ]
   let expected = [
-    "flowcharts aren't drawn yet",
+    "`LR` flowcharts aren't drawn yet",
     "`classDiagram` diagrams aren't drawn yet",
     "the diagram is empty",
     "the frontmatter isn't closed",

@@ -68,6 +68,31 @@ A diagram is drawn when its source is at most 16 KiB, with at most 24
 participants and 200 statements, and the drawing fits within 480 columns and
 800 rows.
 
+### Flowcharts
+
+| Syntax | Drawn as |
+|---|---|
+| `flowchart TD`, `flowchart TB`, `graph TD` | Layers flowing top down |
+| `A`, `A[text]`, `A["text"]` | A box |
+| `A --> B`, `A ---> B` | An arrow into the target's top |
+| `A --- B` | A line joining the target's top |
+| `A --> B --> C` | A chain of edges |
+| `A & B --> C & D` | An edge from each node on the left to each on the right |
+| `A:::name` | A box; the class is ignored |
+
+Statements may be separated by `;`. Nodes appear in layers by their longest
+path from a start node, and an edge that skips layers runs straight past them.
+Edges from one node branch from a shared line, and edges into one node merge
+into one arrow. Node text is one line; text over 40 columns is cut short with
+an ellipsis.
+
+`classDef`, `class`, `style`, `linkStyle`, and `click` statements are accepted
+but not drawn. Loops, edge labels, dotted and thick links, other node shapes,
+subgraphs, and the `LR`, `RL`, and `BT` directions show the source instead.
+
+A flowchart is drawn when it has at most 60 nodes, 120 edges, and 200
+statements, and the drawing fits within 480 columns and 800 rows.
+
 ### Other diagram types
 
-Flowcharts and other diagram types aren't drawn yet and show their source.
+Other diagram types aren't drawn yet and show their source.

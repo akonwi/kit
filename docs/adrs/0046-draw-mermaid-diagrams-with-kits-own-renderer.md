@@ -45,6 +45,28 @@ Ard in `apps/cli/tui/mermaid`. It has no third-party dependency.
 Sequence diagrams are the first supported type. Flowcharts and other types are
 added as separately reviewed subsets.
 
+### Layered layout
+
+Flowcharts use a layered layout in `apps/cli/tui/mermaid/layers.ard`, which
+other graph-shaped diagrams can share:
+
+- **Layers.** A node's layer is one past its deepest predecessor; a start node
+  moves down to sit just above its nearest successor. An edge that skips
+  layers passes through a placeholder in each layer between.
+- **Order.** Layers are reordered by the mean position of each node's
+  neighbors in alternating downward and upward sweeps, keeping the order with
+  the fewest crossings.
+- **Placement.** Nodes are pulled toward their neighbors without overlapping,
+  then each long edge's placeholders are lined up in one column so the edge
+  runs straight, pushing later nodes in a layer aside when needed.
+- **Routing.** Between two layers runs a channel of tracks. An edge leaves its
+  node's bottom border, runs sideways on a track, and drops into its target's
+  top border. Edges from one node, or into one node, share a track so they
+  branch or merge; other tracks are assigned so their spans never touch. A
+  drop lines up with a predecessor's stem when that column falls inside the
+  target's box, and a stem never shares a column with a drop into an
+  unrelated node.
+
 ## Consequences
 
 - Diagrams follow the theme and the client's selection and layout rules, and
