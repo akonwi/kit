@@ -1,0 +1,1321 @@
+use ard/testing
+
+use cooper/ui
+use kit/tui/mermaid/canvas
+use go:strconv
+use go:strings
+
+// Mermaid sequence diagrams: a reviewed subset parsed, laid out in columns,
+// and drawn with box-drawing characters.
+//
+// Supported: `participant` and `actor` with `as` labels, messages with the
+// `->`, `-->`, `->>`, `-->>`, `-x`, `--x`, `-)`, `--)`, `<<->>`, and `<<-->>`
+// arrows, notes left of, right of, and over participants, the `loop`, `alt`
+// and `else`, `opt`, `par` and `and`, `critical` and `option`, and `break`
+// blocks, `autonumber`, and `title`. `activate`, `deactivate`, the `+` and `-`
+// activation shorthands, and `rect` highlights are accepted without being
+// drawn. Anything else is rejected so the source is shown instead.
+
+// The largest diagram drawn; bigger ones show their source.
+let max_participants = 24
+let max_statements = 200
+let max_width = 480
+let max_height = 800
+// Text wider than this is cut short with an ellipsis.
+let max_text = 64
+
+// The cells kept clear between adjacent participant boxes.
+let box_gap = 3
+
+struct Participant {
+  id: Str,
+  label: Str,
+  actor: Bool,
+}
+
+enum Kind {
+  message,
+  note,
+  open,
+  divider,
+  close,
+}
+
+enum Head {
+  none,
+  filled,
+  open,
+  cross,
+}
+
+enum Placement {
+  left,
+  right,
+  over,
+}
+
+struct Event {
+  kind: Kind,
+  // A message's sender and receiver, or the participants a note is placed
+  // against, by participant index.
+  from: Int,
+  to: Int,
+  dashed: Bool,
+  start: Head,
+  end: Head,
+  placement: Placement,
+  // A block's keyword, such as `loop` or `else`.
+  keyword: Str,
+  // A message's or note's text, or a block's condition.
+  text: Str,
+}
+
+struct Diagram {
+  title: Str,
+  participants: [Participant],
+  events: [Event],
+}
+
+private fn maximum(left: Int, right: Int) Int {
+  match left > right {
+    true => left,
+    false => right,
+  }
+}
+
+private fn minimum(left: Int, right: Int) Int {
+  match left < right {
+    true => left,
+    false => right,
+  }
+}
+
+// Text as one line, cut to max_text cells.
+fn clean(value: Str) Str {
+  mut text = value
+  for brk in ["<br/>", "<br />", "<br>", "<BR>", "<BR/>"] {
+    text = strings::ReplaceAll(text, brk, " ")
+  }
+  text = strings::TrimSpace(strings::ReplaceAll(text, "\t", " "))
+  match ui::text_width(text) <= max_text {
+    true => text,
+    false => {
+      let kept = mut List::new<Str>()
+      mut width = 0
+      for part in ui::graphemes(text) {
+        if width + part.width <= max_text - 1 {
+          kept.push(part.text)
+          width =+ part.width
+        }
+      }
+      strings::Join(kept, "") + "…"
+    },
+  }
+}
+
+private fn event(kind: Kind) Event {
+  Event{
+    kind: kind,
+    from: 0,
+    to: 0,
+    dashed: false,
+    start: Head::none,
+    end: Head::none,
+    placement: Placement::over,
+    keyword: "",
+    text: "",
+  }
+}
+
+private struct Arrow {
+  token: Str,
+  dashed: Bool,
+  start: Head,
+  end: Head,
+}
+
+private fn arrows() [Arrow] {
+  [
+    Arrow{
+      token: "<<-->>",
+      dashed: true,
+      start: Head::filled,
+      end: Head::filled,
+    },
+    Arrow{
+      token: "<<->>",
+      dashed: false,
+      start: Head::filled,
+      end: Head::filled,
+    },
+    Arrow{
+      token: "-->>",
+      dashed: true,
+      start: Head::none,
+      end: Head::filled,
+    },
+    Arrow{
+      token: "->>",
+      dashed: false,
+      start: Head::none,
+      end: Head::filled,
+    },
+    Arrow{
+      token: "--x",
+      dashed: true,
+      start: Head::none,
+      end: Head::cross,
+    },
+    Arrow{
+      token: "-x",
+      dashed: false,
+      start: Head::none,
+      end: Head::cross,
+    },
+    Arrow{
+      token: "--)",
+      dashed: true,
+      start: Head::none,
+      end: Head::open,
+    },
+    Arrow{
+      token: "-)",
+      dashed: false,
+      start: Head::none,
+      end: Head::open,
+    },
+    Arrow{
+      token: "-->",
+      dashed: true,
+      start: Head::none,
+      end: Head::none,
+    },
+    Arrow{
+      token: "->",
+      dashed: false,
+      start: Head::none,
+      end: Head::none,
+    },
+  ]
+}
+
+private struct Parser {
+  title: Str,
+  participants: [Participant],
+  indexes: [Str: Int],
+  events: [Event],
+  // Open blocks, innermost last; `rect` blocks are open but not drawn.
+  blocks: [Str],
+  numbered: Bool,
+  number: Int,
+  step: Int,
+}
+
+// Whether id can name a participant: not empty, and free of the characters
+// and arrow pieces that separate statement parts, so a misread statement is
+// rejected rather than drawn with an invented participant.
+fn valid_name(id: Str) Bool {
+  mut valid = id != "" and not strings::ContainsAny(id, ":,;<>")
+  for piece in ["->", "--", "-x", "-)"] {
+    if strings::Contains(id, piece) {
+      valid = false
+    }
+  }
+  valid
+}
+
+private fn article(word: Str) Str {
+  match strings::HasPrefix(word, "a") or strings::HasPrefix(word, "o") {
+    true => "an",
+    false => "a",
+  }
+}
+
+impl Parser {
+  // The index of the participant id, declaring it on first use.
+  fn mut participant(raw: Str) Int!Str {
+    let id = strings::TrimSpace(raw)
+    match {
+      id == "" => Result::err("a participant needs a name"),
+      not valid_name(id) => Result::err("`{id}` isn't a participant name"),
+      _ => {
+        match self.indexes.get(id) {
+          index => Result::ok(index),
+          _ => {
+            let index = self.participants.size()
+            self.participants.push(
+              Participant{
+                id: id,
+                label: clean(id),
+                actor: false,
+              },
+            )
+            self.indexes.set(id, index)
+            Result::ok(index)
+          },
+        }
+      },
+    }
+  }
+
+  fn mut declare(rest: Str, actor: Bool) Void!Str {
+    let at = strings::Index(rest, " as ")
+    let id = match at >= 0 {
+      true => rest.slice(end: at).or(rest),
+      false => rest,
+    }
+    let label = match at >= 0 {
+      true => clean(rest.slice(start: at + 4).or("")),
+      false => clean(id),
+    }
+    match {
+      strings::Contains(rest, "@{{") => Result::err("participant metadata isn't supported"),
+      strings::HasSuffix(rest, " as") or label == "" => Result::err("`{rest}` needs a label after `as`"),
+      _ => {
+        let index = try self.participant(id)
+        self.participants.set(
+          index,
+          Participant{
+            id: strings::TrimSpace(id),
+            label: label,
+            actor: actor,
+          },
+        )
+        Result::ok(())
+      },
+    }
+  }
+
+  fn mut note(rest: Str) Void!Str {
+    let colon = strings::Index(rest, ":")
+    let head = strings::TrimSpace(
+      match colon >= 0 {
+        true => rest.slice(end: colon).or(rest),
+        false => rest,
+      },
+    )
+    let text = match colon >= 0 {
+      true => clean(rest.slice(start: colon + 1).or("")),
+      false => "",
+    }
+    let lower = strings::ToLower(head)
+    let placement = match {
+      strings::HasPrefix(lower, "left of ") => Maybe::new(Placement::left),
+      strings::HasPrefix(lower, "right of ") => Maybe::new(Placement::right),
+      strings::HasPrefix(lower, "over ") => Maybe::new(Placement::over),
+      _ => Maybe::new<Placement>(),
+    }
+    match placement {
+      place => {
+        let names = match place {
+          Placement::left => head.slice(start: 8).or(""),
+          Placement::right => head.slice(start: 9).or(""),
+          Placement::over => head.slice(start: 5).or(""),
+        }
+        let targets = match place == Placement::over {
+          true => strings::Split(names, ","),
+          false => [names],
+        }
+        match targets.size() > 2 {
+          true => Result::err("a note spans at most two participants"),
+          false => {
+            let first = try self.participant(targets.at(0).or(""))
+            let second = try self.participant(targets.at(targets.size() - 1).or(""))
+            let note = mut event(Kind::note)
+            note.from = minimum(first, second)
+            note.to = maximum(first, second)
+            note.placement = place
+            note.text = text
+            self.events.push(note.@)
+            Result::ok(())
+          },
+        }
+      },
+      _ => Result::err("unsupported note placement `{head}`"),
+    }
+  }
+
+  fn mut message(line: Str) Void!Str {
+    // The earliest arrow separates sender from receiver.
+    mut found = Maybe::new<Arrow>()
+    mut found_at = -1
+    for arrow in arrows() {
+      let at = strings::Index(line, arrow.token)
+      if at > 0 and (found_at < 0 or at < found_at) {
+        found = Maybe::new(arrow)
+        found_at = at
+      }
+    }
+    match found {
+      arrow => {
+        let sender = line.slice(end: found_at).or("")
+        let rest = line.slice(start: found_at + arrow.token.size()).or("")
+        let colon = strings::Index(rest, ":")
+        mut receiver = strings::TrimSpace(
+          match colon >= 0 {
+            true => rest.slice(end: colon).or(rest),
+            false => rest,
+          },
+        )
+        if strings::HasPrefix(receiver, "+") or strings::HasPrefix(receiver, "-") {
+          receiver = receiver.slice(start: 1).or("")
+        }
+        mut text = match colon >= 0 {
+          true => clean(rest.slice(start: colon + 1).or("")),
+          false => "",
+        }
+        let from = try self.participant(sender)
+        let to = try self.participant(receiver)
+        if self.numbered {
+          text = clean("{self.number}. {text}")
+          self.number =+ self.step
+        }
+        let message = mut event(Kind::message)
+        message.from = from
+        message.to = to
+        message.dashed = arrow.dashed
+        message.start = arrow.start
+        message.end = arrow.end
+        message.text = text
+        self.events.push(message.@)
+        Result::ok(())
+      },
+      _ => Result::err("unsupported line `{line}`"),
+    }
+  }
+
+  fn mut open(keyword: Str, rest: Str) {
+    self.blocks.push(keyword)
+    let block = mut event(Kind::open)
+    block.keyword = keyword
+    block.text = clean(rest)
+    self.events.push(block.@)
+  }
+
+  fn mut divider(keyword: Str, rest: Str, within: Str) Void!Str {
+    match self.blocks.at(self.blocks.size() - 1).or("") == within {
+      true => {
+        let block = mut event(Kind::divider)
+        block.keyword = keyword
+        block.text = clean(rest)
+        self.events.push(block.@)
+        Result::ok(())
+      },
+      false => Result::err("`{keyword}` outside {article(within)} `{within}` block"),
+    }
+  }
+
+  fn mut close() Void!Str {
+    match self.blocks.size() == 0 {
+      true => Result::err("`end` without an open block"),
+      false => {
+        let top = self.blocks.at(self.blocks.size() - 1).or("")
+        let open = mut List::new<Str>()
+        mut index = 0
+        while index < self.blocks.size() - 1 {
+          open.push(self.blocks.at(index).or(""))
+          index =+ 1
+        }
+        self.blocks = open.@
+        if top != "rect" {
+          self.events.push(event(Kind::close))
+        }
+        Result::ok(())
+      },
+    }
+  }
+
+  // `autonumber`, optionally with a start and step, or `autonumber off`.
+  fn mut autonumber(rest: Str) Void!Str {
+    let fields = strings::Fields(rest)
+    match {
+      rest == "off" => {
+        self.numbered = false
+        Result::ok(())
+      },
+      fields.size() > 2 => Result::err("`autonumber` takes at most a start and a step"),
+      _ => {
+        let start = match fields.at(0) {
+          value => strconv::Atoi(value),
+          _ => Result::ok(1),
+        }
+        let step = match fields.at(1) {
+          value => strconv::Atoi(value),
+          _ => Result::ok(1),
+        }
+        match start {
+          ok(first) => {
+            match step {
+              ok(by) => {
+                self.numbered = true
+                self.number = first
+                self.step = by
+                Result::ok(())
+              },
+              err(_) => Result::err("`autonumber` takes whole numbers"),
+            }
+          },
+          err(_) => Result::err("`autonumber` takes whole numbers"),
+        }
+      },
+    }
+  }
+
+  fn mut statement(line: Str) Void!Str {
+    let space = strings::IndexAny(line, " \t")
+    let original = match space >= 0 {
+      true => line.slice(end: space).or(line),
+      false => line,
+    }
+    // Keywords match in any case, as Mermaid's do.
+    let word = strings::ToLower(original)
+    let rest = match space >= 0 {
+      true => strings::TrimSpace(line.slice(start: space + 1).or("")),
+      false => "",
+    }
+    match {
+      word == "participant" => self.declare(rest, false),
+      word == "actor" => self.declare(rest, true),
+      word == "note" => self.note(rest),
+      word == "loop" or word == "alt" or word == "opt" or word == "par" or word == "critical" or word == "break" => {
+        self.open(word, rest)
+        Result::ok(())
+      },
+      word == "rect" => {
+        self.blocks.push("rect")
+        Result::ok(())
+      },
+      word == "else" => self.divider(word, rest, "alt"),
+      word == "and" => self.divider(word, rest, "par"),
+      word == "option" => self.divider(word, rest, "critical"),
+      word == "end" and rest == "" => self.close(),
+      word == "end" => Result::err("unexpected text after `end`"),
+      word == "activate" or word == "deactivate" => {
+        let _ = try self.participant(rest)
+        Result::ok(())
+      },
+      word == "autonumber" => self.autonumber(rest),
+      word == "title" or strings::HasPrefix(word, "title:") => {
+        self.title = clean(strings::TrimPrefix(line.slice(start: 5).or(""), ":"))
+        Result::ok(())
+      },
+      word == "box" or word == "create" or word == "destroy" or word == "link" or word == "links" or word == "properties" or word == "details" => {
+        Result::err("`{word}` isn't supported")
+      },
+      _ => self.message(line),
+    }
+  }
+}
+
+// Parses the statements after a `sequenceDiagram` header. title is the
+// frontmatter title, which a `title` statement replaces.
+fn parse(lines: [Str], title: Str) Diagram!Str {
+  let parser = mut Parser{
+    title: clean(title),
+    participants: [],
+    indexes: [:],
+    events: [],
+    blocks: [],
+    numbered: false,
+    number: 1,
+    step: 1,
+  }
+  mut statements = 0
+  for raw in lines {
+    let line = strings::TrimSpace(raw)
+    if line != "" and not strings::HasPrefix(line, "%%") {
+      statements =+ 1
+      try parser.statement(line)
+    }
+  }
+  let unclosed = parser.blocks.at(parser.blocks.size() - 1).or("")
+  match {
+    parser.blocks.size() > 0 => Result::err("unclosed `{unclosed}` block"),
+    parser.participants.size() == 0 => Result::err("the diagram has no participants"),
+    parser.participants.size() > max_participants => {
+      Result::err("more than {max_participants} participants")
+    },
+    statements > max_statements => Result::err("more than {max_statements} statements"),
+    _ => {
+      Result::ok(
+        Diagram{
+          title: parser.title,
+          participants: parser.participants,
+          events: parser.events,
+        },
+      )
+    },
+  }
+}
+
+// A drawn block frame.
+private struct Frame {
+  x0: Int,
+  x1: Int,
+  top: Int,
+  bottom: Int,
+  keyword: Str,
+  condition: Str,
+  // Rows of `else`, `and`, and `option` dividers, with their keyword and
+  // condition.
+  dividers: [Int],
+  divider_keywords: [Str],
+  divider_conditions: [Str],
+  // The horizontal extent of the frame's contents, before its padding.
+  min: Int,
+  max: Int,
+  empty: Bool,
+}
+
+// Where an event is drawn.
+private struct Placed {
+  // The event's first row; a message's text row when it has text.
+  row: Int,
+  // A message's arrow row.
+  line: Int,
+  x0: Int,
+  x1: Int,
+  // The extent an enclosing frame wraps: the drawn extent, plus the lifeline
+  // a note beside a participant is attached to.
+  reach0: Int,
+  reach1: Int,
+}
+
+private fn frame_label(keyword: Str, condition: Str) Str {
+  match condition == "" {
+    true => " {keyword} ",
+    false => " {keyword} [{condition}] ",
+  }
+}
+
+private fn box_width(participant: Participant) Int {
+  ui::text_width(participant.label) + 4
+}
+
+// Lays the diagram out in columns and rows and draws it.
+fn draw(diagram: Diagram) canvas::Canvas!Str {
+  let participants = diagram.participants
+  let count = participants.size()
+
+  // Column centers: each must clear the boxes, texts, and notes between it
+  // and the columns to its left.
+  let needs = mut List::new<[Int]>()
+  mut index = 0
+  while index + 1 < count {
+    let width = box_width(participants.at(index).expect("participant"))
+    let next = box_width(participants.at(index + 1).expect("participant"))
+    needs.push([index, index + 1, width - width / 2 + next / 2 + box_gap])
+    index =+ 1
+  }
+  for item in diagram.events {
+    let text = ui::text_width(item.text)
+    match item.kind {
+      Kind::message => {
+        if item.from != item.to {
+          needs.push([minimum(item.from, item.to), maximum(item.from, item.to), text + 4])
+        } else if item.from + 1 < count {
+          needs.push([item.from, item.from + 1, text + 7])
+        }
+      },
+      Kind::note => {
+        let width = text + 4
+        match item.placement {
+          Placement::right => {
+            if item.to + 1 < count {
+              needs.push([item.to, item.to + 1, width + 3])
+            }
+          },
+          Placement::left => {
+            if item.from > 0 {
+              needs.push([item.from - 1, item.from, width + 3])
+            }
+          },
+          Placement::over => {
+            match item.from == item.to {
+              true => {
+                if item.from > 0 {
+                  needs.push([item.from - 1, item.from, width / 2 + 2])
+                }
+                if item.from + 1 < count {
+                  needs.push([item.from, item.from + 1, width - width / 2 + 2])
+                }
+              },
+              false => needs.push([item.from, item.to, width - 5]),
+            }
+          },
+        }
+      },
+      _ => (),
+    }
+  }
+  let centers = mut List::new<Int>()
+  index = 0
+  while index < count {
+    mut center = box_width(participants.at(index).expect("participant")) / 2
+    for need in needs {
+      if need.at(1).or(-1) == index {
+        center = maximum(center, centers.at(need.at(0).or(0)).or(0) + need.at(2).or(0))
+      }
+    }
+    centers.push(center)
+    index =+ 1
+  }
+  let center = fn(participant: Int) Int {
+    centers.at(participant).or(0)
+  }
+
+  // Rows, and each event's horizontal extent.
+  let title_rows = match diagram.title == "" {
+    true => 0,
+    false => 2,
+  }
+  let header = title_rows
+  mut row = header + 4
+  let placed = mut List::new<Placed>()
+  let frames = mut List::new<Frame>()
+  // The frames still open, innermost at depth - 1.
+  let open = mut List::new<Int>()
+  mut depth = 0
+  mut min_x = 0
+  mut max_x = 0
+  index = 0
+  while index < count {
+    let width = box_width(participants.at(index).expect("participant"))
+    max_x = maximum(max_x, center(index) - width / 2 + width - 1)
+    index =+ 1
+  }
+  for item in diagram.events {
+    let text = ui::text_width(item.text)
+    let place = mut Placed{
+      row: row,
+      line: row,
+      x0: 0,
+      x1: 0,
+      reach0: 0,
+      reach1: 0,
+    }
+    match item.kind {
+      Kind::message => {
+        let a = center(item.from)
+        let b = center(item.to)
+        match a == b {
+          true => {
+            place.x0 = a
+            place.x1 = match text == 0 {
+              true => a + 3,
+              false => a + 4 + text,
+            }
+            row =+ 4
+          },
+          false => {
+            place.x0 = minimum(a, b)
+            place.x1 = maximum(a, b)
+            if text > 0 {
+              place.line = row + 1
+              row =+ 1
+            }
+            row =+ 2
+          },
+        }
+      },
+      Kind::note => {
+        let width = text + 4
+        match item.placement {
+          Placement::right => {
+            place.x0 = center(item.to) + 2
+            place.x1 = place.x0 + width - 1
+          },
+          Placement::left => {
+            place.x1 = center(item.from) - 2
+            place.x0 = place.x1 - width + 1
+          },
+          Placement::over => {
+            match item.from == item.to {
+              true => {
+                place.x0 = center(item.from) - width / 2
+                place.x1 = place.x0 + width - 1
+              },
+              false => {
+                place.x0 = center(item.from) - 2
+                place.x1 = maximum(center(item.to) + 2, place.x0 + width - 1)
+              },
+            }
+          },
+        }
+        row =+ 4
+      },
+      Kind::open => {
+        match depth < open.size() {
+          true => {
+            let _ = open.set(depth, frames.size())
+          },
+          false => {
+            let _ = open.push(frames.size())
+          },
+        }
+        depth =+ 1
+        frames.push(
+          Frame{
+            x0: 0,
+            x1: 0,
+            top: row,
+            bottom: row,
+            keyword: item.keyword,
+            condition: item.text,
+            dividers: [],
+            divider_keywords: [],
+            divider_conditions: [],
+            min: 0,
+            max: 0,
+            empty: true,
+          },
+        )
+        row =+ 1
+      },
+      Kind::divider => {
+        let current = open.at(depth - 1).or(0)
+        let frame = mut frames.at(current).expect("open frame")
+        frame.dividers.push(row)
+        frame.divider_keywords.push(item.keyword)
+        frame.divider_conditions.push(item.text)
+        frames.set(current, frame.@)
+        row =+ 1
+      },
+      Kind::close => {
+        let current = open.at(depth - 1).or(0)
+        depth =- 1
+        let frame = mut frames.at(current).expect("open frame")
+        if frame.empty {
+          frame.min = center(0)
+          frame.max = center(count - 1)
+        }
+        frame.bottom = row
+        frame.x0 = frame.min - 2
+        frame.x1 = maximum(
+          frame.max + 2,
+          frame.x0 + ui::text_width(frame_label(frame.keyword, frame.condition)) + 2,
+        )
+        mut divider = 0
+        while divider < frame.dividers.size() {
+          let label = frame_label(
+            frame.divider_keywords.at(divider).or(""),
+            frame.divider_conditions.at(divider).or(""),
+          )
+          frame.x1 = maximum(frame.x1, frame.x0 + ui::text_width(label) + 2)
+          divider =+ 1
+        }
+        // Keep the frame's sides off the lifelines.
+        mut moved = true
+        while moved {
+          moved = false
+          index = 0
+          while index < count {
+            if center(index) == frame.x0 {
+              frame.x0 =- 1
+              moved = true
+            }
+            if center(index) == frame.x1 {
+              frame.x1 =+ 1
+              moved = true
+            }
+            index =+ 1
+          }
+        }
+        frames.set(current, frame.@)
+        place.x0 = frame.x0
+        place.x1 = frame.x1
+        row =+ 2
+      },
+    }
+    place.reach0 = place.x0
+    place.reach1 = place.x1
+    if item.kind == Kind::note and item.placement == Placement::left {
+      place.reach1 = center(item.from)
+    }
+    if item.kind == Kind::note and item.placement == Placement::right {
+      place.reach0 = center(item.to)
+    }
+    if item.kind != Kind::open and item.kind != Kind::divider {
+      // The contents widen the innermost open frame.
+      match open.at(depth - 1) {
+        current => {
+          let frame = mut frames.at(current).expect("open frame")
+          match frame.empty {
+            true => {
+              frame.min = place.reach0
+              frame.max = place.reach1
+            },
+            false => {
+              frame.min = minimum(frame.min, place.reach0)
+              frame.max = maximum(frame.max, place.reach1)
+            },
+          }
+          frame.empty = false
+          frames.set(current, frame.@)
+        },
+        _ => (),
+      }
+      min_x = minimum(min_x, place.x0)
+      max_x = maximum(max_x, place.x1)
+    }
+    placed.push(place.@)
+  }
+  let height = row
+  let shift = 0 - min_x
+  let width = maximum(max_x + shift + 1, ui::text_width(diagram.title))
+  match {
+    width > max_width => Result::err("the diagram is wider than {max_width} columns"),
+    height > max_height => Result::err("the diagram is taller than {max_height} rows"),
+    _ => {
+      let drawing = canvas::new(width, height)
+      if diagram.title != "" {
+        drawing.write(0, 0, diagram.title, canvas::Role::title, true)
+      }
+
+      // Participant boxes and their lifelines.
+      index = 0
+      while index < count {
+        let participant = participants.at(index).expect("participant")
+        let box = box_width(participant)
+        let x = center(index) + shift
+        let x0 = x - box / 2
+        drawing.outline(
+          x0,
+          header,
+          x0 + box - 1,
+          header + 2,
+          canvas::Role::frame,
+          participant.actor,
+        )
+        drawing.vertical(x, header + 2, height - 1, canvas::Role::frame, false)
+        drawing.write(x0 + 2, header + 1, participant.label, canvas::Role::name, true)
+        index =+ 1
+      }
+
+      // Block frames, so their borders cross the lifelines.
+      for frame in frames {
+        let x0 = frame.x0 + shift
+        let x1 = frame.x1 + shift
+        drawing.outline(x0, frame.top, x1, frame.bottom, canvas::Role::frame, false)
+        drawing.write(x0 + 1, frame.top, " {frame.keyword} ", canvas::Role::keyword, true)
+        if frame.condition != "" {
+          drawing.write(
+            x0 + 1 + ui::text_width(" {frame.keyword} "),
+            frame.top,
+            "[{frame.condition}] ",
+            canvas::Role::condition,
+            false,
+          )
+        }
+        mut divider = 0
+        while divider < frame.dividers.size() {
+          let y = frame.dividers.at(divider).or(0)
+          let keyword = frame.divider_keywords.at(divider).or("")
+          let condition = frame.divider_conditions.at(divider).or("")
+          drawing.horizontal(y, x0, x1, canvas::Role::frame, true)
+          drawing.write(x0 + 1, y, " {keyword} ", canvas::Role::keyword, true)
+          if condition != "" {
+            drawing.write(
+              x0 + 1 + ui::text_width(" {keyword} "),
+              y,
+              "[{condition}] ",
+              canvas::Role::condition,
+              false,
+            )
+          }
+          divider =+ 1
+        }
+      }
+
+      // Messages and notes.
+      mut event_index = 0
+      for item in diagram.events {
+        let place = placed.at(event_index).expect("placed event")
+        match item.kind {
+          Kind::message => {
+            draw_message(drawing, item, place, center(item.from) + shift, center(item.to) + shift)
+          },
+          Kind::note => {
+            let x0 = place.x0 + shift
+            let x1 = place.x1 + shift
+            clear(drawing, x0, place.row, x1, place.row + 2)
+            drawing.outline(x0, place.row, x1, place.row + 2, canvas::Role::note, false)
+            let inner = x1 - x0 - 1
+            let text = ui::text_width(item.text)
+            drawing.write(
+              x0 + 1 + (inner - text) / 2,
+              place.row + 1,
+              item.text,
+              canvas::Role::note,
+              false,
+            )
+          },
+          _ => (),
+        }
+        event_index =+ 1
+      }
+      Result::ok(drawing.@)
+    },
+  }
+}
+
+// Erases a rectangle so a note covers the lifelines behind it.
+private fn clear(drawing: mut canvas::Canvas, x0: Int, y0: Int, x1: Int, y1: Int) {
+  mut y = y0
+  while y <= y1 {
+    drawing.write(x0, y, strings::Repeat(" ", x1 - x0 + 1), canvas::Role::note, false)
+    y =+ 1
+  }
+}
+
+private fn head_glyph(head: Head, rightward: Bool) Str {
+  match head {
+    Head::filled => {
+      match rightward {
+        true => "►",
+        false => "◄",
+      }
+    },
+    Head::open => {
+      match rightward {
+        true => "▷",
+        false => "◁",
+      }
+    },
+    Head::cross => "×",
+    Head::none => "",
+  }
+}
+
+private fn draw_message(drawing: mut canvas::Canvas, item: Event, place: Placed, from: Int, to: Int) {
+  let text = ui::text_width(item.text)
+  match from == to {
+    true => {
+      // A message to itself loops out to the right and back.
+      let y = place.row
+      drawing.horizontal(y, from, from + 3, canvas::Role::arrow, item.dashed)
+      drawing.vertical(from + 3, y, y + 2, canvas::Role::arrow, item.dashed)
+      let back = match item.end == Head::none {
+        true => from,
+        false => from + 1,
+      }
+      drawing.horizontal(y + 2, back, from + 3, canvas::Role::arrow, item.dashed)
+      if item.end != Head::none {
+        drawing.write(from + 1, y + 2, head_glyph(item.end, false), canvas::Role::arrow, false)
+      }
+      if text > 0 {
+        drawing.write(from + 5, y, item.text, canvas::Role::label, false)
+      }
+    },
+    false => {
+      let rightward = to > from
+      let step = match rightward {
+        true => 1,
+        false => -1,
+      }
+      let first = match item.start == Head::none {
+        true => from,
+        false => from + step,
+      }
+      let last = match item.end == Head::none {
+        true => to,
+        false => to - step,
+      }
+      drawing.horizontal(
+        place.line,
+        minimum(first, last),
+        maximum(first, last),
+        canvas::Role::arrow,
+        item.dashed,
+      )
+      if item.start != Head::none {
+        drawing.write(
+          first,
+          place.line,
+          head_glyph(item.start, not rightward),
+          canvas::Role::arrow,
+          false,
+        )
+      }
+      if item.end != Head::none {
+        drawing.write(last, place.line, head_glyph(item.end, rightward), canvas::Role::arrow, false)
+      }
+      if text > 0 {
+        let x0 = minimum(from, to)
+        let inner = maximum(from, to) - x0 - 1
+        drawing.write(x0 + 1 + (inner - text) / 2, place.row, item.text, canvas::Role::label, false)
+      }
+    },
+  }
+}
+
+// Draws the statements after a `sequenceDiagram` header.
+fn render(lines: [Str], title: Str) canvas::Canvas!Str {
+  let diagram = try parse(lines, title)
+  draw(diagram)
+}
+
+fn expect_drawing(source: Str, expected: [Str]) Void!Str {
+  let drawing = try render(strings::Split(source, "\n"), "")
+  let actual = drawing.lines()
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(
+    actual.size() == expected.size(),
+    "row count {actual.size()}, want {expected.size()}:\n{shown}|",
+  )
+  mut index = 0
+  while index < expected.size() {
+    let got = actual.at(index).or("")
+    let want = expected.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+test fn messages_run_between_lifelines_with_centered_text() Void!Str {
+  expect_drawing(
+    "participant T as TUI\nparticipant S as Server\nT->>S: prompt\nS-->>T: stream",
+    [
+      "┌─────┐   ┌────────┐",
+      "│ TUI │   │ Server │",
+      "└──┬──┘   └────┬───┘",
+      "   │           │",
+      "   │  prompt   │",
+      "   ├──────────►│",
+      "   │           │",
+      "   │  stream   │",
+      "   │◄┈┈┈┈┈┈┈┈┈┈┤",
+      "   │           │",
+    ],
+  )
+}
+
+fn expect_rejected(source: Str, reason: Str) Void!Str {
+  match render(strings::Split(source, "\n"), "") {
+    ok(_) => Result::err("rendered, want rejection: {reason}"),
+    err(got) => testing::assert(got == reason, "got reason {got}, want {reason}"),
+  }
+}
+
+test fn blocks_frame_their_messages_across_lifelines() Void!Str {
+  expect_drawing(
+    "A->>B: hi\nloop retry\nB-->>A: no\nend",
+    [
+      "┌───┐   ┌───┐",
+      "│ A │   │ B │",
+      "└─┬─┘   └─┬─┘",
+      "  │       │",
+      "  │  hi   │",
+      "  ├──────►│",
+      "  │       │",
+      "┌ loop [retry] ─┐",
+      "│ │  no   │     │",
+      "│ │◄┈┈┈┈┈┈┤     │",
+      "│ │       │     │",
+      "└─┼───────┼─────┘",
+      "  │       │",
+    ],
+  )
+}
+
+test fn alternatives_divide_a_frame() Void!Str {
+  expect_drawing(
+    "A->>+B: hi\nalt ok\nB-->>-A: yes\nelse failed\nB--xA: no\nend",
+    [
+      "┌───┐   ┌───┐",
+      "│ A │   │ B │",
+      "└─┬─┘   └─┬─┘",
+      "  │       │",
+      "  │  hi   │",
+      "  ├──────►│",
+      "  │       │",
+      "┌ alt [ok] ──────┐",
+      "│ │  yes  │      │",
+      "│ │◄┈┈┈┈┈┈┤      │",
+      "│ │       │      │",
+      "├ else [failed] ┈┤",
+      "│ │  no   │      │",
+      "│ │×┈┈┈┈┈┈┤      │",
+      "│ │       │      │",
+      "└─┼───────┼──────┘",
+      "  │       │",
+    ],
+  )
+}
+
+test fn actors_notes_and_self_messages() Void!Str {
+  expect_drawing(
+    "actor U as User\nNote left of U: you\nU->>U: think\nNote over U: idea",
+    [
+      "    ╭──────╮",
+      "    │ User │",
+      "    ╰───┬──╯",
+      "        │",
+      "┌─────┐ │",
+      "│ you │ │",
+      "└─────┘ │",
+      "        │",
+      "        ├──┐ think",
+      "        │  │",
+      "        │◄─┘",
+      "        │",
+      "    ┌──────┐",
+      "    │ idea │",
+      "    └──────┘",
+      "        │",
+    ],
+  )
+}
+
+test fn unsupported_or_malformed_statements_are_rejected() Void!Str {
+  try expect_rejected("box Aqua Group\nA->>B: hi\nend", "`box` isn't supported")
+  try expect_rejected("A->>B: hi\nloop forever", "unclosed `loop` block")
+  try expect_rejected("A->>B: hi\nelse nope", "`else` outside an `alt` block")
+  try expect_rejected("A->>B: hi\nend", "`end` without an open block")
+  try expect_rejected("A talks to B", "unsupported line `A talks to B`")
+  try expect_rejected("A->>B: hi\nactivate", "a participant needs a name")
+  expect_rejected("%% only a comment", "the diagram has no participants")
+}
+
+test fn nested_blocks_with_dividers_and_heads() Void!Str {
+  expect_drawing(
+    "par fetch\nA->>B: x\nand\ncritical lock\nA-)B: y\noption timeout\nB<<-->>A: z\nend\nend",
+    [
+      "  ┌───┐   ┌───┐",
+      "  │ A │   │ B │",
+      "  └─┬─┘   └─┬─┘",
+      "    │       │",
+      "┌ par [fetch] ──────────┐",
+      "│   │   x   │           │",
+      "│   ├──────►│           │",
+      "│   │       │           │",
+      "├ and ┈┈┈┈┈┈┼┈┈┈┈┈┈┈┈┈┈┈┤",
+      "│ ┌ critical [lock] ──┐ │",
+      "│ │ │   y   │         │ │",
+      "│ │ ├──────▷│         │ │",
+      "│ │ │       │         │ │",
+      "│ ├ option [timeout] ┈┤ │",
+      "│ │ │   z   │         │ │",
+      "│ │ │◄┈┈┈┈┈►│         │ │",
+      "│ │ │       │         │ │",
+      "│ └─┼───────┼─────────┘ │",
+      "│   │       │           │",
+      "└───┼───────┼───────────┘",
+      "    │       │",
+    ],
+  )
+}
+
+test fn titles_numbering_and_notes_beside_and_across() Void!Str {
+  expect_drawing(
+    "title Plan\nautonumber 10 5\nA->>B: one\nNote right of B: r\nNote over A,B: wide note\nA->>B: two\nA->>A",
+    [
+      "Plan",
+      "",
+      "┌───┐      ┌───┐",
+      "│ A │      │ B │",
+      "└─┬─┘      └─┬─┘",
+      "  │          │",
+      "  │ 10. one  │",
+      "  ├─────────►│",
+      "  │          │",
+      "  │          │ ┌───┐",
+      "  │          │ │ r │",
+      "  │          │ └───┘",
+      "  │          │",
+      "┌──────────────┐",
+      "│  wide note   │",
+      "└──────────────┘",
+      "  │          │",
+      "  │ 15. two  │",
+      "  ├─────────►│",
+      "  │          │",
+      "  ├──┐ 20.   │",
+      "  │  │       │",
+      "  │◄─┘       │",
+      "  │          │",
+    ],
+  )
+}
+
+test fn frames_wrap_the_lifeline_a_side_note_is_attached_to() Void!Str {
+  expect_drawing(
+    "A->>B: x\nloop\nNote left of A: l\nend",
+    [
+      "      ┌───┐   ┌───┐",
+      "      │ A │   │ B │",
+      "      └─┬─┘   └─┬─┘",
+      "        │       │",
+      "        │   x   │",
+      "        ├──────►│",
+      "        │       │",
+      "┌ loop ─┼─┐     │",
+      "│ ┌───┐ │ │     │",
+      "│ │ l │ │ │     │",
+      "│ └───┘ │ │     │",
+      "│       │ │     │",
+      "└───────┼─┘     │",
+      "        │       │",
+    ],
+  )
+}
+
+test fn misread_names_are_rejected_instead_of_invented() Void!Str {
+  try expect_rejected("client-xhr->>server: x", "`hr->>server` isn't a participant name")
+  try expect_rejected("Alice: says ->> Bob", "`Alice: says` isn't a participant name")
+  try expect_rejected("Note over A,: x", "a participant needs a name")
+  try expect_rejected("participant A as", "`A as` needs a label after `as`")
+  try expect_rejected("Note left of A,B: x", "`A,B` isn't a participant name")
+  try expect_rejected("A->>B: x\nloop\nend loop", "unexpected text after `end`")
+  expect_rejected("autonumber ten", "`autonumber` takes whole numbers")
+}
+
+test fn keywords_match_in_any_case() Void!Str {
+  expect_drawing(
+    "Participant A\nLOOP\nA->>A\nEnd",
+    [
+      "┌───┐",
+      "│ A │",
+      "└─┬─┘",
+      "  │",
+      "┌ loop ─┐",
+      "│ ├──┐  │",
+      "│ │  │  │",
+      "│ │◄─┘  │",
+      "│ │     │",
+      "└─┼─────┘",
+      "  │",
+    ],
+  )
+}
+
+test fn diagrams_past_the_limits_are_rejected() Void!Str {
+  let crowd = mut List::new<Str>()
+  mut index = 0
+  while index <= max_participants {
+    crowd.push("participant P{index}")
+    index =+ 1
+  }
+  try expect_rejected(strings::Join(crowd, "\n"), "more than {max_participants} participants")
+  let chatter = mut List::new<Str>()
+  index = 0
+  while index <= max_statements {
+    chatter.push("A->>B: {index}")
+    index =+ 1
+  }
+  try expect_rejected(strings::Join(chatter, "\n"), "more than {max_statements} statements")
+  let wide = mut List::new<Str>()
+  index = 0
+  while index < 12 {
+    wide.push("participant P{index} as {strings::Repeat("w", 40)}")
+    index =+ 1
+  }
+  expect_rejected(strings::Join(wide, "\n"), "the diagram is wider than {max_width} columns")
+}
+
+test fn long_text_is_cut_short() Void!Str {
+  let text = clean(strings::Repeat("word ", 20))
+  try testing::assert(ui::text_width(text) == max_text, "cut text is {ui::text_width(text)} cells")
+  testing::assert(strings::HasSuffix(text, "…"), "cut text ends with an ellipsis: {text}")
+}

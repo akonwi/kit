@@ -1,0 +1,2125 @@
+use ard/testing
+
+use cooper/ui
+use kit/tui/mermaid/canvas
+use kit/tui/mermaid/layers
+use go:strings
+
+// Mermaid flowcharts: a reviewed subset parsed into a graph and drawn with
+// the layered layout.
+//
+// Supported: `flowchart` or `graph` flowing down (`TD` or `TB`), up
+// (`BT`), right (`LR`), or left (`RL`); nodes
+// written as an id or with text in a box `[]`, round `()`, stadium `([])`,
+// circle `(())`, database `[()]`, or decision `{}` shape; solid `-->`,
+// dotted `-.->`, and thick `==>` links of any length, ending in an arrow,
+// a cross `x`, a circle `o`, or nothing; link text as `-->|text|` or
+// `-- text -->`; chains such as `A --> B --> C`; `&` groups such as
+// `A & B --> C`; `;` between statements; and `:::class` suffixes. Edges may
+// loop back, including from a node to itself. `subgraph` blocks, nested and
+// with their own `direction`, are drawn as sections: each is one box in its
+// parent's drawing and drawn on its own beneath it.
+// `classDef`, `class`, `style`, `linkStyle`, and `click` statements are
+// accepted without being drawn. Anything else is rejected so the source is
+// shown instead.
+
+let max_nodes = 60
+let max_edges = 120
+let max_statements = 200
+let max_groups = 20
+let max_height = 800
+// Node text wider than this is cut short with an ellipsis.
+let max_text = 40
+
+// A subgraph: the subgraph it sits in, or -1 at the top level, and the
+// direction it flows in when it names one.
+struct Group {
+  id: Str,
+  title: Str,
+  parent: Int,
+  flow: layers::Flow?,
+}
+
+struct Flowchart {
+  nodes: [layers::Node],
+  edges: [layers::Edge],
+  flow: layers::Flow,
+  groups: [Group],
+  // Each node's subgraph, or -1 at the top level.
+  member: [Int],
+  // The subgraph a node's id names, or -1. Such a node stands for the
+  // subgraph in edges and is not drawn itself.
+  alias: [Int],
+}
+
+// Text as one line, cut to max_text cells.
+fn clean(value: Str) Str {
+  mut text = value
+  for brk in ["<br/>", "<br />", "<br>", "<BR>", "<BR/>"] {
+    text = strings::ReplaceAll(text, brk, " ")
+  }
+  text = strings::TrimSpace(strings::ReplaceAll(text, "\t", " "))
+  match ui::text_width(text) <= max_text {
+    true => text,
+    false => {
+      let kept = mut List::new<Str>()
+      mut width = 0
+      for part in ui::graphemes(text) {
+        if width + part.width <= max_text - 1 {
+          kept.push(part.text)
+          width =+ part.width
+        }
+      }
+      strings::Join(kept, "") + "…"
+    },
+  }
+}
+
+// Link text as one line, without the quotes it may be written in.
+private fn label_text(value: Str) Str {
+  let text = strings::TrimSpace(value)
+  let quoted = text.size() >= 2 and strings::HasPrefix(text, "\"") and strings::HasSuffix(text, "\"")
+  match quoted {
+    true => clean(text.slice(start: 1, end: text.size() - 1).or("")),
+    false => clean(text),
+  }
+}
+
+// Whether a link starts anywhere in line outside quoted text.
+private fn has_link(line: Str) Bool {
+  mut found = false
+  mut quoted = false
+  mut index = 0
+  while index < line.size() {
+    if char_at(line, index) == "\"" {
+      quoted = not quoted
+    }
+    if (not quoted) and link_starts(line, index) {
+      found = true
+    }
+    index =+ 1
+  }
+  found
+}
+
+// Fails with reason unless ok.
+private fn within(ok: Bool, reason: Str) Void!Str {
+  match ok {
+    true => Result::ok(()),
+    false => Result::err(reason),
+  }
+}
+
+// Whether edges already holds an edge just like edge.
+private fn has_edge(edges: [layers::Edge], edge: layers::Edge) Bool {
+  mut found = false
+  for other in edges {
+    if other.from == edge.from and other.to == edge.to and other.stroke == edge.stroke and other.head == edge.head and other.label == edge.label {
+      found = true
+    }
+  }
+  found
+}
+
+private fn char_at(line: Str, index: Int) Str {
+  line.slice(start: index, end: index + 1).or("")
+}
+
+// Whether a link starts at index.
+private fn link_starts(line: Str, index: Int) Bool {
+  let current = char_at(line, index)
+  let next = char_at(line, index + 1)
+  current == "-" and (next == "-" or next == ".") or current == "=" and next == "=" or current == "~" and next == "~" or current == "<" and (next == "-" or next == "=")
+}
+
+private fn skip_space(line: Str, index: Int) Int {
+  mut at = index
+  mut going = at < line.size()
+  while going {
+    let current = char_at(line, at)
+    going = current == " " or current == "\t"
+    if going {
+      at =+ 1
+      going = at < line.size()
+    }
+  }
+  at
+}
+
+// The end of the name that starts at index: up to whitespace, punctuation
+// that opens a shape or separates statements, or the start of a link.
+private fn name_end(line: Str, index: Int) Int {
+  mut at = index
+  mut going = at < line.size()
+  while going {
+    let current = char_at(line, at)
+    going = (not strings::ContainsAny(current, " \t[](){{}}<>&;|\":")) and not link_starts(line, at)
+    if going {
+      at =+ 1
+      going = at < line.size()
+    }
+  }
+  at
+}
+
+// Where the scanner is after reading part of a statement.
+private struct Scan {
+  next: Int,
+  // The node indexes of a group.
+  nodes: [Int],
+  // A link's stroke, head, and label.
+  link: Link,
+}
+
+private struct Link {
+  stroke: layers::Stroke,
+  head: layers::Head,
+  label: Str,
+}
+
+private fn no_link() Link {
+  Link{
+    stroke: layers::Stroke::solid,
+    head: layers::Head::none,
+    label: "",
+  }
+}
+
+// The end of the run of chars characters starting at index.
+private fn run_of(line: Str, index: Int, chars: Str) Int {
+  mut at = index
+  mut going = true
+  while going {
+    let current = char_at(line, at)
+    going = current != "" and strings::ContainsAny(current, chars)
+    if going {
+      at =+ 1
+    }
+  }
+  at
+}
+
+// The end of the link token starting at index: its line, then a head.
+private fn link_end(line: Str, index: Int) Int {
+  let end = run_of(line, index, "-=.~<")
+  let next = char_at(line, end)
+  match next != "" and strings::ContainsAny(next, ">xo") {
+    true => end + 1,
+    false => end,
+  }
+}
+
+// The stroke and head of a whole link token such as `-->`, `-.-`, or `==>`.
+// Longer links, with more of their line characters, mean the same.
+private fn classify(token: Str) Link!Str {
+  let last = token.slice(start: token.size() - 1).or("")
+  let head = match last {
+    ">" => layers::Head::arrow,
+    "x" => layers::Head::cross,
+    "o" => layers::Head::circle,
+    _ => layers::Head::none,
+  }
+  let line = match head == layers::Head::none {
+    true => token,
+    false => token.slice(end: token.size() - 1).or(""),
+  }
+  let headed = head != layers::Head::none
+  let dashes = line.size() >= 2 and strings::Trim(line, "-") == ""
+  let equals = line.size() >= 2 and strings::Trim(line, "=") == ""
+  // `-.-` and `-..-`, with or without a head.
+  let inner = line.slice(start: 1, end: line.size() - 1).or("")
+  let dotted = line.size() >= 3 and strings::HasPrefix(line, "-") and strings::HasSuffix(line, "-") and inner != "" and strings::Trim(inner, ".") == ""
+  match {
+    dashes and (headed or line.size() >= 3) => {
+      Result::ok(
+        Link{
+          stroke: layers::Stroke::solid,
+          head: head,
+          label: "",
+        },
+      )
+    },
+    equals and (headed or line.size() >= 3) => {
+      Result::ok(
+        Link{
+          stroke: layers::Stroke::thick,
+          head: head,
+          label: "",
+        },
+      )
+    },
+    dotted => {
+      Result::ok(
+        Link{
+          stroke: layers::Stroke::dotted,
+          head: head,
+          label: "",
+        },
+      )
+    },
+    _ => Result::err("`{token}` links aren't drawn yet"),
+  }
+}
+
+private struct Parser {
+  nodes: [layers::Node],
+  indexes: [Str: Int],
+  edges: [layers::Edge],
+  // Statements read so far, counting each one between `;`s.
+  statements: Int,
+  groups: [Group],
+  // The subgraphs open where the parser is, innermost last.
+  open: [Int],
+  member: [Int],
+  // The nodes each subgraph's own statements mention, outside the
+  // subgraphs inside it.
+  mentions: [[Int]],
+  // Whether each node was given text or a shape.
+  explicit: [Bool],
+}
+
+impl Parser {
+  // The index of node id, declaring it on first use. Text, when given,
+  // replaces the node's text.
+  fn mut node(id: Str, text: Str?, shape: layers::Shape) Int {
+    let index = match self.indexes.get(id) {
+      found => found,
+      _ => {
+        let added = self.nodes.size()
+        self.nodes.push(
+          layers::Node{
+            id: id,
+            text: clean(id),
+            shape: layers::Shape::box,
+          },
+        )
+        self.indexes.set(id, added)
+        self.member.push(-1)
+        self.explicit.push(false)
+        added
+      },
+    }
+    let current = self.open.at(self.open.size() - 1).or(-1)
+    if current >= 0 {
+      let mentioned = mut self.mentions.at(current).or([])
+      mentioned.push(index)
+      let _ = self.mentions.set(current, mentioned.@)
+    }
+    match text {
+      given => {
+        self.explicit.set(index, true)
+        let _ = self.nodes.set(
+          index,
+          layers::Node{
+            id: id,
+            text: clean(given),
+            shape: shape,
+          },
+        )
+        ()
+      },
+      _ => (),
+    }
+    index
+  }
+
+  // One node: an id, then optionally a shape with text and a class suffix.
+  fn mut one(line: Str, start: Int) Scan!Str {
+    let end = name_end(line, start)
+    let id = line.slice(start: start, end: end).or("")
+    mut at = end
+    mut text = Maybe::new<Str>()
+    mut shape = layers::Shape::box
+    mut failure = ""
+    let rest = line.slice(start: at).or("")
+    // The opening and closing of each supported shape, longest first.
+    let opened = match {
+      strings::HasPrefix(rest, "(((") => Maybe::new<Str>(),
+      strings::HasPrefix(rest, "((") => Maybe::new("(("),
+      strings::HasPrefix(rest, "([") => Maybe::new("(["),
+      strings::HasPrefix(rest, "(") => Maybe::new("("),
+      strings::HasPrefix(rest, "[(") => Maybe::new("[("),
+      strings::HasPrefix(rest, "[[") or strings::HasPrefix(rest, "[/") or strings::HasPrefix(rest, "[\\") => {
+        Maybe::new<Str>()
+      },
+      strings::HasPrefix(rest, "[") => Maybe::new("["),
+      strings::HasPrefix(rest, "{{{{") => Maybe::new<Str>(),
+      strings::HasPrefix(rest, "{{") => Maybe::new("{{"),
+      _ => Maybe::new<Str>(),
+    }
+    let shaped = strings::ContainsAny(char_at(line, at), "[({{>")
+    if id == "" {
+      failure = "unsupported line `{line}`"
+    } else if shaped and opened.is_none() {
+      failure = "`{rest.slice(end: 2).or(rest)}` nodes aren't drawn yet"
+    } else {
+      match opened {
+        open => {
+          let close = match open {
+            "((" => "))",
+            "([" => "])",
+            "(" => ")",
+            "[(" => ")]",
+            "{{" => "}}",
+            _ => "]",
+          }
+          shape = match open {
+            "((" => layers::Shape::circle,
+            "([" => layers::Shape::stadium,
+            "(" => layers::Shape::round,
+            "[(" => layers::Shape::database,
+            "{{" => layers::Shape::decision,
+            _ => layers::Shape::box,
+          }
+          let content = at + open.size()
+          let quoted = char_at(line, content) == "\""
+          let closing = match quoted {
+            true => {
+              let quote = strings::Index(line.slice(start: content + 1).or(""), "\"")
+              match quote < 0 {
+                true => -1,
+                false => {
+                  let after = content + 1 + quote + 1
+                  match strings::HasPrefix(line.slice(start: after).or(""), close) {
+                    true => after,
+                    false => -1,
+                  }
+                },
+              }
+            },
+            false => {
+              let found = strings::Index(line.slice(start: content).or(""), close)
+              match found < 0 {
+                true => -1,
+                false => content + found,
+              }
+            },
+          }
+          match closing < 0 {
+            true => { failure = "unclosed `{open}` in `{line}`" },
+            false => {
+              mut value = line.slice(start: content, end: closing).or("")
+              if quoted {
+                value = value.slice(start: 1, end: value.size() - 1).or("")
+              }
+              text = Maybe::new(value)
+              at = closing + close.size()
+            },
+          }
+        },
+        _ => (),
+      }
+    }
+    if failure == "" and line.slice(start: at, end: at + 3).or("") == ":::" {
+      at = name_end(line, at + 3)
+    }
+    match failure == "" {
+      true => {
+        let node = self.node(id, text, shape)
+        Result::ok(
+          Scan{
+            next: at,
+            nodes: [node],
+            link: no_link(),
+          },
+        )
+      },
+      false => Result::err(failure),
+    }
+  }
+
+  // Nodes joined by `&`.
+  fn mut group(line: Str, start: Int) Scan!Str {
+    let found = mut List::new<Int>()
+    mut at = skip_space(line, start)
+    mut more = true
+    mut failure = ""
+    while more {
+      match self.one(line, at) {
+        ok(scan) => {
+          for node in scan.nodes {
+            found.push(node)
+          }
+          at = skip_space(line, scan.next)
+          more = char_at(line, at) == "&"
+          if more {
+            at = skip_space(line, at + 1)
+          }
+          // Ids naming subgraphs are counted out after parsing.
+          if self.nodes.size() > max_nodes + max_groups {
+            failure = "more than {max_nodes} nodes"
+            more = false
+          }
+        },
+        err(reason) => {
+          failure = reason
+          more = false
+        },
+      }
+    }
+    match failure == "" {
+      true => {
+        Result::ok(
+          Scan{
+            next: at,
+            nodes: found.@,
+            link: no_link(),
+          },
+        )
+      },
+      false => Result::err(failure),
+    }
+  }
+
+  // A link between groups, with its text when it has one.
+  fn mut link(line: Str, start: Int) Scan!Str {
+    let run_end = run_of(line, start, "-=.")
+    let run = line.slice(start: start, end: run_end).or("")
+    let opening = run == "--" or run == "-." or run == "=="
+    let spaced = char_at(line, run_end) == " "
+    match opening and spaced {
+      // `-- text -->`: the text runs up to the closing part of the link.
+      true => {
+        let closings = match run {
+          "-." => [".->", ".-"],
+          "==" => ["==>", "==="],
+          _ => ["-->", "---", "--x", "--o"],
+        }
+        let rest = line.slice(start: run_end).or("")
+        mut found = -1
+        for closing in closings {
+          let at = strings::Index(rest, closing)
+          if at >= 0 and (found < 0 or at < found) {
+            found = at
+          }
+        }
+        match found < 0 {
+          true => Result::err("unsupported link in `{line}`"),
+          false => {
+            let label = strings::TrimSpace(rest.slice(end: found).or(""))
+            let close_start = run_end + found
+            let close_end = link_end(line, close_start)
+            let token = run + line.slice(start: close_start, end: close_end).or("")
+            match classify(token) {
+              ok(link) => {
+                let labeled = mut link
+                labeled.label = label_text(label)
+                Result::ok(
+                  Scan{
+                    next: close_end,
+                    nodes: [],
+                    link: labeled.@,
+                  },
+                )
+              },
+              err(reason) => Result::err(reason),
+            }
+          },
+        }
+      },
+      false => {
+        let end = link_end(line, start)
+        let token = line.slice(start: start, end: end).or("")
+        match classify(token) {
+          ok(link) => {
+            // `-->|text|`, or `--> |text|`
+            let bar = skip_space(line, end)
+            match char_at(line, bar) == "|" {
+              true => {
+                let close = strings::Index(line.slice(start: bar + 1).or(""), "|")
+                match close < 0 {
+                  true => Result::err("unclosed `|` in `{line}`"),
+                  false => {
+                    let labeled = mut link
+                    labeled.label = label_text(
+                      line.slice(start: bar + 1, end: bar + 1 + close).or(""),
+                    )
+                    Result::ok(
+                      Scan{
+                        next: bar + 1 + close + 1,
+                        nodes: [],
+                        link: labeled.@,
+                      },
+                    )
+                  },
+                }
+              },
+              false => {
+                Result::ok(
+                  Scan{
+                    next: end,
+                    nodes: [],
+                    link: link,
+                  },
+                )
+              },
+            }
+          },
+          err(reason) => Result::err(reason),
+        }
+      },
+    }
+  }
+
+  // A statement: groups joined by links. Returns where it ended.
+  fn mut statement(line: Str, start: Int) Int!Str {
+    self.statements =+ 1
+    try within(self.statements <= max_statements, "more than {max_statements} statements")
+    let first = try self.group(line, start)
+    mut previous = first.nodes
+    mut at = skip_space(line, first.next)
+    mut failure = ""
+    mut going = at < line.size() and char_at(line, at) != ";"
+    while going {
+      match link_starts(line, at) {
+        false => {
+          failure = "unsupported line `{line}`"
+          going = false
+        },
+        true => {
+          match self.link(line, at) {
+            ok(link) => {
+              match self.group(line, link.next) {
+                ok(next) => {
+                  // Checked before adding, since `&` groups multiply edges.
+                  match self.edges.size() + previous.size() * next.nodes.size() > max_edges {
+                    true => {
+                      failure = "more than {max_edges} edges"
+                      going = false
+                    },
+                    false => {
+                      for from in previous {
+                        for to in next.nodes {
+                          let edge = layers::Edge{
+                            from: from,
+                            to: to,
+                            stroke: link.link.stroke,
+                            head: link.link.head,
+                            label: link.link.label,
+                          }
+                          // A repeated edge is drawn once.
+                          if not has_edge(self.edges, edge) {
+                            self.edges.push(edge)
+                          }
+                        }
+                      }
+                      previous = next.nodes
+                      at = skip_space(line, next.next)
+                      going = at < line.size() and char_at(line, at) != ";"
+                    },
+                  }
+                },
+                err(reason) => {
+                  failure = reason
+                  going = false
+                },
+              }
+            },
+            err(reason) => {
+              failure = reason
+              going = false
+            },
+          }
+        },
+      }
+    }
+    match failure == "" {
+      true => Result::ok(at + 1),
+      false => Result::err(failure),
+    }
+  }
+
+  fn mut line(line: Str) Void!Str {
+    let space = strings::IndexAny(line, " \t")
+    // Keywords match exactly, as in Mermaid, so `End` or `Style` can name
+    // a node.
+    let word = match space >= 0 {
+      true => line.slice(end: space).or(line),
+      false => line,
+    }
+    match {
+      // Styling is accepted without being drawn, but a link means the line
+      // isn't styling.
+      // As in Mermaid, a subgraph takes the nodes its statements mention
+      // when it ends, unless a subgraph that ended before took them, so an
+      // inner subgraph takes its nodes before its parent.
+      word == "subgraph" => self.subgraph(strings::TrimSpace(line.slice(start: word.size()).or(""))),
+      word == "end" or word == "end;" => {
+        let closing = self.open.at(self.open.size() - 1).or(-1)
+        match {
+          line != "end" and line != "end;" => Result::err("unexpected text after `end`"),
+          closing < 0 => Result::err("`end` without a `subgraph`"),
+          _ => {
+            for node in self.mentions.at(closing).or([]) {
+              if self.member.at(node).or(-1) < 0 {
+                let _ = self.member.set(node, closing)
+              }
+            }
+            self.open = all_but_last(self.open)
+            Result::ok(())
+          },
+        }
+      },
+      word == "direction" => {
+        let direction = strings::ToUpper(
+          strings::TrimSuffix(strings::TrimSpace(line.slice(start: word.size()).or("")), ";"),
+        )
+        let current = self.open.at(self.open.size() - 1).or(-1)
+        match {
+          current < 0 => Result::err("`direction` is only drawn inside a subgraph"),
+          flow(direction).is_none() => Result::err("unknown direction `{direction}`"),
+          _ => {
+            let group = mut self.groups.at(current).expect("group")
+            group.flow = flow(direction)
+            let _ = self.groups.set(current, group.@)
+            Result::ok(())
+          },
+        }
+      },
+      word == "classDef" or word == "class" or word == "style" or word == "linkStyle" or word == "click" => {
+        match has_link(line) {
+          true => Result::err("unsupported line `{line}`"),
+          false => Result::ok(()),
+        }
+      },
+      _ => {
+        mut at = 0
+        mut failure = ""
+        while at < line.size() and failure == "" {
+          at = skip_space(line, at)
+          if at < line.size() {
+            match self.statement(line, at) {
+              ok(next) => { at = next },
+              err(reason) => { failure = reason },
+            }
+          }
+        }
+        match failure == "" {
+          true => Result::ok(()),
+          false => Result::err(failure),
+        }
+      },
+    }
+  }
+}
+
+impl Parser {
+  // Opens a subgraph: `subgraph id`, `subgraph id[title]`, or
+  // `subgraph "title"`.
+  fn mut subgraph(rest: Str) Void!Str {
+    let quoted = rest.size() >= 2 and strings::HasPrefix(rest, "\"") and strings::HasSuffix(rest, "\"")
+    let bracket = strings::Index(rest, "[")
+    mut id = rest
+    mut title = rest
+    mut failure = ""
+    if quoted {
+      id = label_text(rest)
+      title = id
+    } else if bracket >= 0 {
+      match strings::HasSuffix(rest, "]") {
+        true => {
+          id = strings::TrimSpace(rest.slice(end: bracket).or(""))
+          title = label_text(rest.slice(start: bracket + 1, end: rest.size() - 1).or(""))
+        },
+        false => { failure = "unclosed `[` in `subgraph {rest}`" },
+      }
+    }
+    for group in self.groups {
+      if group.id == id {
+        failure = "subgraph `{id}` is declared twice"
+      }
+    }
+    match {
+      failure != "" => Result::err(failure),
+      id == "" => Result::err("a subgraph needs a name"),
+      self.groups.size() >= max_groups => Result::err("more than {max_groups} subgraphs"),
+      _ => {
+        self.open.push(self.groups.size())
+        self.mentions.push([])
+        self.groups.push(
+          Group{
+            id: id,
+            title: clean(title),
+            parent: self.open.at(self.open.size() - 2).or(-1),
+            flow: Maybe::new<layers::Flow>(),
+          },
+        )
+        Result::ok(())
+      },
+    }
+  }
+}
+
+private fn all_but_last(values: [Int]) [Int] {
+  let kept = mut List::new<Int>()
+  mut index = 0
+  while index + 1 < values.size() {
+    kept.push(values.at(index).or(0))
+    index =+ 1
+  }
+  kept.@
+}
+
+// The flow a header's direction names.
+private fn flow(direction: Str) layers::Flow? {
+  match direction {
+    "TD" => Maybe::new(layers::Flow::down),
+    "TB" => Maybe::new(layers::Flow::down),
+    "BT" => Maybe::new(layers::Flow::up),
+    "LR" => Maybe::new(layers::Flow::right),
+    "RL" => Maybe::new(layers::Flow::left),
+    _ => Maybe::new<layers::Flow>(),
+  }
+}
+
+// Parses the statements after a flowchart header.
+fn parse(header: Str, lines: [Str]) Flowchart!Str {
+  let fields = strings::Fields(header)
+  // `graph TD;` ends its header with a `;`.
+  let direction = strings::ToUpper(strings::TrimSuffix(fields.at(1).or("TD"), ";"))
+  let parser = mut Parser{
+    nodes: [],
+    indexes: [:],
+    edges: [],
+    statements: 0,
+    groups: [],
+    open: [],
+    member: [],
+    mentions: [],
+    explicit: [],
+  }
+  mut failure = match {
+    fields.size() > 2 => "unexpected text after `{fields.at(0).or("")} {direction}`",
+    flow(direction).is_none() => "unknown direction `{direction}`",
+    _ => "",
+  }
+  for raw in lines {
+    let line = strings::TrimSpace(raw)
+    if failure == "" and line != "" and (not strings::HasPrefix(line, "%%")) {
+      match parser.line(line) {
+        ok(_) => (),
+        err(reason) => { failure = reason },
+      }
+    }
+  }
+  if failure == "" and parser.open.size() > 0 {
+    let open = parser.groups.at(parser.open.at(parser.open.size() - 1).or(0)).expect("group")
+    failure = "subgraph `{open.id}` isn't closed with `end`"
+  }
+  // A node whose id names a subgraph stands for it.
+  let alias = mut List::new<Int>()
+  mut aliases = 0
+  mut index = 0
+  for node in parser.nodes {
+    mut named = -1
+    mut number = 0
+    for group in parser.groups {
+      if group.id == node.id {
+        named = number
+      }
+      number =+ 1
+    }
+    if named >= 0 and parser.explicit.at(index).or(false) and failure == "" {
+      failure = "`{node.id}` names both a node and a subgraph"
+    }
+    if named >= 0 {
+      aliases =+ 1
+    }
+    alias.push(named)
+    index =+ 1
+  }
+  match {
+    failure != "" => Result::err(failure),
+    parser.nodes.size() == 0 => Result::err("the flowchart has no nodes"),
+    parser.nodes.size() - aliases > max_nodes => Result::err("more than {max_nodes} nodes"),
+    parser.edges.size() > max_edges => Result::err("more than {max_edges} edges"),
+    _ => {
+      Result::ok(
+        Flowchart{
+          nodes: parser.nodes,
+          edges: parser.edges,
+          flow: flow(direction).or(layers::Flow::down),
+          groups: parser.groups,
+          member: parser.member,
+          alias: alias.@,
+        },
+      )
+    },
+  }
+}
+
+// Draws the statements after a flowchart header.
+fn render(header: Str, lines: [Str], title: Str) canvas::Canvas!Str {
+  let chart = try parse(header, lines)
+  match chart.groups.size() == 0 {
+    true => {
+      layers::draw(layers::Graph{nodes: chart.nodes, edges: chart.edges}, clean(title), chart.flow)
+    },
+    false => sections(chart, clean(title)),
+  }
+}
+
+// Draws the flowchart with each subgraph as one box, then each subgraph on
+// its own beneath it, in the order they are declared.
+private fn sections(chart: Flowchart, title: Str) canvas::Canvas!Str {
+  // An edge can appear in each section along its way, so the sections are
+  // bounded together. Layout grows faster than a graph's size, so each
+  // section counts as the square of its nodes and edges, and together they
+  // may cost what the largest flowchart without subgraphs does.
+  let graphs = mut List::new<layers::Graph>()
+  mut work = 0
+  mut group = -1
+  while group < chart.groups.size() {
+    let graph = section(chart, group)
+    let size = graph.nodes.size() + graph.edges.size()
+    work =+ size * size
+    graphs.push(graph)
+    group =+ 1
+  }
+  let parts = mut List::new<canvas::Canvas>()
+  mut height = 0
+  mut failure = match work > (max_nodes + max_edges) * (max_nodes + max_edges) {
+    true => "the subgraphs repeat too many nodes and edges to draw",
+    false => "",
+  }
+  group = -1
+  for graph in graphs {
+    if failure == "" and graph.nodes.size() > 0 {
+      let heading = match group < 0 {
+        true => title,
+        false => chart.groups.at(group).expect("group").title,
+      }
+      match layers::draw(graph, heading, section_flow(chart, group)) {
+        ok(drawing) => {
+          height =+ drawing.height + 1
+          parts.push(drawing)
+        },
+        err(reason) => {
+          failure = match group < 0 {
+            true => reason,
+            false => "in subgraph `{chart.groups.at(group).expect("group").id}`, {reason}",
+          }
+        },
+      }
+      // Stop as soon as the sections can't fit.
+      if failure == "" and height > max_height + 1 {
+        failure = "the flowchart is taller than {max_height} rows"
+      }
+    }
+    group =+ 1
+  }
+  match failure == "" {
+    true => Result::ok(canvas::stack(parts.@).@),
+    false => Result::err(failure),
+  }
+}
+
+// The direction a subgraph flows in: its own, else its parent's.
+private fn section_flow(chart: Flowchart, group: Int) layers::Flow {
+  mut at = group
+  mut found = Maybe::new<layers::Flow>()
+  mut going = at >= 0
+  while going {
+    let current = chart.groups.at(at).expect("group")
+    found = current.flow
+    at = current.parent
+    going = found.is_none() and at >= 0
+  }
+  found.or(chart.flow)
+}
+
+// Whether subgraph group lies within outer, or is it; -1 is the whole
+// flowchart.
+private fn inside(chart: Flowchart, group: Int, outer: Int) Bool {
+  mut at = group
+  mut found = outer < 0
+  mut going = (not found) and at >= 0
+  while going {
+    found = at == outer
+    at = chart.groups.at(at).expect("group").parent
+    going = (not found) and at >= 0
+  }
+  found
+}
+
+// The subgraph directly inside outer that holds group.
+private fn child_of(chart: Flowchart, group: Int, outer: Int) Int {
+  mut at = group
+  mut parent = chart.groups.at(at).expect("group").parent
+  while parent != outer and parent >= 0 {
+    at = parent
+    parent = chart.groups.at(at).expect("group").parent
+  }
+  at
+}
+
+// The box standing for a subgraph drawn on its own.
+private fn group_box(chart: Flowchart, group: Int) layers::Node {
+  let found = chart.groups.at(group).expect("group")
+  layers::Node{
+    id: found.id,
+    text: clean("▸ {found.title}"),
+    shape: layers::Shape::elsewhere,
+  }
+}
+
+// What an end of an edge is in the drawing of subgraph outer: the node
+// itself, the box of the subgraph inside outer that holds it, a box for the
+// subgraph outer as a whole, or a box for something outside. Keys name each
+// one: `n`, `g`, `s`, or `x` for outside.
+private struct End {
+  key: Str,
+  node: layers::Node,
+}
+
+// An edge naming a subgraph ends at its box in its parent's drawing, at a
+// box for the whole subgraph in its own, and at a box named with where it
+// is from outside. Only a subgraph inside the drawing is marked `▸`.
+private fn group_end(chart: Flowchart, group: Int, outer: Int) End {
+  let found = chart.groups.at(group).expect("group")
+  let whole = layers::Node{
+    id: found.id,
+    text: clean("all of {found.title}"),
+    shape: layers::Shape::elsewhere,
+  }
+  let outside = layers::Node{
+    id: found.id,
+    text: place_name(chart, found.parent, found.title),
+    shape: layers::Shape::elsewhere,
+  }
+  match {
+    group == outer => End{key: "s", node: whole},
+    inside(chart, group, outer) => {
+      let child = child_of(chart, group, outer)
+      End{key: "g{child}", node: group_box(chart, child)}
+    },
+    _ => End{key: "xg{group}", node: outside},
+  }
+}
+
+// text named with the subgraph that holds it, if any.
+private fn place_name(chart: Flowchart, group: Int, text: Str) Str {
+  match group < 0 {
+    true => text,
+    false => clean("{chart.groups.at(group).expect("group").title} · {text}"),
+  }
+}
+
+private fn node_end(chart: Flowchart, node: Int, outer: Int) End {
+  let alias = chart.alias.at(node).or(-1)
+  let group = chart.member.at(node).or(-1)
+  let found = chart.nodes.at(node).expect("node")
+  let outside = layers::Node{
+    id: found.id,
+    text: place_name(chart, group, found.text),
+    shape: layers::Shape::elsewhere,
+  }
+  match {
+    alias >= 0 => group_end(chart, alias, outer),
+    group == outer => End{key: "n{node}", node: found},
+    group >= 0 and inside(chart, group, outer) => group_end(chart, group, outer),
+    _ => End{key: "xn{node}", node: outside},
+  }
+}
+
+// The graph drawn for subgraph outer, or the whole flowchart for -1: its own
+// nodes, a box for each subgraph inside it, and a box for each node outside
+// it that its edges reach. Edges within one inner subgraph are left to that
+// subgraph's drawing, and repeated edges are drawn once.
+private fn section(chart: Flowchart, outer: Int) layers::Graph {
+  let nodes = mut List::new<layers::Node>()
+  let keys = mut Map::new<Int>()
+  let add = fn(end: End) Int {
+    match keys.get(end.key) {
+      found => found,
+      _ => {
+        let index = nodes.size()
+        nodes.push(end.node)
+        keys.set(end.key, index)
+        index
+      },
+    }
+  }
+  mut index = 0
+  for _ in chart.nodes {
+    let end = node_end(chart, index, outer)
+    if chart.alias.at(index).or(-1) < 0 and not strings::HasPrefix(end.key, "x") {
+      let _ = add(end)
+    }
+    index =+ 1
+  }
+  index = 0
+  for group in chart.groups {
+    if group.parent == outer {
+      let _ = add(group_end(chart, index, outer))
+    }
+    index =+ 1
+  }
+  let edges = mut List::new<layers::Edge>()
+  for edge in chart.edges {
+    let from = node_end(chart, edge.from, outer)
+    let to = node_end(chart, edge.to, outer)
+    let outside = strings::HasPrefix(from.key, "x") and strings::HasPrefix(to.key, "x")
+    let inner = from.key == to.key and strings::HasPrefix(from.key, "g")
+    if not outside or inner {
+      let mapped = layers::Edge{
+        from: add(from),
+        to: add(to),
+        stroke: edge.stroke,
+        head: edge.head,
+        label: edge.label,
+      }
+      if not has_edge(edges.@, mapped) {
+        edges.push(mapped)
+      }
+    }
+  }
+  layers::Graph{nodes: nodes.@, edges: edges.@}
+}
+
+fn expect_drawing(source: Str, expected: [Str]) Void!Str {
+  let lines = strings::Split(source, "\n")
+  let body = mut List::new<Str>()
+  mut index = 1
+  while index < lines.size() {
+    body.push(lines.at(index).or(""))
+    index =+ 1
+  }
+  let drawing = try render(lines.at(0).or(""), body.@, "")
+  let actual = drawing.lines()
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(
+    actual.size() == expected.size(),
+    "row count {actual.size()}, want {expected.size()}:\n{shown}|",
+  )
+  index = 0
+  while index < expected.size() {
+    let got = actual.at(index).or("")
+    let want = expected.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn expect_rejected(source: Str, reason: Str) Void!Str {
+  let lines = strings::Split(source, "\n")
+  let body = mut List::new<Str>()
+  mut index = 1
+  while index < lines.size() {
+    body.push(lines.at(index).or(""))
+    index =+ 1
+  }
+  match render(lines.at(0).or(""), body.@, "") {
+    ok(_) => Result::err("rendered, want rejection: {reason}"),
+    err(got) => testing::assert(got == reason, "got reason {got}, want {reason}"),
+  }
+}
+
+test fn a_chain_flows_straight_down() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Start] --> B[Middle] --> C[End]",
+    [
+      " ┌───────┐",
+      " │ Start │",
+      " └───┬───┘",
+      "     │",
+      "     ▼",
+      "┌────────┐",
+      "│ Middle │",
+      "└────┬───┘",
+      "     │",
+      "     ▼",
+      "  ┌─────┐",
+      "  │ End │",
+      "  └─────┘",
+    ],
+  )
+}
+
+test fn edges_from_one_node_branch_on_a_shared_track() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Prompt] --> B[Tool] & C[Reply]",
+    [
+      "     ┌────────┐",
+      "     │ Prompt │",
+      "     └────┬───┘",
+      "    ┌─────┴────┐",
+      "    ▼          ▼",
+      "┌──────┐   ┌───────┐",
+      "│ Tool │   │ Reply │",
+      "└──────┘   └───────┘",
+    ],
+  )
+}
+
+test fn edges_into_one_node_merge_into_one_arrow() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Parse] --> C[Draw]\nB[Layout] --> C",
+    [
+      "┌───────┐   ┌────────┐",
+      "│ Parse │   │ Layout │",
+      "└───┬───┘   └────┬───┘",
+      "    └──────┬─────┘",
+      "           ▼",
+      "       ┌──────┐",
+      "       │ Draw │",
+      "       └──────┘",
+    ],
+  )
+}
+
+test fn an_edge_skipping_a_layer_runs_beside_it() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --> B --> C\nA --> C",
+    [
+      "   ┌───┐",
+      "   │ A │",
+      "   └─┬─┘",
+      "  ┌──┴─┐",
+      "  ▼    │",
+      "┌───┐  │",
+      "│ B │  │",
+      "└─┬─┘  │",
+      "  └─┐ ┌┘",
+      "    ▼ ▼",
+      "   ┌───┐",
+      "   │ C │",
+      "   └───┘",
+    ],
+  )
+}
+
+test fn crossing_branches_and_merges_read_as_a_grid() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --> C & D\nB --> C & D",
+    [
+      "┌───┐   ┌───┐",
+      "│ A │   │ B │",
+      "└─┬─┘   └─┬─┘",
+      "  ├───────┤",
+      "  ├───────┤",
+      "  ▼       ▼",
+      "┌───┐   ┌───┐",
+      "│ C │   │ D │",
+      "└───┘   └───┘",
+    ],
+  )
+}
+
+test fn long_edges_stay_straight() Void!Str {
+  expect_drawing(
+    "flowchart TD\nPush --> Lint & Test & Build\nLint --> Gate\nTest --> Gate\nBuild --> Package --> Gate\nGate --> Release",
+    [
+      "           ┌──────┐",
+      "           │ Push │",
+      "           └───┬──┘",
+      "    ┌──────────┼──────────┐",
+      "    ▼          ▼          ▼",
+      "┌──────┐   ┌──────┐   ┌───────┐",
+      "│ Lint │   │ Test │   │ Build │",
+      "└───┬──┘   └───┬──┘   └───┬───┘",
+      "    │          │          │",
+      "    │          │          ▼",
+      "    │          │  ┌─────────┐",
+      "    │          │  │ Package │",
+      "    │          │  └────┬────┘",
+      "    └──────────┼───────┘",
+      "               ▼",
+      "           ┌──────┐",
+      "           │ Gate │",
+      "           └───┬──┘",
+      "               │",
+      "               ▼",
+      "          ┌─────────┐",
+      "          │ Release │",
+      "          └─────────┘",
+    ],
+  )
+}
+
+test fn lines_without_heads_join_the_border() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --- B",
+    [
+      "┌───┐",
+      "│ A │",
+      "└─┬─┘",
+      "  │",
+      "  │",
+      "┌─┴─┐",
+      "│ B │",
+      "└───┘",
+    ],
+  )
+}
+
+test fn quoted_text_classes_and_styling_statements() Void!Str {
+  expect_drawing(
+    "graph\nA[\"Quoted [text]\"]:::hot --> B;B --> C[Done]\nclassDef hot fill:#f00\nstyle A stroke:#333\n%% comment",
+    [
+      "┌───────────────┐",
+      "│ Quoted [text] │",
+      "└───────┬───────┘",
+      "        │",
+      "        ▼",
+      "      ┌───┐",
+      "      │ B │",
+      "      └─┬─┘",
+      "        │",
+      "        ▼",
+      "    ┌──────┐",
+      "    │ Done │",
+      "    └──────┘",
+    ],
+  )
+}
+
+test fn shapes_have_their_own_outlines() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Box] --> B(Round) --> C([Stadium]) --> D((Circle)) --> E[(Database)] --> F{{Decision?}}",
+    [
+      "   ┌─────┐",
+      "   │ Box │",
+      "   └──┬──┘",
+      "      │",
+      "      ▼",
+      "  ╭───────╮",
+      "  │ Round │",
+      "  ╰───┬───╯",
+      "      │",
+      "      ▼",
+      " ╭─────────╮",
+      " ( Stadium )",
+      " ╰────┬────╯",
+      "      │",
+      "      ▼",
+      " ╭────────╮",
+      " │ Circle │",
+      " ╰────┬───╯",
+      "      │",
+      "      ▼",
+      "╓──────────╖",
+      "║ Database ║",
+      "╙─────┬────╜",
+      "      │",
+      "      ▼",
+      "┌───────────┐",
+      "< Decision? >",
+      "└───────────┘",
+    ],
+  )
+}
+
+test fn decisions_point_out_and_fork_at_a_diamond() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA{{Tool call?}} -->|yes| B[Run tool]\nA -->|no| C[Reply]",
+    [
+      "      ┌────────────┐",
+      "      < Tool call? >",
+      "      └──────┬─────┘",
+      "      ┌──────◆─────┐",
+      "     yes          no",
+      "      ▼            ▼",
+      "┌──────────┐   ┌───────┐",
+      "│ Run tool │   │ Reply │",
+      "└──────────┘   └───────┘",
+    ],
+  )
+}
+
+test fn dotted_and_thick_links() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA -.-> B ==> C --- D -.- E === F",
+    [
+      "┌───┐",
+      "│ A │",
+      "└─┬─┘",
+      "  ┊",
+      "  ▼",
+      "┌───┐",
+      "│ B │",
+      "└─┬─┘",
+      "  ┃",
+      "  ▼",
+      "┌───┐",
+      "│ C │",
+      "└─┬─┘",
+      "  │",
+      "  │",
+      "┌─┴─┐",
+      "│ D │",
+      "└─┬─┘",
+      "  ┊",
+      "  ┊",
+      "┌─┴─┐",
+      "│ E │",
+      "└─┬─┘",
+      "  ┃",
+      "  ┃",
+      "┌─┴─┐",
+      "│ F │",
+      "└───┘",
+    ],
+  )
+}
+
+test fn crosses_and_circles_end_links() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --x B\nA --o C",
+    [
+      "    ┌───┐",
+      "    │ A │",
+      "    └─┬─┘",
+      "  ┌───┴───┐",
+      "  ×       ○",
+      "┌───┐   ┌───┐",
+      "│ B │   │ C │",
+      "└───┘   └───┘",
+    ],
+  )
+}
+
+test fn labels_sit_on_stems_when_edges_merge() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Parse] -->|tokens| C[Build]\nB[Lex] -->|chars| C",
+    [
+      " ┌───────┐    ┌─────┐",
+      " │ Parse │    │ Lex │",
+      " └───┬───┘    └──┬──┘",
+      "  tokens       chars",
+      "     └─────┬─────┘",
+      "           ▼",
+      "       ┌───────┐",
+      "       │ Build │",
+      "       └───────┘",
+    ],
+  )
+}
+
+test fn labeled_branches_merge_again() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA{{Valid?}} -- yes --> B[Save]\nA -- no --> C[Reject]\nB --> D[Done]\nC --> D",
+    [
+      "     ┌────────┐",
+      "     < Valid? >",
+      "     └────┬───┘",
+      "    ┌─────◆─────┐",
+      "   yes         no",
+      "    ▼           ▼",
+      "┌──────┐   ┌────────┐",
+      "│ Save │   │ Reject │",
+      "└───┬──┘   └────┬───┘",
+      "    └─────┬─────┘",
+      "          ▼",
+      "      ┌──────┐",
+      "      │ Done │",
+      "      └──────┘",
+    ],
+  )
+}
+
+test fn labels_ride_on_an_edge_that_skips_a_layer() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA{{ok?}} -->|yes| D[End]\nA -->|no| C[Fix]\nC --> D",
+    [
+      "     ┌─────┐",
+      "     < ok? >",
+      "     └──┬──┘",
+      "   ┌────◆────┐",
+      "  no         │",
+      "   ▼         │",
+      "┌─────┐      │",
+      "│ Fix │     yes",
+      "└──┬──┘      │",
+      "   └───┐ ┌───┘",
+      "       ▼ ▼",
+      "     ┌─────┐",
+      "     │ End │",
+      "     └─────┘",
+    ],
+  )
+}
+
+test fn labeled_edges_between_shared_ends_skip_a_layer() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --> B & C\nA -->|go| D\nE --> D\nF --> D",
+    [
+      "                ┌───┐",
+      "                │ A │",
+      "                └─┬─┘",
+      "  ┌───────┬───────┴────────────────────┐",
+      "  ▼       ▼                            │",
+      "┌───┐   ┌───┐       ┌───┐   ┌───┐      │",
+      "│ B │   │ C │       │ E │   │ F │     go",
+      "└───┘   └───┘       └─┬─┘   └─┬─┘      │",
+      "                      │       │┌───────┘",
+      "                      └──────┬┘│",
+      "                             ▼ ▼",
+      "                            ┌───┐",
+      "                            │ D │",
+      "                            └───┘",
+    ],
+  )
+}
+
+test fn a_retry_loop_climbs_its_own_column() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Prompt] --> B{{Tool call?}}\nB -->|yes| C[Run tool]\nC --> A\nB -->|no| D[Reply]",
+    [
+      "             ┌───────────┐",
+      "             ▼           │",
+      "        ┌────────┐       │",
+      "        │ Prompt │       │",
+      "        └────┬───┘       │",
+      "             │           │",
+      "             ▼           │",
+      "      ┌────────────┐     │",
+      "      < Tool call? >     │",
+      "      └──────┬─────┘     │",
+      "      ┌──────◆─────┐     │",
+      "     yes          no     │",
+      "      ▼            ▼     │",
+      "┌──────────┐   ┌───────┐ │",
+      "│ Run tool │   │ Reply │ │",
+      "└─────┬────┘   └───────┘ │",
+      "      └──────────────────┘",
+    ],
+  )
+}
+
+test fn a_node_can_loop_to_itself() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --> B\nB --> B",
+    [
+      "┌───┐",
+      "│ A │",
+      "└─┬─┘",
+      "  ├───┐",
+      "  ▼   │",
+      "┌───┐ │",
+      "│ B │ │",
+      "└─┬─┘ │",
+      "  └───┘",
+    ],
+  )
+}
+
+test fn shorter_loops_nest_inside_longer_ones() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --> B --> C --> D\nD --> C\nD --> A",
+    [
+      "  ┌─────┐",
+      "  ▼     │",
+      "┌───┐   │",
+      "│ A │   │",
+      "└─┬─┘   │",
+      "  │     │",
+      "  ▼     │",
+      "┌───┐   │",
+      "│ B │   │",
+      "└─┬─┘   │",
+      "  │┌──┐ │",
+      " ┌┘│  │ │",
+      " ▼ ▼  │ │",
+      "┌───┐ │ │",
+      "│ C │ │ │",
+      "└─┬─┘ │ │",
+      "  │   │ │",
+      "  ▼   │ │",
+      "┌───┐ │ │",
+      "│ D │ │ │",
+      "└─┬─┘ │ │",
+      "  └───┴─┘",
+    ],
+  )
+}
+
+test fn loop_labels_sit_beside_the_climb() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Draft] --> B[Review]\nB -->|changes| A\nB --> C[Merge]",
+    [
+      "     ┌─────┐",
+      "     ▼     │",
+      " ┌───────┐ │",
+      " │ Draft │ │",
+      " └───┬───┘ │",
+      "     │     │ changes",
+      "     ▼     │",
+      "┌────────┐ │",
+      "│ Review │ │",
+      "└────┬───┘ │",
+      "     ├─────┘",
+      "     ▼",
+      " ┌───────┐",
+      " │ Merge │",
+      " └───────┘",
+    ],
+  )
+}
+
+test fn flowcharts_flow_right_with_labels_along_their_lines() Void!Str {
+  expect_drawing(
+    "flowchart LR\nA[Start] --> B{{Valid?}}\nB -->|yes| C[Save record]\nB -->|no| D[Reject]\nC --> E[Done]\nD --> E",
+    [
+      "                                 ┌─────────────┐",
+      "                        ┌─ yes ─►│ Save record ├─┐",
+      "┌───────┐    ┌────────┐ │        └─────────────┘ │  ┌──────┐",
+      "│ Start ├───►< Valid? >─◆                        ├─►│ Done │",
+      "└───────┘    └────────┘ │        ┌────────┐      │  └──────┘",
+      "                        └─ no ──►│ Reject ├──────┘",
+      "                                 └────────┘",
+    ],
+  )
+}
+
+test fn flowcharts_flow_left_and_up() Void!Str {
+  try expect_drawing(
+    "flowchart RL\nA[Start] --> B{{Valid?}}\nB -->|yes| C[Save]",
+    [
+      "┌──────┐          ┌────────┐    ┌───────┐",
+      "│ Save │◄─ yes ───< Valid? >◄───┤ Start │",
+      "└──────┘          └────────┘    └───────┘",
+    ],
+  )
+  expect_drawing(
+    "flowchart BT\nA[Start] --> B{{Valid?}}\nB -->|yes| C[Save]\nB -->|no| D[Reject]",
+    [
+      "┌──────┐   ┌────────┐",
+      "│ Save │   │ Reject │",
+      "└──────┘   └────────┘",
+      "    ▲           ▲",
+      "   yes         no",
+      "    └─────◆─────┘",
+      "     ┌────┴───┐",
+      "     < Valid? >",
+      "     └────────┘",
+      "          ▲",
+      "          │",
+      "      ┌───┴───┐",
+      "      │ Start │",
+      "      └───────┘",
+    ],
+  )
+}
+
+test fn loops_run_beneath_a_flowchart_flowing_across() Void!Str {
+  try expect_drawing(
+    "flowchart LR\nA[Fetch] --> B[Parse]\nB --> C{{OK?}}\nC -->|retry| A\nC --> D[Store]",
+    [
+      "    ┌───────┐    ┌───────┐    ┌─────┐    ┌───────┐",
+      " ┌─►│ Fetch ├───►│ Parse ├───►< OK? >─◆─►│ Store │",
+      " │  └───────┘    └───────┘    └─────┘ │  └───────┘",
+      " │                                    │",
+      " └────────────── retry ───────────────┘",
+    ],
+  )
+  expect_drawing(
+    "flowchart LR\nA[Retry] -->|again| A\nA --> B([Done])",
+    [
+      "    ┌───────┐    ╭──────╮",
+      " ┌─►│ Retry ├─┬─►( Done )",
+      " │  └───────┘ │  ╰──────╯",
+      " │            │",
+      " └── again ───┘",
+    ],
+  )
+}
+
+test fn labels_flowing_across_sit_on_their_lines() Void!Str {
+  try expect_drawing(
+    "flowchart LR\nA --> C\nA -->|approve| D\nB --> D\nB --> C",
+    [
+      "          ┌───┐",
+      "┌───┐  ┌─►│   │",
+      "│ A ├──┤  │ C │",
+      "└───┘ ┌┼─►│   │",
+      "      ││  └───┘",
+      "┌───┐ ││",
+      "│ B ├─┤│                  ┌───┐",
+      "└───┘ ││               ┌─►│   │",
+      "      │└─── approve ───┘  │ D │",
+      "      │               ┌──►│   │",
+      "      └───────────────┘   └───┘",
+    ],
+  )
+  expect_drawing(
+    "flowchart LR\nA -->|first| C\nB --> C\nC -- second --> D",
+    [
+      "┌───┐",
+      "│ A ├─ first ─┐",
+      "└───┘         │  ┌───┐             ┌───┐",
+      "              ├─►│ C ├─── second ─►│ D │",
+      "┌───┐         │  └───┘             └───┘",
+      "│ B ├─────────┘",
+      "└───┘",
+    ],
+  )
+}
+
+test fn loop_labels_take_a_clear_row_beside_their_climb() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Draft] --> B[Review]\nB -->|changes| A\nB -->|ok| C[Publish]\nC -.->|rollback| B",
+    [
+      "     ┌──────┐",
+      "     ▼      │",
+      " ┌───────┐  │",
+      " │ Draft │  │",
+      " └───┬───┘  │ changes",
+      "     │ ┌┈┈┈┈┼┈┈┈┈┈┈┈┈┈┈┐",
+      "     ▼ ▼    │          ┊",
+      "┌────────┐  │          ┊",
+      "│ Review │  │          ┊",
+      "└────┬───┘  │          ┊",
+      "     ├──────┘          ┊ rollback",
+      "    ok                 ┊",
+      "     ▼                 ┊",
+      "┌─────────┐            ┊",
+      "│ Publish │            ┊",
+      "└────┬────┘            ┊",
+      "     └┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘",
+    ],
+  )
+}
+
+// Edges share a line only when it shows each of them truly: different ends
+// or strokes, parallel edges, and sources that don't reach all of a shared
+// line's targets get lines of their own.
+test fn edges_share_lines_only_when_each_is_drawn_truly() Void!Str {
+  try expect_drawing(
+    "flowchart TD\nA --> C\nB --x C",
+    [
+      "┌───┐   ┌───┐",
+      "│ A │   │ B │",
+      "└─┬─┘   └─┬─┘",
+      "  └──┐ ┌──┘",
+      "     ▼ ×",
+      "    ┌───┐",
+      "    │ C │",
+      "    └───┘",
+    ],
+  )
+
+  try expect_drawing(
+    "flowchart TD\nA --> B\nA -.-> B",
+    [
+      "┌───┐",
+      "│ A │",
+      "└┬─┬┘",
+      " │ ┊",
+      " ▼ ▼",
+      "┌───┐",
+      "│ B │",
+      "└───┘",
+    ],
+  )
+
+  try expect_drawing(
+    "flowchart TD\nA --> C & D\nB --> D",
+    [
+      "  ┌───┐   ┌───┐",
+      "  │ A │   │ B │",
+      "  └─┬─┘   └─┬─┘",
+      "  ┌─┴────┐ ┌┘",
+      "  ▼      ▼ ▼",
+      "┌───┐   ┌───┐",
+      "│ C │   │ D │",
+      "└───┘   └───┘",
+    ],
+  )
+
+  expect_drawing(
+    "flowchart LR\nA --> C\nB --o C",
+    [
+      "┌───┐",
+      "│ A ├─┐  ┌───┐",
+      "└───┘ └─►│   │",
+      "         │ C │",
+      "┌───┐ ┌─○│   │",
+      "│ B ├─┘  └───┘",
+      "└───┘",
+    ],
+  )
+}
+
+// A loop takes its column once vertices stop moving, so nothing moved aside
+// lands on it.
+test fn loops_run_outside_vertices_moved_aside() Void!Str {
+  expect_drawing(
+    "flowchart LR\nA --o E\nB -->|go| D\nC --> E\nB ==> D\nE ==>|again| E",
+    [
+      "┌───┐",
+      "│ A ├───┐  ┌───┐",
+      "└───┘   └─○│   │",
+      "           │   │",
+      "┌───┐   ┌─►│ E ├━━━━┓",
+      "│ C ├───┘  │   │    ┃",
+      "└───┘  ┏━━►│   │    ┃",
+      "       ┃   └───┘    ┃",
+      "       ┃            ┃",
+      "┌───┐  ┃            ┃  ┌───┐",
+      "│   ├──┼┐         ┌─┼─►│   │",
+      "│ B │  ┃│         │ ┃  │ D │",
+      "│   ├━┓┃│         │┏╋━►│   │",
+      "└───┘ ┃┃└─── go ──┘┃┃  └───┘",
+      "      ┃┃           ┃┃",
+      "      ┗╋━━━━━━━━━━━┛┃",
+      "       ┃            ┃",
+      "       ┗━━ again ━━━┛",
+    ],
+  )
+}
+
+test fn edges_skipping_layers_keep_their_stroke() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --> B --> C\nA -.-> C\nA ==> D --> E\nA ==> E",
+    [
+      "       ┌─────┐",
+      "       │  A  │",
+      "       └┬─┬─┬┘",
+      "  ┌─────┘ ┊ ┗━━┳━━━━┓",
+      "  ▼       ┊    ▼    ┃",
+      "┌───┐     ┊  ┌───┐  ┃",
+      "│ B │     ┊  │ D │  ┃",
+      "└─┬─┘     ┊  └─┬─┘  ┃",
+      "  │       ┊    │┏━━━┛",
+      "  └─┐ ┌┈┈┈┘   ┌┘┃",
+      "    ▼ ▼       ▼ ▼",
+      "   ┌───┐     ┌───┐",
+      "   │ C │     │ E │",
+      "   └───┘     └───┘",
+    ],
+  )
+}
+
+// Each subgraph is one box in the flowchart and drawn on its own beneath
+// it, with a box for each node outside it that its edges reach.
+test fn subgraphs_are_drawn_on_their_own_beneath_the_flowchart() Void!Str {
+  expect_drawing(
+    "flowchart TD\nsubgraph Client\n  A[UI] --> B[Session client]\nend\nsubgraph Server\n  C[API] --> D[(SQLite)]\nend\nB --> C",
+    [
+      "┌┈┈┈┈┈┈┈┈┈┈┐",
+      "┊ ▸ Client ┊",
+      "└┈┈┈┈┈┬┈┈┈┈┘",
+      "      │",
+      "      ▼",
+      "┌┈┈┈┈┈┈┈┈┈┈┐",
+      "┊ ▸ Server ┊",
+      "└┈┈┈┈┈┈┈┈┈┈┘",
+      "",
+      "Client",
+      "",
+      "      ┌────┐",
+      "      │ UI │",
+      "      └──┬─┘",
+      "         │",
+      "         ▼",
+      "┌────────────────┐",
+      "│ Session client │",
+      "└────────┬───────┘",
+      "         │",
+      "         ▼",
+      " ┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐",
+      " ┊ Server · API ┊",
+      " └┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘",
+      "",
+      "Server",
+      "",
+      "┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐",
+      "┊ Client · Session client ┊",
+      "└┈┈┈┈┈┈┈┈┈┈┈┈┬┈┈┈┈┈┈┈┈┈┈┈┈┘",
+      "             │",
+      "             ▼",
+      "          ┌─────┐",
+      "          │ API │",
+      "          └──┬──┘",
+      "             │",
+      "             ▼",
+      "        ╓────────╖",
+      "        ║ SQLite ║",
+      "        ╙────────╜",
+    ],
+  )
+}
+
+test fn subgraphs_nest_and_flow_their_own_way() Void!Str {
+  expect_drawing(
+    "flowchart LR\nU[User] --> Web\nsubgraph Web[Web app]\n  direction TB\n  P[Pages] --> S[State]\n  subgraph Cache[Edge cache]\n    K[Keys]\n  end\n  S --> K\nend\nS -.-> API\nAPI --> DB[(Postgres)]",
+    [
+      "┌──────┐    ┌┈┈┈┈┈┈┈┈┈┈┈┐    ┌─────┐    ╓──────────╖",
+      "│ User ├───►┊ ▸ Web app ├┈┈┈►│ API ├───►║ Postgres ║",
+      "└──────┘    └┈┈┈┈┈┈┈┈┈┈┈┘    └─────┘    ╙──────────╜",
+      "",
+      "Web app",
+      "",
+      "           ┌───────┐        ┌┈┈┈┈┈┈┐",
+      "           │ Pages │        ┊ User ┊",
+      "           └───┬───┘        └┈┈┈┬┈┈┘",
+      "               │                │",
+      "               ▼                ▼",
+      "           ┌───────┐   ┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐",
+      "           │ State │   ┊ all of Web app ┊",
+      "           └──┬─┬──┘   └┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘",
+      "              │ └┈┈┈┈┈┐",
+      "              ▼       ▼",
+      "┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐   ┌┈┈┈┈┈┐",
+      "┊ ▸ Edge cache ┊   ┊ API ┊",
+      "└┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘   └┈┈┈┈┈┘",
+      "",
+      "Edge cache",
+      "",
+      "┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐",
+      "┊ Web app · State ┊",
+      "└┈┈┈┈┈┈┈┈┬┈┈┈┈┈┈┈┈┘",
+      "         │",
+      "         ▼",
+      "     ┌──────┐",
+      "     │ Keys │",
+      "     └──────┘",
+    ],
+  )
+}
+
+test fn edges_may_name_subgraphs() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --> one\nsubgraph one\n  B --> C\nend\nsubgraph two\n  D\nend\none --> two",
+    [
+      "  ┌───┐",
+      "  │ A │",
+      "  └─┬─┘",
+      "    │",
+      "    ▼",
+      "┌┈┈┈┈┈┈┈┐",
+      "┊ ▸ one ┊",
+      "└┈┈┈┬┈┈┈┘",
+      "    │",
+      "    ▼",
+      "┌┈┈┈┈┈┈┈┐",
+      "┊ ▸ two ┊",
+      "└┈┈┈┈┈┈┈┘",
+      "",
+      "one",
+      "",
+      "┌───┐        ┌┈┈┈┐",
+      "│ B │        ┊ A ┊",
+      "└─┬─┘        └┈┬┈┘",
+      "  │            │",
+      "  ▼            ▼",
+      "┌───┐   ┌┈┈┈┈┈┈┈┈┈┈┈┈┐",
+      "│ C │   ┊ all of one ┊",
+      "└───┘   └┈┈┈┈┈┈┬┈┈┈┈┈┘",
+      "               │",
+      "               ▼",
+      "            ┌┈┈┈┈┈┐",
+      "            ┊ two ┊",
+      "            └┈┈┈┈┈┘",
+      "",
+      "two",
+      "",
+      "┌───┐   ┌┈┈┈┈┈┐",
+      "│ D │   ┊ one ┊",
+      "└───┘   └┈┈┬┈┈┘",
+      "           │",
+      "           ▼",
+      "    ┌┈┈┈┈┈┈┈┈┈┈┈┈┐",
+      "    ┊ all of two ┊",
+      "    └┈┈┈┈┈┈┈┈┈┈┈┈┘",
+    ],
+  )
+}
+
+// A subgraph takes the nodes its statements mention when it ends, even ones
+// mentioned earlier, as in Mermaid's own example.
+test fn subgraphs_take_the_nodes_they_mention_when_they_end() Void!Str {
+  expect_drawing(
+    "flowchart TB\nc1-->a2\nsubgraph one\na1-->a2\nend\nsubgraph two\nb1-->b2\nend\nsubgraph three\nc1-->c2\nend",
+    [
+      "┌┈┈┈┈┈┈┈┈┈┐   ┌┈┈┈┈┈┈┈┐",
+      "┊ ▸ three ┊   ┊ ▸ two ┊",
+      "└┈┈┈┈┬┈┈┈┈┘   └┈┈┈┈┈┈┈┘",
+      "     │",
+      "     ▼",
+      " ┌┈┈┈┈┈┈┈┐",
+      " ┊ ▸ one ┊",
+      " └┈┈┈┈┈┈┈┘",
+      "",
+      "one",
+      "",
+      "┌────┐   ┌┈┈┈┈┈┈┈┈┈┈┈┈┐",
+      "│ a1 │   ┊ three · c1 ┊",
+      "└──┬─┘   └┈┈┈┈┈┈┬┈┈┈┈┈┘",
+      "   └──────┬─────┘",
+      "          ▼",
+      "       ┌────┐",
+      "       │ a2 │",
+      "       └────┘",
+      "",
+      "two",
+      "",
+      "┌────┐",
+      "│ b1 │",
+      "└──┬─┘",
+      "   │",
+      "   ▼",
+      "┌────┐",
+      "│ b2 │",
+      "└────┘",
+      "",
+      "three",
+      "",
+      "      ┌────┐",
+      "      │ c1 │",
+      "      └──┬─┘",
+      "   ┌─────┴─────┐",
+      "   ▼           ▼",
+      "┌────┐   ┌┈┈┈┈┈┈┈┈┈┈┐",
+      "│ c2 │   ┊ one · a2 ┊",
+      "└────┘   └┈┈┈┈┈┈┈┈┈┈┘",
+    ],
+  )
+}
+
+// Only a subgraph inside a drawing is marked `▸`; one outside is named with
+// where it is, and edges naming a subgraph reach it as a whole in its own
+// drawing.
+test fn subgraphs_seen_from_outside_and_as_a_whole() Void!Str {
+  expect_drawing(
+    "flowchart TD\nsubgraph S1\nA --> B\nend\nsubgraph S2\nC --> D\nend\nB --> S2",
+    [
+      "┌┈┈┈┈┈┈┐",
+      "┊ ▸ S1 ┊",
+      "└┈┈┈┬┈┈┘",
+      "    │",
+      "    ▼",
+      "┌┈┈┈┈┈┈┐",
+      "┊ ▸ S2 ┊",
+      "└┈┈┈┈┈┈┘",
+      "",
+      "S1",
+      "",
+      " ┌───┐",
+      " │ A │",
+      " └─┬─┘",
+      "   │",
+      "   ▼",
+      " ┌───┐",
+      " │ B │",
+      " └─┬─┘",
+      "   │",
+      "   ▼",
+      "┌┈┈┈┈┐",
+      "┊ S2 ┊",
+      "└┈┈┈┈┘",
+      "",
+      "S2",
+      "",
+      "┌───┐    ┌┈┈┈┈┈┈┈┈┐",
+      "│ C │    ┊ S1 · B ┊",
+      "└─┬─┘    └┈┈┈┈┬┈┈┈┘",
+      "  │           │",
+      "  ▼           ▼",
+      "┌───┐   ┌┈┈┈┈┈┈┈┈┈┈┈┐",
+      "│ D │   ┊ all of S2 ┊",
+      "└───┘   └┈┈┈┈┈┈┈┈┈┈┈┘",
+    ],
+  )
+}
+
+test fn malformed_subgraphs_are_rejected() Void!Str {
+  try expect_rejected("flowchart TD\nsubgraph one\nA --> B", "subgraph `one` isn't closed with `end`")
+  try expect_rejected("flowchart TD\nA --> B\nend", "`end` without a `subgraph`")
+  try expect_rejected("flowchart TD\nsubgraph S\nA --> B\nend --> C\nend", "unexpected text after `end`")
+  try expect_rejected(
+    "flowchart TD\ndirection LR\nA --> B",
+    "`direction` is only drawn inside a subgraph",
+  )
+  try expect_rejected("flowchart TD\nsubgraph one\ndirection XY\nA\nend", "unknown direction `XY`")
+  try expect_rejected(
+    "flowchart TD\nsubgraph one\nA\nend\nsubgraph one\nB\nend",
+    "subgraph `one` is declared twice",
+  )
+  try expect_rejected(
+    "flowchart TD\nsubgraph one\nA\nend\none[One] --> A",
+    "`one` names both a node and a subgraph",
+  )
+  expect_rejected("flowchart TD\nsubgraph one[open\nA\nend", "unclosed `[` in `subgraph one[open`")
+}
+
+test fn unsupported_flowchart_syntax_is_rejected() Void!Str {
+  try expect_rejected("flowchart XY\nA --> B", "unknown direction `XY`")
+  try expect_rejected("flowchart TD\nA{{{{hex}}}} --> B", "`{{{{` nodes aren't drawn yet")
+  try expect_rejected("flowchart TD\nA[[sub]] --> B", "`[[` nodes aren't drawn yet")
+  try expect_rejected("flowchart TD\nA <--> B", "`<-->` links aren't drawn yet")
+  try expect_rejected("flowchart TD\nA -->|open B", "unclosed `|` in `A -->|open B`")
+  try expect_rejected("flowchart TD\nA -- open B", "unsupported link in `A -- open B`")
+  try expect_rejected("flowchart TD\nA -->\nB", "unsupported line `A -->`")
+  try expect_rejected("flowchart TD\nA --> B\nstyle --> C", "unsupported line `style --> C`")
+  // A link inside quotes, as in a URL, is part of the styling.
+  let clicked = try render("flowchart TD", ["A --> B", "click A href \"https://example.com/a--b\""], "")
+  try testing::assert(clicked.lines().size() == 8, "a quoted `--` in a click statement still draws")
+  try expect_rejected("flowchart TD\nA[open --> B", "unclosed `[` in `A[open --> B`")
+  expect_rejected("flowchart TD\n%% nothing", "the flowchart has no nodes")
+}
+
+test fn flowcharts_past_the_limits_are_rejected() Void!Str {
+  let nodes = mut ["flowchart TD"]
+  mut index = 0
+  while index <= max_nodes {
+    nodes.push("N{index}")
+    index =+ 1
+  }
+  try expect_rejected(strings::Join(nodes, "\n"), "more than {max_nodes} nodes")
+  let edges = mut ["flowchart TD"]
+  index = 0
+  while index <= max_edges {
+    edges.push("N{index % 12} --> M{index / 12}")
+    index =+ 1
+  }
+  try expect_rejected(strings::Join(edges, "\n"), "more than {max_edges} edges")
+  // `&` groups are checked before their edges are made.
+  let many = strings::Repeat("a&", 2000) + "a"
+  try expect_rejected("flowchart TD\n{many} --> {many}", "more than {max_edges} edges")
+  let names = mut List::new<Str>()
+  index = 0
+  while index <= max_nodes {
+    names.push("N{index}")
+    index =+ 1
+  }
+  try expect_rejected("flowchart TD\n{strings::Join(names, " & ")} --> A", "more than {max_nodes} nodes")
+  // Statements count between `;`s, not by line.
+  try expect_rejected(
+    "flowchart TD\n{strings::Repeat("A --> B;", max_statements + 1)}",
+    "more than {max_statements} statements",
+  )
+  let wide = mut ["flowchart TD"]
+  index = 0
+  while index < 12 {
+    wide.push("N{index}[{strings::Repeat("w", 40)}]")
+    index =+ 1
+  }
+  expect_rejected(strings::Join(wide, "\n"), "the flowchart is wider than 480 columns")
+}
+
+// `graph TD;`, link text after a space or in quotes, capitalized keywords
+// as node names, and a repeated edge drawn once.
+test fn common_spellings_are_read_as_mermaid_reads_them() Void!Str {
+  expect_drawing(
+    "graph TD;\nA --> |yes| B\nA -->|\"no\"| End\nEnd --> Style\nA --> |yes| B",
+    [
+      "      ┌───┐",
+      "      │ A │",
+      "      └─┬─┘",
+      "   ┌────┴────┐",
+      "  yes       no",
+      "   ▼         ▼",
+      " ┌───┐    ┌─────┐",
+      " │ B │    │ End │",
+      " └───┘    └──┬──┘",
+      "             │",
+      "             ▼",
+      "         ┌───────┐",
+      "         │ Style │",
+      "         └───────┘",
+    ],
+  )
+}
