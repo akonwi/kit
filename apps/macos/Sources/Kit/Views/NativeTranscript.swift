@@ -4,6 +4,7 @@ import SwiftUI
 /// Native row reuse owns geometry; SwiftUI continues to own message presentation.
 struct NativeTranscript: NSViewRepresentable {
     @Environment(\.transcriptSessionLink) var sessionLink
+    @Environment(\.transcriptToolContext) var toolContext
     let messages: [TranscriptMessage]
     let hasHistory: Bool
     let historyLoading: Bool
@@ -156,6 +157,7 @@ struct NativeTranscript: NSViewRepresentable {
             .id(message.id).environment(\.mica, input.theme)
             .environment(\.transcriptAttachments, attachments)
             .environment(\.transcriptSessionLink, input.sessionLink)
+            .environment(\.transcriptToolContext, input.toolContext)
             .foregroundStyle(input.theme.text)
             .environment(\.colorScheme, input.theme.dark ? .dark : .light)
             .frame(width: min(780, max(1, scroll.contentSize.width - 64)), alignment: .leading)
@@ -333,7 +335,7 @@ struct NativeTranscript: NSViewRepresentable {
             arrival = "message:" + last.id
         }
         let styleChanged = input.theme != next.theme || typography != next.typography
-            || input.sessionLink?.serverID != next.sessionLink?.serverID
+            || input.sessionLink?.serverID != next.sessionLink?.serverID || input.toolContext != next.toolContext
             || input.presentation !== next.presentation || input.workspace !== next.workspace
             || input.attachmentSession != next.attachmentSession || input.attachmentClient?.serverID != next.attachmentClient?.serverID
         let resume = next.resumeRequest != input.resumeRequest

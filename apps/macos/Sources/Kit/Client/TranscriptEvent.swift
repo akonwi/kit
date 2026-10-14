@@ -30,6 +30,11 @@ struct TranscriptEvent {
     var annotationId: UInt64?
     var annotationIds: [UInt64]?
     var scratchpad: WireScratchpad?
+    /// A tool result's structured details as JSON.
+    var details: String?
+    /// When the app received a new event; nil for replayed events, whose time
+    /// says nothing about when the work happened.
+    var receivedAt: Date?
 
     init(_ event: WireSessionEvent) {
         annotation = event.annotation; annotationId = event.annotationId; annotationIds = event.annotationIds
@@ -40,6 +45,7 @@ struct TranscriptEvent {
         toolCallId = event.toolCallId; toolName = event.toolName; arguments = event.arguments
         contentTruncated = event.contentTruncated
         content = event.content; isError = event.isError; sessionName = event.sessionName
+        details = SessionProjection.json(event.details)
         providerRetry = event.providerRetry; errorMessage = event.errorMessage
         compactionID = event.compactionId
         usage = event.usage

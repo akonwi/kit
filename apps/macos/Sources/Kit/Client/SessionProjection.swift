@@ -17,7 +17,10 @@ enum SessionProjection {
     }
 
     static func snapshot(_ snapshot: WireSessionSnapshot) throws -> SessionExcerpt {
-        var session = try summary(snapshot.session, messages: transcript(snapshot.messages ?? []))
+        // A snapshot holds every result of the calls it holds, so a settled
+        // turn's call without one never ran.
+        var session = try summary(snapshot.session, messages: transcript(snapshot.messages ?? [],
+            settled: { $0 != snapshot.activeTurnId }))
         for boundary in snapshot.pendingBoundaries ?? [] where boundary.kind == "bash" {
             guard let details = boundary.details else { throw ClientError.invalidPayload }
             let execution = try BashExecution.boundary(id: boundary.id, details: details, content: boundary.content ?? [])
@@ -53,7 +56,11 @@ enum SessionProjection {
         return session
     }
 
-    static func transcript(_ source: [WireTranscriptMessage]) throws -> [TranscriptMessage] {
+    /// Projects stored messages into transcript rows. `settled` names turns
+    /// whose calls without a result in `source` never ran; history pages pass
+    /// none, because a call's result may lie in a later page.
+    static func transcript(_ source: [WireTranscriptMessage],
+                           settled: (String) -> Bool = { _ in false }) throws -> [TranscriptMessage] {
         var messages: [TranscriptMessage] = []
         var seen = Set<String>()
         var calls = Set<String>()
@@ -93,7 +100,8 @@ enum SessionProjection {
             }
             if message.role == "tool", let id = message.toolCallId {
                 pending.append(ToolActivity(id: id, name: message.toolName ?? "Tool", summary: message.toolName ?? "Tool",
-                    output: visibleText(message.content ?? []), arguments: nil, failed: message.isError ?? false, attachments: attachments(message.content ?? [])))
+                    output: visibleText(message.content ?? []), arguments: nil, failed: message.isError ?? false, attachments: attachments(message.content ?? []),
+                    details: json(message.details)))
             } else if let bash = try BashExecution.boundary(message) {
                 flush()
                 messages.append(bash.message)
@@ -119,7 +127,8 @@ enum SessionProjection {
                         let result = results[id]
                         pending.append(ToolActivity(id: id, name: name, summary: name,
                             output: visibleText(result?.content ?? []), arguments: block.arguments, failed: result?.isError ?? false,
-                            thinking: thinking.isEmpty ? nil : thinking, attachments: attachments(result?.content ?? [])))
+                            thinking: thinking.isEmpty ? nil : thinking, attachments: attachments(result?.content ?? []),
+                            details: json(result?.details), notRun: result == nil && settled(message.turnId) ? true : nil))
                         thinking = ""
                     } else if block.kind.rawValue == "thinking" {
                         thinking += block.text ?? ""
@@ -132,6 +141,13 @@ enum SessionProjection {
         }
         flush()
         return messages
+    }
+
+    /// Structured JSON as compact text, or nil when absent.
+    static func json(_ value: WireJSON?) -> String? {
+        guard let value, case .object = value,
+              let data = try? JSONEncoder().encode(value) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     static func attachments(_ content: [WireTranscriptContent]) -> [TranscriptAttachment] {

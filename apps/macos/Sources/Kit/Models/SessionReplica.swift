@@ -365,6 +365,8 @@ final class SessionReplica {
     }
 
     private var deletedIDs: Set<String> = []
+    /// Times of tool calls this replica watched run, by call id.
+    private var toolTimings: [String: ToolTiming] = [:]
 
     func sessionDeleted(_ identity: SessionIdentity) {
         guard identity.server == client.serverID else { return }
@@ -447,6 +449,7 @@ final class SessionReplica {
             merged.messages = historyPrefix + snapshot.messages
         }
         merged.historyCursor = historyCursor
+        merged.messages = ToolTiming.merge(merged.messages, log: &toolTimings)
         current = merged
         unavailable = false
         onReceive?(merged)

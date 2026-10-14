@@ -35,10 +35,11 @@ struct ToolPresentationTests {
         }
     }
 
-    @Test func writeCountAndFailureLabels() {
+    @Test func writeTitlesCountRecordedLines() {
         let args = #"{"path":"main.swift","content":"let x = 1\nlet y = 2\n"}"#
         #expect(ToolPresentation(tool("write", args)).title == "Write 2 lines")
-        #expect(ToolPresentation(tool("write", args, failed: true)).title == "Write file")
+        #expect(ToolPresentation(tool("write", args, failed: true)).title == "Write 2 lines")
+        #expect(ToolPresentation(tool("write", #"{"path":"main.swift"}"#)).title == "Write file")
     }
     @Test func editDiffRetainsContextAndReplacement() {
         let value = ToolPresentation(tool("edit", #"{"path":"main.go","edits":[{"oldText":"first\nold\nlast","newText":"first\nnew\nlast"}]}"#))

@@ -1207,9 +1207,9 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
                     applied.append(event)
                     if event.kind.rawValue == "annotation.submitted" { submissions.append(event) }
                     refreshSubagents = refreshSubagents || event.kind.rawValue == "subagent.changed"
-                    try projection.apply(event)
-                    cursor = event.sequence
                     let newEvent = event.sequence > (snapshot.eventCursor ?? 0)
+                    try projection.apply(event, receivedAt: newEvent ? Date() : nil)
+                    cursor = event.sequence
                     refresh = refresh || (newEvent
                         && ["turn.completed", "compaction.completed"].contains(event.kind.rawValue))
                 }

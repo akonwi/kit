@@ -75,9 +75,13 @@ struct SessionEventProjection {
         session.subagentDiagnostics = snapshot.subagentDiagnostics ?? []
     }
 
-    mutating func apply(_ event: WireSessionEvent) throws {
+    /// Applies one event. `receivedAt` is when a new event arrived, which
+    /// times tool calls; replayed events pass nil.
+    mutating func apply(_ event: WireSessionEvent, receivedAt: Date? = nil) throws {
         guard event.sessionId == session.id else { throw ClientError.invalidPayload }
-        try apply(TranscriptEvent(event))
+        var value = TranscriptEvent(event)
+        value.receivedAt = receivedAt
+        try apply(value)
     }
 
     mutating func apply(_ event: TranscriptEvent) throws {
@@ -221,13 +225,19 @@ struct SessionEventProjection {
             // carries the tool's final, server-bounded result.
             let nextOutput = completed ? output : liveContentSuspended ? previousOutput : previousOutput + output
             toolOutputBytes += nextOutput.utf8.count - previousOutput.utf8.count
+            // Time only calls seen starting live; a call first seen finished
+            // has no meaningful start.
+            let startedAt = old?.startedAt ?? (event.kind == "tool.planned" || completed ? nil : event.receivedAt)
             let value = ToolActivity(id: id, name: name, summary: name,
                 output: nextOutput,
                 arguments: event.arguments ?? old?.arguments, failed: event.isError ?? old?.failed ?? false,
                 status: completed ? "Completed" : event.kind == "tool.planned" ? "Planned" : "Running…",
                 thinking: evidence,
                 attachments: event.content == nil ? old?.attachments : SessionProjection.attachments(event.content ?? []),
-                contentTruncated: event.contentTruncated ?? old?.contentTruncated)
+                contentTruncated: event.contentTruncated ?? old?.contentTruncated,
+                details: event.details ?? old?.details,
+                startedAt: startedAt,
+                finishedAt: completed && startedAt != nil ? event.receivedAt : nil)
             if let toolIndex = session.messages[index].tools.firstIndex(where: { $0.id == id }) {
                 session.messages[index].tools[toolIndex] = value
             } else { session.messages[index].tools.append(value) }
@@ -238,6 +248,7 @@ struct SessionEventProjection {
         case "provider.retry.started":
             session.providerRetryAt = nil
         case "turn.completed":
+            settleTools(at: event.receivedAt)
             session.activeCompactionID = nil
             session.terminalError = event.errorMessage
             session.providerRetryAt = nil
@@ -296,6 +307,26 @@ struct SessionEventProjection {
         session.messages.removeAll { $0.id == "live-user-" + turn && $0.role == "user" && $0.text == "Annotations" }
         userTurns.remove(turn)
         candidateAnnotationTurn = nil
+    }
+
+    /// Planned calls never ran once their turn ends. Executing calls whose
+    /// completion was missed are shown as done, as the TUI does.
+    private mutating func settleTools(at date: Date?) {
+        for row in session.messages.indices where session.messages[row].role == "tools" {
+            for index in session.messages[row].tools.indices {
+                switch session.messages[row].tools[index].status {
+                case "Planned":
+                    session.messages[row].tools[index].status = nil
+                    session.messages[row].tools[index].notRun = true
+                case "Running…":
+                    session.messages[row].tools[index].status = "Completed"
+                    if session.messages[row].tools[index].startedAt != nil {
+                        session.messages[row].tools[index].finishedAt = date
+                    }
+                default: break
+                }
+            }
+        }
     }
 
     private mutating func retainPluginInteractions() {

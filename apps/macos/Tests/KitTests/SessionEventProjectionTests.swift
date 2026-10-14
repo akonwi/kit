@@ -226,6 +226,27 @@ struct SessionEventProjectionTests {
         #expect(state.session.messages[0].tools[0].failed)
         #expect(state.session.messages[0].tools[0].arguments == "{}")
     }
+    @Test func liveToolsAreTimedAndSettleWhenTheTurnEnds() throws {
+        var state = try SessionEventProjection(snapshot())
+        let start = Date(timeIntervalSince1970: 100)
+        try state.apply(event("tool.planned", ["toolCallId": "a", "toolName": "bash", "messageId": "m"]), receivedAt: start)
+        try state.apply(event("tool.planned", ["toolCallId": "b", "toolName": "read", "messageId": "m"]), receivedAt: start)
+        try state.apply(event("tool.planned", ["toolCallId": "c", "toolName": "bash", "messageId": "m"]), receivedAt: start)
+        #expect(state.session.messages[0].tools[0].startedAt == nil)
+        try state.apply(event("tool.started", ["toolCallId": "a", "toolName": "bash"]), receivedAt: start.addingTimeInterval(1))
+        try state.apply(event("tool.completed", ["toolCallId": "a", "toolName": "bash", "details": ["exitCode": 2]]),
+                        receivedAt: start.addingTimeInterval(9))
+        try state.apply(event("tool.started", ["toolCallId": "c", "toolName": "bash"]), receivedAt: start.addingTimeInterval(10))
+        try state.apply(event("turn.completed"), receivedAt: start.addingTimeInterval(12))
+        let tools = state.session.messages[0].tools
+        #expect(tools[0].startedAt == start.addingTimeInterval(1))
+        #expect(tools[0].finishedAt == start.addingTimeInterval(9))
+        #expect(ToolPresentation(tools[0]).facts == [ToolFact(text: "exit 2", tone: .danger)])
+        #expect(tools[1].notRun == true)
+        #expect(tools[1].running == false)
+        #expect(tools[2].status == "Completed")
+        #expect(tools[2].finishedAt == start.addingTimeInterval(12))
+    }
     @Test func unfinishedSnapshotToolCallReceivesLiveUpdatesInPlace() throws {
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot())) as! [String: Any]
         json["activeTurnId"] = "t"

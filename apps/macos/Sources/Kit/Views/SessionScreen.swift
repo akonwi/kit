@@ -85,6 +85,8 @@ struct SessionScreen: View {
         .environment(\.transcriptSessionLink, TranscriptSessionLink(serverID: serverID) { id in
             navigation.openSession(id)
         })
+        .environment(\.transcriptToolContext, TranscriptToolContext(
+            cwd: state.selected?.cwd, servers: (state.selected?.mcpServers ?? []).map(\.name)))
         .font(.kit(size: 13))
         .tint(theme.accent)
         .preferredColorScheme(windowScheme)
