@@ -55,7 +55,8 @@ other graph-shaped diagrams can share:
   edges, and each marked edge leaves its source through the channel below,
   climbs its own column past the right edge, and drops into its target
   through the channel above, adding a channel at either end when needed.
-  Shorter loops take the inner columns.
+  Shorter loops take the inner columns. A loop's text sits beside its climb
+  on the row nearest the middle that no other line crosses.
 - **Layers.** A node's layer is one past its deepest predecessor; a start node
   moves down to sit just above its nearest successor. An edge that skips
   layers passes through a placeholder in each layer between.
@@ -77,6 +78,18 @@ other graph-shaped diagrams can share:
   beside the layers the edge skips, or on a sideways run of its own. Nodes and
   placeholders carrying text are spaced to make room for it, and a diagram
   whose text would cover another line shows its source.
+- **Directions.** Layout works in top-down terms: layers stack along the
+  flow and members of a layer spread across it. Each node's extent along the
+  flow is its box's height when flowing down or up and its box's width when
+  flowing sideways, where boxes are three rows tall and spaced a row apart;
+  a layer is as thick as its thickest member, and a shorter member's line
+  runs on to the layer's end. A pen maps every line, arrowhead, and corner
+  from layout coordinates onto the drawing for the diagram's direction, so
+  junctions resolve the same way in all four, while boxes and text are placed
+  directly on the drawing so text always reads left to right. Flowing
+  sideways, labels sit on their edge's line and their bands are as long as
+  the label, and a labeled edge on its own track gets a track as wide as its
+  label, with the text across the track's upright run.
 
 ## Consequences
 

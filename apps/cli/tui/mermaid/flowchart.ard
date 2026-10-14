@@ -8,7 +8,8 @@ use go:strings
 // Mermaid flowcharts: a reviewed subset parsed into a graph and drawn with
 // the layered layout.
 //
-// Supported: `flowchart` or `graph` flowing top down (`TD` or `TB`); nodes
+// Supported: `flowchart` or `graph` flowing down (`TD` or `TB`), up
+// (`BT`), right (`LR`), or left (`RL`); nodes
 // written as an id or with text in a box `[]`, round `()`, stadium `([])`,
 // circle `(())`, database `[()]`, or decision `{}` shape; solid `-->`,
 // dotted `-.->`, and thick `==>` links of any length, ending in an arrow,
@@ -29,6 +30,7 @@ let max_text = 40
 struct Flowchart {
   nodes: [layers::Node],
   edges: [layers::Edge],
+  flow: layers::Flow,
 }
 
 // Text as one line, cut to max_text cells.
@@ -557,6 +559,18 @@ impl Parser {
   }
 }
 
+// The flow a header's direction names.
+private fn flow(direction: Str) layers::Flow? {
+  match direction {
+    "TD" => Maybe::new(layers::Flow::down),
+    "TB" => Maybe::new(layers::Flow::down),
+    "BT" => Maybe::new(layers::Flow::up),
+    "LR" => Maybe::new(layers::Flow::right),
+    "RL" => Maybe::new(layers::Flow::left),
+    _ => Maybe::new<layers::Flow>(),
+  }
+}
+
 // Parses the statements after a flowchart header.
 fn parse(header: Str, lines: [Str]) Flowchart!Str {
   let fields = strings::Fields(header)
@@ -569,10 +583,7 @@ fn parse(header: Str, lines: [Str]) Flowchart!Str {
   mut statements = 0
   mut failure = match {
     fields.size() > 2 => "unexpected text after `{fields.at(0).or("")} {direction}`",
-    direction == "LR" or direction == "RL" or direction == "BT" => {
-      "`{direction}` flowcharts aren't drawn yet"
-    },
-    direction != "TD" and direction != "TB" => "unknown direction `{direction}`",
+    flow(direction).is_none() => "unknown direction `{direction}`",
     _ => "",
   }
   for raw in lines {
@@ -591,14 +602,22 @@ fn parse(header: Str, lines: [Str]) Flowchart!Str {
     parser.nodes.size() > max_nodes => Result::err("more than {max_nodes} nodes"),
     parser.edges.size() > max_edges => Result::err("more than {max_edges} edges"),
     statements > max_statements => Result::err("more than {max_statements} statements"),
-    _ => Result::ok(Flowchart{nodes: parser.nodes, edges: parser.edges}),
+    _ => {
+      Result::ok(
+        Flowchart{
+          nodes: parser.nodes,
+          edges: parser.edges,
+          flow: flow(direction).or(layers::Flow::down),
+        },
+      )
+    },
   }
 }
 
 // Draws the statements after a flowchart header.
 fn render(header: Str, lines: [Str], title: Str) canvas::Canvas!Str {
   let chart = try parse(header, lines)
-  layers::draw(layers::Graph{nodes: chart.nodes, edges: chart.edges}, clean(title))
+  layers::draw(layers::Graph{nodes: chart.nodes, edges: chart.edges}, clean(title), chart.flow)
 }
 
 fn expect_drawing(source: Str, expected: [Str]) Void!Str {
@@ -1076,8 +1095,127 @@ test fn loop_labels_sit_beside_the_climb() Void!Str {
   )
 }
 
+test fn flowcharts_flow_right_with_labels_along_their_lines() Void!Str {
+  expect_drawing(
+    "flowchart LR\nA[Start] --> B{{Valid?}}\nB -->|yes| C[Save record]\nB -->|no| D[Reject]\nC --> E[Done]\nD --> E",
+    [
+      "                                 ┌─────────────┐",
+      "                        ┌─ yes ─►│ Save record ├─┐",
+      "┌───────┐    ╱────────╲ │        └─────────────┘ │  ┌──────┐",
+      "│ Start ├───►│ Valid? ├─┤                        ├─►│ Done │",
+      "└───────┘    ╲────────╱ │        ┌────────┐      │  └──────┘",
+      "                        └─ no ──►│ Reject ├──────┘",
+      "                                 └────────┘",
+    ],
+  )
+}
+
+test fn flowcharts_flow_left_and_up() Void!Str {
+  try expect_drawing(
+    "flowchart RL\nA[Start] --> B{{Valid?}}\nB -->|yes| C[Save]",
+    [
+      "┌──────┐          ╱────────╲    ┌───────┐",
+      "│ Save │◄─ yes ───┤ Valid? │◄───┤ Start │",
+      "└──────┘          ╲────────╱    └───────┘",
+    ],
+  )
+  expect_drawing(
+    "flowchart BT\nA[Start] --> B{{Valid?}}\nB -->|yes| C[Save]\nB -->|no| D[Reject]",
+    [
+      "┌──────┐   ┌────────┐",
+      "│ Save │   │ Reject │",
+      "└──────┘   └────────┘",
+      "    ▲           ▲",
+      "   yes         no",
+      "    └─────┬─────┘",
+      "     ╱────┴───╲",
+      "     │ Valid? │",
+      "     ╲────────╱",
+      "          ▲",
+      "          │",
+      "      ┌───┴───┐",
+      "      │ Start │",
+      "      └───────┘",
+    ],
+  )
+}
+
+test fn loops_run_beneath_a_flowchart_flowing_across() Void!Str {
+  try expect_drawing(
+    "flowchart LR\nA[Fetch] --> B[Parse]\nB --> C{{OK?}}\nC -->|retry| A\nC --> D[Store]",
+    [
+      "    ┌───────┐    ┌───────┐    ╱─────╲    ┌───────┐",
+      " ┌─►│ Fetch ├───►│ Parse ├───►│ OK? ├─┬─►│ Store │",
+      " │  └───────┘    └───────┘    ╲─────╱ │  └───────┘",
+      " │                                    │",
+      " └────────────── retry ───────────────┘",
+    ],
+  )
+  expect_drawing(
+    "flowchart LR\nA[Retry] -->|again| A\nA --> B([Done])",
+    [
+      "    ┌───────┐    ╭──────╮",
+      " ┌─►│ Retry ├─┬─►( Done )",
+      " │  └───────┘ │  ╰──────╯",
+      " │            │",
+      " └── again ───┘",
+    ],
+  )
+}
+
+test fn labels_flowing_across_sit_on_stems_and_tracks() Void!Str {
+  try expect_drawing(
+    "flowchart LR\nA --> C\nA -->|approve| D\nB --> D\nB --> C",
+    [
+      "┌───┐                ┌───┐",
+      "│ A ├───────┬─────┬─►│ C │",
+      "└───┘       │     │  └───┘",
+      "         approve  │",
+      "┌───┐       │     │  ┌───┐",
+      "│ B ├───────┴─────┴─►│ D │",
+      "└───┘                └───┘",
+    ],
+  )
+  expect_drawing(
+    "flowchart LR\nA -->|first| C\nB --> C\nC -- second --> D",
+    [
+      "┌───┐",
+      "│ A ├─ first ─┐",
+      "└───┘         │  ┌───┐             ┌───┐",
+      "              ├─►│ C ├─── second ─►│ D │",
+      "┌───┐         │  └───┘             └───┘",
+      "│ B ├─────────┘",
+      "└───┘",
+    ],
+  )
+}
+
+test fn loop_labels_take_a_clear_row_beside_their_climb() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Draft] --> B[Review]\nB -->|changes| A\nB -->|ok| C[Publish]\nC -.->|rollback| B",
+    [
+      "     ┌──────┐",
+      "     ▼      │",
+      " ┌───────┐  │",
+      " │ Draft │  │",
+      " └───┬───┘  │ changes",
+      "     ├┈┈┈┈┈┈┼┈┈┈┈┈┈┈┈┈┈┐",
+      "     ▼      │          ┊",
+      "┌────────┐  │          ┊",
+      "│ Review │  │          ┊",
+      "└────┬───┘  │          ┊",
+      "     ├──────┘          ┊ rollback",
+      "    ok                 ┊",
+      "     ▼                 ┊",
+      "┌─────────┐            ┊",
+      "│ Publish │            ┊",
+      "└────┬────┘            ┊",
+      "     └┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘",
+    ],
+  )
+}
+
 test fn unsupported_flowchart_syntax_is_rejected() Void!Str {
-  try expect_rejected("flowchart LR\nA --> B", "`LR` flowcharts aren't drawn yet")
   try expect_rejected("flowchart XY\nA --> B", "unknown direction `XY`")
   try expect_rejected("flowchart TD\nA{{{{hex}}}} --> B", "`{{{{` nodes aren't drawn yet")
   try expect_rejected("flowchart TD\nA[[sub]] --> B", "`[[` nodes aren't drawn yet")

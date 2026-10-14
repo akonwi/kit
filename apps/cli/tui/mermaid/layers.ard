@@ -27,6 +27,14 @@ let line_gap = 2
 let sweeps = 4
 let placement_passes = 8
 
+// The direction a graph flows: layers stack down, up, right, or left.
+enum Flow {
+  down,
+  up,
+  right,
+  left,
+}
+
 enum Shape {
   box,
   round,
@@ -67,9 +75,8 @@ struct Edge {
 // Where an edge's label is drawn: on its drop into a target no other edge
 // enters, on its stem from a source no other edge leaves, or else on the
 // first placeholder of an edge that skips layers, or on its own track's
-// sideways run.
+// sideways run. A loop's label goes `back`, beside its outer column.
 enum Spot {
-  // Beside the outer column of an edge that loops back.
   none,
   drop,
   stem,
@@ -102,6 +109,10 @@ private struct Star {
   // Whether the star is one edge running straight down, needing no track.
   straight: Bool,
   track: Int,
+  // Cells across the flow its track needs.
+  room: Int,
+  // Where the star's track lies within its channel's tracks.
+  at: Int,
 }
 
 private fn maximum(left: Int, right: Int) Int {
@@ -331,19 +342,22 @@ private fn crossings(layer: [Int], pos: [Int], segments: [Segment]) Int {
 }
 
 // The least distance between the centers of neighboring vertices a and b.
-private fn separation(widths: [Int], a: Int, b: Int) Int {
+// Across the flow, neighbors are rows apart rather than columns, so a single
+// blank row keeps them apart.
+private fn separation(across: Bool, widths: [Int], a: Int, b: Int) Int {
   let left = get(widths, a)
   let right = get(widths, b)
-  let gap = match left == 1 or right == 1 {
-    true => line_gap,
-    false => box_gap,
+  let gap = match {
+    across => 1,
+    left == 1 or right == 1 => line_gap,
+    _ => box_gap,
   }
   left - left / 2 + gap + right / 2
 }
 
 // Moves the vertices of a layer toward desired centers while keeping them
 // apart, balancing pushes from the left and the right.
-private fn settle(row: [Int], widths: [Int], desired: [Int], center: mut [Int]) {
+private fn settle(across: Bool, row: [Int], widths: [Int], desired: [Int], center: mut [Int]) {
   let count = row.size()
   let from_left = mut fill(count, 0)
   let from_right = mut fill(count, 0)
@@ -358,7 +372,7 @@ private fn settle(row: [Int], widths: [Int], desired: [Int], center: mut [Int]) 
         false => {
           maximum(
             want,
-            get(from_left.@, index - 1) + separation(widths, get(row, index - 1), vertex),
+            get(from_left.@, index - 1) + separation(across, widths, get(row, index - 1), vertex),
           )
         },
       },
@@ -376,7 +390,7 @@ private fn settle(row: [Int], widths: [Int], desired: [Int], center: mut [Int]) 
         false => {
           minimum(
             want,
-            get(from_right.@, index + 1) - separation(widths, vertex, get(row, index + 1)),
+            get(from_right.@, index + 1) - separation(across, widths, vertex, get(row, index + 1)),
           )
         },
       },
@@ -389,7 +403,7 @@ private fn settle(row: [Int], widths: [Int], desired: [Int], center: mut [Int]) 
     let vertex = get(row, index)
     mut x = (get(from_left.@, index) + get(from_right.@, index)) / 2
     if index > 0 {
-      x = maximum(x, previous + separation(widths, get(row, index - 1), vertex))
+      x = maximum(x, previous + separation(across, widths, get(row, index - 1), vertex))
     }
     center.set(vertex, x)
     previous = x
@@ -398,7 +412,10 @@ private fn settle(row: [Int], widths: [Int], desired: [Int], center: mut [Int]) 
 }
 
 // Draws graph, with title above it when given.
-fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
+fn draw(graph: Graph, title: Str, flow: Flow) canvas::Canvas!Str {
+  // Flowing across, nodes are three rows tall side by side, and as thick as
+  // their text along the flow.
+  let across = flow == Flow::right or flow == Flow::left
   // Edges that close a loop are set aside; the rest flow forward.
   let back = back_edges(graph)
   let forward_edges = mut List::new<Edge>()
@@ -420,10 +437,22 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
   // on its border makes room for it.
   let boxes = mut List::new<Int>()
   let widths = mut List::new<Int>()
+  // Each vertex's extent along the flow.
+  let thick = mut List::new<Int>()
   for node, index in graph.nodes {
+    let size = match across {
+      true => 3,
+      false => ui::text_width(node.text) + 4,
+    }
     layer.push(get(node_layers, index))
-    boxes.push(ui::text_width(node.text) + 4)
-    widths.push(ui::text_width(node.text) + 4)
+    boxes.push(size)
+    widths.push(size)
+    thick.push(
+      match across {
+        true => ui::text_width(node.text) + 4,
+        false => 3,
+      },
+    )
   }
   let spots = mut List::new<Spot>()
   for edge in graph.edges {
@@ -437,10 +466,12 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
       get(node_layers, edge.to) - get(node_layers, edge.from) > 1 => Spot::middle,
       _ => Spot::track,
     }
-    if spot == Spot::drop {
+    // Labels lie along their lines when flowing across, needing no room
+    // beside them.
+    if spot == Spot::drop and not across {
       widths.set(edge.to, maximum(get(widths.@, edge.to), label + label_room))
     }
-    if spot == Spot::stem {
+    if spot == Spot::stem and not across {
       widths.set(edge.from, maximum(get(widths.@, edge.from), label + label_room))
     }
     spots.push(spot)
@@ -460,10 +491,20 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
       boxes.push(1)
       // The first placeholder of an edge labeled there makes room for it.
       let middle = spots.at(edge_index).or(Spot::none) == Spot::middle and from == edge.from
+      let room = match middle {
+        true => ui::text_width(edge.label) + label_room,
+        false => 1,
+      }
       widths.push(
-        match middle {
-          true => ui::text_width(edge.label) + label_room,
-          false => 1,
+        match across {
+          true => 1,
+          false => room,
+        },
+      )
+      thick.push(
+        match across {
+          true => room,
+          false => 3,
         },
       )
       segments.push(
@@ -558,7 +599,7 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
         for member in row {
           x = match index == 0 {
             true => get(widths.@, member) / 2,
-            false => x + separation(widths.@, get(row, index - 1), member),
+            false => x + separation(across, widths.@, get(row, index - 1), member),
           }
           center.set(member, x)
           index =+ 1
@@ -589,7 +630,7 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
               desired.set(member, (2 * total + near.size()) / (2 * near.size()))
             }
           }
-          settle(row, widths.@, desired.@, center)
+          settle(across, row, widths.@, desired.@, center)
           step =+ 1
         }
         pass =+ 1
@@ -622,7 +663,7 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
                 let row = rows.at(get(layer.@, member)).or([])
                 match row.at(get(chain_pos.@, member) - 1) {
                   before => {
-                    if x < get(center.@, before) + separation(widths.@, before, member) {
+                    if x < get(center.@, before) + separation(across, widths.@, before, member) {
                       fits = false
                     }
                   },
@@ -637,7 +678,7 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
                   while index < row.size() {
                     let previous = get(row, index - 1)
                     let next = get(row, index)
-                    let least = get(center.@, previous) + separation(widths.@, previous, next)
+                    let least = get(center.@, previous) + separation(across, widths.@, previous, next)
                     if get(center.@, next) < least {
                       center.set(next, least)
                     }
@@ -692,7 +733,7 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
         let edge = graph.edges.at(looped).expect("edge")
         columns.set(looped, column)
         column =+ 2
-        if edge.label != "" {
+        if edge.label != "" and not across {
           column =+ ui::text_width(edge.label) + 2
         }
       }
@@ -732,6 +773,7 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
         layer.push(get(layer.@, edge.from) + 1)
         boxes.push(1)
         widths.push(1)
+        thick.push(0)
         center.push(x)
         segments.push(
           Segment{
@@ -744,6 +786,7 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
         layer.push(get(layer.@, edge.to) - 1)
         boxes.push(1)
         widths.push(1)
+        thick.push(0)
         center.push(x)
         segments.push(
           Segment{
@@ -766,6 +809,8 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
         real,
         virtual_start,
         columns.@,
+        thick.@,
+        flow,
       )
     },
   }
@@ -785,6 +830,8 @@ private fn route(
   real: Int,
   virtual_start: Int,
   columns: [Int],
+  thick: [Int],
+  flow: Flow,
 ) canvas::Canvas!Str {
   let count = layer.size()
   let depth = rows.size()
@@ -816,18 +863,36 @@ private fn route(
     }
     vertex =+ 1
   }
+  let stem_at = fn(vertex: Int) Int {
+    get(center.@, vertex) + get(stem_shift.@, vertex)
+  }
+  let drop_at = fn(vertex: Int) Int {
+    get(center.@, vertex) + get(drop_shift.@, vertex)
+  }
+  // Each channel's segments, since only those can meet.
+  let channels = mut List::new<[Segment]>()
+  for _ in rows {
+    channels.push([])
+  }
+  for segment in segments {
+    let k = get(layer, segment.from)
+    let grown = mut channels.at(k).or([])
+    grown.push(segment)
+    channels.set(k, grown.@)
+  }
   mut changed = true
   mut rounds = 0
   while changed and rounds < 64 {
     changed = false
+    // Cheap tests first: only a stem and drop that meet need the search for
+    // a path between them.
     for a in segments {
-      for b in segments {
-        let stem = get(center.@, a.from) + get(stem_shift.@, a.from)
-        let drop = get(center.@, b.to) + get(drop_shift.@, b.to)
-        let related = a.from == b.from or a.to == b.to or connected(segments, a.from, b.to)
+      for b in channels.at(get(layer, a.from)).or([]) {
         // A loop's entry has no stem and its exit no drop.
         let drawn = a.from < virtual_start and b.to < virtual_start
-        if (not changed) and drawn and (not related) and get(layer, a.from) == get(layer, b.from) and stem == drop {
+        let meet = (not changed) and drawn and stem_at(a.from) == drop_at(b.to)
+        let related = meet and (a.from == b.from or a.to == b.to or connected(segments, a.from, b.to))
+        if meet and not related {
           let target = get(boxes, b.to)
           let source = get(boxes, a.from)
           if b.to < real and get(drop_shift.@, b.to) < target - target / 2 - 2 {
@@ -862,6 +927,7 @@ private fn route(
   match changed {
     true => Result::err("the flowchart couldn't be laid out"),
     false => {
+      let across = flow == Flow::right or flow == Flow::left
       // Group each channel's segments into stars and give them tracks.
       let star_of = mut fill(segments.size(), 0)
       let stars = mut List::new<Star>()
@@ -898,11 +964,18 @@ private fn route(
                 found.push(stars.size())
                 let _ = stars.push(
                   Star{
+                    // Flowing across, a labeled edge on its own track keeps
+                    // the track, which is as wide as its label.
                     key: key,
                     left: low,
                     right: high,
-                    straight: low == high and key == "edge:{index}",
+                    straight: low == high and key == "edge:{index}" and (not across and alone),
                     track: -1,
+                    room: match across and alone {
+                      true => ui::text_width(graph.edges.at(segment.edge).expect("edge").label) + 4,
+                      false => 1,
+                    },
+                    at: 0,
                   },
                 )
                 ()
@@ -946,60 +1019,90 @@ private fn route(
             stars.set(star, current.@)
           }
         }
-        tracks.set(k, ends.size())
+        // Tracks are a cell apart, and flowing across, a labeled edge's
+        // track is as wide as its label.
+        let rooms = mut fill(ends.size(), 1)
+        for star in found {
+          let current = stars.at(star).expect("star")
+          if current.track >= 0 {
+            rooms.set(current.track, maximum(get(rooms.@, current.track), current.room))
+          }
+        }
+        let starts = mut List::new<Int>()
+        mut total = 0
+        for room in rooms {
+          starts.push(total)
+          total =+ room
+        }
+        for star in found {
+          let current = mut stars.at(star).expect("star")
+          if current.track >= 0 {
+            current.at = get(starts.@, current.track) + get(rooms.@, current.track) / 2
+            stars.set(star, current.@)
+          }
+        }
+        tracks.set(k, total)
         k =+ 1
       }
 
-      // Rows: a title, then each layer of boxes and the channel below it: a
-      // row for stem labels, the tracks, a row for drop labels, and arrows.
-      let stem_rows = mut fill(depth, 0)
-      let drop_rows = mut fill(depth, 0)
+      // Bands along the flow: each layer as thick as its thickest member,
+      // then its channel: stem labels, tracks, drop labels, and arrows.
+      // Flowing across, labels lie along their lines, so their bands are as
+      // long as the labels, and lines get a cell of lead at each end.
+      let lead = match across {
+        true => 1,
+        false => 0,
+      }
+      let stem_rows = mut fill(depth, lead)
+      let drop_rows = mut fill(depth, lead)
       for segment in segments {
         let edge = graph.edges.at(segment.edge).expect("edge")
         let spot = spots.at(segment.edge).or(Spot::none)
         let k = get(layer, segment.from)
+        let size = match across {
+          true => ui::text_width(edge.label) + 2 + 2 * lead,
+          false => 1,
+        }
         if spot == Spot::stem and segment.from == edge.from {
-          stem_rows.set(k, 1)
+          stem_rows.set(k, maximum(get(stem_rows.@, k), size))
         }
         if spot == Spot::drop and segment.to == edge.to {
-          drop_rows.set(k, 1)
+          drop_rows.set(k, maximum(get(drop_rows.@, k), size))
         }
       }
-      let title_rows = match title == "" {
-        true => 0,
-        false => 2,
-      }
-      // A layer added only to carry loops has no boxes.
+      // A layer added only to carry loops is empty and takes no room.
       let heights = mut List::new<Int>()
       for row in rows {
-        heights.push(
-          match row.size() == 0 {
-            true => 0,
-            false => 3,
-          },
-        )
+        mut band = 0
+        for member in row {
+          band = maximum(band, get(thick, member))
+        }
+        heights.push(band)
       }
       let tops = mut List::new<Int>()
-      mut y = title_rows
+      mut y = 0
       k = 0
       while k < depth {
         tops.push(y)
         y =+ get(heights.@, k) + get(stem_rows.@, k) + maximum(get(tracks.@, k), 1) + get(drop_rows.@, k) + 1
         k =+ 1
       }
-      // A channel added below the last layer ends with its tracks.
-      let height = match get(heights.@, depth - 1) == 0 {
-        true => get(tops.@, depth - 1) - 1,
-        false => get(tops.@, depth - 1) + 3,
+      // A channel added after the last layer ends with its tracks.
+      let last = depth - 1
+      let span = match get(heights.@, last) == 0 {
+        true => {
+          get(tops.@, last - 1) + get(heights.@, last - 1) + get(stem_rows.@, last - 1) + maximum(get(tracks.@, last - 1), 1)
+        },
+        false => get(tops.@, last) + get(heights.@, last),
       }
-      mut width = ui::text_width(title)
+      mut cross = 0
       mut edge_index = 0
       for edge in graph.edges {
         let x = get(columns, edge_index)
         if x >= 0 {
-          width = maximum(width, x + 1)
-          if edge.label != "" {
-            width = maximum(width, x + ui::text_width(edge.label) + 3)
+          cross = maximum(cross, x + 1)
+          if edge.label != "" and not across {
+            cross = maximum(cross, x + ui::text_width(edge.label) + 3)
           }
         }
         edge_index =+ 1
@@ -1007,9 +1110,30 @@ private fn route(
       mut vertex = 0
       while vertex < count {
         let room = get(widths, vertex)
-        width = maximum(width, get(center.@, vertex) - room / 2 + room)
+        cross = maximum(cross, get(center.@, vertex) - room / 2 + room)
         vertex =+ 1
       }
+      let offset = match title == "" {
+        true => 0,
+        false => 2,
+      }
+      let pen = Pen{
+        flow: flow,
+        span: span,
+        offset: offset,
+      }
+      let width = maximum(
+        ui::text_width(title),
+        match across {
+          true => span,
+          false => cross,
+        },
+      )
+      let tall = match across {
+        true => cross,
+        false => span,
+      }
+      let height = offset + tall
       match {
         width > max_width => Result::err("the flowchart is wider than {max_width} columns"),
         height > max_height => Result::err("the flowchart is taller than {max_height} rows"),
@@ -1020,32 +1144,74 @@ private fn route(
           }
           vertex = 0
           while vertex < count {
-            let top = get(tops.@, get(layer, vertex))
-            let x = get(center.@, vertex)
+            let k = get(layer, vertex)
+            let top = get(tops.@, k)
+            let c = get(center.@, vertex)
             match {
               vertex < real => {
                 let node = graph.nodes.at(vertex).expect("node")
-                let box = get(boxes, vertex)
-                draw_node(drawing, node, x - box / 2, top, box)
+                let box = ui::text_width(node.text) + 4
+                match across {
+                  true => {
+                    let x0 = minimum(pen.x(c, top), pen.x(c, top + get(thick, vertex) - 1))
+                    draw_node(drawing, node, x0, pen.y(c, top) - 1, box)
+                  },
+                  false => {
+                    let y0 = minimum(pen.y(c, top), pen.y(c, top + 2))
+                    draw_node(drawing, node, c - box / 2, y0, box)
+                  },
+                }
               },
-              vertex < virtual_start => drawing.vertical(x, top, top + 2, canvas::Role::arrow, false),
+              vertex < virtual_start => pen.along(drawing, c, top, top + get(heights.@, k) - 1, false, false),
               _ => (),
             }
             vertex =+ 1
           }
           let heads = mut List::new<Int>()
           let head_glyphs = mut List::new<Str>()
+          // Labels: edge, first column, row, and the column of the label's
+          // own line beside it, or -1 when it lies along its line.
           let labels = mut List::new<Int>()
           let exit_rows = mut fill(graph.edges.size(), 0)
           let entry_rows = mut fill(graph.edges.size(), 0)
-          // Sideways runs that may carry a label: edge, start, end, and row.
+          // Sideways runs that may carry a label: edge, start, end, and row
+          // on the drawing.
           let runs = mut List::new<Int>()
+          // Upright runs that may carry a label beside or across them: edge,
+          // column, top, bottom, and the label's first column.
+          let climbs = mut List::new<Int>()
+          // Places a label across the band from a0 to a1 on the line at
+          // cross; flowing down or up, on the band's middle row.
+          let place = fn(edge: Int, c: Int, a0: Int, a1: Int) {
+            let text = " {graph.edges.at(edge).expect("edge").label} "
+            let size = ui::text_width(text)
+            labels.push(edge)
+            match across {
+              true => {
+                let x0 = minimum(pen.x(c, a0), pen.x(c, a1))
+                let x1 = maximum(pen.x(c, a0), pen.x(c, a1))
+                labels.push((x0 + x1 + 1 - size) / 2)
+                labels.push(pen.y(c, a0))
+                labels.push(-1)
+              },
+              false => {
+                labels.push(c - size / 2)
+                labels.push(pen.y(c, (a0 + a1) / 2))
+                labels.push(c)
+              },
+            }
+          }
           mut index = 0
           for segment in segments {
             let edge = graph.edges.at(segment.edge).expect("edge")
             let spot = spots.at(segment.edge).or(Spot::none)
             let k = get(layer, segment.from)
-            let bottom = get(tops.@, k) + get(heights.@, k) - 1
+            let band_end = get(tops.@, k) + get(heights.@, k) - 1
+            // A line leaves its node's far border; a placeholder's band.
+            let start = match segment.from < real {
+              true => get(tops.@, k) + get(thick, segment.from) - 1,
+              false => band_end,
+            }
             let below = get(tops.@, k + 1)
             let target = segment.to == edge.to
             let head = target and edge.head != Head::none
@@ -1058,66 +1224,67 @@ private fn route(
             let star = stars.at(get(star_of.@, index)).expect("star")
             let from = stem_x(segment.from)
             let to = drop_x(segment.to)
-            let row = bottom + 1 + get(stem_rows.@, k) + star.track
+            let row = band_end + 1 + get(stem_rows.@, k) + star.at
             match {
               // A loop leaves its source for its outer column, and enters
               // its target from it.
               segment.to >= virtual_start => {
-                drawing.vertical_styled(from, bottom, row, canvas::Role::arrow, dashed, heavy)
-                drawing.horizontal_styled(row, from, to, canvas::Role::arrow, dashed, heavy)
+                pen.along(drawing, from, start, row, dashed, heavy)
+                pen.side(drawing, row, from, to, dashed, heavy)
                 exit_rows.set(segment.edge, row)
               },
               segment.from >= virtual_start => {
-                drawing.horizontal_styled(row, to, from, canvas::Role::arrow, dashed, heavy)
-                drawing.vertical_styled(to, row, end, canvas::Role::arrow, dashed, heavy)
+                pen.side(drawing, row, to, from, dashed, heavy)
+                pen.along(drawing, to, row, end, dashed, heavy)
                 entry_rows.set(segment.edge, row)
               },
-              star.straight => drawing.vertical_styled(from, bottom, end, canvas::Role::arrow, dashed, heavy),
+              star.straight => pen.along(drawing, from, start, end, dashed, heavy),
               _ => {
-                drawing.vertical_styled(from, bottom, row, canvas::Role::arrow, dashed, heavy)
+                pen.along(drawing, from, start, row, dashed, heavy)
                 if from != to {
-                  drawing.horizontal_styled(
-                    row,
-                    minimum(from, to),
-                    maximum(from, to),
-                    canvas::Role::arrow,
-                    dashed,
-                    heavy,
-                  )
+                  pen.side(drawing, row, from, to, dashed, heavy)
                 }
-                drawing.vertical_styled(to, row, end, canvas::Role::arrow, dashed, heavy)
+                pen.along(drawing, to, row, end, dashed, heavy)
               },
             }
             if head {
-              heads.push(to)
-              heads.push(below - 1)
-              head_glyphs.push(head_glyph(edge.head))
+              heads.push(pen.x(to, below - 1))
+              heads.push(pen.y(to, below - 1))
+              head_glyphs.push(pen.head(edge.head))
             }
-            // A label's column and row, and the column its line runs in.
             let first = segment.from == edge.from
             if spot == Spot::drop and target {
-              labels.push(segment.edge)
-              labels.push(to)
-              labels.push(below - 2)
-              labels.push(to)
+              place(segment.edge, to, below - 1 - get(drop_rows.@, k), below - 2)
             }
             if spot == Spot::stem and first {
-              labels.push(segment.edge)
-              labels.push(from)
-              labels.push(bottom + 1)
-              labels.push(from)
+              place(segment.edge, from, band_end + 1, band_end + get(stem_rows.@, k))
             }
             if spot == Spot::middle and first {
-              labels.push(segment.edge)
-              labels.push(to)
-              labels.push(below + 1)
-              labels.push(to)
+              place(segment.edge, to, below, below + get(heights.@, k + 1) - 1)
             }
-            if spot == Spot::track and from != to and (not track_labeled(runs.@, segment.edge)) {
+            // Flowing across, a track label sits across the middle of its
+            // track's run, or along the track when it runs straight.
+            if spot == Spot::track and across {
+              let size = ui::text_width(" {edge.label} ")
+              let x = pen.x(from, row)
+              let y0 = minimum(pen.y(from, row), pen.y(to, row))
+              let y1 = maximum(pen.y(from, row), pen.y(to, row))
+              match from == to {
+                true => place(segment.edge, from, row - size / 2 - 1, row + size / 2 + 1),
+                false => {
+                  climbs.push(segment.edge)
+                  climbs.push(x)
+                  climbs.push(y0)
+                  climbs.push(y1)
+                  climbs.push(x - size / 2)
+                },
+              }
+            }
+            if spot == Spot::track and from != to and (not across) and (not track_labeled(runs.@, segment.edge)) {
               runs.push(segment.edge)
               runs.push(minimum(from, to))
               runs.push(maximum(from, to))
-              runs.push(row)
+              runs.push(pen.y(0, row))
             }
             index =+ 1
           }
@@ -1132,28 +1299,42 @@ private fn route(
             )
             index =+ 2
           }
-          // Each loop climbs its column from its exit to its entry, with its
-          // label beside the middle of the climb.
+          // Each loop climbs its outer column from its exit to its entry.
+          // Its label sits beside the climb, or along it when flowing across.
           edge_index = 0
           for edge in graph.edges {
             let x = get(columns, edge_index)
             if x >= 0 {
               let top = get(entry_rows.@, edge_index)
               let bottom = get(exit_rows.@, edge_index)
-              drawing.vertical_styled(
+              pen.along(
+                drawing,
                 x,
                 top,
                 bottom,
-                canvas::Role::arrow,
                 edge.stroke == Stroke::dotted,
                 edge.stroke == Stroke::thick,
               )
+              let x0 = minimum(pen.x(x, top), pen.x(x, bottom))
+              let x1 = maximum(pen.x(x, top), pen.x(x, bottom))
+              let y0 = minimum(pen.y(x, top), pen.y(x, bottom))
+              let y1 = maximum(pen.y(x, top), pen.y(x, bottom))
               if edge.label != "" {
-                let text = " {edge.label} "
-                labels.push(edge_index)
-                labels.push(x + 1 + ui::text_width(text) / 2)
-                labels.push((top + bottom) / 2)
-                labels.push(x)
+                match across {
+                  true => {
+                    runs.push(edge_index)
+                    runs.push(x0)
+                    runs.push(x1)
+                    runs.push(y0)
+                  },
+                  false => {
+                    climbs.push(edge_index)
+                    climbs.push(x0)
+                    climbs.push(y0)
+                    climbs.push(y1)
+                    climbs.push(x0 + 1)
+                  },
+                }
               }
             }
             edge_index =+ 1
@@ -1164,20 +1345,38 @@ private fn route(
           while index < runs.size() {
             let edge = graph.edges.at(get(runs.@, index)).expect("edge")
             let row = get(runs.@, index + 3)
-            let x = clear_run(
-              drawing.@,
-              row,
-              get(runs.@, index + 1),
-              get(runs.@, index + 2),
-              ui::text_width(" {edge.label} "),
-            )
+            let size = ui::text_width(" {edge.label} ")
+            let x = clear_run(drawing.@, row, get(runs.@, index + 1), get(runs.@, index + 2), size)
             if x >= 0 {
               labels.push(get(runs.@, index))
-              labels.push(x)
+              labels.push(x - size / 2)
               labels.push(row)
               labels.push(-1)
             }
             index =+ 4
+          }
+          // An upright run's label takes the clearest row along it.
+          index = 0
+          while index < climbs.size() {
+            let edge = graph.edges.at(get(climbs.@, index)).expect("edge")
+            let line = get(climbs.@, index + 1)
+            let left = get(climbs.@, index + 4)
+            let size = ui::text_width(" {edge.label} ")
+            let y = clear_rows(
+              drawing.@,
+              line,
+              get(climbs.@, index + 2),
+              get(climbs.@, index + 3),
+              left,
+              size,
+            )
+            if y >= 0 {
+              labels.push(get(climbs.@, index))
+              labels.push(left)
+              labels.push(y)
+              labels.push(line)
+            }
+            index =+ 5
           }
           // Labels go last, each over its own line and nothing else.
           mut fits = true
@@ -1185,11 +1384,10 @@ private fn route(
           index = 0
           while index < labels.size() {
             let edge = graph.edges.at(get(labels.@, index)).expect("edge")
-            let x = get(labels.@, index + 1)
+            let x0 = get(labels.@, index + 1)
             let y = get(labels.@, index + 2)
             let line = get(labels.@, index + 3)
             let text = " {edge.label} "
-            let x0 = x - ui::text_width(text) / 2
             let x1 = x0 + ui::text_width(text) - 1
             mut column = x0
             while column <= x1 {
@@ -1212,7 +1410,7 @@ private fn route(
             }
             index =+ 4
           }
-          mut edge_index = 0
+          edge_index = 0
           for edge in graph.edges {
             if edge.label != "" and get(placed.@, edge_index) == 0 {
               fits = false
@@ -1229,12 +1427,110 @@ private fn route(
   }
 }
 
-private fn head_glyph(head: Head) Str {
-  match head {
-    Head::arrow => "▼",
-    Head::cross => "×",
-    Head::circle => "○",
-    Head::none => "",
+// Maps layout coordinates onto the drawing. Layout stacks layers down the
+// `along` axis and places each layer's members along the `cross` axis; the
+// drawing flows down, up, right, or left. `span` is the layout's extent
+// along the flow, and `offset` the rows above it for a title.
+private struct Pen {
+  flow: Flow,
+  span: Int,
+  offset: Int,
+}
+
+impl Pen {
+  fn x(cross: Int, along: Int) Int {
+    match self.flow {
+      Flow::down => cross,
+      Flow::up => cross,
+      Flow::right => along,
+      Flow::left => self.span - 1 - along,
+    }
+  }
+
+  fn y(cross: Int, along: Int) Int {
+    match self.flow {
+      Flow::down => self.offset + along,
+      Flow::up => self.offset + self.span - 1 - along,
+      Flow::right => self.offset + cross,
+      Flow::left => self.offset + cross,
+    }
+  }
+
+  // Draws a line along the flow, at cross from a0 to a1.
+  fn along(drawing: mut canvas::Canvas, c: Int, a0: Int, a1: Int, dashed: Bool, heavy: Bool) {
+    let x0 = self.x(c, a0)
+    let x1 = self.x(c, a1)
+    let y0 = self.y(c, a0)
+    let y1 = self.y(c, a1)
+    match self.flow == Flow::down or self.flow == Flow::up {
+      true => {
+        drawing.vertical_styled(
+          x0,
+          minimum(y0, y1),
+          maximum(y0, y1),
+          canvas::Role::arrow,
+          dashed,
+          heavy,
+        )
+      },
+      false => {
+        drawing.horizontal_styled(
+          y0,
+          minimum(x0, x1),
+          maximum(x0, x1),
+          canvas::Role::arrow,
+          dashed,
+          heavy,
+        )
+      },
+    }
+  }
+
+  // Draws a line across the flow, at along from c0 to c1.
+  fn side(drawing: mut canvas::Canvas, a: Int, c0: Int, c1: Int, dashed: Bool, heavy: Bool) {
+    let x0 = self.x(c0, a)
+    let x1 = self.x(c1, a)
+    let y0 = self.y(c0, a)
+    let y1 = self.y(c1, a)
+    match self.flow == Flow::down or self.flow == Flow::up {
+      true => {
+        drawing.horizontal_styled(
+          y0,
+          minimum(x0, x1),
+          maximum(x0, x1),
+          canvas::Role::arrow,
+          dashed,
+          heavy,
+        )
+      },
+      false => {
+        drawing.vertical_styled(
+          x0,
+          minimum(y0, y1),
+          maximum(y0, y1),
+          canvas::Role::arrow,
+          dashed,
+          heavy,
+        )
+      },
+    }
+  }
+
+  // The arrowhead pointing along the flow.
+  fn head(head: Head) Str {
+    match head {
+      Head::arrow => {
+        match self.flow {
+          Flow::down => "▼",
+          Flow::up => "▲",
+          Flow::right => "►",
+          Flow::left => "◄",
+        }
+      },
+      Head::cross => "×",
+      Head::circle => "○",
+      Head::none => "",
+    }
   }
 }
 
@@ -1259,6 +1555,32 @@ private fn clear_run(drawing: canvas::Canvas, y: Int, x0: Int, x1: Int, width: I
       best = x
     }
     start =+ 1
+  }
+  best
+}
+
+// The row strictly between y0 and y1, nearest the middle, where the upright
+// line at column line runs plainly and the width cells from left are blank
+// but for that line; or -1.
+private fn clear_rows(drawing: canvas::Canvas, line: Int, y0: Int, y1: Int, left: Int, width: Int) Int {
+  let middle = (y0 + y1) / 2
+  mut best = -1
+  mut y = y0 + 1
+  while y < y1 {
+    let upright = drawing.shown(line, y)
+    mut clear = upright == "│" or upright == "┊" or upright == "┃"
+    mut column = left
+    while column < left + width {
+      let outside = column < 0 or column >= drawing.width
+      if outside or column != line and drawing.shown(column, y) != " " {
+        clear = false
+      }
+      column =+ 1
+    }
+    if clear and (best < 0 or distance(y, middle) < distance(best, middle)) {
+      best = y
+    }
+    y =+ 1
   }
   best
 }

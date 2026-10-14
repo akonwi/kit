@@ -367,7 +367,7 @@ test fn only_a_top_level_frontmatter_title_is_used() Void!Str {
 
 test fn unsupported_diagrams_explain_why_they_are_not_drawn() Void!Str {
   let reasons = [
-    render("flowchart LR\n  A --> B"),
+    render("flowchart XY\n  A --> B"),
     render("classDiagram\n  A <|-- B"),
     render("\n%% nothing\n"),
     render("---\ntitle: open"),
@@ -375,7 +375,7 @@ test fn unsupported_diagrams_explain_why_they_are_not_drawn() Void!Str {
     render("sequenceDiagram\n" + strings::Repeat("A->>B: hi\n", 2000)),
   ]
   let expected = [
-    "`LR` flowcharts aren't drawn yet",
+    "unknown direction `XY`",
     "`classDiagram` diagrams aren't drawn yet",
     "the diagram is empty",
     "the frontmatter isn't closed",

@@ -73,13 +73,15 @@ participants and 200 statements, and the drawing fits within 480 columns and
 | Syntax | Drawn as |
 |---|---|
 | `flowchart TD`, `flowchart TB`, `graph TD` | Layers flowing top down |
+| `flowchart BT` | Layers flowing bottom up |
+| `flowchart LR`, `flowchart RL` | Layers flowing left to right, or right to left |
 | `A`, `A[text]`, `A["text"]` | A box |
 | `A(text)`, `A((text))` | A box with rounded corners |
 | `A([text])` | A rounded box with `(` `)` sides |
 | `A[(text)]` | A box with `║` sides, for a database |
 | `A{text}` | A box with slanted corners, for a decision |
-| `A --> B`, `A ---> B` | An arrow into the target's top |
-| `A --- B` | A line joining the target's top |
+| `A --> B`, `A ---> B` | An arrow into the target |
+| `A --- B` | A line joining the target |
 | `A -.-> B`, `A -.- B` | A dotted arrow or line |
 | `A ==> B`, `A === B` | A thick arrow or line |
 | `A --x B`, `A --o B` | A line ending in `×` or `○` |
@@ -92,18 +94,22 @@ Statements may be separated by `;`. Nodes appear in layers by their longest
 path from a start node, and an edge that skips layers runs straight past them.
 Edges from one node branch from a shared line, and edges into one node merge
 into one arrow. An edge that loops back, including one from a node to itself,
-climbs its own column to the right of the diagram and drops into its target
-from above; shorter loops sit inside longer ones. Node and edge text is one line; text over 40 columns is cut
+runs around the outside of the diagram, to the right of a diagram flowing up
+or down and beneath one flowing sideways; shorter loops sit inside longer
+ones. In a diagram flowing sideways, nodes in a layer sit one above another
+and line up at the layer's start, and node text still reads left to right. Node and edge text is one line; text over 40 columns is cut
 short with an ellipsis.
 
 Edge text sits where only its edge runs: just above the arrow into a node no
 other edge enters, else just below a node no other edge leaves, else beside
-the layers the edge skips, else on its own sideways run. A loop's text sits beside its climb. A diagram whose edge
-text has no such room shows its source.
+the layers the edge skips, else on its own run between the layers. A loop's
+text sits beside its climb, or on its run beneath a diagram flowing sideways.
+In a diagram flowing sideways, text sits on its edge's line, as in
+`─ yes ─►`. A diagram whose edge text has no such room shows its source.
 
 `classDef`, `class`, `style`, `linkStyle`, and `click` statements are accepted
-but not drawn. Other node shapes and links, subgraphs, and the `LR`, `RL`,
-and `BT` directions show the source instead.
+but not drawn. Other node shapes and links, and subgraphs, show the source
+instead.
 
 A flowchart is drawn when it has at most 60 nodes, 120 edges, and 200
 statements, and the drawing fits within 480 columns and 800 rows.
