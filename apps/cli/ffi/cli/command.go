@@ -30,6 +30,8 @@ type commandDependencies struct {
 	// given extra server URLs.
 	pair    func(context.Context, string, []string, io.Writer, io.Writer) int
 	devices func(context.Context, []string, io.Writer, io.Writer) int
+	// expose serves this home's server on the tailnet, or stops with off.
+	expose func(context.Context, exposeOptions, bool, io.Writer, io.Writer) int
 	// attach runs the terminal client for the named server, or picks one when
 	// the name is empty.
 	attach func(context.Context, interactiveOptions, string, io.Writer, io.Writer) int
@@ -48,6 +50,7 @@ func defaultCommandDependencies() commandDependencies {
 			return runPair(ctx, server, urls, stdout, stderr, stdoutIsTerminal())
 		},
 		devices: runServerDevices,
+		expose:  runExpose,
 	}
 }
 
@@ -422,7 +425,32 @@ func newServerCommand(deps commandDependencies) *cobra.Command {
 			},
 		},
 	)
-	command.AddCommand(pair, devices)
+	var tailscale, off bool
+	var httpsPort int
+	expose := &cobra.Command{
+		Use:   "expose --tailscale",
+		Short: "Serve this server on your tailnet with Tailscale Serve",
+		Long: "Serve this server on your tailnet over HTTPS with Tailscale Serve, then print a\n" +
+			"pairing link. It fixes server.listen to a loopback port when none is set, adds\n" +
+			"the machine's tailnet name to server.allowedHosts, and restarts the server when\n" +
+			"those change. It never uses Tailscale Funnel, so only your tailnet can reach it.\n" +
+			"--off removes the Serve handler and the settings it added.",
+		Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if !tailscale {
+				return usagef("kit server expose requires --tailscale")
+			}
+			if httpsPort < 1 || httpsPort > 65535 {
+				return usagef("--https-port must be between 1 and 65535")
+			}
+			options := defaultExposeOptions(httpsPort, stdoutIsTerminal())
+			return resultForCode(deps.expose(command.Context(), options, off, command.OutOrStdout(), command.ErrOrStderr()))
+		},
+	}
+	expose.Flags().BoolVar(&tailscale, "tailscale", false, "serve with Tailscale Serve")
+	expose.Flags().BoolVar(&off, "off", false, "stop serving and remove the settings expose added")
+	expose.Flags().IntVar(&httpsPort, "https-port", 443, "tailnet HTTPS port to serve on")
+	command.AddCommand(pair, devices, expose)
 	return command
 }
 

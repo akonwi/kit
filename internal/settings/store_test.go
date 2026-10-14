@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -529,5 +530,72 @@ func TestLoadServerAllowedHostsAndOrigins(t *testing.T) {
 	}
 	if loaded.ServerAllowedHosts != nil || len(warnings) != 1 || warnings[0].Field != "server.allowedHosts" {
 		t.Errorf("non-list allowedHosts: hosts = %q, warnings = %+v", loaded.ServerAllowedHosts, warnings)
+	}
+}
+
+func TestUpdateServerAccessKeepsOtherSettings(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	document := `{"theme":"dusk","server":{"allowedOrigins":["https://app.example.com"],"futureField":1}}`
+	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newTestStore(t, path)
+	updated, err := store.UpdateServerAccess("127.0.0.1:7777", []string{"Studio.Tail3f2a.ts.net", "studio.tail3f2a.ts.net"})
+	if err != nil {
+		t.Fatalf("UpdateServerAccess() error = %v", err)
+	}
+	if updated.ServerListen != "127.0.0.1:7777" || !slices.Equal(updated.ServerAllowedHosts, []string{"studio.tail3f2a.ts.net"}) {
+		t.Fatalf("updated = %+v", updated)
+	}
+	data, _ := os.ReadFile(path)
+	want := `{
+  "server": {
+    "allowedHosts": [
+      "studio.tail3f2a.ts.net"
+    ],
+    "allowedOrigins": [
+      "https://app.example.com"
+    ],
+    "futureField": 1,
+    "listen": "127.0.0.1:7777"
+  },
+  "theme": "dusk"
+}
+`
+	if string(data) != want {
+		t.Fatalf("file =\n%s\nwant\n%s", data, want)
+	}
+
+	if _, err := store.UpdateServerAccess("", nil); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(path)
+	if !strings.Contains(string(data), `"futureField": 1`) || strings.Contains(string(data), "listen") || strings.Contains(string(data), "allowedHosts") {
+		t.Fatalf("cleared file =\n%s", data)
+	}
+	for _, invalid := range []struct {
+		listen string
+		hosts  []string
+	}{{listen: "192.168.1.10:7777"}, {hosts: []string{"bad host"}}} {
+		if _, err := store.UpdateServerAccess(invalid.listen, invalid.hosts); err == nil {
+			t.Errorf("UpdateServerAccess(%+v) succeeded", invalid)
+		}
+	}
+}
+
+func TestUpdateServerAccessRemovesAnEmptyServerObject(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	store := newTestStore(t, path)
+	if _, err := store.UpdateServerAccess("127.0.0.1:7777", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateServerAccess("", nil); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "server") {
+		t.Fatalf("file =\n%s", data)
 	}
 }

@@ -79,6 +79,21 @@ func (a Address) Listen() (net.Listener, error) {
 	return net.Listen(a.Network(), a.String())
 }
 
+// Port is the configured port; zero means an ephemeral port.
+func (a Address) Port() int { return int(a.port) }
+
+// Loopback is the loopback host local clients use to reach the address: the
+// host itself, or for an unspecified host the loopback address of its family.
+func (a Address) Loopback() netip.Addr {
+	if !a.host.IsUnspecified() {
+		return a.host
+	}
+	if a.host.Is4() {
+		return netip.AddrFrom4([4]byte{127, 0, 0, 1})
+	}
+	return netip.IPv6Loopback()
+}
+
 // LoopbackURL returns the URL local clients use to reach a listener bound to
 // this address. For an unspecified host it is the loopback address of the same
 // family, on the bound port.
@@ -87,15 +102,7 @@ func (a Address) LoopbackURL(bound net.Addr) (string, error) {
 	if !ok || tcp.Port <= 0 || tcp.Port > 65535 {
 		return "", errors.New("listener is not bound to a TCP port")
 	}
-	host := a.host
-	if host.IsUnspecified() {
-		if host.Is4() {
-			host = netip.AddrFrom4([4]byte{127, 0, 0, 1})
-		} else {
-			host = netip.IPv6Loopback()
-		}
-	}
-	return "http://" + netip.AddrPortFrom(host, uint16(tcp.Port)).String(), nil
+	return "http://" + netip.AddrPortFrom(a.Loopback(), uint16(tcp.Port)).String(), nil
 }
 
 // Serves reports whether a daemon published at publishedURL could have been

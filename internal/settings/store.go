@@ -159,6 +159,65 @@ func (s *Store) UpdateDiffWrapLines(enabled bool) (Settings, error) {
 	return cloneSettings(current), nil
 }
 
+// UpdateServerAccess persists server.listen and server.allowedHosts after
+// re-reading the latest settings, keeping the rest of the server object. An
+// empty listen address or host list removes that setting.
+func (s *Store) UpdateServerAccess(listen string, hosts []string) (Settings, error) {
+	if s == nil {
+		return Settings{}, errors.New("update server access: store is nil")
+	}
+	if listen != "" {
+		address, err := serverlisten.Parse(listen)
+		if err != nil {
+			return Settings{}, fmt.Errorf("update server access: %w", err)
+		}
+		listen = address.String()
+	}
+	canonical := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		parsed, err := serveraccess.ParseHost(host)
+		if err != nil {
+			return Settings{}, fmt.Errorf("update server access: %w", err)
+		}
+		if !slices.Contains(canonical, parsed) {
+			canonical = append(canonical, parsed)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, _, err := s.load()
+	if err != nil {
+		return Settings{}, err
+	}
+	server := map[string]json.RawMessage{}
+	if raw, ok := current.fields["server"]; ok {
+		if err := json.Unmarshal(raw, &server); err != nil || server == nil {
+			return Settings{}, fmt.Errorf("update server access: settings field %q is not an object", "server")
+		}
+	}
+	if listen == "" {
+		delete(server, "listen")
+	} else {
+		server["listen"], _ = json.Marshal(listen)
+	}
+	if len(canonical) == 0 {
+		delete(server, "allowedHosts")
+	} else {
+		server["allowedHosts"], _ = json.Marshal(canonical)
+	}
+	if len(server) == 0 {
+		delete(current.fields, "server")
+	} else {
+		current.fields["server"], _ = json.Marshal(server)
+	}
+	if err := s.write(current.fields); err != nil {
+		return Settings{}, err
+	}
+	current.ServerListen = listen
+	current.ServerAllowedHosts = canonical
+	return cloneSettings(current), nil
+}
+
 func (s *Store) UpdateTheme(name string) (Settings, error) {
 	if s == nil {
 		return Settings{}, errors.New("update settings theme: store is nil")

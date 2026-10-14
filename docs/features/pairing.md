@@ -33,6 +33,30 @@ A plain `http://` link to another machine carries the code, and then the
 device token, unencrypted. `kit server pair` warns about such links; use them
 only on a private network such as a tailnet.
 
+### Serving on a tailnet
+
+```sh
+kit server expose --tailscale
+kit server expose --tailscale --off
+```
+
+`kit server expose --tailscale` serves this machine's server on its tailnet
+with Tailscale Serve and prints a pairing link for the served URL. It requires
+Tailscale to be running with HTTPS certificates enabled for the tailnet. It:
+
+- fixes `server.listen` to a loopback port when none is set or its port is
+  ephemeral, keeping the server's current port when one is running;
+- adds the machine's tailnet DNS name to `server.allowedHosts`;
+- restarts the server when those settings change, or starts it;
+- runs `tailscale serve --bg` to proxy `https://NAME.TAILNET.ts.net` to that
+  port. `--https-port` chooses another tailnet port, and it refuses a port
+  Tailscale already serves for something else.
+
+It never uses Tailscale Funnel, so only devices on the tailnet can reach the
+server. It records what it added in `$KIT_HOME/tailscale-serve.json`; `--off`
+removes that Serve handler and only the settings it added, then restarts the
+server if it is running.
+
 ### First device on a headless server
 
 A server that serves beyond loopback (`server.listen` is not loopback, or
