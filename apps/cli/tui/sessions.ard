@@ -22,6 +22,8 @@ struct Props {
   client: mut api::Client,
   lifetime: contextbridge::Cancellation,
   current_session_id: Str,
+  // The server user's home directory, for abbreviating session directories.
+  home: Str,
   dismiss: keymap::SimpleCommand,
   renamed: fn(protocol::SessionInfo),
   applied: fn(mut api::Session, protocol::SessionSnapshot),
@@ -162,7 +164,13 @@ private fn hidden_by_collapsed(
 
 // catalog is the browsing tree, which hides rows under collapsed parents and
 // shows each parent's disclosure.
-private fn catalog(sessions: [protocol::SessionInfo], current: Str, pending: Bool, collapsed: [Str]) [palette::Item] {
+private fn catalog(
+  sessions: [protocol::SessionInfo],
+  current: Str,
+  pending: Bool,
+  collapsed: [Str],
+  home: Str,
+) [palette::Item] {
   let items = mut List::new<palette::Item>()
   let now = time::Now()
   for row in hierarchy(sessions) {
@@ -179,7 +187,7 @@ private fn catalog(sessions: [protocol::SessionInfo], current: Str, pending: Boo
         },
         false => "",
       }
-      items.push(row_item(row, current, pending, now, disclosure))
+      items.push(row_item(row, current, pending, now, disclosure, home))
     }
   }
   items.@
@@ -188,13 +196,13 @@ private fn catalog(sessions: [protocol::SessionInfo], current: Str, pending: Boo
 // search_tree is every session in tree order, including those under collapsed
 // parents. Search results have no disclosures because filtering ignores
 // collapsed state.
-private fn search_tree(sessions: [protocol::SessionInfo], current: Str, pending: Bool) [palette::Branch] {
+private fn search_tree(sessions: [protocol::SessionInfo], current: Str, pending: Bool, home: Str) [palette::Branch] {
   let branches = mut List::new<palette::Branch>()
   let now = time::Now()
   for row in hierarchy(sessions) {
     branches.push(
       palette::Branch{
-        item: row_item(row, current, pending, now, ""),
+        item: row_item(row, current, pending, now, "", home),
         parent: row.session.ParentSessionID,
         name: format::session_name(row.session),
       },
@@ -203,7 +211,14 @@ private fn search_tree(sessions: [protocol::SessionInfo], current: Str, pending:
   branches.@
 }
 
-private fn row_item(row: Row, current: Str, pending: Bool, now: time::Time, disclosure: Str) palette::Item {
+private fn row_item(
+  row: Row,
+  current: Str,
+  pending: Bool,
+  now: time::Time,
+  disclosure: Str,
+  home: Str,
+) palette::Item {
   let session = row.session
   // The branch joint occupies the current depth's indent. Only reserve space
   // for preceding ancestor levels so nested rows do not double-indent.
@@ -224,7 +239,7 @@ private fn row_item(row: Row, current: Str, pending: Bool, now: time::Time, disc
     key: session.ID,
     label: "{prefix}{lineage}{format::session_name(session)}",
     hint: disclosure,
-    description: format::session_display_cwd(session.CWD, 40),
+    description: format::session_display_cwd(session.CWD, home, 40),
     meta: format::format_session_updated(session.UpdatedAt, now),
     search_terms: [session.CWD, session.ID, session.ParentSessionName, current_marker],
     disabled_reason: match pending {
@@ -573,7 +588,7 @@ impl cui::Component for Picker {
                 palette::new_picker,
                 palette::PickerProps{
                   themes: self.props.themes,
-                  catalog: catalog(self.sessions, self.props.current_session_id, self.pending, self.collapsed),
+                  catalog: catalog(self.sessions, self.props.current_session_id, self.pending, self.collapsed, self.props.home),
                   placeholder: "Search sessions…",
                   initial_selection: self.props.current_session_id,
                   title: "Sessions",
@@ -590,7 +605,7 @@ impl cui::Component for Picker {
                   toggle: Maybe::new(fn(session_id: Str, expand: Bool) {
                     self.toggle(session_id, expand)
                   }),
-                  tree: Maybe::new(search_tree(self.sessions, self.props.current_session_id, self.pending)),
+                  tree: Maybe::new(search_tree(self.sessions, self.props.current_session_id, self.pending, self.props.home)),
                   placement: self.props.placement,
                   on_query_change: fn(query: Str) {},
                   on_selection_change: fn(selected: Str) {

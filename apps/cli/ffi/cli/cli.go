@@ -136,16 +136,32 @@ func interactiveProviders(providerIDs []string) (map[string]bool, string) {
 	}
 }
 
+// interactiveLocation abbreviates a path on this machine relative to the
+// user's home directory.
 func interactiveLocation(_ context.Context, cwd string) string {
-	location := cwd
-	if home, err := os.UserHomeDir(); err == nil {
-		if relative, err := filepath.Rel(home, cwd); err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			location = filepath.Join("~", relative)
-		} else if relative == "." {
-			location = "~"
-		}
+	home, _ := os.UserHomeDir()
+	return homeRelative(home, cwd)
+}
+
+// homeRelative abbreviates path with ~ when it is home or inside it. An empty
+// home leaves every path unchanged. Server paths may belong to another
+// machine, so they are compared lexically.
+func homeRelative(home, path string) string {
+	if home == "" || path == "" {
+		return path
 	}
-	return location
+	home = filepath.Clean(home)
+	cleaned := filepath.Clean(path)
+	switch {
+	case cleaned == home:
+		return "~"
+	case home == string(filepath.Separator):
+		return cleaned
+	case strings.HasPrefix(cleaned, home+string(filepath.Separator)):
+		return "~" + strings.TrimPrefix(cleaned, home)
+	default:
+		return path
+	}
 }
 
 func runPrintOptions(ctx context.Context, options printOptions, stdout, stderr io.Writer) int {

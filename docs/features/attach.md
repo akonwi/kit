@@ -46,9 +46,14 @@ through a link for a saved server's URL pairs it again and attaches.
 ### Working directory
 
 On a server that shares this machine, new sessions use the shell's working
-directory or `--cwd`, as with `kit`. On a server on another machine, `--cwd`
-is required and names a directory on that machine: an absolute path, or one
-starting with `~/` for the server user's home directory.
+directory or `--cwd`, as with `kit`. On a server on another machine, new
+sessions start in the server user's home directory, or in `--cwd`, which names
+a directory on that machine: an absolute path, or one starting with `~/` for
+the server user's home directory.
+
+Paths on the attached server, in the footer and in session lists, are shown
+relative to the server user's home directory, so `~` always means the
+server's home.
 
 ### Provider credentials
 

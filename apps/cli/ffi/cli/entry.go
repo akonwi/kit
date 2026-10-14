@@ -16,7 +16,10 @@ type TUIOptions struct {
 	Server string
 	// PairingURLs are the URLs that reach the attached server, for pairing
 	// links: the saved URL of a URL server, or a home's served URLs.
-	PairingURLs           []string
+	PairingURLs []string
+	// ServerHome is the server user's home directory, for abbreviating
+	// server paths, or empty when unknown.
+	ServerHome            string
 	CWD                   string
 	Location              string
 	ResolveLocation       func(context.Context, string) string

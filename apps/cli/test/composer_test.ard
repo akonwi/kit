@@ -195,7 +195,7 @@ fn model() mut Model {
       generation: 0,
     },
     file_loads: 0,
-    sessions: session_mentions::source(),
+    sessions: session_mentions::source(""),
     session_loads: 0,
     context: Maybe::new<cui::Context>(),
     control: composer::ref(),

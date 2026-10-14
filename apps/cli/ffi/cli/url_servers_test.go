@@ -145,9 +145,10 @@ func TestAttachingAnUnsavedURLOrLinkExplainsHowToSaveIt(t *testing.T) {
 	}
 }
 
-func TestSessionsOnAnotherMachineNeedAServerDirectory(t *testing.T) {
+func TestSessionsOnAnotherMachineStartInServerPaths(t *testing.T) {
 	remote := kit.ServerInfo{Home: "/home/me"}
 	for requested, want := range map[string]string{
+		"":            "/home/me",
 		"/srv/app":    "/srv/app",
 		"~":           "/home/me",
 		"~/src/app/.": "/home/me/src/app",
@@ -157,13 +158,15 @@ func TestSessionsOnAnotherMachineNeedAServerDirectory(t *testing.T) {
 		}
 	}
 	for requested, want := range map[string]string{
-		"":         `server "vps" runs on another machine; pass --cwd with a directory on that machine`,
 		"src/app":  `--cwd "src/app" must be an absolute path on server "vps", or start with ~/`,
 		"~other/x": `--cwd "~other/x" must be an absolute path on server "vps", or start with ~/`,
 	} {
 		if _, err := serverCWD(remote, "vps", requested); err == nil || err.Error() != want {
 			t.Errorf("serverCWD(%q) error = %v; want %q", requested, err, want)
 		}
+	}
+	if _, err := serverCWD(kit.ServerInfo{}, "vps", ""); err == nil || err.Error() != `server "vps" did not report its home directory; pass --cwd with an absolute path on that machine` {
+		t.Errorf("unknown home: %v", err)
 	}
 	directory := t.TempDir()
 	if got, err := serverCWD(kit.ServerInfo{SameMachine: true}, "vps", directory); err != nil || got != directory {
@@ -219,5 +222,21 @@ func TestTheTUIPairsDevicesWithLinksAtEachURL(t *testing.T) {
 	}
 	if _, err := CreatePairingLinks(t.Context(), client, nil); err == nil {
 		t.Fatal("pairing without a URL succeeded")
+	}
+}
+
+func TestServerPathsAreAbbreviatedRelativeToTheServerHome(t *testing.T) {
+	for _, test := range []struct{ home, path, want string }{
+		{home: "/home/me", path: "/home/me", want: "~"},
+		{home: "/home/me", path: "/home/me/src/app", want: "~/src/app"},
+		{home: "/home/me/", path: "/home/me/src/", want: "~/src"},
+		{home: "/home/me", path: "/home/meow/src", want: "/home/meow/src"},
+		{home: "/home/me", path: "/srv/app", want: "/srv/app"},
+		{home: "/", path: "/srv/app", want: "/srv/app"},
+		{home: "", path: "/Users/me/src", want: "/Users/me/src"},
+	} {
+		if got := homeRelative(test.home, test.path); got != test.want {
+			t.Errorf("homeRelative(%q, %q) = %q, want %q", test.home, test.path, got, test.want)
+		}
 	}
 }

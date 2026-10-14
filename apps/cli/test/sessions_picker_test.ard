@@ -66,7 +66,7 @@ fn listed() [protocol::SessionInfo] {
     protocol::SessionInfo{
       ID: "session_b",
       Name: "Fix the flaky test",
-      CWD: "/tmp/kit",
+      CWD: "/home/me/src/kit",
     },
   ]
 }
@@ -85,10 +85,12 @@ fn mount(terminal: headless::TestApp, outcome: mut Outcome) cui::Renderer {
         cui::child(
           sessions::new,
           sessions::Props{
+            // Directories under the server's home are shown relative to it.
             themes: theme::context(theme::store(theme::system())),
             client: mut api::Client{},
             lifetime: contextbridge::WithCancel(context::Background()),
             current_session_id: "",
+            home: "/home/me",
             dismiss: dismiss,
             renamed: fn(session: protocol::SessionInfo) {},
             applied: fn(session: mut api::Session, snapshot: protocol::SessionSnapshot) {},
@@ -123,7 +125,7 @@ test fn the_session_picker_fills_its_rows_and_returns_the_chosen_session() Void!
       "      │ Search sessions…                             │",
       "      ├──────────────────────────────────────────────┤",
       "      │▌Release notes      /tmp/kit         unknown  │",
-      "      │ Fix the flaky te…  /tmp/kit         unknown  │",
+      "      │ Fix the flaky te…  ~/src/kit        unknown  │",
       "      ├──────────────────────────────────────────────┤",
       "      │ ctrl+r rename · ctrl+d delete                │",
       "      └──────────────────────────────────────────────┘",

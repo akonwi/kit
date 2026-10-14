@@ -110,7 +110,7 @@ fn attach(ctx: context::Context, invocation: cli::Invocation) Int {
   match {
     environment.ExitCode != 0 => environment.ExitCode,
     invocation.Kind == cli::InvocationSessions => {
-      match tui::pick_session(ctx, environment.Client, environment.ThemeDefinition) {
+      match tui::pick_session(ctx, environment.Client, environment.ServerHome, environment.ThemeDefinition) {
         ok(id) => {
           match {
             id != "" => run(ctx, environment, cli::Open(invocation, id)),

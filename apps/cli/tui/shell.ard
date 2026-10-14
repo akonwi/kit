@@ -1787,6 +1787,7 @@ impl Shell {
         client: self.props.options.Client,
         lifetime: self.lifetime.expect("mounted session picker"),
         current_session_id: self.attached.info.or(protocol::SessionInfo{}).ID,
+        home: self.props.options.ServerHome,
         dismiss: dismiss,
         renamed: fn(session: protocol::SessionInfo) {
           attached.request_info(session)

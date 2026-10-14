@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -126,6 +127,9 @@ type Environment struct {
 	ExitCode        int
 	Client          *kit.Client
 	ThemeDefinition kittheme.Definition
+	// ServerHome is the server user's home directory, for abbreviating
+	// server paths.
+	ServerHome string
 
 	// paths is this client's home, for settings and themes.
 	paths apphome.Paths
@@ -181,13 +185,24 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return failed(1)
 	}
-	if needsCWD && target.URL != "" {
-		cwd, err = urlServerCWD(ctx, client, target.Name, invocation.options.CWD)
+	// A server attached by Kit home shares this machine and user. A URL
+	// server reports its home, which places new sessions on another machine.
+	serverHome, _ := os.UserHomeDir()
+	if target.URL != "" {
+		infoContext, cancel := context.WithTimeout(ctx, 3*time.Second)
+		info, err := client.Server(infoContext)
+		cancel()
+		if err == nil && needsCWD {
+			cwd, err = serverCWD(info, target.Name, invocation.options.CWD)
+		} else if err != nil {
+			err = fmt.Errorf("inspect server %q: %w", target.Name, err)
+		}
 		if err != nil {
 			client.Close()
 			fmt.Fprintf(stderr, "kit: %v\n", err)
 			return failed(1)
 		}
+		serverHome = info.Home
 	}
 	settingsStore, err := settings.NewStore(paths.Settings)
 	if err != nil {
@@ -220,6 +235,7 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 	return Environment{
 		Client:          client,
 		ThemeDefinition: themeDefinition,
+		ServerHome:      serverHome,
 		paths:           paths,
 		serverPaths:     serverPaths,
 		server:          target.Name,
@@ -352,8 +368,9 @@ func (e Environment) prepared(
 			Server:                e.server,
 			PairingURLs:           e.pairingURLs(),
 			CWD:                   cwd,
-			Location:              interactiveLocation(ctx, cwd),
-			ResolveLocation:       interactiveLocation,
+			ServerHome:            e.ServerHome,
+			Location:              homeRelative(e.ServerHome, cwd),
+			ResolveLocation:       func(_ context.Context, cwd string) string { return homeRelative(e.ServerHome, cwd) },
 			DefaultModel:          defaultModel,
 			DefaultThinking:       options.Thinking,
 			ResumeModelFilter:     options.Model,
@@ -410,28 +427,17 @@ func (remoteBrowserLogin) Login(context.Context, <-chan string, func(auth.Anthro
 
 func (remoteAPIKeyLogin) Login(context.Context, string, string) error { return errRemoteLogin }
 
-// urlServerCWD chooses the working directory of a new session on a URL
-// server: the requested or shell directory when the server shares this
-// machine, otherwise the requested directory on the server, which is required.
-func urlServerCWD(ctx context.Context, client *kit.Client, server, requested string) (string, error) {
-	infoContext, cancel := context.WithTimeout(ctx, 3*time.Second)
-	info, err := client.Server(infoContext)
-	cancel()
-	if err != nil {
-		return "", fmt.Errorf("inspect server %q: %w", server, err)
-	}
-	return serverCWD(info, server, requested)
-}
-
-// serverCWD applies urlServerCWD's rule to a server's reported identity.
+// serverCWD chooses the working directory of a new session on a URL server:
+// the requested or shell directory when the server shares this machine,
+// otherwise the requested directory on the server, or its home by default.
 func serverCWD(info kit.ServerInfo, server, requested string) (string, error) {
 	if info.SameMachine {
 		return resolveCWD(requested)
 	}
-	if requested == "" {
-		return "", usagef("server %q runs on another machine; pass --cwd with a directory on that machine", server)
-	}
-	if requested == "~" || strings.HasPrefix(requested, "~/") {
+	if requested == "" || requested == "~" || strings.HasPrefix(requested, "~/") {
+		if info.Home == "" {
+			return "", fmt.Errorf("server %q did not report its home directory; pass --cwd with an absolute path on that machine", server)
+		}
 		requested = info.Home + strings.TrimPrefix(requested, "~")
 	}
 	if !path.IsAbs(requested) {
