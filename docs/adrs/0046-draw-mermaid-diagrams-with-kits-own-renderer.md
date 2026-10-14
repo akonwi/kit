@@ -50,6 +50,12 @@ added as separately reviewed subsets.
 Flowcharts use a layered layout in `apps/cli/tui/mermaid/layers.ard`, which
 other graph-shaped diagrams can share:
 
+- **Loops.** A depth-first walk from each node in declaration order marks the
+  edges that return to a node still being walked. Layout uses the remaining
+  edges, and each marked edge leaves its source through the channel below,
+  climbs its own column past the right edge, and drops into its target
+  through the channel above, adding a channel at either end when needed.
+  Shorter loops take the inner columns.
 - **Layers.** A node's layer is one past its deepest predecessor; a start node
   moves down to sit just above its nearest successor. An edge that skips
   layers passes through a placeholder in each layer between.

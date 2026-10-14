@@ -3,6 +3,10 @@ use kit/tui/mermaid/canvas
 
 // Layered drawings of directed graphs, flowing top to bottom.
 //
+// Edges that close a loop are set aside first. Each later climbs its own
+// column past the right edge, leaving its source and entering its target
+// through the channels below and above them.
+//
 // Nodes are assigned layers by their longest path from a source, and an edge
 // that spans several layers passes through a placeholder in each layer
 // between. Each layer is reordered by its neighbors' positions to reduce
@@ -65,11 +69,13 @@ struct Edge {
 // first placeholder of an edge that skips layers, or on its own track's
 // sideways run.
 enum Spot {
+  // Beside the outer column of an edge that loops back.
   none,
   drop,
   stem,
   middle,
   track,
+  back,
 }
 
 // Cells a label leaves around itself on a node's border.
@@ -135,6 +141,41 @@ private fn get(values: [Int], index: Int) Int {
   values.at(index).or(0)
 }
 
+// Marks with 1 each edge that closes a loop: a depth-first walk from each
+// node in declaration order finds the edges that return to a node still being
+// walked, including an edge from a node to itself.
+fn back_edges(graph: Graph) [Int] {
+  let state = mut fill(graph.nodes.size(), 0)
+  let back = mut fill(graph.edges.size(), 0)
+  mut node = 0
+  while node < graph.nodes.size() {
+    if get(state.@, node) == 0 {
+      visit(graph, node, state, back)
+    }
+    node =+ 1
+  }
+  back.@
+}
+
+private fn visit(graph: Graph, node: Int, state: mut [Int], back: mut [Int]) {
+  state.set(node, 1)
+  mut index = 0
+  for edge in graph.edges {
+    if edge.from == node {
+      match get(state.@, edge.to) {
+        0 => visit(graph, edge.to, state, back),
+        1 => {
+          let _ = back.set(index, 1)
+          ()
+        },
+        _ => (),
+      }
+    }
+    index =+ 1
+  }
+  state.set(node, 2)
+}
+
 // The nodes in an order where every edge points forward, preferring earlier
 // declarations; an error when the edges form a loop.
 fn topological(graph: Graph) [Int]!Str {
@@ -169,7 +210,7 @@ fn topological(graph: Graph) [Int]!Str {
   }
   match order.size() == count {
     true => Result::ok(order.@),
-    false => Result::err("flowcharts with loops aren't drawn yet"),
+    false => Result::err("the flowchart couldn't be laid out"),
   }
 }
 
@@ -358,8 +399,19 @@ private fn settle(row: [Int], widths: [Int], desired: [Int], center: mut [Int]) 
 
 // Draws graph, with title above it when given.
 fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
-  let order = try topological(graph)
-  let node_layers = layers(graph, order)
+  // Edges that close a loop are set aside; the rest flow forward.
+  let back = back_edges(graph)
+  let forward_edges = mut List::new<Edge>()
+  mut edge_number = 0
+  for edge in graph.edges {
+    if get(back, edge_number) == 0 {
+      forward_edges.push(edge)
+    }
+    edge_number =+ 1
+  }
+  let forward = Graph{nodes: graph.nodes, edges: forward_edges.@}
+  let order = try topological(forward)
+  let node_layers = layers(forward, order)
   let real = graph.nodes.size()
 
   // Vertices: the nodes, then a placeholder for each layer an edge skips.
@@ -376,8 +428,10 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
   let spots = mut List::new<Spot>()
   for edge in graph.edges {
     let label = ui::text_width(edge.label)
+    let looped = get(back, spots.size()) == 1
     let spot = match {
       edge.label == "" => Spot::none,
+      looped => Spot::back,
       edges_into(graph, edge.to) == 1 => Spot::drop,
       edges_from(graph, edge.from) == 1 => Spot::stem,
       get(node_layers, edge.to) - get(node_layers, edge.from) > 1 => Spot::middle,
@@ -394,8 +448,12 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
   let segments = mut List::new<Segment>()
   mut edge_index = 0
   for edge in graph.edges {
+    let looped = get(back, edge_index) == 1
     mut from = edge.from
-    mut k = get(layer.@, edge.from) + 1
+    mut k = match looped {
+      true => get(layer.@, edge.to),
+      false => get(layer.@, edge.from) + 1,
+    }
     while k < get(layer.@, edge.to) {
       let placeholder = layer.size()
       layer.push(k)
@@ -418,13 +476,15 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
       from = placeholder
       k =+ 1
     }
-    segments.push(
-      Segment{
-        from: from,
-        to: edge.to,
-        edge: edge_index,
-      },
-    )
+    if not looped {
+      segments.push(
+        Segment{
+          from: from,
+          to: edge.to,
+          edge: edge_index,
+        },
+      )
+    }
     edge_index =+ 1
   }
   let count = layer.size()
@@ -605,7 +665,108 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
         center.set(vertex, get(center.@, vertex) - left)
         vertex =+ 1
       }
-      route(graph, title, layer.@, boxes.@, widths.@, spots.@, center.@, segments.@, rows.@, real)
+      // Loops: each edge that loops back climbs its own column past the right
+      // edge, shorter loops inside longer ones. It leaves its source through
+      // an exit in the channel below and enters its target through an entry
+      // in the channel above, adding a channel at either end when needed.
+      mut right = 0
+      vertex = 0
+      while vertex < count {
+        let room = get(widths.@, vertex)
+        right = maximum(right, get(center.@, vertex) - room / 2 + room)
+        vertex =+ 1
+      }
+      let loops = mut List::new<Int>()
+      let spans = mut fill(graph.edges.size(), 0)
+      edge_index = 0
+      for edge in graph.edges {
+        if get(back, edge_index) == 1 {
+          loops.push(edge_index)
+          spans.set(edge_index, get(layer.@, edge.from) - get(layer.@, edge.to))
+        }
+        edge_index =+ 1
+      }
+      let columns = mut fill(graph.edges.size(), -1)
+      mut column = right + 1
+      for looped in sort_by(loops.@, spans.@) {
+        let edge = graph.edges.at(looped).expect("edge")
+        columns.set(looped, column)
+        column =+ 2
+        if edge.label != "" {
+          column =+ ui::text_width(edge.label) + 2
+        }
+      }
+      mut above = false
+      mut below = false
+      for looped in loops {
+        let edge = graph.edges.at(looped).expect("edge")
+        if get(layer.@, edge.to) == 0 {
+          above = true
+        }
+        if get(layer.@, edge.from) == depth - 1 {
+          below = true
+        }
+      }
+      if above {
+        vertex = 0
+        while vertex < count {
+          layer.set(vertex, get(layer.@, vertex) + 1)
+          vertex =+ 1
+        }
+      }
+      let all_rows = mut List::new<[Int]>()
+      if above {
+        all_rows.push([])
+      }
+      for row in rows {
+        all_rows.push(row)
+      }
+      if below {
+        all_rows.push([])
+      }
+      let virtual_start = layer.size()
+      for looped in loops {
+        let edge = graph.edges.at(looped).expect("edge")
+        let x = get(columns.@, looped)
+        let exit = layer.size()
+        layer.push(get(layer.@, edge.from) + 1)
+        boxes.push(1)
+        widths.push(1)
+        center.push(x)
+        segments.push(
+          Segment{
+            from: edge.from,
+            to: exit,
+            edge: looped,
+          },
+        )
+        let entry = layer.size()
+        layer.push(get(layer.@, edge.to) - 1)
+        boxes.push(1)
+        widths.push(1)
+        center.push(x)
+        segments.push(
+          Segment{
+            from: entry,
+            to: edge.to,
+            edge: looped,
+          },
+        )
+      }
+      route(
+        graph,
+        title,
+        layer.@,
+        boxes.@,
+        widths.@,
+        spots.@,
+        center.@,
+        segments.@,
+        all_rows.@,
+        real,
+        virtual_start,
+        columns.@,
+      )
     },
   }
 }
@@ -622,6 +783,8 @@ private fn route(
   segments: [Segment],
   rows: [[Int]],
   real: Int,
+  virtual_start: Int,
+  columns: [Int],
 ) canvas::Canvas!Str {
   let count = layer.size()
   let depth = rows.size()
@@ -662,7 +825,9 @@ private fn route(
         let stem = get(center.@, a.from) + get(stem_shift.@, a.from)
         let drop = get(center.@, b.to) + get(drop_shift.@, b.to)
         let related = a.from == b.from or a.to == b.to or connected(segments, a.from, b.to)
-        if (not changed) and (not related) and get(layer, a.from) == get(layer, b.from) and stem == drop {
+        // A loop's entry has no stem and its exit no drop.
+        let drawn = a.from < virtual_start and b.to < virtual_start
+        if (not changed) and drawn and (not related) and get(layer, a.from) == get(layer, b.from) and stem == drop {
           let target = get(boxes, b.to)
           let source = get(boxes, a.from)
           if b.to < real and get(drop_shift.@, b.to) < target - target / 2 - 2 {
@@ -804,16 +969,41 @@ private fn route(
         true => 0,
         false => 2,
       }
+      // A layer added only to carry loops has no boxes.
+      let heights = mut List::new<Int>()
+      for row in rows {
+        heights.push(
+          match row.size() == 0 {
+            true => 0,
+            false => 3,
+          },
+        )
+      }
       let tops = mut List::new<Int>()
       mut y = title_rows
       k = 0
       while k < depth {
         tops.push(y)
-        y =+ 3 + get(stem_rows.@, k) + maximum(get(tracks.@, k), 1) + get(drop_rows.@, k) + 1
+        y =+ get(heights.@, k) + get(stem_rows.@, k) + maximum(get(tracks.@, k), 1) + get(drop_rows.@, k) + 1
         k =+ 1
       }
-      let height = get(tops.@, depth - 1) + 3
+      // A channel added below the last layer ends with its tracks.
+      let height = match get(heights.@, depth - 1) == 0 {
+        true => get(tops.@, depth - 1) - 1,
+        false => get(tops.@, depth - 1) + 3,
+      }
       mut width = ui::text_width(title)
+      mut edge_index = 0
+      for edge in graph.edges {
+        let x = get(columns, edge_index)
+        if x >= 0 {
+          width = maximum(width, x + 1)
+          if edge.label != "" {
+            width = maximum(width, x + ui::text_width(edge.label) + 3)
+          }
+        }
+        edge_index =+ 1
+      }
       mut vertex = 0
       while vertex < count {
         let room = get(widths, vertex)
@@ -832,19 +1022,22 @@ private fn route(
           while vertex < count {
             let top = get(tops.@, get(layer, vertex))
             let x = get(center.@, vertex)
-            match vertex < real {
-              true => {
+            match {
+              vertex < real => {
                 let node = graph.nodes.at(vertex).expect("node")
                 let box = get(boxes, vertex)
                 draw_node(drawing, node, x - box / 2, top, box)
               },
-              false => drawing.vertical(x, top, top + 2, canvas::Role::arrow, false),
+              vertex < virtual_start => drawing.vertical(x, top, top + 2, canvas::Role::arrow, false),
+              _ => (),
             }
             vertex =+ 1
           }
           let heads = mut List::new<Int>()
           let head_glyphs = mut List::new<Str>()
           let labels = mut List::new<Int>()
+          let exit_rows = mut fill(graph.edges.size(), 0)
+          let entry_rows = mut fill(graph.edges.size(), 0)
           // Sideways runs that may carry a label: edge, start, end, and row.
           let runs = mut List::new<Int>()
           mut index = 0
@@ -852,7 +1045,7 @@ private fn route(
             let edge = graph.edges.at(segment.edge).expect("edge")
             let spot = spots.at(segment.edge).or(Spot::none)
             let k = get(layer, segment.from)
-            let bottom = get(tops.@, k) + 2
+            let bottom = get(tops.@, k) + get(heights.@, k) - 1
             let below = get(tops.@, k + 1)
             let target = segment.to == edge.to
             let head = target and edge.head != Head::none
@@ -866,9 +1059,21 @@ private fn route(
             let from = stem_x(segment.from)
             let to = drop_x(segment.to)
             let row = bottom + 1 + get(stem_rows.@, k) + star.track
-            match star.straight {
-              true => drawing.vertical_styled(from, bottom, end, canvas::Role::arrow, dashed, heavy),
-              false => {
+            match {
+              // A loop leaves its source for its outer column, and enters
+              // its target from it.
+              segment.to >= virtual_start => {
+                drawing.vertical_styled(from, bottom, row, canvas::Role::arrow, dashed, heavy)
+                drawing.horizontal_styled(row, from, to, canvas::Role::arrow, dashed, heavy)
+                exit_rows.set(segment.edge, row)
+              },
+              segment.from >= virtual_start => {
+                drawing.horizontal_styled(row, to, from, canvas::Role::arrow, dashed, heavy)
+                drawing.vertical_styled(to, row, end, canvas::Role::arrow, dashed, heavy)
+                entry_rows.set(segment.edge, row)
+              },
+              star.straight => drawing.vertical_styled(from, bottom, end, canvas::Role::arrow, dashed, heavy),
+              _ => {
                 drawing.vertical_styled(from, bottom, row, canvas::Role::arrow, dashed, heavy)
                 if from != to {
                   drawing.horizontal_styled(
@@ -926,6 +1131,32 @@ private fn route(
               false,
             )
             index =+ 2
+          }
+          // Each loop climbs its column from its exit to its entry, with its
+          // label beside the middle of the climb.
+          edge_index = 0
+          for edge in graph.edges {
+            let x = get(columns, edge_index)
+            if x >= 0 {
+              let top = get(entry_rows.@, edge_index)
+              let bottom = get(exit_rows.@, edge_index)
+              drawing.vertical_styled(
+                x,
+                top,
+                bottom,
+                canvas::Role::arrow,
+                edge.stroke == Stroke::dotted,
+                edge.stroke == Stroke::thick,
+              )
+              if edge.label != "" {
+                let text = " {edge.label} "
+                labels.push(edge_index)
+                labels.push(x + 1 + ui::text_width(text) / 2)
+                labels.push((top + bottom) / 2)
+                labels.push(x)
+              }
+            }
+            edge_index =+ 1
           }
           // A track label takes the clearest stretch of its run, once every
           // line is drawn.

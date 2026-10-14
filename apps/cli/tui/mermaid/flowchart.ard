@@ -14,7 +14,8 @@ use go:strings
 // dotted `-.->`, and thick `==>` links of any length, ending in an arrow,
 // a cross `x`, a circle `o`, or nothing; link text as `-->|text|` or
 // `-- text -->`; chains such as `A --> B --> C`; `&` groups such as
-// `A & B --> C`; `;` between statements; and `:::class` suffixes.
+// `A & B --> C`; `;` between statements; and `:::class` suffixes. Edges may
+// loop back, including from a node to itself.
 // `classDef`, `class`, `style`, `linkStyle`, and `click` statements are
 // accepted without being drawn. Anything else is rejected so the source is
 // shown instead.
@@ -981,8 +982,101 @@ test fn labels_take_a_clear_stretch_of_their_track() Void!Str {
   )
 }
 
+test fn a_retry_loop_climbs_its_own_column() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Prompt] --> B{{Tool call?}}\nB -->|yes| C[Run tool]\nC --> A\nB -->|no| D[Reply]",
+    [
+      "             ┌───────────┐",
+      "             ▼           │",
+      "        ┌────────┐       │",
+      "        │ Prompt │       │",
+      "        └────┬───┘       │",
+      "             │           │",
+      "             ▼           │",
+      "      ╱────────────╲     │",
+      "      │ Tool call? │     │",
+      "      ╲──────┬─────╱     │",
+      "      ┌──────┴─────┐     │",
+      "     yes          no     │",
+      "      ▼            ▼     │",
+      "┌──────────┐   ┌───────┐ │",
+      "│ Run tool │   │ Reply │ │",
+      "└─────┬────┘   └───────┘ │",
+      "      └──────────────────┘",
+    ],
+  )
+}
+
+test fn a_node_can_loop_to_itself() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --> B\nB --> B",
+    [
+      "┌───┐",
+      "│ A │",
+      "└─┬─┘",
+      "  ├───┐",
+      "  ▼   │",
+      "┌───┐ │",
+      "│ B │ │",
+      "└─┬─┘ │",
+      "  └───┘",
+    ],
+  )
+}
+
+test fn shorter_loops_nest_inside_longer_ones() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --> B --> C --> D\nD --> C\nD --> A",
+    [
+      "  ┌─────┐",
+      "  ▼     │",
+      "┌───┐   │",
+      "│ A │   │",
+      "└─┬─┘   │",
+      "  │     │",
+      "  ▼     │",
+      "┌───┐   │",
+      "│ B │   │",
+      "└─┬─┘   │",
+      "  ├───┐ │",
+      "  ▼   │ │",
+      "┌───┐ │ │",
+      "│ C │ │ │",
+      "└─┬─┘ │ │",
+      "  │   │ │",
+      "  ▼   │ │",
+      "┌───┐ │ │",
+      "│ D │ │ │",
+      "└─┬─┘ │ │",
+      "  └───┴─┘",
+    ],
+  )
+}
+
+test fn loop_labels_sit_beside_the_climb() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Draft] --> B[Review]\nB -->|changes| A\nB --> C[Merge]",
+    [
+      "     ┌─────┐",
+      "     ▼     │",
+      " ┌───────┐ │",
+      " │ Draft │ │",
+      " └───┬───┘ │",
+      "     │     │ changes",
+      "     ▼     │",
+      "┌────────┐ │",
+      "│ Review │ │",
+      "└────┬───┘ │",
+      "     ├─────┘",
+      "     ▼",
+      " ┌───────┐",
+      " │ Merge │",
+      " └───────┘",
+    ],
+  )
+}
+
 test fn unsupported_flowchart_syntax_is_rejected() Void!Str {
-  try expect_rejected("flowchart TD\nA --> B\nB --> A", "flowcharts with loops aren't drawn yet")
   try expect_rejected("flowchart LR\nA --> B", "`LR` flowcharts aren't drawn yet")
   try expect_rejected("flowchart XY\nA --> B", "unknown direction `XY`")
   try expect_rejected("flowchart TD\nA{{{{hex}}}} --> B", "`{{{{` nodes aren't drawn yet")

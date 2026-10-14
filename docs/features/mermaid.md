@@ -91,17 +91,19 @@ participants and 200 statements, and the drawing fits within 480 columns and
 Statements may be separated by `;`. Nodes appear in layers by their longest
 path from a start node, and an edge that skips layers runs straight past them.
 Edges from one node branch from a shared line, and edges into one node merge
-into one arrow. Node and edge text is one line; text over 40 columns is cut
+into one arrow. An edge that loops back, including one from a node to itself,
+climbs its own column to the right of the diagram and drops into its target
+from above; shorter loops sit inside longer ones. Node and edge text is one line; text over 40 columns is cut
 short with an ellipsis.
 
 Edge text sits where only its edge runs: just above the arrow into a node no
 other edge enters, else just below a node no other edge leaves, else beside
-the layers the edge skips, else on its own sideways run. A diagram whose edge
+the layers the edge skips, else on its own sideways run. A loop's text sits beside its climb. A diagram whose edge
 text has no such room shows its source.
 
 `classDef`, `class`, `style`, `linkStyle`, and `click` statements are accepted
-but not drawn. Loops, other node shapes and links, subgraphs, and the `LR`,
-`RL`, and `BT` directions show the source instead.
+but not drawn. Other node shapes and links, subgraphs, and the `LR`, `RL`,
+and `BT` directions show the source instead.
 
 A flowchart is drawn when it has at most 60 nodes, 120 edges, and 200
 statements, and the drawing fits within 480 columns and 800 rows.
