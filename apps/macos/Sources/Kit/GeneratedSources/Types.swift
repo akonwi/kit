@@ -11,6 +11,12 @@ import struct Foundation.Date
 #endif
 /// A type that performs HTTP operations defined by the OpenAPI document.
 internal protocol APIProtocol: Sendable {
+    /// - Remark: HTTP `GET /v1/devices`.
+    /// - Remark: Generated from `#/paths//v1/devices/get(listDevices)`.
+    func listDevices(_ input: Operations.ListDevices.Input) async throws -> Operations.ListDevices.Output
+    /// - Remark: HTTP `DELETE /v1/devices/{deviceID}`.
+    /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)`.
+    func revokeDevice(_ input: Operations.RevokeDevice.Input) async throws -> Operations.RevokeDevice.Output
     /// - Remark: HTTP `GET /v1/health`.
     /// - Remark: Generated from `#/paths//v1/health/get(getHealth)`.
     func getHealth(_ input: Operations.GetHealth.Input) async throws -> Operations.GetHealth.Output
@@ -20,6 +26,12 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/models/refresh`.
     /// - Remark: Generated from `#/paths//v1/models/refresh/post(refreshModels)`.
     func refreshModels(_ input: Operations.RefreshModels.Input) async throws -> Operations.RefreshModels.Output
+    /// - Remark: HTTP `POST /v1/pairing`.
+    /// - Remark: Generated from `#/paths//v1/pairing/post(createPairing)`.
+    func createPairing(_ input: Operations.CreatePairing.Input) async throws -> Operations.CreatePairing.Output
+    /// - Remark: HTTP `POST /v1/pairing/redeem`.
+    /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)`.
+    func redeemPairing(_ input: Operations.RedeemPairing.Input) async throws -> Operations.RedeemPairing.Output
     /// - Remark: HTTP `GET /v1/sessions`.
     /// - Remark: Generated from `#/paths//v1/sessions/get(listSessions)`.
     func listSessions(_ input: Operations.ListSessions.Input) async throws -> Operations.ListSessions.Output
@@ -189,6 +201,22 @@ internal protocol APIProtocol: Sendable {
 
 /// Convenience overloads for operation inputs.
 extension APIProtocol {
+    /// - Remark: HTTP `GET /v1/devices`.
+    /// - Remark: Generated from `#/paths//v1/devices/get(listDevices)`.
+    internal func listDevices(headers: Operations.ListDevices.Input.Headers) async throws -> Operations.ListDevices.Output {
+        try await listDevices(Operations.ListDevices.Input(headers: headers))
+    }
+    /// - Remark: HTTP `DELETE /v1/devices/{deviceID}`.
+    /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)`.
+    internal func revokeDevice(
+        path: Operations.RevokeDevice.Input.Path,
+        headers: Operations.RevokeDevice.Input.Headers
+    ) async throws -> Operations.RevokeDevice.Output {
+        try await revokeDevice(Operations.RevokeDevice.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// - Remark: HTTP `GET /v1/health`.
     /// - Remark: Generated from `#/paths//v1/health/get(getHealth)`.
     internal func getHealth(headers: Operations.GetHealth.Input.Headers = .init()) async throws -> Operations.GetHealth.Output {
@@ -203,6 +231,22 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//v1/models/refresh/post(refreshModels)`.
     internal func refreshModels(headers: Operations.RefreshModels.Input.Headers) async throws -> Operations.RefreshModels.Output {
         try await refreshModels(Operations.RefreshModels.Input(headers: headers))
+    }
+    /// - Remark: HTTP `POST /v1/pairing`.
+    /// - Remark: Generated from `#/paths//v1/pairing/post(createPairing)`.
+    internal func createPairing(headers: Operations.CreatePairing.Input.Headers) async throws -> Operations.CreatePairing.Output {
+        try await createPairing(Operations.CreatePairing.Input(headers: headers))
+    }
+    /// - Remark: HTTP `POST /v1/pairing/redeem`.
+    /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)`.
+    internal func redeemPairing(
+        headers: Operations.RedeemPairing.Input.Headers = .init(),
+        body: Operations.RedeemPairing.Input.Body
+    ) async throws -> Operations.RedeemPairing.Output {
+        try await redeemPairing(Operations.RedeemPairing.Input(
+            headers: headers,
+            body: body
+        ))
     }
     /// - Remark: HTTP `GET /v1/sessions`.
     /// - Remark: Generated from `#/paths//v1/sessions/get(listSessions)`.

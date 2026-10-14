@@ -469,6 +469,48 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/AnnotationsCredentialExpiredError`.
+        internal struct AnnotationsCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationsCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/AnnotationsCredentialExpiredError/code`.
+            internal var code: Components.Schemas.AnnotationsCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/AnnotationsCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `AnnotationsCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.AnnotationsCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.AnnotationsCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/AnnotationsInvalidEvidenceError`.
         internal struct AnnotationsInvalidEvidenceError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/AnnotationsInvalidEvidenceError/code`.
@@ -499,6 +541,48 @@ extension Components {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.code = try container.decode(
                     Components.Schemas.AnnotationsInvalidEvidenceError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AnnotationsRateLimitedError`.
+        internal struct AnnotationsRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationsRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/AnnotationsRateLimitedError/code`.
+            internal var code: Components.Schemas.AnnotationsRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/AnnotationsRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `AnnotationsRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.AnnotationsRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.AnnotationsRateLimitedError.CodePayload.self,
                     forKey: .code
                 )
                 self.message = try container.decode(
@@ -832,6 +916,90 @@ extension Components {
             }
             case file(OpenAPIRuntime.MultipartPart<Components.Schemas.AttachmentUpload.FilePayload>)
         }
+        /// - Remark: Generated from `#/components/schemas/AttachmentsCredentialExpiredError`.
+        internal struct AttachmentsCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttachmentsCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/AttachmentsCredentialExpiredError/code`.
+            internal var code: Components.Schemas.AttachmentsCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/AttachmentsCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `AttachmentsCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.AttachmentsCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.AttachmentsCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AttachmentsRateLimitedError`.
+        internal struct AttachmentsRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttachmentsRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/AttachmentsRateLimitedError/code`.
+            internal var code: Components.Schemas.AttachmentsRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/AttachmentsRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `AttachmentsRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.AttachmentsRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.AttachmentsRateLimitedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/BashAbortResult`.
         internal struct BashAbortResult: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/BashAbortResult/aborting`.
@@ -854,6 +1022,48 @@ extension Components {
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "aborting"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/BashCredentialExpiredError`.
+        internal struct BashCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BashCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/BashCredentialExpiredError/code`.
+            internal var code: Components.Schemas.BashCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/BashCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `BashCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.BashCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.BashCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
                 ])
             }
         }
@@ -1215,6 +1425,48 @@ extension Components {
                     "hasMore",
                     "nextCursor",
                     "sessionId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/BashRateLimitedError`.
+        internal struct BashRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BashRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/BashRateLimitedError/code`.
+            internal var code: Components.Schemas.BashRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/BashRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `BashRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.BashRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.BashRateLimitedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
                 ])
             }
         }
@@ -1837,6 +2089,124 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/DeviceInfo`.
+        internal struct DeviceInfo: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DeviceInfo/createdAt`.
+            internal var createdAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DeviceInfo/current`.
+            internal var current: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/DeviceInfo/expiresAt`.
+            internal var expiresAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DeviceInfo/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DeviceInfo/lastAddress`.
+            internal var lastAddress: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DeviceInfo/lastUsedAt`.
+            internal var lastUsedAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DeviceInfo/name`.
+            internal var name: Swift.String
+            /// Creates a new `DeviceInfo`.
+            ///
+            /// - Parameters:
+            ///   - createdAt:
+            ///   - current:
+            ///   - expiresAt:
+            ///   - id:
+            ///   - lastAddress:
+            ///   - lastUsedAt:
+            ///   - name:
+            internal init(
+                createdAt: Swift.String,
+                current: Swift.Bool,
+                expiresAt: Swift.String,
+                id: Swift.String,
+                lastAddress: Swift.String? = nil,
+                lastUsedAt: Swift.String,
+                name: Swift.String
+            ) {
+                self.createdAt = createdAt
+                self.current = current
+                self.expiresAt = expiresAt
+                self.id = id
+                self.lastAddress = lastAddress
+                self.lastUsedAt = lastUsedAt
+                self.name = name
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case createdAt
+                case current
+                case expiresAt
+                case id
+                case lastAddress
+                case lastUsedAt
+                case name
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.createdAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .createdAt
+                )
+                self.current = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .current
+                )
+                self.expiresAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .expiresAt
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.lastAddress = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .lastAddress
+                )
+                self.lastUsedAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .lastUsedAt
+                )
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "createdAt",
+                    "current",
+                    "expiresAt",
+                    "id",
+                    "lastAddress",
+                    "lastUsedAt",
+                    "name"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DeviceList`.
+        internal struct DeviceList: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DeviceList/devices`.
+            internal var devices: [Components.Schemas.DeviceInfo]
+            /// Creates a new `DeviceList`.
+            ///
+            /// - Parameters:
+            ///   - devices:
+            internal init(devices: [Components.Schemas.DeviceInfo]) {
+                self.devices = devices
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case devices
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.devices = try container.decode(
+                    [Components.Schemas.DeviceInfo].self,
+                    forKey: .devices
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "devices"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/DiffCapacityExceededError`.
         internal struct DiffCapacityExceededError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/DiffCapacityExceededError/code`.
@@ -1925,6 +2295,48 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "reason",
                     "state"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffCredentialExpiredError`.
+        internal struct DiffCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffCredentialExpiredError/code`.
+            internal var code: Components.Schemas.DiffCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
                 ])
             }
         }
@@ -2592,6 +3004,48 @@ extension Components {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.code = try container.decode(
                     Components.Schemas.DiffPermissionDeniedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffRateLimitedError`.
+        internal struct DiffRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffRateLimitedError/code`.
+            internal var code: Components.Schemas.DiffRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffRateLimitedError.CodePayload.self,
                     forKey: .code
                 )
                 self.message = try container.decode(
@@ -3410,6 +3864,90 @@ extension Components {
                     "truncated",
                     "truncationReason",
                     "workspace"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EventsCredentialExpiredError`.
+        internal struct EventsCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EventsCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/EventsCredentialExpiredError/code`.
+            internal var code: Components.Schemas.EventsCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/EventsCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `EventsCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.EventsCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.EventsCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EventsRateLimitedError`.
+        internal struct EventsRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EventsRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/EventsRateLimitedError/code`.
+            internal var code: Components.Schemas.EventsRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/EventsRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `EventsRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.EventsRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.EventsRateLimitedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
                 ])
             }
         }
@@ -5329,6 +5867,44 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/PairingCode`.
+        internal struct PairingCode: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PairingCode/code`.
+            internal var code: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PairingCode/expiresAt`.
+            internal var expiresAt: Swift.String
+            /// Creates a new `PairingCode`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - expiresAt:
+            internal init(
+                code: Swift.String,
+                expiresAt: Swift.String
+            ) {
+                self.code = code
+                self.expiresAt = expiresAt
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case expiresAt
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Swift.String.self,
+                    forKey: .code
+                )
+                self.expiresAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .expiresAt
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "expiresAt"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/PendingBoundary`.
         internal struct PendingBoundary: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/PendingBoundary/acceptedAt`.
@@ -5697,6 +6273,48 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/PluginCredentialExpiredError`.
+        internal struct PluginCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/PluginCredentialExpiredError/code`.
+            internal var code: Components.Schemas.PluginCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/PluginCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `PluginCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.PluginCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.PluginCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/PluginFooter`.
         internal struct PluginFooter: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/PluginFooter/items`.
@@ -5961,6 +6579,48 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "instance",
                     "pluginId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PluginRateLimitedError`.
+        internal struct PluginRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/PluginRateLimitedError/code`.
+            internal var code: Components.Schemas.PluginRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/PluginRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `PluginRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.PluginRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.PluginRateLimitedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
                 ])
             }
         }
@@ -6818,6 +7478,82 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/RedeemPairingInput`.
+        internal struct RedeemPairingInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RedeemPairingInput/code`.
+            internal var code: Swift.String
+            /// - Remark: Generated from `#/components/schemas/RedeemPairingInput/deviceName`.
+            internal var deviceName: Swift.String
+            /// Creates a new `RedeemPairingInput`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - deviceName:
+            internal init(
+                code: Swift.String,
+                deviceName: Swift.String
+            ) {
+                self.code = code
+                self.deviceName = deviceName
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case deviceName
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Swift.String.self,
+                    forKey: .code
+                )
+                self.deviceName = try container.decode(
+                    Swift.String.self,
+                    forKey: .deviceName
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "deviceName"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RedeemPairingResult`.
+        internal struct RedeemPairingResult: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RedeemPairingResult/device`.
+            internal var device: Components.Schemas.DeviceInfo
+            /// - Remark: Generated from `#/components/schemas/RedeemPairingResult/token`.
+            internal var token: Swift.String
+            /// Creates a new `RedeemPairingResult`.
+            ///
+            /// - Parameters:
+            ///   - device:
+            ///   - token:
+            internal init(
+                device: Components.Schemas.DeviceInfo,
+                token: Swift.String
+            ) {
+                self.device = device
+                self.token = token
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case device
+                case token
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.device = try container.decode(
+                    Components.Schemas.DeviceInfo.self,
+                    forKey: .device
+                )
+                self.token = try container.decode(
+                    Swift.String.self,
+                    forKey: .token
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "device",
+                    "token"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ReloadSessionResult`.
         internal struct ReloadSessionResult: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ReloadSessionResult/diagnostics`.
@@ -7012,6 +7748,48 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ScratchpadCredentialExpiredError`.
+        internal struct ScratchpadCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScratchpadCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/ScratchpadCredentialExpiredError/code`.
+            internal var code: Components.Schemas.ScratchpadCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ScratchpadCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `ScratchpadCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.ScratchpadCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.ScratchpadCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ScratchpadErrorDetails`.
         internal struct ScratchpadErrorDetails: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ScratchpadErrorDetails/scratchpad`.
@@ -7109,6 +7887,48 @@ extension Components {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.code = try container.decode(
                     Components.Schemas.ScratchpadMigrationRequiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ScratchpadRateLimitedError`.
+        internal struct ScratchpadRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScratchpadRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/ScratchpadRateLimitedError/code`.
+            internal var code: Components.Schemas.ScratchpadRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ScratchpadRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `ScratchpadRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.ScratchpadRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.ScratchpadRateLimitedError.CodePayload.self,
                     forKey: .code
                 )
                 self.message = try container.decode(
@@ -7330,6 +8150,90 @@ extension Components {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.code = try container.decode(
                     Components.Schemas.ScratchpadUnsupportedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ServerCredentialExpiredError`.
+        internal struct ServerCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ServerCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/ServerCredentialExpiredError/code`.
+            internal var code: Components.Schemas.ServerCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ServerCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `ServerCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.ServerCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.ServerCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ServerRateLimitedError`.
+        internal struct ServerRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ServerRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/ServerRateLimitedError/code`.
+            internal var code: Components.Schemas.ServerRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ServerRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `ServerRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.ServerRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.ServerRateLimitedError.CodePayload.self,
                     forKey: .code
                 )
                 self.message = try container.decode(
@@ -8284,6 +9188,90 @@ extension Components {
                     "cwd",
                     "sessionId",
                     "status"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SessionsCredentialExpiredError`.
+        internal struct SessionsCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionsCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/SessionsCredentialExpiredError/code`.
+            internal var code: Components.Schemas.SessionsCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/SessionsCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `SessionsCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.SessionsCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.SessionsCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SessionsRateLimitedError`.
+        internal struct SessionsRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionsRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/SessionsRateLimitedError/code`.
+            internal var code: Components.Schemas.SessionsRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/SessionsRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `SessionsRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.SessionsRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.SessionsRateLimitedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
                 ])
             }
         }
@@ -9963,6 +10951,90 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/SubagentsCredentialExpiredError`.
+        internal struct SubagentsCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubagentsCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/SubagentsCredentialExpiredError/code`.
+            internal var code: Components.Schemas.SubagentsCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/SubagentsCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `SubagentsCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.SubagentsCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.SubagentsCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SubagentsRateLimitedError`.
+        internal struct SubagentsRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubagentsRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/SubagentsRateLimitedError/code`.
+            internal var code: Components.Schemas.SubagentsRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/SubagentsRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `SubagentsRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.SubagentsRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.SubagentsRateLimitedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/SubmittedAnnotation`.
         internal struct SubmittedAnnotation: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/SubmittedAnnotation/anchor`.
@@ -10260,6 +11332,48 @@ extension Components {
                 }
             }
         }
+        /// - Remark: Generated from `#/components/schemas/TranscriptCredentialExpiredError`.
+        internal struct TranscriptCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TranscriptCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/TranscriptCredentialExpiredError/code`.
+            internal var code: Components.Schemas.TranscriptCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/TranscriptCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `TranscriptCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.TranscriptCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.TranscriptCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/TranscriptCursorUnavailableError`.
         internal struct TranscriptCursorUnavailableError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/TranscriptCursorUnavailableError/code`.
@@ -10543,6 +11657,48 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/TranscriptRateLimitedError`.
+        internal struct TranscriptRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TranscriptRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/TranscriptRateLimitedError/code`.
+            internal var code: Components.Schemas.TranscriptRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/TranscriptRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `TranscriptRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.TranscriptRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.TranscriptRateLimitedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/TurnAbortResult`.
         internal struct TurnAbortResult: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/TurnAbortResult/aborting`.
@@ -10663,6 +11819,90 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "sessionId",
                     "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TurnsCredentialExpiredError`.
+        internal struct TurnsCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TurnsCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/TurnsCredentialExpiredError/code`.
+            internal var code: Components.Schemas.TurnsCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/TurnsCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `TurnsCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.TurnsCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.TurnsCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TurnsRateLimitedError`.
+        internal struct TurnsRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TurnsRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/TurnsRateLimitedError/code`.
+            internal var code: Components.Schemas.TurnsRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/TurnsRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `TurnsRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.TurnsRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.TurnsRateLimitedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
                 ])
             }
         }
@@ -10983,6 +12223,90 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/VcsCredentialExpiredError`.
+        internal struct VcsCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/VcsCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/VcsCredentialExpiredError/code`.
+            internal var code: Components.Schemas.VcsCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/VcsCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `VcsCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.VcsCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.VcsCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/VcsRateLimitedError`.
+        internal struct VcsRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/VcsRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/VcsRateLimitedError/code`.
+            internal var code: Components.Schemas.VcsRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/VcsRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `VcsRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.VcsRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.VcsRateLimitedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/WorkingTreeDiffAnnotationAnchor`.
         internal struct WorkingTreeDiffAnnotationAnchor: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/WorkingTreeDiffAnnotationAnchor/endLine`.
@@ -11216,6 +12540,48 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "details",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkspaceCredentialExpiredError`.
+        internal struct WorkspaceCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkspaceCredentialExpiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/WorkspaceCredentialExpiredError/code`.
+            internal var code: Components.Schemas.WorkspaceCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/WorkspaceCredentialExpiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `WorkspaceCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.WorkspaceCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.WorkspaceCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
                     "message"
                 ])
             }
@@ -11965,6 +13331,48 @@ extension Components {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.code = try container.decode(
                     Components.Schemas.WorkspacePermissionDeniedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkspaceRateLimitedError`.
+        internal struct WorkspaceRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkspaceRateLimitedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/WorkspaceRateLimitedError/code`.
+            internal var code: Components.Schemas.WorkspaceRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/WorkspaceRateLimitedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `WorkspaceRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.WorkspaceRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.WorkspaceRateLimitedError.CodePayload.self,
                     forKey: .code
                 )
                 self.message = try container.decode(

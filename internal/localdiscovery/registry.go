@@ -36,6 +36,11 @@ type Registry struct {
 	URL               string                      `json:"url"`
 	StartedAt         time.Time                   `json:"startedAt"`
 	CredentialSources map[string]CredentialSource `json:"credentialSources,omitempty"`
+	// Foreground reports that the server runs in the foreground under
+	// whatever started it, such as a service manager or container, rather
+	// than as a detached daemon. Clients may stop it but must not restart
+	// it, which would move it out of that supervisor.
+	Foreground bool `json:"foreground,omitempty"`
 }
 
 func (r Registry) validate() error {

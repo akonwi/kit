@@ -26,6 +26,12 @@ type commandDependencies struct {
 	auth            func(context.Context, []string, io.Writer, io.Writer) int
 	server          func(context.Context, []string, io.Writer, io.Writer) int
 	servers         func(context.Context, []string, io.Writer, io.Writer) int
+	// pair prints pairing links for a server, "" for this home's, with the
+	// given extra server URLs.
+	pair    func(context.Context, string, []string, io.Writer, io.Writer) int
+	devices func(context.Context, []string, io.Writer, io.Writer) int
+	// expose serves this home's server on the tailnet, or stops with off.
+	expose func(context.Context, exposeOptions, bool, io.Writer, io.Writer) int
 	// attach runs the terminal client for the named server, or picks one when
 	// the name is empty.
 	attach func(context.Context, interactiveOptions, string, io.Writer, io.Writer) int
@@ -40,6 +46,11 @@ func defaultCommandDependencies() commandDependencies {
 		auth:            runAuthCommand,
 		server:          runServerCommand,
 		servers:         runServersCommand,
+		pair: func(ctx context.Context, server string, urls []string, stdout, stderr io.Writer) int {
+			return runPair(ctx, server, urls, stdout, stderr, stdoutIsTerminal())
+		},
+		devices: runServerDevices,
+		expose:  runExpose,
 	}
 }
 
@@ -152,6 +163,7 @@ func newRootCommand(deps commandDependencies) *cobra.Command {
 		newServerCommand(deps),
 		newServersCommand(deps),
 		newAttachCommand(deps),
+		newPairCommand(deps),
 		newVersionCommand(),
 		newInternalServerCommand(deps),
 	)
@@ -362,6 +374,7 @@ func newServerCommand(deps commandDependencies) *cobra.Command {
 		{name: "status", description: "Inspect server status"},
 		{name: "stop", description: "Stop the server"},
 		{name: "restart", description: "Restart the server", listen: true},
+		{name: "run", description: "Run the server in the foreground, logging to stderr", listen: true},
 	} {
 		action := action
 		var listen string
@@ -380,6 +393,69 @@ func newServerCommand(deps commandDependencies) *cobra.Command {
 		}
 		command.AddCommand(subcommand)
 	}
+	var urls []string
+	pair := &cobra.Command{
+		Use:   "pair",
+		Short: "Print a pairing link for another device",
+		Long: "Print a single-use pairing link for each URL that reaches the running server: each\n" +
+			"server.allowedHosts entry, each --url, and the loopback URL. The code expires after\n" +
+			"5 minutes. Redeeming it gives the other device a token for this server.",
+		Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return resultForCode(deps.pair(command.Context(), "", urls, command.OutOrStdout(), command.ErrOrStderr()))
+		},
+	}
+	pair.Flags().StringArrayVar(&urls, "url", nil, "also print a link for this server URL, such as a reverse proxy's")
+	devices := &cobra.Command{
+		Use: "devices", Short: "Manage paired devices", Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return resultForCode(deps.devices(command.Context(), []string{"list"}, command.OutOrStdout(), command.ErrOrStderr()))
+		},
+	}
+	devices.AddCommand(
+		&cobra.Command{
+			Use: "list", Aliases: []string{"ls"}, Short: "List paired devices", Args: cobra.NoArgs,
+			RunE: func(command *cobra.Command, _ []string) error {
+				return resultForCode(deps.devices(command.Context(), []string{"list"}, command.OutOrStdout(), command.ErrOrStderr()))
+			},
+		},
+		&cobra.Command{
+			Use: "revoke ID-OR-NAME", Short: "Revoke a device's access", Args: cobra.ExactArgs(1),
+			RunE: func(command *cobra.Command, arguments []string) error {
+				return resultForCode(deps.devices(command.Context(), append([]string{"revoke"}, arguments...), command.OutOrStdout(), command.ErrOrStderr()))
+			},
+		},
+	)
+	var tailscale, off, force bool
+	var httpsPort int
+	expose := &cobra.Command{
+		Use:   "expose --tailscale",
+		Short: "Serve this server on your tailnet with Tailscale Serve",
+		Long: "Serve this server on your tailnet over HTTPS with Tailscale Serve, then print a\n" +
+			"pairing link. It fixes server.listen to a loopback port when none is set, adds\n" +
+			"the machine's tailnet name to server.allowedHosts, and restarts the server when\n" +
+			"those change. It never uses Tailscale Funnel, so only your tailnet can reach it.\n" +
+			"--off removes the Serve handler and the settings it added.",
+		Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if !tailscale {
+				return usagef("kit server expose requires --tailscale")
+			}
+			if httpsPort < 1 || httpsPort > 65535 {
+				return usagef("--https-port must be between 1 and 65535")
+			}
+			if force && !off {
+				return usagef("--force applies only with --off")
+			}
+			options := defaultExposeOptions(httpsPort, force, stdoutIsTerminal())
+			return resultForCode(deps.expose(command.Context(), options, off, command.OutOrStdout(), command.ErrOrStderr()))
+		},
+	}
+	expose.Flags().BoolVar(&tailscale, "tailscale", false, "serve with Tailscale Serve")
+	expose.Flags().BoolVar(&off, "off", false, "stop serving and remove the settings expose added")
+	expose.Flags().BoolVar(&force, "force", false, "with --off, remove the settings even if the Serve handler cannot be confirmed removed")
+	expose.Flags().IntVar(&httpsPort, "https-port", 443, "tailnet HTTPS port to serve on")
+	command.AddCommand(pair, devices, expose)
 	return command
 }
 
@@ -397,7 +473,7 @@ func newServersCommand(deps commandDependencies) *cobra.Command {
 			RunE: func(command *cobra.Command, _ []string) error { return run(command, []string{"list"}) },
 		},
 		&cobra.Command{
-			Use: "add NAME HOME", Short: "Save a Kit home's server under a name", Args: cobra.ExactArgs(2),
+			Use: "add NAME HOME-OR-LINK", Short: "Save a Kit home's server, or pair with a link and save its server", Args: cobra.ExactArgs(2),
 			RunE: func(command *cobra.Command, arguments []string) error {
 				return run(command, append([]string{"add"}, arguments...))
 			},
@@ -412,13 +488,34 @@ func newServersCommand(deps commandDependencies) *cobra.Command {
 	return command
 }
 
+func newPairCommand(deps commandDependencies) *cobra.Command {
+	var urls []string
+	command := &cobra.Command{
+		Use:   "pair [SERVER]",
+		Short: "Print a pairing link for another device",
+		Long: "Print a single-use pairing link that pairs another device with SERVER: a saved server,\n" +
+			"a URL or Kit home path, or this home's server by default. The code expires after 5 minutes.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			server := ""
+			if len(arguments) == 1 {
+				server = arguments[0]
+			}
+			return resultForCode(deps.pair(command.Context(), server, urls, command.OutOrStdout(), command.ErrOrStderr()))
+		},
+	}
+	command.Flags().StringArrayVar(&urls, "url", nil, "also print a link for this server URL, such as a reverse proxy's")
+	return command
+}
+
 func newAttachCommand(deps commandDependencies) *cobra.Command {
 	var options interactiveOptions
 	command := &cobra.Command{
 		Use:   "attach [SERVER]",
 		Short: "Launch the TUI for another Kit server",
-		Long: "Launch the TUI for a saved server, \"local\" for this home's server, or a Kit home path.\n" +
-			"Without SERVER, pick from the saved servers. Attaching never starts or stops a server.",
+		Long: "Launch the TUI for a saved server, \"local\" for this home's server, a pairing link or URL\n" +
+			"of a saved server, or a Kit home path. A pairing link re-pairs this device first. Without\n" +
+			"SERVER, pick from the saved servers. Attaching never starts or stops a server.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if err := validateInteractiveOptions(options, false); err != nil {
@@ -472,6 +569,11 @@ func newInternalServerCommand(deps commandDependencies) *cobra.Command {
 			return resultForCode(deps.internalServer(command.Context(), arguments, command.ErrOrStderr()))
 		},
 	}
+}
+
+func stdoutIsTerminal() bool {
+	info, err := os.Stdout.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 func stdinIsTerminal() bool {

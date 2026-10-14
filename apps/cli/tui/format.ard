@@ -4,7 +4,6 @@ use go:api/contract as protocol
 use cooper/ui
 use go:fmt
 use go:math
-use go:os
 use go:path/filepath
 use go:strconv
 use go:strings
@@ -20,29 +19,31 @@ fn session_name(session: protocol::SessionInfo) Str {
   }
 }
 
-// session_display_cwd shortens a session's directory: paths under the home
-// directory use ~ and long paths preserve their most useful trailing cells.
-fn session_display_cwd(cwd: Str, width: Int) Str {
+// session_display_cwd shortens a session's directory on the server: paths
+// under the server user's home directory use ~ and long paths preserve their
+// most useful trailing cells.
+fn session_display_cwd(cwd: Str, home: Str, width: Int) Str {
   if strings::TrimSpace(cwd) == "" {
     ""
   } else {
-    mut display = filepath::Clean(cwd)
-    match os::UserHomeDir() {
-      ok(home) => {
-        match filepath::Rel(home, display) {
-          ok(relative) => {
-            if relative == "." {
-              display = "~"
-            } else if relative != ".." and not strings::HasPrefix(relative, "../") {
-              display = filepath::Join("~", relative)
-            }
-          },
-          err(_) => (),
-        }
-      },
-      err(_) => (),
+    truncate_start_cells(home_relative(home, filepath::Clean(cwd)), width)
+  }
+}
+
+// home_relative abbreviates a server path with ~ when it is home or inside it.
+// An empty home leaves paths unchanged. The server may be another machine, so
+// paths are compared lexically.
+fn home_relative(home: Str, path: Str) Str {
+  if home == "" {
+    path
+  } else {
+    let root = filepath::Clean(home)
+    match {
+      path == root => "~",
+      root == "/" => path,
+      strings::HasPrefix(path, "{root}/") => "~{strings::TrimPrefix(path, root)}",
+      _ => path,
     }
-    truncate_start_cells(display, width)
   }
 }
 
@@ -274,10 +275,17 @@ test fn session_paths_shorten_home_and_keep_their_end() Void!Str {
     truncate_start_cells("/one/two/three", 10) == "…two/three",
     truncate_start_cells("/one/two/three", 10),
   )
-  match os::UserHomeDir() {
-    ok(home) => testing::assert(session_display_cwd(home, 40) == "~", session_display_cwd(home, 40)),
-    err(_) => testing::pass(),
-  }
+  try testing::assert(session_display_cwd("/home/me", "/home/me", 40) == "~", "home")
+  try testing::assert(
+    session_display_cwd("/home/me/src/app/", "/home/me", 40) == "~/src/app",
+    session_display_cwd("/home/me/src/app/", "/home/me", 40),
+  )
+  try testing::assert(session_display_cwd("/home/meow", "/home/me", 40) == "/home/meow", "a sibling")
+  try testing::assert(session_display_cwd("/srv/app", "/", 40) == "/srv/app", "a root home")
+  testing::assert(
+    session_display_cwd("/Users/me/app", "", 40) == "/Users/me/app",
+    "an unknown home",
+  )
 }
 
 test fn session_times_read_as_relative_labels() Void!Str {

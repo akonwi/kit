@@ -85,6 +85,7 @@ Available Commands:
   auth        Manage provider credentials
   help        Help about any command
   new         Create a persisted session and launch the TUI
+  pair        Print a pairing link for another device
   print       Run one headless turn
   server      Manage the local Kit server
   servers     Manage the servers kit attach connects to

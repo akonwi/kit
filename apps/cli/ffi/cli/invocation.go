@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -72,7 +74,7 @@ func Parse(ctx context.Context, args []string, stdout, stderr io.Writer) Invocat
 			invocation = Invocation{Kind: InvocationServers, options: options, servers: choices}
 			return 0
 		}
-		target, err := resolveAttachTarget(server)
+		target, err := resolveAttachTarget(ctx, server, stderr)
 		if err != nil {
 			return reportAttachError(stderr, err)
 		}
@@ -98,8 +100,8 @@ func Open(invocation Invocation, sessionID string) Invocation {
 // Attach returns the invocation as an interactive one attached to the server
 // named server, as chosen from the server picker. A server that cannot be
 // resolved is reported to stderr and yields an InvocationExit.
-func Attach(invocation Invocation, server string, stderr io.Writer) Invocation {
-	target, err := resolveAttachTarget(server)
+func Attach(ctx context.Context, invocation Invocation, server string, stderr io.Writer) Invocation {
+	target, err := resolveAttachTarget(ctx, server, stderr)
 	if err != nil {
 		return Invocation{Kind: InvocationExit, ExitCode: reportAttachError(stderr, err)}
 	}
@@ -125,14 +127,19 @@ type Environment struct {
 	ExitCode        int
 	Client          *kit.Client
 	ThemeDefinition kittheme.Definition
+	// ServerHome is the server user's home directory, for abbreviating
+	// server paths.
+	ServerHome string
 
 	// paths is this client's home, for settings and themes.
 	paths apphome.Paths
-	// serverPaths is the attached server's home, for its providers and
-	// credentials.
+	// serverPaths is the Kit home of an attached server on this machine, for
+	// provider login; it is empty for a URL server.
 	serverPaths apphome.Paths
 	// server labels an attached server other than this home's own.
-	server    string
+	server string
+	// serverURL is the origin of a URL server.
+	serverURL string
 	cwd       string
 	settings  *settings.Store
 	themeName string
@@ -149,28 +156,53 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return failed(1)
 	}
+	target := invocation.options.Server
+	needsCWD := invocation.Kind == InvocationInteractive && invocation.options.SessionID == ""
+	// A server attached by Kit home runs on this machine, so the shell's
+	// working directory is meaningful to it. A URL server may not be, so its
+	// directory is chosen once it reports where it runs.
 	cwd := ""
-	if invocation.Kind == InvocationInteractive && invocation.options.SessionID == "" {
+	if needsCWD && target.URL == "" {
 		cwd, err = resolveCWD(invocation.options.CWD)
 		if err != nil {
 			fmt.Fprintf(stderr, "kit: %v\n", err)
 			return failed(1)
 		}
 	}
-	// A server attached by Kit home runs on this machine, so the shell's
-	// working directory is meaningful to it.
-	target := invocation.options.Server
-	serverPaths := paths
+	var serverPaths apphome.Paths
 	var client *kit.Client
-	if target.Home == "" {
+	switch {
+	case target.own():
+		serverPaths = paths
 		client, err = bootstrapLocalClient(ctx, paths)
-	} else {
+	case target.Home != "":
 		serverPaths = apphome.FromHome(target.Home)
+		client, err = connectAttachTarget(ctx, target)
+	default:
 		client, err = connectAttachTarget(ctx, target)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return failed(1)
+	}
+	// A server attached by Kit home shares this machine and user. A URL
+	// server reports its home, which places new sessions on another machine.
+	serverHome, _ := os.UserHomeDir()
+	if target.URL != "" {
+		infoContext, cancel := context.WithTimeout(ctx, 3*time.Second)
+		info, err := client.Server(infoContext)
+		cancel()
+		if err == nil && needsCWD {
+			cwd, err = serverCWD(info, target.Name, invocation.options.CWD)
+		} else if err != nil {
+			err = fmt.Errorf("inspect server %q: %w", target.Name, err)
+		}
+		if err != nil {
+			client.Close()
+			fmt.Fprintf(stderr, "kit: %v\n", err)
+			return failed(1)
+		}
+		serverHome = info.Home
 	}
 	settingsStore, err := settings.NewStore(paths.Settings)
 	if err != nil {
@@ -203,9 +235,11 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 	return Environment{
 		Client:          client,
 		ThemeDefinition: themeDefinition,
+		ServerHome:      serverHome,
 		paths:           paths,
 		serverPaths:     serverPaths,
 		server:          target.Name,
+		serverURL:       target.URL,
 		cwd:             cwd,
 		settings:        settingsStore,
 		themeName:       loadedSettings.Theme,
@@ -257,22 +291,37 @@ func (e Environment) Prepare(ctx context.Context, invocation Invocation, stderr 
 	}
 
 	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
-	_, health, err := daemonctl.NewClient(e.serverPaths).Probe(probeContext)
+	info, err := e.Client.Server(probeContext)
 	probeCancel()
 	if err != nil {
-		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", err)
+		fmt.Fprintf(stderr, "kit: inspect server providers: %v\n", err)
 		return failed(1)
 	}
 	// Credential-source support is checked under the daemon startup lock at
 	// login time, not by restarting a healthy daemon during client startup.
-	providers, defaultModel := interactiveProviders(health.Providers)
+	providers, defaultModel := interactiveProviders(info.Providers)
 	authenticated := len(providers) > 0
+	missingProvider := ""
 	if options.Model != "" {
 		defaultModel = options.Model
 		provider, _, _ := strings.Cut(options.Model, "/")
 		if !providers[provider] {
 			authenticated = false
+			missingProvider = provider
 		}
+	}
+	if e.serverPaths.Home == "" {
+		// Provider login writes the server's credential store, which a URL
+		// server does not expose until login moves behind the session API.
+		if !authenticated {
+			if missingProvider != "" {
+				fmt.Fprintf(stderr, "kit: server %q has no credentials for %s; log in on that machine with `kit`, then attach again\n", e.server, missingProvider)
+			} else {
+				fmt.Fprintf(stderr, "kit: server %q has no provider credentials; log in on that machine with `kit`, then attach again\n", e.server)
+			}
+			return failed(1)
+		}
+		return e.prepared(ctx, options, cwd, defaultModel, providers, authenticated, remoteDeviceLogin{}, remoteBrowserLogin{}, remoteAPIKeyLogin{})
 	}
 	manager := daemonctl.NewManager(e.serverPaths)
 	credentialStore := auth.NewStore(e.serverPaths.Auth)
@@ -303,14 +352,25 @@ func (e Environment) Prepare(ctx context.Context, invocation Invocation, stderr 
 		fmt.Fprintf(stderr, "kit: configure API-key login: %v\n", err)
 		return failed(1)
 	}
+	return e.prepared(ctx, options, cwd, defaultModel, providers, authenticated, login, browserLogin, apiKeyLogin)
+}
+
+// prepared assembles the terminal client's options.
+func (e Environment) prepared(
+	ctx context.Context, options interactiveOptions, cwd, defaultModel string,
+	providers map[string]bool, authenticated bool,
+	login DeviceLogin, browserLogin BrowserLogin, apiKeyLogin APIKeyLogin,
+) Prepared {
 	prepared := Prepared{
 		Options: TUIOptions{
 			Context:               ctx,
 			Client:                e.Client,
 			Server:                e.server,
+			PairingURLs:           e.pairingURLs(),
 			CWD:                   cwd,
-			Location:              interactiveLocation(ctx, cwd),
-			ResolveLocation:       interactiveLocation,
+			ServerHome:            e.ServerHome,
+			Location:              homeRelative(e.ServerHome, cwd),
+			ResolveLocation:       func(_ context.Context, cwd string) string { return homeRelative(e.ServerHome, cwd) },
 			DefaultModel:          defaultModel,
 			DefaultThinking:       options.Thinking,
 			ResumeModelFilter:     options.Model,
@@ -337,6 +397,53 @@ func (e Environment) Prepare(ctx context.Context, invocation Invocation, stderr 
 		prepared.temporaryID = options.NewSessionID
 	}
 	return prepared
+}
+
+// pairingURLs lists the URLs that reach the attached server.
+func (e Environment) pairingURLs() []string {
+	if e.serverURL != "" {
+		return []string{e.serverURL}
+	}
+	return homeServedURLs(e.serverPaths, nil)
+}
+
+// errRemoteLogin reports provider login while attached to a URL server.
+var errRemoteLogin = errors.New("provider login is not available while attached to a server by URL; log in on the server's machine with `kit`")
+
+// The provider logins of a URL server, which are unavailable.
+type (
+	remoteDeviceLogin  struct{}
+	remoteBrowserLogin struct{}
+	remoteAPIKeyLogin  struct{}
+)
+
+func (remoteDeviceLogin) Login(context.Context, func(auth.OpenAICodexDeviceInstructions) error) error {
+	return errRemoteLogin
+}
+
+func (remoteBrowserLogin) Login(context.Context, <-chan string, func(auth.AnthropicLoginInstructions) error) error {
+	return errRemoteLogin
+}
+
+func (remoteAPIKeyLogin) Login(context.Context, string, string) error { return errRemoteLogin }
+
+// serverCWD chooses the working directory of a new session on a URL server:
+// the requested or shell directory when the server shares this machine,
+// otherwise the requested directory on the server, or its home by default.
+func serverCWD(info kit.ServerInfo, server, requested string) (string, error) {
+	if info.SameMachine {
+		return resolveCWD(requested)
+	}
+	if requested == "" || requested == "~" || strings.HasPrefix(requested, "~/") {
+		if info.Home == "" {
+			return "", fmt.Errorf("server %q did not report its home directory; pass --cwd with an absolute path on that machine", server)
+		}
+		requested = info.Home + strings.TrimPrefix(requested, "~")
+	}
+	if !path.IsAbs(requested) {
+		return "", usagef("--cwd %q must be an absolute path on server %q, or start with ~/", requested, server)
+	}
+	return path.Clean(requested), nil
 }
 
 // Finish disposes a temporary session and returns the process exit code for

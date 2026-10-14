@@ -1,0 +1,140 @@
+use ard/async
+
+use go:api
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use go:kit/ffi/cli
+use go:kit/ffi/contextbridge
+use kit/tui/copyable
+use kit/tui/layout
+use kit/tui/modal
+use kit/tui/spinner
+use kit/tui/theme
+
+// Pair a device: issues a single-use pairing code on the attached server when
+// the dialog opens and presents a copyable link for each URL that reaches the
+// server. The dialog owns the request and its loading and error state.
+
+// Props provides the server, the URLs that reach it, and the shell callbacks.
+struct Props {
+  themes: theme::Context,
+  client: mut api::Client,
+  lifetime: contextbridge::Cancellation,
+  urls: [Str],
+  dismiss: keymap::SimpleCommand,
+  copied: fn(),
+}
+
+struct Dialog {
+  props: mut Props,
+  loading: Bool,
+  links: [Str],
+  expires: Str,
+  error: Str,
+  // generation ignores a completion that arrives after unmounting.
+  generation: Int,
+}
+
+fn new(props: mut Props) mut Dialog {
+  (mut Dialog{
+    props: props,
+    loading: true,
+    links: [],
+    expires: "",
+    error: "",
+    generation: 0,
+  })
+}
+
+impl cui::Lifecycle for Dialog {
+  fn mut mounted(ctx: cui::Context) {
+    self.generation =+ 1
+    let generation = self.generation
+    let client = self.props.client
+    let lifetime = self.props.lifetime
+    let urls = self.props.urls
+    let dispatch = ctx.dispatch
+    async::start(fn() {
+      let result = cli::CreatePairingLinks(lifetime.Context, client, mut urls)
+      let _ = dispatch(fn() {
+        if self.generation == generation {
+          self.loading = false
+          match result {
+            ok(pairing) => {
+              self.links = pairing.Links
+              self.expires = pairing.Expires
+            },
+            err(failure) => { self.error = "Could not create a pairing code: {failure.error()}" },
+          }
+        }
+      })
+    })
+  }
+
+  fn mut unmounting(ctx: cui::Context) {
+    self.generation =+ 1
+  }
+}
+
+// body lists the links and how to use them, or the failure.
+fn body(themes: theme::Context, links: [Str], expires: Str, error: Str, copied: fn()) [cui::View] {
+  let colors = themes.current()
+  let muted = ui::text_style(foreground: colors.muted)
+  let rows = mut List::new<cui::View>()
+  match error != "" {
+    true => rows.push(layout::line(error, ui::text_style(foreground: colors.danger_text))),
+    false => {
+      rows.push(layout::line("On the other device, run:", muted))
+      rows.push(layout::line("kit servers add NAME LINK", ui::text_style()))
+      rows.push(layout::blank())
+      if links.size() > 1 {
+        rows.push(layout::line("Use a link the other device can reach:", muted))
+      }
+      for link in links {
+        rows.push(copyable::value(themes, link, copied))
+      }
+      rows.push(layout::blank())
+      match links.size() == 1 {
+        true => rows.push(layout::line("The link works once, until {expires}.", muted)),
+        false => {
+          rows.push(
+            layout::line("The links share one code, which works once, until {expires}.", muted),
+          )
+        },
+      }
+    },
+  }
+  rows.@
+}
+
+impl cui::Component for Dialog {
+  fn mut render() cui::View {
+    let rows = match self.loading {
+      true => [spinner::spinner()],
+      false => body(self.props.themes, self.links, self.expires, self.error, self.props.copied),
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::centered,
+        title: "Pair a device",
+        meta: "",
+        header: [],
+        body: cui::box(
+          rows,
+          styles: ui::style(
+            flex_direction: ui::FlexDirection::column,
+            padding: layout::inset(),
+            min_width: ui::cells(44),
+          ),
+        ),
+        footer: Maybe::new<cui::View>(),
+        autofocus: true,
+        dismiss: self.props.dismiss,
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
+}

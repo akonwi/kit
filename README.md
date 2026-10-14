@@ -64,6 +64,14 @@ kit servers add dev ~/.kit-dev
 kit attach dev
 kit attach          # pick from saved servers
 
+# Pair with a server on another machine (link from `kit server pair` there):
+kit servers add vps https://kit.example.ts.net/pair#…
+kit attach vps --cwd ~/src/app
+
+# Pair another device with this server, and manage paired devices:
+kit server pair
+kit server devices
+
 # Inspect the complete command tree and operate the local daemon:
 kit --help
 kit server status

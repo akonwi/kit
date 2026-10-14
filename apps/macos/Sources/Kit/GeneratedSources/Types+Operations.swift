@@ -11,6 +11,1855 @@ import struct Foundation.Date
 #endif
 /// API operations, with input and output types, generated from `#/paths` in the OpenAPI document.
 internal enum Operations {
+    /// - Remark: HTTP `GET /v1/devices`.
+    /// - Remark: Generated from `#/paths//v1/devices/get(listDevices)`.
+    internal enum ListDevices {
+        internal static let id: Swift.String = "listDevices"
+        internal struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/devices/GET/header`.
+            internal struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/GET/header/X-Kit-Instance-ID`.
+                internal var xKitInstanceID: Swift.String
+                internal var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListDevices.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - accept:
+                internal init(
+                    xKitInstanceID: Swift.String,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListDevices.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.accept = accept
+                }
+            }
+            internal var headers: Operations.ListDevices.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            internal init(headers: Operations.ListDevices.Input.Headers) {
+                self.headers = headers
+            }
+        }
+        internal enum Output: Sendable, Hashable {
+            internal struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/GET/responses/200/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.DeviceList)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Components.Schemas.DeviceList {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListDevices.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListDevices.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/get(listDevices)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListDevices.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            internal var ok: Operations.ListDevices.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/GET/responses/401/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/401/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/401/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/GET/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/devices/GET/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/401/content/json/error`.
+                        internal var error: Operations.ListDevices.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListDevices.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListDevices.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/401/content/application\/json`.
+                    case json(Operations.ListDevices.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListDevices.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListDevices.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListDevices.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/get(listDevices)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.ListDevices.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            internal var unauthorized: Operations.ListDevices.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/GET/responses/403/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/403/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/403/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/GET/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/403/content/json/error`.
+                        internal var error: Operations.ListDevices.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListDevices.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListDevices.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/403/content/application\/json`.
+                    case json(Operations.ListDevices.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListDevices.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListDevices.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListDevices.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/get(listDevices)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.ListDevices.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            internal var forbidden: Operations.ListDevices.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/GET/responses/409/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/409/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/409/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/GET/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/409/content/json/error`.
+                        internal var error: Operations.ListDevices.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListDevices.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListDevices.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/409/content/application\/json`.
+                    case json(Operations.ListDevices.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListDevices.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListDevices.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListDevices.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/get(listDevices)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.ListDevices.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            internal var conflict: Operations.ListDevices.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/GET/responses/421/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/421/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/421/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/GET/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/421/content/json/error`.
+                        internal var error: Operations.ListDevices.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListDevices.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListDevices.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/421/content/application\/json`.
+                    case json(Operations.ListDevices.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListDevices.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListDevices.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListDevices.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/get(listDevices)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.ListDevices.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            internal var misdirectedRequest: Operations.ListDevices.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/GET/responses/426/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/426/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/426/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/GET/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/426/content/json/error`.
+                        internal var error: Operations.ListDevices.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListDevices.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListDevices.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/426/content/application\/json`.
+                    case json(Operations.ListDevices.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListDevices.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListDevices.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListDevices.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/get(listDevices)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.ListDevices.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            internal var upgradeRequired: Operations.ListDevices.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/GET/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/429/content/json/error`.
+                        internal var error: Operations.ListDevices.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListDevices.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListDevices.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/429/content/application\/json`.
+                    case json(Operations.ListDevices.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListDevices.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListDevices.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListDevices.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/get(listDevices)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ListDevices.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.ListDevices.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/GET/responses/500/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/500/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/500/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/GET/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/GET/responses/500/content/json/error`.
+                        internal var error: Operations.ListDevices.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListDevices.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListDevices.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/GET/responses/500/content/application\/json`.
+                    case json(Operations.ListDevices.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListDevices.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListDevices.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListDevices.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/get(listDevices)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.ListDevices.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            internal var internalServerError: Operations.ListDevices.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        internal enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            internal init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            internal var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            internal static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// - Remark: HTTP `DELETE /v1/devices/{deviceID}`.
+    /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)`.
+    internal enum RevokeDevice {
+        internal static let id: Swift.String = "revokeDevice"
+        internal struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/path`.
+            internal struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/path/deviceID`.
+                internal var deviceID: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - deviceID:
+                internal init(deviceID: Swift.String) {
+                    self.deviceID = deviceID
+                }
+            }
+            internal var path: Operations.RevokeDevice.Input.Path
+            /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/header`.
+            internal struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/header/X-Kit-Instance-ID`.
+                internal var xKitInstanceID: Swift.String
+                internal var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RevokeDevice.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - accept:
+                internal init(
+                    xKitInstanceID: Swift.String,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RevokeDevice.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.accept = accept
+                }
+            }
+            internal var headers: Operations.RevokeDevice.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            internal init(
+                path: Operations.RevokeDevice.Input.Path,
+                headers: Operations.RevokeDevice.Input.Headers
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        internal enum Output: Sendable, Hashable {
+            internal struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                internal init() {}
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.RevokeDevice.Output.NoContent)
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            internal static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            internal var noContent: Operations.RevokeDevice.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/401/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/401/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/401/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/401/content/json/error`.
+                        internal var error: Operations.RevokeDevice.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RevokeDevice.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RevokeDevice.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/401/content/application\/json`.
+                    case json(Operations.RevokeDevice.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RevokeDevice.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RevokeDevice.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RevokeDevice.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.RevokeDevice.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            internal var unauthorized: Operations.RevokeDevice.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/403/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/403/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/403/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/403/content/json/error`.
+                        internal var error: Operations.RevokeDevice.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RevokeDevice.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RevokeDevice.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/403/content/application\/json`.
+                    case json(Operations.RevokeDevice.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RevokeDevice.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RevokeDevice.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RevokeDevice.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.RevokeDevice.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            internal var forbidden: Operations.RevokeDevice.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/404/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/404/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/404/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/404/content/json/error/NotFoundError`.
+                            case notFound(Components.Schemas.NotFoundError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "not_found":
+                                    self = .notFound(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .notFound(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/404/content/json/error`.
+                        internal var error: Operations.RevokeDevice.Output.NotFound.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RevokeDevice.Output.NotFound.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RevokeDevice.Output.NotFound.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/404/content/application\/json`.
+                    case json(Operations.RevokeDevice.Output.NotFound.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RevokeDevice.Output.NotFound.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RevokeDevice.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RevokeDevice.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not Found
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.RevokeDevice.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            internal var notFound: Operations.RevokeDevice.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/409/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/409/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/409/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/409/content/json/error`.
+                        internal var error: Operations.RevokeDevice.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RevokeDevice.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RevokeDevice.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/409/content/application\/json`.
+                    case json(Operations.RevokeDevice.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RevokeDevice.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RevokeDevice.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RevokeDevice.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.RevokeDevice.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            internal var conflict: Operations.RevokeDevice.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/421/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/421/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/421/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/421/content/json/error`.
+                        internal var error: Operations.RevokeDevice.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RevokeDevice.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RevokeDevice.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/421/content/application\/json`.
+                    case json(Operations.RevokeDevice.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RevokeDevice.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RevokeDevice.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RevokeDevice.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.RevokeDevice.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            internal var misdirectedRequest: Operations.RevokeDevice.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/426/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/426/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/426/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/426/content/json/error`.
+                        internal var error: Operations.RevokeDevice.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RevokeDevice.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RevokeDevice.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/426/content/application\/json`.
+                    case json(Operations.RevokeDevice.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RevokeDevice.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RevokeDevice.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RevokeDevice.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.RevokeDevice.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            internal var upgradeRequired: Operations.RevokeDevice.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/429/content/json/error`.
+                        internal var error: Operations.RevokeDevice.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RevokeDevice.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RevokeDevice.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/429/content/application\/json`.
+                    case json(Operations.RevokeDevice.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RevokeDevice.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RevokeDevice.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RevokeDevice.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.RevokeDevice.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.RevokeDevice.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/500/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/500/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/500/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/500/content/json/error`.
+                        internal var error: Operations.RevokeDevice.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RevokeDevice.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RevokeDevice.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/devices/{deviceID}/DELETE/responses/500/content/application\/json`.
+                    case json(Operations.RevokeDevice.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RevokeDevice.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RevokeDevice.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RevokeDevice.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/devices/{deviceID}/delete(revokeDevice)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.RevokeDevice.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            internal var internalServerError: Operations.RevokeDevice.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        internal enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            internal init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            internal var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            internal static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// - Remark: HTTP `GET /v1/health`.
     /// - Remark: Generated from `#/paths//v1/health/get(getHealth)`.
     internal enum GetHealth {
@@ -102,6 +1951,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/health/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/health/GET/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/health/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -114,6 +1965,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -126,6 +1979,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -630,6 +2485,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/health/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/health/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/health/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/health/GET/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/health/GET/responses/429/content/json/error`.
+                        internal var error: Operations.GetHealth.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetHealth.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetHealth.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/health/GET/responses/429/content/application\/json`.
+                    case json(Operations.GetHealth.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetHealth.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetHealth.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetHealth.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/health/get(getHealth)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.GetHealth.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.GetHealth.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/health/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -868,6 +2830,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/models/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/models/GET/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/models/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -880,6 +2844,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -892,6 +2858,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -1396,6 +3364,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/models/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/models/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/models/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/models/GET/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/models/GET/responses/429/content/json/error`.
+                        internal var error: Operations.ListModels.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListModels.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListModels.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/models/GET/responses/429/content/application\/json`.
+                    case json(Operations.ListModels.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListModels.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListModels.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListModels.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/models/get(listModels)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ListModels.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.ListModels.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/models/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -1634,6 +3709,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/models/refresh/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/models/refresh/POST/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/models/refresh/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -1646,6 +3723,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -1658,6 +3737,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -2162,6 +4243,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/models/refresh/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/models/refresh/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/models/refresh/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/models/refresh/POST/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/models/refresh/POST/responses/429/content/json/error`.
+                        internal var error: Operations.RefreshModels.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RefreshModels.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RefreshModels.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/models/refresh/POST/responses/429/content/application\/json`.
+                    case json(Operations.RefreshModels.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RefreshModels.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RefreshModels.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RefreshModels.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/models/refresh/post(refreshModels)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.RefreshModels.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.RefreshModels.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/models/refresh/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -2257,6 +4445,1970 @@ internal enum Operations {
             /// - Throws: An error if `self` is not `.internalServerError`.
             /// - SeeAlso: `.internalServerError`.
             internal var internalServerError: Operations.RefreshModels.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        internal enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            internal init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            internal var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            internal static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// - Remark: HTTP `POST /v1/pairing`.
+    /// - Remark: Generated from `#/paths//v1/pairing/post(createPairing)`.
+    internal enum CreatePairing {
+        internal static let id: Swift.String = "createPairing"
+        internal struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/pairing/POST/header`.
+            internal struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/POST/header/X-Kit-Instance-ID`.
+                internal var xKitInstanceID: Swift.String
+                internal var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreatePairing.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - accept:
+                internal init(
+                    xKitInstanceID: Swift.String,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreatePairing.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.accept = accept
+                }
+            }
+            internal var headers: Operations.CreatePairing.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            internal init(headers: Operations.CreatePairing.Input.Headers) {
+                self.headers = headers
+            }
+        }
+        internal enum Output: Sendable, Hashable {
+            internal struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/201/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.PairingCode)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Components.Schemas.PairingCode {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CreatePairing.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CreatePairing.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/post(createPairing)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreatePairing.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            internal var created: Operations.CreatePairing.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/401/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/401/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/401/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/401/content/json/error`.
+                        internal var error: Operations.CreatePairing.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CreatePairing.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CreatePairing.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/401/content/application\/json`.
+                    case json(Operations.CreatePairing.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CreatePairing.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CreatePairing.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CreatePairing.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/post(createPairing)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.CreatePairing.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            internal var unauthorized: Operations.CreatePairing.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/403/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/403/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/403/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/403/content/json/error`.
+                        internal var error: Operations.CreatePairing.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CreatePairing.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CreatePairing.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/403/content/application\/json`.
+                    case json(Operations.CreatePairing.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CreatePairing.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CreatePairing.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CreatePairing.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/post(createPairing)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.CreatePairing.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            internal var forbidden: Operations.CreatePairing.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/409/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/409/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/409/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/409/content/json/error`.
+                        internal var error: Operations.CreatePairing.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CreatePairing.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CreatePairing.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/409/content/application\/json`.
+                    case json(Operations.CreatePairing.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CreatePairing.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CreatePairing.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CreatePairing.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/post(createPairing)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.CreatePairing.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            internal var conflict: Operations.CreatePairing.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/421/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/421/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/421/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/421/content/json/error`.
+                        internal var error: Operations.CreatePairing.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CreatePairing.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CreatePairing.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/421/content/application\/json`.
+                    case json(Operations.CreatePairing.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CreatePairing.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CreatePairing.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CreatePairing.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/post(createPairing)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.CreatePairing.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            internal var misdirectedRequest: Operations.CreatePairing.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/426/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/426/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/426/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/426/content/json/error`.
+                        internal var error: Operations.CreatePairing.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CreatePairing.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CreatePairing.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/426/content/application\/json`.
+                    case json(Operations.CreatePairing.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CreatePairing.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CreatePairing.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CreatePairing.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/post(createPairing)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.CreatePairing.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            internal var upgradeRequired: Operations.CreatePairing.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/429/content/json/error`.
+                        internal var error: Operations.CreatePairing.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CreatePairing.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CreatePairing.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/429/content/application\/json`.
+                    case json(Operations.CreatePairing.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CreatePairing.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CreatePairing.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CreatePairing.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/post(createPairing)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.CreatePairing.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.CreatePairing.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/500/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/500/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/500/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/500/content/json/error`.
+                        internal var error: Operations.CreatePairing.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CreatePairing.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CreatePairing.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/POST/responses/500/content/application\/json`.
+                    case json(Operations.CreatePairing.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CreatePairing.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CreatePairing.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CreatePairing.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/post(createPairing)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.CreatePairing.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            internal var internalServerError: Operations.CreatePairing.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        internal enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            internal init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            internal var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            internal static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// - Remark: HTTP `POST /v1/pairing/redeem`.
+    /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)`.
+    internal enum RedeemPairing {
+        internal static let id: Swift.String = "redeemPairing"
+        internal struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/header`.
+            internal struct Headers: Sendable, Hashable {
+                internal var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RedeemPairing.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                internal init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RedeemPairing.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            internal var headers: Operations.RedeemPairing.Input.Headers
+            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/requestBody`.
+            internal enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.RedeemPairingInput)
+            }
+            internal var body: Operations.RedeemPairing.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            internal init(
+                headers: Operations.RedeemPairing.Input.Headers = .init(),
+                body: Operations.RedeemPairing.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        internal enum Output: Sendable, Hashable {
+            internal struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/201/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.RedeemPairingResult)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Components.Schemas.RedeemPairingResult {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RedeemPairing.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RedeemPairing.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.RedeemPairing.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            internal var created: Operations.RedeemPairing.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/400/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/400/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/400/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/400/content/json/error/InvalidRequestError`.
+                            case invalidRequest(Components.Schemas.InvalidRequestError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_request":
+                                    self = .invalidRequest(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidRequest(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/400/content/json/error`.
+                        internal var error: Operations.RedeemPairing.Output.BadRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RedeemPairing.Output.BadRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RedeemPairing.Output.BadRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/400/content/application\/json`.
+                    case json(Operations.RedeemPairing.Output.BadRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RedeemPairing.Output.BadRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RedeemPairing.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RedeemPairing.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Bad Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.RedeemPairing.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            internal var badRequest: Operations.RedeemPairing.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/401/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/401/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/401/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/401/content/json/error`.
+                        internal var error: Operations.RedeemPairing.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RedeemPairing.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RedeemPairing.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/401/content/application\/json`.
+                    case json(Operations.RedeemPairing.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RedeemPairing.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RedeemPairing.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RedeemPairing.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.RedeemPairing.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            internal var unauthorized: Operations.RedeemPairing.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/403/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/403/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/403/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/403/content/json/error`.
+                        internal var error: Operations.RedeemPairing.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RedeemPairing.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RedeemPairing.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/403/content/application\/json`.
+                    case json(Operations.RedeemPairing.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RedeemPairing.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RedeemPairing.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RedeemPairing.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.RedeemPairing.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            internal var forbidden: Operations.RedeemPairing.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/409/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/409/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/409/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/409/content/json/error`.
+                        internal var error: Operations.RedeemPairing.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RedeemPairing.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RedeemPairing.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/409/content/application\/json`.
+                    case json(Operations.RedeemPairing.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RedeemPairing.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RedeemPairing.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RedeemPairing.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.RedeemPairing.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            internal var conflict: Operations.RedeemPairing.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct ContentTooLarge: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/413/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/413/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/413/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/413/content/json/error/LimitExceededError`.
+                            case limitExceeded(Components.Schemas.LimitExceededError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "limit_exceeded":
+                                    self = .limitExceeded(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .limitExceeded(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/413/content/json/error`.
+                        internal var error: Operations.RedeemPairing.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RedeemPairing.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RedeemPairing.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/413/content/application\/json`.
+                    case json(Operations.RedeemPairing.Output.ContentTooLarge.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RedeemPairing.Output.ContentTooLarge.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RedeemPairing.Output.ContentTooLarge.Body
+                /// Creates a new `ContentTooLarge`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RedeemPairing.Output.ContentTooLarge.Body) {
+                    self.body = body
+                }
+            }
+            /// Request Entity Too Large
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)/responses/413`.
+            ///
+            /// HTTP response code: `413 contentTooLarge`.
+            case contentTooLarge(Operations.RedeemPairing.Output.ContentTooLarge)
+            /// The associated value of the enum case if `self` is `.contentTooLarge`.
+            ///
+            /// - Throws: An error if `self` is not `.contentTooLarge`.
+            /// - SeeAlso: `.contentTooLarge`.
+            internal var contentTooLarge: Operations.RedeemPairing.Output.ContentTooLarge {
+                get throws {
+                    switch self {
+                    case let .contentTooLarge(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "contentTooLarge",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/421/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/421/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/421/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/421/content/json/error`.
+                        internal var error: Operations.RedeemPairing.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RedeemPairing.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RedeemPairing.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/421/content/application\/json`.
+                    case json(Operations.RedeemPairing.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RedeemPairing.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RedeemPairing.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RedeemPairing.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.RedeemPairing.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            internal var misdirectedRequest: Operations.RedeemPairing.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/426/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/426/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/426/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/426/content/json/error`.
+                        internal var error: Operations.RedeemPairing.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RedeemPairing.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RedeemPairing.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/426/content/application\/json`.
+                    case json(Operations.RedeemPairing.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RedeemPairing.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RedeemPairing.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RedeemPairing.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.RedeemPairing.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            internal var upgradeRequired: Operations.RedeemPairing.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/429/content/json/error/CapacityExceededError`.
+                            case capacityExceeded(Components.Schemas.CapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "capacity_exceeded":
+                                    self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/429/content/json/error`.
+                        internal var error: Operations.RedeemPairing.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RedeemPairing.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RedeemPairing.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/429/content/application\/json`.
+                    case json(Operations.RedeemPairing.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RedeemPairing.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RedeemPairing.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RedeemPairing.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.RedeemPairing.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.RedeemPairing.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/500/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/500/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/500/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/500/content/json/error`.
+                        internal var error: Operations.RedeemPairing.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RedeemPairing.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RedeemPairing.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/pairing/redeem/POST/responses/500/content/application\/json`.
+                    case json(Operations.RedeemPairing.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RedeemPairing.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RedeemPairing.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RedeemPairing.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.RedeemPairing.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            internal var internalServerError: Operations.RedeemPairing.Output.InternalServerError {
                 get throws {
                     switch self {
                     case let .internalServerError(response):
@@ -2525,6 +6677,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/GET/responses/401/content/json/error/SessionsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SessionsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -2537,6 +6691,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -2549,6 +6705,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -3053,6 +7211,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/GET/responses/429/content/json/error/SessionsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SessionsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/GET/responses/429/content/json/error`.
+                        internal var error: Operations.ListSessions.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListSessions.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListSessions.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/GET/responses/429/content/application\/json`.
+                    case json(Operations.ListSessions.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListSessions.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListSessions.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListSessions.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/get(listSessions)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ListSessions.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.ListSessions.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -3516,6 +7781,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/POST/responses/401/content/json/error/SessionsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SessionsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -3528,6 +7795,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -3540,6 +7809,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -4157,6 +8428,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/POST/responses/429/content/json/error/SessionsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SessionsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/POST/responses/429/content/json/error`.
+                        internal var error: Operations.CreateSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CreateSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CreateSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/POST/responses/429/content/application\/json`.
+                    case json(Operations.CreateSession.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CreateSession.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CreateSession.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CreateSession.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/post(createSession)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.CreateSession.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.CreateSession.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -4627,6 +9005,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/GET/responses/401/content/json/error/SessionsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SessionsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -4639,6 +9019,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -4651,6 +9033,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -5262,6 +9646,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/GET/responses/429/content/json/error/SessionsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SessionsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/GET/responses/429/content/json/error`.
+                        internal var error: Operations.GetSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/GET/responses/429/content/application\/json`.
+                    case json(Operations.GetSession.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetSession.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetSession.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetSession.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/get(getSession)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.GetSession.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.GetSession.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -5741,6 +10232,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/PATCH/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/PATCH/responses/401/content/json/error/SessionsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SessionsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/PATCH/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -5753,6 +10246,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -5765,6 +10260,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -6489,6 +10986,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/PATCH/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/PATCH/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/PATCH/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/PATCH/responses/429/content/json/error/SessionsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SessionsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/PATCH/responses/429/content/json/error`.
+                        internal var error: Operations.RenameSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RenameSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RenameSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/PATCH/responses/429/content/application\/json`.
+                    case json(Operations.RenameSession.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RenameSession.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RenameSession.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RenameSession.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/patch(renameSession)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.RenameSession.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.RenameSession.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/PATCH/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -6943,6 +11547,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/DELETE/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/DELETE/responses/401/content/json/error/SessionsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SessionsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/DELETE/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -6955,6 +11561,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -6967,6 +11575,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -7584,6 +12194,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/DELETE/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/DELETE/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/DELETE/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/DELETE/responses/429/content/json/error/SessionsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SessionsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/DELETE/responses/429/content/json/error`.
+                        internal var error: Operations.DeleteSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.DeleteSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DeleteSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/DELETE/responses/429/content/application\/json`.
+                    case json(Operations.DeleteSession.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.DeleteSession.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.DeleteSession.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.DeleteSession.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/delete(deleteSession)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.DeleteSession.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.DeleteSession.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/DELETE/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -8083,6 +12800,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/401/content/json/error/AnnotationsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.AnnotationsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -8095,6 +12814,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -8107,6 +12828,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -8718,6 +13441,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/429/content/json/error/AnnotationsRateLimitedError`.
+                            case rateLimited(Components.Schemas.AnnotationsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/429/content/json/error`.
+                        internal var error: Operations.ListAnnotations.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListAnnotations.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListAnnotations.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/429/content/application\/json`.
+                    case json(Operations.ListAnnotations.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListAnnotations.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListAnnotations.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListAnnotations.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/get(listAnnotations)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ListAnnotations.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.ListAnnotations.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -9203,6 +14033,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/401/content/json/error/AnnotationsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.AnnotationsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -9215,6 +14047,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -9227,6 +14061,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -9969,6 +14805,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/429/content/json/error/AnnotationsRateLimitedError`.
+                            case rateLimited(Components.Schemas.AnnotationsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/429/content/json/error`.
+                        internal var error: Operations.CreateAnnotation.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CreateAnnotation.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CreateAnnotation.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/429/content/application\/json`.
+                    case json(Operations.CreateAnnotation.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CreateAnnotation.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CreateAnnotation.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CreateAnnotation.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/post(createAnnotation)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.CreateAnnotation.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.CreateAnnotation.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -10454,6 +15397,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/401/content/json/error/AnnotationsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.AnnotationsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -10466,6 +15411,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -10478,6 +15425,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -11220,6 +16169,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/429/content/json/error/AnnotationsRateLimitedError`.
+                            case rateLimited(Components.Schemas.AnnotationsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/429/content/json/error`.
+                        internal var error: Operations.UpdateAnnotation.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.UpdateAnnotation.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.UpdateAnnotation.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/429/content/application\/json`.
+                    case json(Operations.UpdateAnnotation.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.UpdateAnnotation.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.UpdateAnnotation.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.UpdateAnnotation.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/patch(updateAnnotation)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.UpdateAnnotation.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.UpdateAnnotation.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -11689,6 +16745,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/401/content/json/error/AnnotationsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.AnnotationsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -11701,6 +16759,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -11713,6 +16773,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -12348,6 +17410,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/429/content/json/error/AnnotationsRateLimitedError`.
+                            case rateLimited(Components.Schemas.AnnotationsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/429/content/json/error`.
+                        internal var error: Operations.DeleteAnnotation.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.DeleteAnnotation.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DeleteAnnotation.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/429/content/application\/json`.
+                    case json(Operations.DeleteAnnotation.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.DeleteAnnotation.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.DeleteAnnotation.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.DeleteAnnotation.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/delete(deleteAnnotation)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.DeleteAnnotation.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.DeleteAnnotation.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -12827,6 +17996,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/POST/responses/401/content/json/error/AttachmentsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.AttachmentsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -12839,6 +18010,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -12851,6 +18024,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -13569,6 +18744,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/POST/responses/429/content/json/error/AttachmentsRateLimitedError`.
+                            case rateLimited(Components.Schemas.AttachmentsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/POST/responses/429/content/json/error`.
+                        internal var error: Operations.UploadAttachment.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.UploadAttachment.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.UploadAttachment.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/POST/responses/429/content/application\/json`.
+                    case json(Operations.UploadAttachment.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.UploadAttachment.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.UploadAttachment.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.UploadAttachment.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/attachments/post(uploadAttachment)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.UploadAttachment.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.UploadAttachment.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -13941,6 +19223,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/resolve/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/resolve/POST/responses/401/content/json/error/AttachmentsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.AttachmentsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/resolve/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -13953,6 +19237,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -13965,6 +19251,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -14683,6 +19971,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/resolve/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/resolve/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/resolve/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/resolve/POST/responses/429/content/json/error/AttachmentsRateLimitedError`.
+                            case rateLimited(Components.Schemas.AttachmentsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/resolve/POST/responses/429/content/json/error`.
+                        internal var error: Operations.ResolveAttachments.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ResolveAttachments.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ResolveAttachments.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/resolve/POST/responses/429/content/application\/json`.
+                    case json(Operations.ResolveAttachments.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ResolveAttachments.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ResolveAttachments.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ResolveAttachments.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/attachments/resolve/post(resolveAttachments)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ResolveAttachments.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.ResolveAttachments.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/resolve/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -15134,6 +20529,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/{attachmentID}/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/{attachmentID}/GET/responses/401/content/json/error/AttachmentsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.AttachmentsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/{attachmentID}/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -15146,6 +20543,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -15158,6 +20557,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -15876,6 +21277,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/{attachmentID}/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/{attachmentID}/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/{attachmentID}/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/{attachmentID}/GET/responses/429/content/json/error/AttachmentsRateLimitedError`.
+                            case rateLimited(Components.Schemas.AttachmentsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/{attachmentID}/GET/responses/429/content/json/error`.
+                        internal var error: Operations.ReadAttachment.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ReadAttachment.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ReadAttachment.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/{attachmentID}/GET/responses/429/content/application\/json`.
+                    case json(Operations.ReadAttachment.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ReadAttachment.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ReadAttachment.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ReadAttachment.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/attachments/{attachmentID}/get(readAttachment)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ReadAttachment.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.ReadAttachment.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/{attachmentID}/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -16278,6 +21786,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/POST/responses/401/content/json/error/BashCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.BashCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -16290,6 +21800,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -16302,6 +21814,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -16919,6 +22433,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/POST/responses/429/content/json/error/BashRateLimitedError`.
+                            case rateLimited(Components.Schemas.BashRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/POST/responses/429/content/json/error`.
+                        internal var error: Operations.StartBash.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartBash.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartBash.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/POST/responses/429/content/application\/json`.
+                    case json(Operations.StartBash.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartBash.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartBash.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartBash.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/post(startBash)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.StartBash.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.StartBash.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -17396,6 +23017,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/GET/responses/401/content/json/error/BashCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.BashCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -17408,6 +23031,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -17420,6 +23045,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -18037,6 +23664,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/GET/responses/429/content/json/error/BashRateLimitedError`.
+                            case rateLimited(Components.Schemas.BashRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/GET/responses/429/content/json/error`.
+                        internal var error: Operations.GetBash.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetBash.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetBash.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/GET/responses/429/content/application\/json`.
+                    case json(Operations.GetBash.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetBash.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetBash.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetBash.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/{executionID}/get(getBash)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.GetBash.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.GetBash.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -18514,6 +24248,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/abort/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/abort/POST/responses/401/content/json/error/BashCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.BashCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/abort/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -18526,6 +24262,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -18538,6 +24276,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -19155,6 +24895,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/abort/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/abort/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/abort/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/abort/POST/responses/429/content/json/error/BashRateLimitedError`.
+                            case rateLimited(Components.Schemas.BashRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/abort/POST/responses/429/content/json/error`.
+                        internal var error: Operations.AbortBash.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.AbortBash.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.AbortBash.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/abort/POST/responses/429/content/application\/json`.
+                    case json(Operations.AbortBash.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.AbortBash.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.AbortBash.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.AbortBash.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/{executionID}/abort/post(abortBash)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.AbortBash.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.AbortBash.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/abort/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -19648,6 +25495,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-history/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-history/GET/responses/401/content/json/error/BashCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.BashCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-history/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -19660,6 +25509,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -19672,6 +25523,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -20289,6 +26142,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-history/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-history/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-history/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-history/GET/responses/429/content/json/error/BashRateLimitedError`.
+                            case rateLimited(Components.Schemas.BashRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-history/GET/responses/429/content/json/error`.
+                        internal var error: Operations.GetBashHistory.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetBashHistory.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetBashHistory.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-history/GET/responses/429/content/application\/json`.
+                    case json(Operations.GetBashHistory.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetBashHistory.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetBashHistory.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetBashHistory.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-history/get(getBashHistory)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.GetBashHistory.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.GetBashHistory.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-history/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -20768,6 +26728,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/401/content/json/error/SessionsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SessionsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -20780,6 +26742,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -20792,6 +26756,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -21623,6 +27589,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/429/content/json/error/SessionsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SessionsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/429/content/json/error`.
+                        internal var error: Operations.CompactSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CompactSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CompactSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/429/content/application\/json`.
+                    case json(Operations.CompactSession.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CompactSession.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CompactSession.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CompactSession.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/compact/post(compactSession)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.CompactSession.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.CompactSession.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -22102,6 +28175,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/401/content/json/error/SessionsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SessionsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -22114,6 +28189,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -22126,6 +28203,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -22957,6 +29036,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/429/content/json/error/SessionsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SessionsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/429/content/json/error`.
+                        internal var error: Operations.ConfigureSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ConfigureSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ConfigureSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/429/content/application\/json`.
+                    case json(Operations.ConfigureSession.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ConfigureSession.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ConfigureSession.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ConfigureSession.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/configure/post(configureSession)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ConfigureSession.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.ConfigureSession.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -23436,6 +29622,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/cwd/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/cwd/POST/responses/401/content/json/error/SessionsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SessionsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/cwd/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -23448,6 +29636,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -23460,6 +29650,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -24184,6 +30376,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/cwd/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/cwd/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/cwd/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/cwd/POST/responses/429/content/json/error/SessionsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SessionsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/cwd/POST/responses/429/content/json/error`.
+                        internal var error: Operations.ChangeSessionCWD.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ChangeSessionCWD.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ChangeSessionCWD.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/cwd/POST/responses/429/content/application\/json`.
+                    case json(Operations.ChangeSessionCWD.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ChangeSessionCWD.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ChangeSessionCWD.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ChangeSessionCWD.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/cwd/post(changeSessionCWD)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ChangeSessionCWD.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.ChangeSessionCWD.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/cwd/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -24669,6 +30968,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/files/read/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/files/read/POST/responses/401/content/json/error/DiffCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.DiffCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/files/read/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -24681,6 +30982,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -24693,6 +30996,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -25563,6 +31868,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/files/read/POST/responses/429/content/json/error/DiffCapacityExceededError`.
                             case capacityExceeded(Components.Schemas.DiffCapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/files/read/POST/responses/429/content/json/error/DiffRateLimitedError`.
+                            case rateLimited(Components.Schemas.DiffRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -25575,6 +31882,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -25586,6 +31895,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -26152,6 +32463,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/observations/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/observations/POST/responses/401/content/json/error/DiffCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.DiffCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/observations/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -26164,6 +32477,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -26176,6 +32491,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -27046,6 +33363,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/observations/POST/responses/429/content/json/error/DiffCapacityExceededError`.
                             case capacityExceeded(Components.Schemas.DiffCapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/observations/POST/responses/429/content/json/error/DiffRateLimitedError`.
+                            case rateLimited(Components.Schemas.DiffRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -27058,6 +33377,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -27069,6 +33390,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -27635,6 +33958,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/targets/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/targets/POST/responses/401/content/json/error/DiffCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.DiffCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/targets/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -27647,6 +33972,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -27659,6 +33986,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -28517,6 +34846,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/targets/POST/responses/429/content/json/error/DiffCapacityExceededError`.
                             case capacityExceeded(Components.Schemas.DiffCapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/targets/POST/responses/429/content/json/error/DiffRateLimitedError`.
+                            case rateLimited(Components.Schemas.DiffRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -28529,6 +34860,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -28540,6 +34873,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -29106,6 +35441,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/working-tree/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/working-tree/POST/responses/401/content/json/error/DiffCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.DiffCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/working-tree/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -29118,6 +35455,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -29130,6 +35469,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -30000,6 +36341,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/working-tree/POST/responses/429/content/json/error/DiffCapacityExceededError`.
                             case capacityExceeded(Components.Schemas.DiffCapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/working-tree/POST/responses/429/content/json/error/DiffRateLimitedError`.
+                            case rateLimited(Components.Schemas.DiffRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -30012,6 +36355,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -30023,6 +36368,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -30558,6 +36905,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/dispose/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/dispose/POST/responses/401/content/json/error/SessionsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SessionsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/dispose/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -30570,6 +36919,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -30582,6 +36933,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -31193,6 +37546,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/dispose/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/dispose/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/dispose/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/dispose/POST/responses/429/content/json/error/SessionsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SessionsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/dispose/POST/responses/429/content/json/error`.
+                        internal var error: Operations.DisposeTemporarySession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.DisposeTemporarySession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DisposeTemporarySession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/dispose/POST/responses/429/content/application\/json`.
+                    case json(Operations.DisposeTemporarySession.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.DisposeTemporarySession.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.DisposeTemporarySession.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.DisposeTemporarySession.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/dispose/post(disposeTemporarySession)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.DisposeTemporarySession.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.DisposeTemporarySession.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/dispose/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -31686,6 +38146,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/GET/responses/401/content/json/error/EventsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.EventsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -31698,6 +38160,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -31710,6 +38174,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -32541,6 +39007,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/GET/responses/429/content/json/error/EventsRateLimitedError`.
+                            case rateLimited(Components.Schemas.EventsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/GET/responses/429/content/json/error`.
+                        internal var error: Operations.GetSessionEventPage.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetSessionEventPage.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetSessionEventPage.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/GET/responses/429/content/application\/json`.
+                    case json(Operations.GetSessionEventPage.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetSessionEventPage.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetSessionEventPage.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetSessionEventPage.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/events/get(getSessionEventPage)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.GetSessionEventPage.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.GetSessionEventPage.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -33039,6 +39612,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/stream/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/stream/GET/responses/401/content/json/error/EventsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.EventsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/stream/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -33051,6 +39626,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -33063,6 +39640,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -33894,6 +40473,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/stream/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/stream/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/stream/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/stream/GET/responses/429/content/json/error/EventsRateLimitedError`.
+                            case rateLimited(Components.Schemas.EventsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/stream/GET/responses/429/content/json/error`.
+                        internal var error: Operations.StreamSessionEvents.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StreamSessionEvents.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StreamSessionEvents.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/stream/GET/responses/429/content/application\/json`.
+                    case json(Operations.StreamSessionEvents.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StreamSessionEvents.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StreamSessionEvents.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StreamSessionEvents.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/events/stream/get(streamSessionEvents)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.StreamSessionEvents.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.StreamSessionEvents.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/stream/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -34410,6 +41096,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/GET/responses/401/content/json/error/WorkspaceCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.WorkspaceCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -34422,6 +41110,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -34434,6 +41124,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -35298,6 +41990,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/GET/responses/429/content/json/error/WorkspaceCapacityExceededError`.
                             case capacityExceeded(Components.Schemas.WorkspaceCapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/GET/responses/429/content/json/error/WorkspaceRateLimitedError`.
+                            case rateLimited(Components.Schemas.WorkspaceRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -35310,6 +42004,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -35321,6 +42017,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -35875,6 +42573,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/forks/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/forks/POST/responses/401/content/json/error/SessionsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SessionsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/forks/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -35887,6 +42587,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -35899,6 +42601,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -36623,6 +43327,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/forks/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/forks/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/forks/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/forks/POST/responses/429/content/json/error/SessionsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SessionsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/forks/POST/responses/429/content/json/error`.
+                        internal var error: Operations.ForkSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ForkSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ForkSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/forks/POST/responses/429/content/application\/json`.
+                    case json(Operations.ForkSession.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ForkSession.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ForkSession.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ForkSession.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/forks/post(forkSession)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ForkSession.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.ForkSession.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/forks/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -37109,6 +43920,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/interactions/{interactionID}/response/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/interactions/{interactionID}/response/POST/responses/401/content/json/error/TurnsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.TurnsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/interactions/{interactionID}/response/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -37121,6 +43934,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -37133,6 +43948,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -37964,6 +44781,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/interactions/{interactionID}/response/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/interactions/{interactionID}/response/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/interactions/{interactionID}/response/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/interactions/{interactionID}/response/POST/responses/429/content/json/error/TurnsRateLimitedError`.
+                            case rateLimited(Components.Schemas.TurnsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/interactions/{interactionID}/response/POST/responses/429/content/json/error`.
+                        internal var error: Operations.RespondInteraction.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RespondInteraction.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RespondInteraction.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/interactions/{interactionID}/response/POST/responses/429/content/application\/json`.
+                    case json(Operations.RespondInteraction.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RespondInteraction.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RespondInteraction.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RespondInteraction.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/interactions/{interactionID}/response/post(respondInteraction)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.RespondInteraction.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.RespondInteraction.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/interactions/{interactionID}/response/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -38462,6 +45386,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/messages/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/messages/GET/responses/401/content/json/error/TranscriptCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.TranscriptCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/messages/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -38474,6 +45400,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -38486,6 +45414,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -39317,6 +46247,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/messages/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/messages/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/messages/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/messages/GET/responses/429/content/json/error/TranscriptRateLimitedError`.
+                            case rateLimited(Components.Schemas.TranscriptRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/messages/GET/responses/429/content/json/error`.
+                        internal var error: Operations.GetMessagePage.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetMessagePage.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetMessagePage.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/messages/GET/responses/429/content/application\/json`.
+                    case json(Operations.GetMessagePage.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetMessagePage.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetMessagePage.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetMessagePage.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/messages/get(getMessagePage)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.GetMessagePage.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.GetMessagePage.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/messages/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -39780,6 +46817,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/401/content/json/error/PluginCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.PluginCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -39792,6 +46831,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -39804,6 +46845,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -40534,6 +47577,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/429/content/json/error/PluginRateLimitedError`.
+                            case rateLimited(Components.Schemas.PluginRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/429/content/json/error`.
+                        internal var error: Operations.ExecutePluginCommand.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ExecutePluginCommand.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ExecutePluginCommand.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/429/content/application\/json`.
+                    case json(Operations.ExecutePluginCommand.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ExecutePluginCommand.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ExecutePluginCommand.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ExecutePluginCommand.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/plugin-commands/post(executePluginCommand)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ExecutePluginCommand.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.ExecutePluginCommand.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -41004,6 +48154,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-toasts/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-toasts/GET/responses/401/content/json/error/PluginCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.PluginCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-toasts/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -41016,6 +48168,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -41028,6 +48182,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -41654,6 +48810,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-toasts/GET/responses/429/content/json/error/CapacityExceededError`.
                             case capacityExceeded(Components.Schemas.CapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-toasts/GET/responses/429/content/json/error/PluginRateLimitedError`.
+                            case rateLimited(Components.Schemas.PluginRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -41666,6 +48824,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -41677,6 +48837,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -42228,6 +49390,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/reload/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/reload/POST/responses/401/content/json/error/SessionsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SessionsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/reload/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -42240,6 +49404,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -42252,6 +49418,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -42869,6 +50037,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/reload/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/reload/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/reload/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/reload/POST/responses/429/content/json/error/SessionsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SessionsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/reload/POST/responses/429/content/json/error`.
+                        internal var error: Operations.ReloadSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ReloadSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ReloadSession.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/reload/POST/responses/429/content/application\/json`.
+                    case json(Operations.ReloadSession.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ReloadSession.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ReloadSession.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ReloadSession.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/reload/post(reloadSession)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ReloadSession.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.ReloadSession.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/reload/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -43339,6 +50614,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/401/content/json/error/ScratchpadCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ScratchpadCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -43351,6 +50628,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -43363,6 +50642,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -43986,6 +51267,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/429/content/json/error/ScratchpadRateLimitedError`.
+                            case rateLimited(Components.Schemas.ScratchpadRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/429/content/json/error`.
+                        internal var error: Operations.GetScratchpad.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetScratchpad.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetScratchpad.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/429/content/application\/json`.
+                    case json(Operations.GetScratchpad.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetScratchpad.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetScratchpad.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetScratchpad.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/scratchpad/get(getScratchpad)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.GetScratchpad.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.GetScratchpad.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -44471,6 +51859,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/401/content/json/error/ScratchpadCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ScratchpadCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -44483,6 +51873,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -44495,6 +51887,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -45243,6 +52637,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/429/content/json/error/ScratchpadRateLimitedError`.
+                            case rateLimited(Components.Schemas.ScratchpadRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/429/content/json/error`.
+                        internal var error: Operations.UpdateScratchpad.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.UpdateScratchpad.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.UpdateScratchpad.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/429/content/application\/json`.
+                    case json(Operations.UpdateScratchpad.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.UpdateScratchpad.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.UpdateScratchpad.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.UpdateScratchpad.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/scratchpad/put(updateScratchpad)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.UpdateScratchpad.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.UpdateScratchpad.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -45773,6 +53274,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/POST/responses/401/content/json/error/SubagentsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SubagentsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -45785,6 +53288,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -45797,6 +53302,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -46423,6 +53930,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/POST/responses/429/content/json/error/CapacityExceededError`.
                             case capacityExceeded(Components.Schemas.CapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/POST/responses/429/content/json/error/SubagentsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SubagentsRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -46435,6 +53944,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -46446,6 +53957,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -47007,6 +54520,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/configure/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/configure/POST/responses/401/content/json/error/SubagentsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SubagentsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/configure/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -47019,6 +54534,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -47031,6 +54548,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -47764,6 +55283,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/configure/POST/responses/429/content/json/error/CapacityExceededError`.
                             case capacityExceeded(Components.Schemas.CapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/configure/POST/responses/429/content/json/error/SubagentsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SubagentsRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -47776,6 +55297,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -47787,6 +55310,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -48362,6 +55887,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/events/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/events/GET/responses/401/content/json/error/SubagentsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SubagentsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/events/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -48374,6 +55901,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -48386,6 +55915,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -49012,6 +56543,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/events/GET/responses/429/content/json/error/CapacityExceededError`.
                             case capacityExceeded(Components.Schemas.CapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/events/GET/responses/429/content/json/error/SubagentsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SubagentsRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -49024,6 +56557,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -49035,6 +56570,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -49603,6 +57140,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/transcript/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/transcript/GET/responses/401/content/json/error/SubagentsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.SubagentsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/transcript/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -49615,6 +57154,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -49627,6 +57168,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -50259,6 +57802,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/transcript/GET/responses/429/content/json/error/CapacityExceededError`.
                             case capacityExceeded(Components.Schemas.CapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/transcript/GET/responses/429/content/json/error/SubagentsRateLimitedError`.
+                            case rateLimited(Components.Schemas.SubagentsRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -50271,6 +57816,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -50282,6 +57829,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -50843,6 +58392,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/transcript/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/transcript/GET/responses/401/content/json/error/TranscriptCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.TranscriptCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/transcript/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -50855,6 +58406,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -50867,6 +58420,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -51698,6 +59253,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/transcript/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/transcript/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/transcript/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/transcript/GET/responses/429/content/json/error/TranscriptRateLimitedError`.
+                            case rateLimited(Components.Schemas.TranscriptRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/transcript/GET/responses/429/content/json/error`.
+                        internal var error: Operations.GetTranscriptPage.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetTranscriptPage.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetTranscriptPage.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/transcript/GET/responses/429/content/application\/json`.
+                    case json(Operations.GetTranscriptPage.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetTranscriptPage.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetTranscriptPage.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetTranscriptPage.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/transcript/get(getTranscriptPage)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.GetTranscriptPage.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.GetTranscriptPage.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/transcript/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -52168,6 +59830,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/promote/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/promote/POST/responses/401/content/json/error/TurnsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.TurnsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/promote/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -52180,6 +59844,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -52192,6 +59858,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -53023,6 +60691,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/promote/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/promote/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/promote/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/promote/POST/responses/429/content/json/error/TurnsRateLimitedError`.
+                            case rateLimited(Components.Schemas.TurnsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/promote/POST/responses/429/content/json/error`.
+                        internal var error: Operations.PromoteTurnFollowUps.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.PromoteTurnFollowUps.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.PromoteTurnFollowUps.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/promote/POST/responses/429/content/application\/json`.
+                    case json(Operations.PromoteTurnFollowUps.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.PromoteTurnFollowUps.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.PromoteTurnFollowUps.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.PromoteTurnFollowUps.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/follow-ups/promote/post(promoteTurnFollowUps)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.PromoteTurnFollowUps.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.PromoteTurnFollowUps.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/promote/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -53493,6 +61268,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/restore/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/restore/POST/responses/401/content/json/error/TurnsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.TurnsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/restore/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -53505,6 +61282,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -53517,6 +61296,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -54348,6 +62129,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/restore/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/restore/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/restore/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/restore/POST/responses/429/content/json/error/TurnsRateLimitedError`.
+                            case rateLimited(Components.Schemas.TurnsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/restore/POST/responses/429/content/json/error`.
+                        internal var error: Operations.RestoreTurnFollowUps.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.RestoreTurnFollowUps.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.RestoreTurnFollowUps.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/restore/POST/responses/429/content/application\/json`.
+                    case json(Operations.RestoreTurnFollowUps.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.RestoreTurnFollowUps.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.RestoreTurnFollowUps.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.RestoreTurnFollowUps.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/follow-ups/restore/post(restoreTurnFollowUps)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.RestoreTurnFollowUps.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.RestoreTurnFollowUps.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/restore/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -54827,6 +62715,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt/POST/responses/401/content/json/error/TurnsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.TurnsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -54839,6 +62729,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -54851,6 +62743,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -55682,6 +63576,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt/POST/responses/429/content/json/error/TurnsRateLimitedError`.
+                            case rateLimited(Components.Schemas.TurnsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt/POST/responses/429/content/json/error`.
+                        internal var error: Operations.Prompt.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.Prompt.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.Prompt.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt/POST/responses/429/content/application\/json`.
+                    case json(Operations.Prompt.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.Prompt.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.Prompt.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.Prompt.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt/post(prompt)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.Prompt.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.Prompt.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -56161,6 +64162,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-command/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-command/POST/responses/401/content/json/error/TurnsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.TurnsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-command/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -56173,6 +64176,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -56185,6 +64190,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -57016,6 +65023,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-command/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-command/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-command/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-command/POST/responses/429/content/json/error/TurnsRateLimitedError`.
+                            case rateLimited(Components.Schemas.TurnsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-command/POST/responses/429/content/json/error`.
+                        internal var error: Operations.SubmitPromptCommand.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SubmitPromptCommand.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SubmitPromptCommand.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-command/POST/responses/429/content/application\/json`.
+                    case json(Operations.SubmitPromptCommand.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SubmitPromptCommand.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SubmitPromptCommand.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SubmitPromptCommand.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt-command/post(submitPromptCommand)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.SubmitPromptCommand.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.SubmitPromptCommand.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-command/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -57495,6 +65609,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-commands/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-commands/POST/responses/401/content/json/error/TurnsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.TurnsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-commands/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -57507,6 +65623,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -57519,6 +65637,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -58350,6 +66470,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-commands/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-commands/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-commands/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-commands/POST/responses/429/content/json/error/TurnsRateLimitedError`.
+                            case rateLimited(Components.Schemas.TurnsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-commands/POST/responses/429/content/json/error`.
+                        internal var error: Operations.StartPromptCommand.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartPromptCommand.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartPromptCommand.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-commands/POST/responses/429/content/application\/json`.
+                    case json(Operations.StartPromptCommand.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartPromptCommand.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartPromptCommand.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartPromptCommand.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt-commands/post(startPromptCommand)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.StartPromptCommand.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.StartPromptCommand.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-commands/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -58829,6 +67056,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompts/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompts/POST/responses/401/content/json/error/TurnsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.TurnsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompts/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -58841,6 +67070,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -58853,6 +67084,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -59684,6 +67917,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompts/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompts/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompts/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompts/POST/responses/429/content/json/error/TurnsRateLimitedError`.
+                            case rateLimited(Components.Schemas.TurnsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompts/POST/responses/429/content/json/error`.
+                        internal var error: Operations.StartPrompt.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartPrompt.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartPrompt.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompts/POST/responses/429/content/application\/json`.
+                    case json(Operations.StartPrompt.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartPrompt.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartPrompt.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartPrompt.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompts/post(startPrompt)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.StartPrompt.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.StartPrompt.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompts/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -60163,6 +68503,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/submissions/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/submissions/POST/responses/401/content/json/error/TurnsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.TurnsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/submissions/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -60175,6 +68517,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -60187,6 +68531,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -61018,6 +69364,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/submissions/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/submissions/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/submissions/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/submissions/POST/responses/429/content/json/error/TurnsRateLimitedError`.
+                            case rateLimited(Components.Schemas.TurnsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/submissions/POST/responses/429/content/json/error`.
+                        internal var error: Operations.SubmitPrompt.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SubmitPrompt.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SubmitPrompt.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/submissions/POST/responses/429/content/application\/json`.
+                    case json(Operations.SubmitPrompt.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SubmitPrompt.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SubmitPrompt.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SubmitPrompt.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/submissions/post(submitPrompt)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.SubmitPrompt.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.SubmitPrompt.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/submissions/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -61495,6 +69948,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/GET/responses/401/content/json/error/TurnsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.TurnsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -61507,6 +69962,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -61519,6 +69976,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -62350,6 +70809,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/GET/responses/429/content/json/error/TurnsRateLimitedError`.
+                            case rateLimited(Components.Schemas.TurnsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/GET/responses/429/content/json/error`.
+                        internal var error: Operations.GetTurn.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetTurn.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetTurn.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/GET/responses/429/content/application\/json`.
+                    case json(Operations.GetTurn.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetTurn.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetTurn.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetTurn.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/{turnID}/get(getTurn)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.GetTurn.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.GetTurn.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -62827,6 +71393,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/abort/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/abort/POST/responses/401/content/json/error/TurnsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.TurnsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/abort/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -62839,6 +71407,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -62851,6 +71421,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -63682,6 +72254,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/abort/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/abort/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/abort/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/abort/POST/responses/429/content/json/error/TurnsRateLimitedError`.
+                            case rateLimited(Components.Schemas.TurnsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/abort/POST/responses/429/content/json/error`.
+                        internal var error: Operations.AbortTurn.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.AbortTurn.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.AbortTurn.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/abort/POST/responses/429/content/application\/json`.
+                    case json(Operations.AbortTurn.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.AbortTurn.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.AbortTurn.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.AbortTurn.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/{turnID}/abort/post(abortTurn)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.AbortTurn.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.AbortTurn.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/abort/POST/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -64152,6 +72831,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/GET/responses/401/content/json/error/VcsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.VcsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -64164,6 +72845,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -64176,6 +72859,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -64793,6 +73478,113 @@ internal enum Operations {
                     }
                 }
             }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/GET/responses/429/content/json/error/VcsRateLimitedError`.
+                            case rateLimited(Components.Schemas.VcsRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/GET/responses/429/content/json/error`.
+                        internal var error: Operations.GetSessionVCS.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetSessionVCS.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetSessionVCS.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/GET/responses/429/content/application\/json`.
+                    case json(Operations.GetSessionVCS.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetSessionVCS.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetSessionVCS.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetSessionVCS.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/vcs/get(getSessionVCS)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.GetSessionVCS.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.GetSessionVCS.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
             internal struct InternalServerError: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/GET/responses/500/content`.
                 internal enum Body: Sendable, Hashable {
@@ -65263,6 +74055,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/events/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/events/GET/responses/401/content/json/error/VcsCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.VcsCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/events/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -65275,6 +74069,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -65287,6 +74083,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -65913,6 +74711,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/events/GET/responses/429/content/json/error/CapacityExceededError`.
                             case capacityExceeded(Components.Schemas.CapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/events/GET/responses/429/content/json/error/VcsRateLimitedError`.
+                            case rateLimited(Components.Schemas.VcsRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -65925,6 +74725,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -65936,6 +74738,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -66511,6 +75315,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/GET/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/GET/responses/401/content/json/error/WorkspaceCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.WorkspaceCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/GET/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -66523,6 +75329,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -66535,6 +75343,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -67399,6 +76209,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/GET/responses/429/content/json/error/WorkspaceCapacityExceededError`.
                             case capacityExceeded(Components.Schemas.WorkspaceCapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/GET/responses/429/content/json/error/WorkspaceRateLimitedError`.
+                            case rateLimited(Components.Schemas.WorkspaceRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -67411,6 +76223,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -67422,6 +76236,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -68000,6 +76816,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/directories/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/directories/POST/responses/401/content/json/error/WorkspaceCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.WorkspaceCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/directories/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -68012,6 +76830,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -68024,6 +76844,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -68888,6 +77710,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/directories/POST/responses/429/content/json/error/WorkspaceCapacityExceededError`.
                             case capacityExceeded(Components.Schemas.WorkspaceCapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/directories/POST/responses/429/content/json/error/WorkspaceRateLimitedError`.
+                            case rateLimited(Components.Schemas.WorkspaceRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -68900,6 +77724,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -68911,6 +77737,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -69489,6 +78317,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/files/read/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/files/read/POST/responses/401/content/json/error/WorkspaceCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.WorkspaceCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/files/read/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -69501,6 +78331,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -69513,6 +78345,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -70377,6 +79211,8 @@ internal enum Operations {
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/files/read/POST/responses/429/content/json/error/WorkspaceCapacityExceededError`.
                             case capacityExceeded(Components.Schemas.WorkspaceCapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/files/read/POST/responses/429/content/json/error/WorkspaceRateLimitedError`.
+                            case rateLimited(Components.Schemas.WorkspaceRateLimitedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -70389,6 +79225,8 @@ internal enum Operations {
                                 switch discriminator {
                                 case "capacity_exceeded":
                                     self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -70400,6 +79238,8 @@ internal enum Operations {
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
                                 case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -70811,6 +79651,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/shutdown/POST/responses/401/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/shutdown/POST/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
                             /// - Remark: Generated from `#/paths/v1/shutdown/POST/responses/401/content/json/error/UnauthorizedError`.
                             case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
@@ -70823,6 +79665,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
                                 case "unauthorized":
                                     self = .unauthorized(try .init(from: decoder))
                                 default:
@@ -70835,6 +79679,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
                                 case let .unauthorized(value):
                                     try value.encode(to: encoder)
                                 }
@@ -71334,6 +80180,113 @@ internal enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/shutdown/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/shutdown/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/shutdown/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/shutdown/POST/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/shutdown/POST/responses/429/content/json/error`.
+                        internal var error: Operations.Shutdown.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.Shutdown.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.Shutdown.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/shutdown/POST/responses/429/content/application\/json`.
+                    case json(Operations.Shutdown.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.Shutdown.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.Shutdown.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.Shutdown.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/shutdown/post(shutdown)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.Shutdown.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.Shutdown.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
                             response: self
                         )
                     }

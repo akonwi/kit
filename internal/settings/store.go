@@ -159,6 +159,121 @@ func (s *Store) UpdateDiffWrapLines(enabled bool) (Settings, error) {
 	return cloneSettings(current), nil
 }
 
+// ServerAccessChange is a change to server.listen and server.allowedHosts.
+type ServerAccessChange struct {
+	// SetListen replaces server.listen with Listen, or removes it when Listen
+	// is empty.
+	SetListen bool
+	Listen    string
+	// AddHosts are appended to server.allowedHosts unless already listed.
+	AddHosts []string
+	// RemoveHosts are removed from server.allowedHosts.
+	RemoveHosts []string
+}
+
+// UpdateServerAccess applies change after re-reading the latest settings. It
+// edits the stored allowedHosts list in place, so entries it does not touch,
+// including ones Load ignores as invalid, are kept, as are other server
+// fields. An emptied list or server object is removed.
+func (s *Store) UpdateServerAccess(change ServerAccessChange) (Settings, error) {
+	if s == nil {
+		return Settings{}, errors.New("update server access: store is nil")
+	}
+	if change.SetListen && change.Listen != "" {
+		address, err := serverlisten.Parse(change.Listen)
+		if err != nil {
+			return Settings{}, fmt.Errorf("update server access: %w", err)
+		}
+		change.Listen = address.String()
+	}
+	canonical := func(hosts []string) ([]string, error) {
+		parsed := make([]string, 0, len(hosts))
+		for _, host := range hosts {
+			value, err := serveraccess.ParseHost(host)
+			if err != nil {
+				return nil, fmt.Errorf("update server access: %w", err)
+			}
+			parsed = append(parsed, value)
+		}
+		return parsed, nil
+	}
+	add, err := canonical(change.AddHosts)
+	if err != nil {
+		return Settings{}, err
+	}
+	remove, err := canonical(change.RemoveHosts)
+	if err != nil {
+		return Settings{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, _, err := s.load()
+	if err != nil {
+		return Settings{}, err
+	}
+	server := map[string]json.RawMessage{}
+	if raw, ok := current.fields["server"]; ok {
+		if err := json.Unmarshal(raw, &server); err != nil || server == nil {
+			return Settings{}, fmt.Errorf("update server access: settings field %q is not an object", "server")
+		}
+	}
+	if change.SetListen {
+		if change.Listen == "" {
+			delete(server, "listen")
+		} else {
+			server["listen"], _ = json.Marshal(change.Listen)
+		}
+	}
+	if len(add) > 0 || len(remove) > 0 {
+		var entries []json.RawMessage
+		if raw, ok := server["allowedHosts"]; ok {
+			if err := json.Unmarshal(raw, &entries); err != nil {
+				return Settings{}, fmt.Errorf("update server access: settings field %q is not an array", "server.allowedHosts")
+			}
+		}
+		// listed reports an entry's canonical host, if it is a valid one.
+		listed := func(entry json.RawMessage) (string, bool) {
+			var value string
+			if json.Unmarshal(entry, &value) != nil {
+				return "", false
+			}
+			host, err := serveraccess.ParseHost(value)
+			return host, err == nil
+		}
+		entries = slices.DeleteFunc(entries, func(entry json.RawMessage) bool {
+			host, ok := listed(entry)
+			return ok && slices.Contains(remove, host)
+		})
+		for _, host := range add {
+			if !slices.ContainsFunc(entries, func(entry json.RawMessage) bool {
+				existing, ok := listed(entry)
+				return ok && existing == host
+			}) {
+				encoded, _ := json.Marshal(host)
+				entries = append(entries, encoded)
+			}
+		}
+		if len(entries) == 0 {
+			delete(server, "allowedHosts")
+		} else {
+			server["allowedHosts"], _ = json.Marshal(entries)
+		}
+	}
+	if len(server) == 0 {
+		delete(current.fields, "server")
+	} else {
+		current.fields["server"], _ = json.Marshal(server)
+	}
+	if err := s.write(current.fields); err != nil {
+		return Settings{}, err
+	}
+	updated, _, err := s.load()
+	if err != nil {
+		return Settings{}, err
+	}
+	return cloneSettings(updated), nil
+}
+
 func (s *Store) UpdateTheme(name string) (Settings, error) {
 	if s == nil {
 		return Settings{}, errors.New("update settings theme: store is nil")

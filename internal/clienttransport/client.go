@@ -65,6 +65,9 @@ type Connection struct {
 	// ServerID, MachineID, and Home are learned from a compatible server's
 	// health; they are empty until ProbeCompatible succeeds.
 	ServerID, MachineID, Home string
+	// Providers are the providers the server has credentials for, as of the
+	// latest compatibility probe.
+	Providers []string
 }
 
 // Resolver returns the current authenticated server connection.
@@ -314,6 +317,12 @@ func (c *Client) ProbeConnection(ctx context.Context, connection Connection, req
 		if rejectedInstance(response.StatusCode, body) {
 			return Connection{}, Health{}, errInstanceChanged
 		}
+		// Declared failures, such as an expired device token, keep their
+		// stable codes; anything else is reported with the raw status.
+		var declared *APIError
+		if err := httpapi.DecodeOperationError(httpapi.GetHealth, response.StatusCode, body); errors.As(err, &declared) {
+			return Connection{}, Health{}, err
+		}
 		return Connection{}, Health{}, fmt.Errorf("server health returned %s: %s", response.Status, strings.TrimSpace(string(body)))
 	}
 	var health Health
@@ -377,6 +386,7 @@ func (c *Client) ProbeCompatible(ctx context.Context) (Connection, error) {
 	connection.ServerID = health.ServerID
 	connection.MachineID = health.MachineID
 	connection.Home = health.Home
+	connection.Providers = append([]string(nil), health.Providers...)
 	return connection, nil
 }
 

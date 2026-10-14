@@ -23,11 +23,13 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/auth"
+	"github.com/akonwi/kit/internal/devices"
 	"github.com/akonwi/kit/internal/githubpr"
 	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/mcpconfig"
 	"github.com/akonwi/kit/internal/mcpruntime"
+	"github.com/akonwi/kit/internal/pairing"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
 	"github.com/akonwi/kit/internal/serveraccess"
@@ -64,6 +66,9 @@ type RunOptions struct {
 	// Listen overrides the server.listen setting for this process. Empty uses
 	// the setting, or loopback on an ephemeral port when it is unset.
 	Listen string
+	// Foreground marks a server run in the foreground under its own
+	// supervisor, which clients must not restart.
+	Foreground bool
 }
 
 // Run serves the authenticated local daemon until cancellation or shutdown.
@@ -356,6 +361,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		URL:               baseURL,
 		StartedAt:         startedAt,
 		CredentialSources: credentialSources,
+		Foreground:        options.Foreground,
 	}
 
 	if err := localdiscovery.Publish(paths, token, registry); err != nil {
@@ -363,15 +369,34 @@ func Run(ctx context.Context, options RunOptions) error {
 	}
 	published = true
 
+	deviceService, err := devices.NewService(ctx, store, devices.Options{Logger: logger})
+	if err != nil {
+		return err
+	}
+	pairingRegistry := pairing.NewRegistry(nil)
+	allowed := loadAccessSettings(settingsStore, logger)
+	purgeContext, stopPurge := context.WithCancel(ctx)
+	purgeDone := make(chan struct{})
+	go func() {
+		defer close(purgeDone)
+		deviceService.RunPurge(purgeContext, devicePurgeInterval)
+	}()
+	defer func() {
+		stopPurge()
+		<-purgeDone
+	}()
+
 	stop := make(chan struct{}, 1)
 	streamShutdown, endStreams := context.WithCancel(context.Background())
 	defer endStreams()
 	handler := newHandler(localHandlerOptions{
 		streamShutdown: streamShutdown,
-		access:         accessPolicy(settingsStore, logger),
+		access:         allowed.policy(),
 		registry:       registry,
 		identity:       identity,
 		token:          token,
+		devices:        deviceService,
+		pairing:        pairingRegistry,
 		store:          store,
 		logger:         logger,
 		sessions: runtimeSessionService{
@@ -406,6 +431,9 @@ func Run(ctx context.Context, options RunOptions) error {
 		serveResult <- err
 	}()
 	logger.Info("local daemon ready", "url", baseURL, "instance", instanceID)
+	if err := announcePairing(logger, deviceService, pairingRegistry, address.Exposed() || len(allowed.hosts) > 0, allowed, baseURL); err != nil {
+		logger.Warn("issue startup pairing link", "error", err)
+	}
 
 	var runErr error
 	select {
@@ -439,10 +467,13 @@ func Run(ctx context.Context, options RunOptions) error {
 
 type localHandlerOptions struct {
 	// access decides which Host and Origin headers name this daemon.
-	access      serveraccess.Policy
-	registry    localdiscovery.Registry
-	identity    serverIdentity
-	token       string
+	access   serveraccess.Policy
+	registry localdiscovery.Registry
+	identity serverIdentity
+	token    string
+	// devices and pairing serve device tokens; nil accepts only token.
+	devices     *devices.Service
+	pairing     *pairing.Registry
 	store       *storage.Store
 	sessions    sessionService
 	attachments attachmentService
@@ -483,29 +514,39 @@ func newHandler(options localHandlerOptions) http.Handler {
 	if options.attachments != nil {
 		registerAttachmentRoutes(mux, options.attachments)
 	}
+	if options.pairing == nil {
+		options.pairing = pairing.NewRegistry(nil)
+	}
+	credentials := newAccess(options.token, options.devices, options.pairing)
+	if options.devices != nil {
+		registerDeviceRoutes(mux, credentials, options.logger)
+	}
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if !options.access.HostAllowed(request.Host) {
+			limitUnauthenticatedRead(writer)
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusMisdirectedRequest, httpapi.ErrorInvalidHost, "invalid host", nil))
 			return
 		}
 		if !options.access.OriginAllowed(request.Header.Get("Origin"), request.Host) {
+			limitUnauthenticatedRead(writer)
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusForbidden, httpapi.ErrorForbidden, "forbidden", nil))
 			return
 		}
-		if subtle.ConstantTimeCompare(
-			[]byte(request.Header.Get("Authorization")),
-			[]byte("Bearer "+options.token),
-		) != 1 {
-			writer.Header().Set("WWW-Authenticate", "Bearer")
-			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusUnauthorized, httpapi.ErrorUnauthorized, "unauthorized", nil))
+		request = withRequestAddress(request)
+		authenticated, release, ok := credentials.authenticate(writer, request)
+		if !ok {
 			return
 		}
+		defer release()
+		request = authenticated
 		// Health without an instance header is how an explicitly addressed
-		// client learns the running instance; every other request is bound to it.
+		// client learns the running instance, and a new device redeems a
+		// pairing code before it knows any; every other request is bound to
+		// the running instance.
 		learningInstance := httpapi.GetHealth.OptionalInstance && request.Method == httpapi.GetHealth.Method &&
 			request.URL.Path == httpapi.GetHealth.Path && len(request.Header.Values(instanceHeader)) == 0
-		if !learningInstance && subtle.ConstantTimeCompare(
+		if !learningInstance && !credentials.skipsCredential(request) && subtle.ConstantTimeCompare(
 			[]byte(request.Header.Get(instanceHeader)),
 			[]byte(options.registry.InstanceID),
 		) != 1 {
@@ -719,18 +760,44 @@ func listenAddress(override string, store *settings.Store, logger *slog.Logger) 
 
 // accessPolicy reads the allowed hosts and origins from settings. Settings
 // that cannot be read leave only loopback hosts and same-host origins.
-func accessPolicy(store *settings.Store, logger *slog.Logger) serveraccess.Policy {
+// accessSettings are the hosts and origins the daemon accepts beyond loopback.
+type accessSettings struct {
+	hosts, origins []string
+}
+
+func (a accessSettings) policy() serveraccess.Policy {
+	return serveraccess.NewPolicy(a.hosts, a.origins)
+}
+
+func loadAccessSettings(store *settings.Store, logger *slog.Logger) accessSettings {
 	current, warnings, err := store.Load()
 	if err != nil {
 		logger.Warn("settings unavailable; accepting only loopback hosts", "error", err)
-		return serveraccess.Policy{}
+		return accessSettings{}
 	}
 	for _, warning := range warnings {
 		if warning.Field == "server.allowedHosts" || warning.Field == "server.allowedOrigins" {
 			logger.Warn("ignoring invalid access setting", "error", warning)
 		}
 	}
-	return serveraccess.NewPolicy(current.ServerAllowedHosts, current.ServerAllowedOrigins)
+	return accessSettings{hosts: current.ServerAllowedHosts, origins: current.ServerAllowedOrigins}
+}
+
+// announcePairing logs a pairing link for every served URL when the daemon
+// serves beyond loopback and no device is paired, so a deployment whose only
+// visible output is its log can pair its first device.
+func announcePairing(logger *slog.Logger, deviceService *devices.Service, registry *pairing.Registry, serving bool, allowed accessSettings, baseURL string) error {
+	if !serving || deviceService.Active() > 0 {
+		return nil
+	}
+	code, expires, err := registry.Issue(pairing.StartupLifetime)
+	if err != nil {
+		return err
+	}
+	for _, served := range pairing.ServedURLs(allowed.hosts, allowed.origins, baseURL) {
+		logger.Info("pair a device with this link", "link", pairing.Link(served, code), "expires", expires.Format(time.RFC3339))
+	}
+	return nil
 }
 
 // serverIdentity is the stable identity reported through health.

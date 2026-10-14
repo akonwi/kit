@@ -71,11 +71,16 @@ func ParseOrigin(value string) (string, error) {
 }
 
 // HostAllowed reports whether a request Host header names this daemon: a
-// loopback IP address on any port, or an allowed host on any port.
+// loopback IP address or localhost on any port, or an allowed host on any
+// port. A rebinding attack cannot produce localhost, which no remote site
+// controls.
 func (p Policy) HostAllowed(requestHost string) bool {
 	host, _ := splitHost(requestHost)
 	if host == "" {
 		return false
+	}
+	if strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") {
+		return true
 	}
 	if address, err := netip.ParseAddr(host); err == nil {
 		address = address.Unmap()

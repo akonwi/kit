@@ -94,6 +94,7 @@ type Client struct {
 	transport      operationTransport
 	compatibility  compatibilityTransport
 	sessions       sessionTransport
+	devices        deviceTransport
 	lifetime       context.Context
 	cancel         context.CancelFunc
 	closed         bool
@@ -158,6 +159,7 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 	client := newClient(transport, transport.CloseIdleConnections)
 	client.compatibility = transport
 	client.sessions = transport
+	client.devices = transport
 	return client, nil
 }
 
@@ -328,6 +330,8 @@ type ServerInfo struct {
 	// SameMachine reports whether the server runs on this client's machine.
 	// It is false when this client's machine identifier is unavailable.
 	SameMachine bool
+	// Providers are the model providers the server has credentials for.
+	Providers []string
 }
 
 // Server verifies that the connected server remains ready and compatible and
@@ -347,7 +351,7 @@ func (c *Client) Server(ctx context.Context) (ServerInfo, error) {
 	}
 	return ServerInfo{
 		ID: connection.ServerID, KitVersion: connection.KitVersion, ProtocolVersion: connection.ProtocolVersion,
-		Home: connection.Home, SameMachine: c.isLocalMachine(connection.MachineID),
+		Home: connection.Home, SameMachine: c.isLocalMachine(connection.MachineID), Providers: connection.Providers,
 	}, nil
 }
 

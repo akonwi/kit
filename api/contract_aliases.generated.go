@@ -45,6 +45,8 @@ type (
 	CreateAnnotationInput             = contract.CreateAnnotationInput
 	CreateSessionInput                = contract.CreateSessionInput
 	DeleteAnnotationInput             = contract.DeleteAnnotationInput
+	DeviceInfo                        = contract.DeviceInfo
+	DeviceList                        = contract.DeviceList
 	DiffComputation                   = contract.DiffComputation
 	DiffEndpoint                      = contract.DiffEndpoint
 	DiffError                         = contract.DiffError
@@ -95,6 +97,7 @@ type (
 	ModelInputKind                    = contract.ModelInputKind
 	ObserveDiffInput                  = contract.ObserveDiffInput
 	ObserveWorkingTreeInput           = contract.ObserveWorkingTreeInput
+	PairingCode                       = contract.PairingCode
 	PeerQueryChangedEvent             = contract.PeerQueryChangedEvent
 	PendingBoundary                   = contract.PendingBoundary
 	PinnedDiffTarget                  = contract.PinnedDiffTarget
@@ -124,6 +127,8 @@ type (
 	ProviderRetryStartedEvent         = contract.ProviderRetryStartedEvent
 	ReadFileDiffInput                 = contract.ReadFileDiffInput
 	ReadWorkspaceFileInput            = contract.ReadWorkspaceFileInput
+	RedeemPairingInput                = contract.RedeemPairingInput
+	RedeemPairingResult               = contract.RedeemPairingResult
 	ReloadSessionResult               = contract.ReloadSessionResult
 	RenameSessionInput                = contract.RenameSessionInput
 	RestoreFollowUpsResult            = contract.RestoreFollowUpsResult
@@ -282,6 +287,7 @@ const (
 	MaxAttachmentsPerPrompt               = contract.MaxAttachmentsPerPrompt
 	MaxBashHistoryCommandBytes            = contract.MaxBashHistoryCommandBytes
 	MaxBashHistoryPageSize                = contract.MaxBashHistoryPageSize
+	MaxDevices                            = contract.MaxDevices
 	MaxDiffCandidates                     = contract.MaxDiffCandidates
 	MaxDiffCursorBytes                    = contract.MaxDiffCursorBytes
 	MaxDiffFileBytes                      = contract.MaxDiffFileBytes

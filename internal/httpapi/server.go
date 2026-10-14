@@ -33,7 +33,26 @@ func serverErrors() []ErrorResponse {
 	return []ErrorResponse{{Status: http.StatusInternalServerError, Codes: []ErrorCode{ErrorInternal}}}
 }
 
+// DevicePath addresses one paired device.
+type DevicePath struct {
+	DeviceID string `path:"deviceID"`
+}
+
+func deviceErrors(statuses ...int) []ErrorResponse {
+	return append(lifecycleErrors(statuses...), serverErrors()...)
+}
+
 var (
+	// RedeemPairing exchanges a pairing code for a device token. It is the
+	// only operation that accepts requests without a credential.
+	RedeemPairing = Operation[ServerPath, protocol.RedeemPairingInput, protocol.RedeemPairingResult]{ID: "redeemPairing", Tag: "server", Method: http.MethodPost, Path: "/v1/pairing/redeem", Success: http.StatusCreated, Errors: append(deviceErrors(400, 413), ErrorResponse{Status: http.StatusTooManyRequests, Codes: []ErrorCode{ErrorRateLimited, ErrorCapacityExceeded}}), NoProtocol: true, Unauthenticated: true}
+	// CreatePairing issues a pairing code for another device.
+	CreatePairing = Operation[ServerPath, NoBody, protocol.PairingCode]{ID: "createPairing", Tag: "server", Method: http.MethodPost, Path: "/v1/pairing", Success: http.StatusCreated, Errors: serverErrors(), NoProtocol: true}
+	// ListDevices lists paired devices.
+	ListDevices = Operation[ServerPath, NoBody, protocol.DeviceList]{ID: "listDevices", Tag: "server", Method: http.MethodGet, Path: "/v1/devices", Success: http.StatusOK, Errors: serverErrors(), NoProtocol: true}
+	// RevokeDevice revokes a device's token and ends its open requests.
+	RevokeDevice = Operation[DevicePath, NoBody, NoBody]{ID: "revokeDevice", Tag: "server", Method: http.MethodDelete, Path: "/v1/devices/{deviceID}", Success: http.StatusNoContent, Errors: deviceErrors(404), NoProtocol: true}
+
 	GetHealth     = Operation[ServerPath, NoBody, Health]{ID: "getHealth", Tag: "server", Method: http.MethodGet, Path: "/v1/health", Success: http.StatusOK, Errors: serverErrors(), NoProtocol: true, OptionalInstance: true}
 	Shutdown      = Operation[ServerPath, NoBody, ShutdownResult]{ID: "shutdown", Tag: "server", Method: http.MethodPost, Path: "/v1/shutdown", Success: http.StatusAccepted, Errors: serverErrors(), NoProtocol: true}
 	ListModels    = Operation[ServerPath, NoBody, protocol.ModelCatalog]{ID: "listModels", Tag: "server", Method: http.MethodGet, Path: "/v1/models", Success: http.StatusOK, Errors: serverErrors()}

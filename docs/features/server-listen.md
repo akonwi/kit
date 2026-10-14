@@ -26,6 +26,8 @@ changing it.
 already running, `kit server start --listen` succeeds only if the daemon serves
 the requested address; otherwise it reports the mismatch and leaves the daemon
 running. A daemon started later without the flag uses the setting again.
+`kit server run --listen <host:port>`, which runs the server in the foreground
+for containers and service managers, accepts the same override.
 
 ## Accepted addresses
 
@@ -45,9 +47,10 @@ listens on the default address. An invalid `--listen` value is an error.
 ## Allowed hosts and origins
 
 The daemon rejects requests whose `Host` header does not name it, which protects
-it from DNS rebinding. It always accepts loopback IP addresses on any port, so
-clients reaching it through an SSH port forward work without configuration. A
-tunnel or reverse proxy sends its own hostname instead; list it in
+it from DNS rebinding. It always accepts loopback IP addresses and `localhost`
+on any port, so clients reaching it through an SSH port forward work without
+configuration. A tunnel or reverse proxy sends its own hostname instead; list
+it in
 `server.allowedHosts`:
 
 ```json
@@ -73,5 +76,8 @@ ignored with a warning in the daemon log. Run `kit server restart` after
 changing either list.
 
 Binding beyond loopback and allowing hosts do not by themselves make Kit usable
-remotely: Kit does not terminate TLS, and remote clients need credentials. See
+remotely: Kit does not terminate TLS, and remote clients need credentials,
+which they obtain by [pairing](pairing.md). See
+[Remote deployment](remote-deployment.md) for tunnels, reverse proxies, and
+cloud hosts, and
 [ADR 0045](../adrs/0045-connect-clients-to-local-ssh-and-network-servers.md).

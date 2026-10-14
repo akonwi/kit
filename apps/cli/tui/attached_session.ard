@@ -355,7 +355,7 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     incompatible: "",
     files: file_index::source(),
     workspace_id: "",
-    mentionable: session_mentions::source(),
+    mentionable: session_mentions::source(options.ServerHome),
     mentionable_load: Maybe::new<contextbridge::Cancellation>(),
     subagents: subagents::roster(),
     subagents_loading: false,

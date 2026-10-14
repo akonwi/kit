@@ -93,7 +93,12 @@ private struct Choice {
 // than full screen, and returns the chosen session's ID, or an empty ID when
 // it is dismissed. The picker's rows are cleared when it closes. A Cooper
 // inline app keeps its height, so the sessions are listed first to size it.
-fn pick_session(ctx: context::Context, client: mut api::Client, definition: kittheme::Definition) Str!Error {
+fn pick_session(
+  ctx: context::Context,
+  client: mut api::Client,
+  home: Str,
+  definition: kittheme::Definition,
+) Str!Error {
   let listed = match client.ListSessions(ctx, api::ListSessionsOptions{CWD: ""}) {
     ok(found) => Maybe::new(found),
     err(_) => Maybe::new<[protocol::SessionInfo]>(),
@@ -118,6 +123,7 @@ fn pick_session(ctx: context::Context, client: mut api::Client, definition: kitt
     client: client,
     lifetime: lifetime,
     current_session_id: "",
+    home: home,
     dismiss: close,
     renamed: fn(session: protocol::SessionInfo) {},
     applied: fn(session: mut api::Session, snapshot: protocol::SessionSnapshot) {},

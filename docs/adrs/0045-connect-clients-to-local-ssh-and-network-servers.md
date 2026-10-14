@@ -75,9 +75,10 @@ ephemeral port.
 
 Request validation:
 
-- `Host` must be a loopback IP literal on any port, or a configured allowed
-  host. Hostname allowlisting preserves DNS-rebinding protection; loopback IP
-  literals on arbitrary ports permit SSH-forwarded connections.
+- `Host` must be a loopback IP literal or `localhost` on any port, or a
+  configured allowed host. Hostname allowlisting preserves DNS-rebinding
+  protection, which `localhost` cannot defeat because no remote site controls
+  it; loopback hosts on arbitrary ports permit SSH-forwarded connections.
 - A present `Origin` must be the request's own origin or a configured allowed
   origin.
 - Every request requires a credential, except redeeming a pairing code.
@@ -130,14 +131,17 @@ tokens:
 - Expiry is the earlier of 30 days without use and 1 year after creation.
   Expired requests fail with a distinct expired-credential error code so
   clients can ask the user to pair again. Expired rows are purged in the
-  background.
+  background 30 days after they expire, so clients keep receiving that code
+  until then.
 - Revocation takes effect immediately and terminates the device's open event
   streams.
 - `kit server devices list|revoke` and equivalent API operations manage them.
 
 **Pairing.** Pairing links are the only way to obtain a device token. A
 pairing code is single-use, has 128 bits of entropy, and is held only in
-server memory. A link combines a reachable server URL with the code. An
+server memory. A link combines a reachable server URL with the code as
+`https://host/pair#CODE`; the code is in the fragment, so browsers and
+proxies never send or log it. An
 unauthenticated, rate-limited redeem operation consumes the code and returns
 a new device token named by the redeeming client.
 

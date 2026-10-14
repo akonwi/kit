@@ -11,9 +11,12 @@ import (
 	"sync"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	kit "github.com/akonwi/kit/api"
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/devices"
+	"github.com/akonwi/kit/internal/pairing"
 	"github.com/akonwi/kit/internal/savedservers"
 	"github.com/akonwi/kit/internal/settings"
 	kittheme "github.com/akonwi/kit/internal/theme"
@@ -27,48 +30,111 @@ const serverProbeTimeout = 2 * time.Second
 type attachTarget struct {
 	// Name labels the server in the terminal client.
 	Name string
-	// Home is the server's Kit home.
+	// Home is the Kit home of a server on this machine.
 	Home string
+	// URL is the origin of a served server, reached with the device token
+	// saved under Name.
+	URL string
 }
+
+// own reports whether the target is this home's own server.
+func (t attachTarget) own() bool { return t.Home == "" && t.URL == "" }
 
 // ServerChoice is one server offered by the attach picker.
 type ServerChoice struct {
 	// Name is the saved name, or savedservers.LocalName for this home's server.
 	Name string
-	// Location is the server's Kit home for display.
+	// Location is the server's Kit home or URL for display.
 	Location string
-	// Status is "running", "not running", "incompatible", or "unavailable".
+	// Status is "running", "not running", "needs pairing", "incompatible",
+	// or "unavailable".
 	Status string
 	// Detail explains a status other than running, or is empty.
 	Detail string
 }
 
-func savedServerStore() (*savedservers.Store, apphome.Paths, error) {
+// serverStores opens this home's saved servers and device tokens.
+func serverStores() (*savedservers.Store, *savedservers.Tokens, apphome.Paths, error) {
 	paths, err := apphome.Resolve("")
 	if err != nil {
-		return nil, apphome.Paths{}, err
+		return nil, nil, apphome.Paths{}, err
 	}
 	store, err := savedservers.NewStore(paths.SavedServers)
-	return store, paths, err
+	if err != nil {
+		return nil, nil, paths, err
+	}
+	tokens, err := savedservers.NewTokens(paths.ServerTokens)
+	return store, tokens, paths, err
 }
 
-// resolveAttachTarget maps a server argument to a target: LocalName is this
-// home's server, a saved name is that server, and an argument containing a
-// path separator, or starting with '.' or '~', is a Kit home path.
-func resolveAttachTarget(argument string) (attachTarget, error) {
+func isPairingLink(argument string) bool {
+	return strings.Contains(argument, pairing.LinkPath+"#")
+}
+
+func isURL(argument string) bool {
+	return strings.HasPrefix(argument, "https://") || strings.HasPrefix(argument, "http://")
+}
+
+func isHomePath(argument string) bool {
+	return strings.ContainsRune(argument, filepath.Separator) || strings.HasPrefix(argument, ".") || strings.HasPrefix(argument, "~")
+}
+
+func targetFor(server savedservers.Server) attachTarget {
+	if server.Kind == savedservers.KindURL {
+		return attachTarget{Name: server.Name, URL: server.URL}
+	}
+	return attachTarget{Name: server.Name, Home: server.Home}
+}
+
+// resolveAttachTarget maps a server argument to a target, in this order:
+// LocalName is this home's server; a pairing link re-pairs the saved server
+// with its URL; an HTTP(S) URL is the saved server with that URL; an argument
+// containing a path separator, or starting with '.' or '~', is a Kit home
+// path; anything else is a saved name.
+func resolveAttachTarget(ctx context.Context, argument string, stderr io.Writer) (attachTarget, error) {
 	if argument == savedservers.LocalName {
 		return attachTarget{}, nil
 	}
-	if strings.ContainsRune(argument, filepath.Separator) || strings.HasPrefix(argument, ".") || strings.HasPrefix(argument, "~") {
+	store, tokens, _, err := serverStores()
+	if err != nil {
+		return attachTarget{}, err
+	}
+	switch {
+	case isPairingLink(argument):
+		serverURL, _, err := pairing.ParseLink(argument)
+		if err != nil {
+			return attachTarget{}, usagef("%v", err)
+		}
+		server, err := store.FindURL(strings.ToLower(serverURL))
+		if errors.Is(err, savedservers.ErrNotFound) {
+			return attachTarget{}, usagef("no saved server is at %s; save it under a name with `kit servers add NAME LINK`", serverURL)
+		}
+		if err != nil {
+			return attachTarget{}, err
+		}
+		if err := pairServer(ctx, tokens, server.Name, argument, stderr); err != nil {
+			return attachTarget{}, err
+		}
+		return targetFor(server), nil
+	case isURL(argument):
+		serverURL, err := savedservers.CanonicalURL(argument)
+		if err != nil {
+			return attachTarget{}, usagef("%v", err)
+		}
+		server, err := store.FindURL(serverURL)
+		if errors.Is(err, savedservers.ErrNotFound) {
+			return attachTarget{}, usagef("no saved server is at %s; pair with a link from `kit server pair` on that server and save it with `kit servers add NAME LINK`", serverURL)
+		}
+		if err != nil {
+			return attachTarget{}, err
+		}
+		return targetFor(server), nil
+	case isHomePath(argument):
 		home, err := resolveServerHome(argument)
 		if err != nil {
 			return attachTarget{}, err
 		}
 		return attachTarget{Name: filepath.Base(home), Home: home}, nil
-	}
-	store, _, err := savedServerStore()
-	if err != nil {
-		return attachTarget{}, err
 	}
 	server, err := store.Find(argument)
 	if errors.Is(err, savedservers.ErrNotFound) {
@@ -77,7 +143,84 @@ func resolveAttachTarget(argument string) (attachTarget, error) {
 	if err != nil {
 		return attachTarget{}, err
 	}
-	return attachTarget{Name: server.Name, Home: server.Home}, nil
+	return targetFor(server), nil
+}
+
+// pairServer redeems a pairing link as this machine and saves the device token
+// under name, bound to the link's server URL. It warns on stderr when the link
+// sends the code and token across the network unencrypted.
+func pairServer(ctx context.Context, tokens *savedservers.Tokens, name, link string, stderr io.Writer) error {
+	if serverURL, _, err := pairing.ParseLink(link); err == nil && !securePairingURL(serverURL) {
+		fmt.Fprintf(stderr, "kit: warning: %s is plain HTTP; the pairing code and device token cross the network\nunencrypted unless the network itself is private, such as a tailnet\n", serverURL)
+	}
+	pairContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	paired, err := kit.Pair(pairContext, link, deviceName())
+	if err != nil {
+		return fmt.Errorf("pair with %s: %w", name, describePairingFailure(err))
+	}
+	previous, _ := tokens.Get(name, paired.ServerURL)
+	if err := tokens.Set(name, paired.ServerURL, paired.Token); err != nil {
+		return fmt.Errorf("save device token for %q: %w", name, err)
+	}
+	if previous != "" && previous != paired.Token {
+		retireDevice(ctx, paired.ServerURL, previous)
+	}
+	return nil
+}
+
+// retireDevice revokes the device a replaced token belongs to, which would
+// otherwise stay valid with no copy left here to revoke it. A token the server
+// no longer accepts needs nothing.
+func retireDevice(ctx context.Context, serverURL, token string) {
+	retireContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	client, err := kit.Connect(retireContext, kit.Endpoint(serverURL, kit.AccessToken(token)))
+	if err != nil {
+		return
+	}
+	defer client.Close()
+	listed, err := client.Devices(retireContext)
+	if err != nil {
+		return
+	}
+	for _, device := range listed {
+		if device.Current {
+			_ = client.RevokeDevice(retireContext, device.ID)
+			return
+		}
+	}
+}
+
+func describePairingFailure(err error) error {
+	var failure *kit.ServerError
+	if errors.As(err, &failure) {
+		switch failure.Code {
+		case kit.ErrorUnauthorized:
+			return errors.New("the pairing code was already used or has expired; get a new link with `kit server pair` on the server")
+		case kit.ErrorRateLimited:
+			return errors.New("too many failed attempts; try again shortly")
+		}
+	}
+	return err
+}
+
+// deviceName names this machine to the servers it pairs with: its hostname
+// without a .local suffix, within the device name limit.
+func deviceName() string {
+	name, err := os.Hostname()
+	name = strings.TrimSpace(strings.TrimSuffix(name, ".local"))
+	if err != nil || name == "" {
+		return "kit"
+	}
+	for len(name) > devices.MaxNameBytes {
+		_, size := utf8.DecodeLastRuneInString(name)
+		name = name[:len(name)-size]
+	}
+	if devices.ValidateName(name) != nil {
+		return "kit"
+	}
+	return name
 }
 
 // resolveServerHome makes a Kit home argument absolute, expanding a leading
@@ -108,7 +251,7 @@ func resolveServerHome(argument string) (string, error) {
 // serverChoices lists this home's server followed by the saved servers, each
 // with its current status.
 func serverChoices(ctx context.Context) ([]ServerChoice, error) {
-	store, paths, err := savedServerStore()
+	store, _, paths, err := serverStores()
 	if err != nil {
 		return nil, err
 	}
@@ -119,52 +262,96 @@ func serverChoices(ctx context.Context) ([]ServerChoice, error) {
 	if len(saved) == 0 {
 		return nil, nil
 	}
-	homes := append([]savedservers.Server{{Name: savedservers.LocalName, Home: paths.Home}}, saved...)
-	choices := make([]ServerChoice, len(homes))
+	servers := append([]savedservers.Server{{Name: savedservers.LocalName, Kind: savedservers.KindHome, Home: paths.Home}}, saved...)
+	choices := make([]ServerChoice, len(servers))
 	var wait sync.WaitGroup
-	for index, server := range homes {
-		choices[index] = ServerChoice{Name: server.Name, Location: interactiveLocation(ctx, server.Home)}
+	for index, server := range servers {
+		location := server.URL
+		if server.Kind == savedservers.KindHome {
+			location = interactiveLocation(ctx, server.Home)
+		}
+		choices[index] = ServerChoice{Name: server.Name, Location: location}
+		target := targetFor(server)
+		if server.Name == savedservers.LocalName {
+			target = attachTarget{Name: server.Name, Home: server.Home}
+		}
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			choices[index].Status, choices[index].Detail = serverStatus(ctx, server.Home)
+			choices[index].Status, choices[index].Detail = serverStatus(ctx, target)
 		}()
 	}
 	wait.Wait()
 	return choices, nil
 }
 
-// serverStatus reports whether a compatible server is running for home, and
-// why not.
-func serverStatus(ctx context.Context, home string) (status, detail string) {
+// serverStatus reports whether a compatible server is running for target,
+// and why not.
+func serverStatus(ctx context.Context, target attachTarget) (status, detail string) {
 	probeContext, cancel := context.WithTimeout(ctx, serverProbeTimeout)
 	defer cancel()
-	client, err := kit.Connect(probeContext, kit.Home(home))
+	client, err := connectTarget(probeContext, target)
 	switch {
 	case err == nil:
 		client.Close()
 		return "running", ""
-	case errors.Is(err, os.ErrNotExist):
+	case errors.Is(err, os.ErrNotExist) && target.URL == "":
 		return "not running", ""
 	case errors.Is(err, kit.ErrIncompatibleServer):
 		return "incompatible", err.Error()
+	case needsPairing(err):
+		return "needs pairing", "pair again with a link from `kit server pair` on the server, then `kit attach LINK`"
 	default:
 		return "unavailable", err.Error()
 	}
 }
 
-// connectAttachTarget connects to target's server without starting it.
+// errNoToken reports a URL server whose device token is missing.
+var errNoToken = errors.New("no device token is saved for this server")
+
+// needsPairing reports a failure that pairing again resolves: a missing,
+// revoked, or expired device token.
+func needsPairing(err error) bool {
+	var failure *kit.ServerError
+	return errors.Is(err, errNoToken) ||
+		(errors.As(err, &failure) && (failure.Code == kit.ErrorUnauthorized || failure.Code == kit.ErrorCredentialExpired))
+}
+
+// connectTarget connects to an explicit target's server without starting it.
+func connectTarget(ctx context.Context, target attachTarget) (*kit.Client, error) {
+	if target.URL == "" {
+		return kit.Connect(ctx, kit.Home(target.Home))
+	}
+	_, tokens, _, err := serverStores()
+	if err != nil {
+		return nil, err
+	}
+	token, err := tokens.Get(target.Name, target.URL)
+	if errors.Is(err, savedservers.ErrNotFound) {
+		return nil, errNoToken
+	}
+	if err != nil {
+		return nil, err
+	}
+	return kit.Connect(ctx, kit.Endpoint(target.URL, kit.AccessToken(token)))
+}
+
+// connectAttachTarget connects to target's server without starting it,
+// explaining how to recover from the usual failures.
 func connectAttachTarget(ctx context.Context, target attachTarget) (*kit.Client, error) {
-	connectContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+	connectContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	client, err := kit.Connect(connectContext, kit.Home(target.Home))
-	if err == nil {
+	client, err := connectTarget(connectContext, target)
+	switch {
+	case err == nil:
 		return client, nil
-	}
-	if errors.Is(err, os.ErrNotExist) {
+	case errors.Is(err, os.ErrNotExist) && target.URL == "":
 		return nil, fmt.Errorf("server %q is not running; start it with `KIT_HOME=%s kit server start`", target.Name, target.Home)
+	case needsPairing(err):
+		return nil, fmt.Errorf("server %q no longer accepts this device's token; get a new link with `kit server pair` on the server, then run `kit attach LINK`", target.Name)
+	default:
+		return nil, fmt.Errorf("attach to server %q: %w", target.Name, err)
 	}
-	return nil, fmt.Errorf("attach to server %q: %w", target.Name, err)
 }
 
 // PickerTheme loads the user's theme for a picker shown before the terminal
@@ -191,7 +378,7 @@ func PickerTheme() kittheme.Definition {
 }
 
 func runServersCommand(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	store, _, err := savedServerStore()
+	store, tokens, _, err := serverStores()
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
@@ -204,11 +391,11 @@ func runServersCommand(ctx context.Context, args []string, stdout, stderr io.Wri
 			return 1
 		}
 		if len(choices) == 0 {
-			fmt.Fprintln(stdout, "No saved servers. Add one with `kit servers add NAME HOME`.")
+			fmt.Fprintln(stdout, "No saved servers. Add one with `kit servers add NAME HOME-OR-LINK`.")
 			return 0
 		}
 		table := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(table, "NAME\tHOME\tSTATUS")
+		fmt.Fprintln(table, "NAME\tLOCATION\tSTATUS")
 		for _, choice := range choices {
 			fmt.Fprintf(table, "%s\t%s\t%s\n", choice.Name, choice.Location, choice.Status)
 		}
@@ -223,30 +410,79 @@ func runServersCommand(ctx context.Context, args []string, stdout, stderr io.Wri
 		}
 		return 0
 	case len(args) == 3 && args[0] == "add":
-		if err := savedservers.ValidateName(args[1]); err != nil {
-			fmt.Fprintf(stderr, "kit: %v\n", err)
-			return 2
-		}
-		home, err := resolveServerHome(args[2])
+		return addServer(ctx, store, tokens, args[1], args[2], stdout, stderr)
+	case len(args) == 2 && args[0] == "remove":
+		server, err := store.Find(args[1])
 		if err != nil {
 			fmt.Fprintf(stderr, "kit: %v\n", err)
 			return 1
 		}
-		if err := store.Add(savedservers.Server{Name: args[1], Home: home}); err != nil {
+		if err := store.Remove(server.Name); err != nil {
 			fmt.Fprintf(stderr, "kit: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "saved server %q: %s\n", args[1], home)
-		return 0
-	case len(args) == 2 && args[0] == "remove":
-		if err := store.Remove(args[1]); err != nil {
-			fmt.Fprintf(stderr, "kit: %v\n", err)
+		if err := tokens.Delete(server.Name); err != nil {
+			fmt.Fprintf(stderr, "kit: removed server %q but not its device token: %v\n", server.Name, err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "removed server %q\n", args[1])
+		fmt.Fprintf(stdout, "removed server %q\n", server.Name)
 		return 0
 	default:
-		fmt.Fprintln(stderr, "usage: kit servers <list|add NAME HOME|remove NAME>")
+		fmt.Fprintln(stderr, "usage: kit servers <list|add NAME HOME-OR-LINK|remove NAME>")
 		return 2
 	}
+}
+
+// addServer saves a Kit home, or pairs with a pairing link and saves its
+// server with the device token.
+func addServer(ctx context.Context, store *savedservers.Store, tokens *savedservers.Tokens, name, location string, stdout, stderr io.Writer) int {
+	if err := savedservers.ValidateName(name); err != nil {
+		fmt.Fprintf(stderr, "kit: %v\n", err)
+		return 2
+	}
+	// Check the name before redeeming, which spends the pairing code.
+	if _, err := store.Find(name); err == nil {
+		fmt.Fprintf(stderr, "kit: %v: %q\n", savedservers.ErrExists, name)
+		return 1
+	}
+	switch {
+	case isPairingLink(location):
+		serverURL, _, err := pairing.ParseLink(location)
+		if err != nil {
+			fmt.Fprintf(stderr, "kit: %v\n", err)
+			return 2
+		}
+		serverURL = strings.ToLower(serverURL)
+		if existing, err := store.FindURL(serverURL); err == nil {
+			fmt.Fprintf(stderr, "kit: %s is already saved as %q; re-pair it with `kit attach LINK`\n", serverURL, existing.Name)
+			return 1
+		}
+		// Saving the server first claims the name, so a concurrent add of
+		// the same name fails before pairing rather than replacing a token.
+		if err := store.Add(savedservers.Server{Name: name, Kind: savedservers.KindURL, URL: serverURL}); err != nil {
+			fmt.Fprintf(stderr, "kit: %v\n", err)
+			return 1
+		}
+		if err := pairServer(ctx, tokens, name, location, stderr); err != nil {
+			_ = store.Remove(name)
+			fmt.Fprintf(stderr, "kit: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "paired and saved server %q: %s\n", name, serverURL)
+		return 0
+	case isURL(location):
+		fmt.Fprintf(stderr, "kit: a server URL needs pairing; run `kit server pair` on that server and add the link it prints\n")
+		return 2
+	}
+	home, err := resolveServerHome(location)
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: %v\n", err)
+		return 1
+	}
+	if err := store.Add(savedservers.Server{Name: name, Kind: savedservers.KindHome, Home: home}); err != nil {
+		fmt.Fprintf(stderr, "kit: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "saved server %q: %s\n", name, home)
+	return 0
 }

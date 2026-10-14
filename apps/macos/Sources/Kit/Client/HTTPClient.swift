@@ -240,6 +240,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
                 case .forbidden: throw ClientError.http(403)
                 case .misdirectedRequest: throw ClientError.http(421)
                 case .upgradeRequired: throw ClientError.http(426)
+                case .tooManyRequests: throw ClientError.http(429)
                 case .internalServerError: throw ClientError.http(500)
                 case .undocumented(let status, _): throw ClientError.http(status)
                 }
@@ -668,6 +669,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         case .notFound: throw ClientError.http(404)
         case .misdirectedRequest: throw ClientError.http(421)
         case .upgradeRequired: throw ClientError.http(426)
+        case .tooManyRequests: throw ClientError.http(429)
         case .internalServerError: throw ClientError.http(500)
         case .serviceUnavailable: throw ClientError.http(503)
         case .undocumented: throw ClientError.invalidPayload
@@ -772,6 +774,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         case .conflict: throw ClientError.http(409)
         case .misdirectedRequest: throw ClientError.http(421)
         case .upgradeRequired: throw ClientError.http(426)
+        case .tooManyRequests: throw ClientError.http(429)
         case .internalServerError: throw ClientError.http(500)
         case .serviceUnavailable: throw ClientError.http(503)
         case .undocumented(let status, _): throw ClientError.http(status)
@@ -1044,6 +1047,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             }
         case .misdirectedRequest: throw ClientError.http(421)
         case .upgradeRequired: throw ClientError.http(426)
+        case .tooManyRequests: throw ClientError.http(429)
         case .internalServerError: throw ClientError.http(500)
         case .serviceUnavailable: throw ClientError.http(503)
         case .undocumented(let status, _): throw ClientError.http(status)
@@ -1088,6 +1092,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             }
         case .misdirectedRequest: throw ClientError.http(421)
         case .upgradeRequired: throw ClientError.http(426)
+        case .tooManyRequests: throw ClientError.http(429)
         case .internalServerError: throw ClientError.http(500)
         case .serviceUnavailable: throw ClientError.http(503)
         case .undocumented(let status, _): throw ClientError.http(status)

@@ -31,16 +31,23 @@ const (
 	ErrorCapacityExceeded            ErrorCode = "capacity_exceeded"
 	ErrorInternal                    ErrorCode = "internal"
 	ErrorUnavailable                 ErrorCode = "unavailable"
+	// ErrorCredentialExpired reports an expired device token; the client
+	// must pair again.
+	ErrorCredentialExpired ErrorCode = "credential_expired"
+	// ErrorRateLimited reports too many failed authentications or pairing
+	// redemptions; the client may retry later.
+	ErrorRateLimited ErrorCode = "rate_limited"
 )
 
 // CommonErrorResponses are rejections that can happen before routing any
 // catalogued operation.
 var CommonErrorResponses = []ErrorResponse{
-	{Status: http.StatusUnauthorized, Codes: []ErrorCode{ErrorUnauthorized}},
+	{Status: http.StatusUnauthorized, Codes: []ErrorCode{ErrorUnauthorized, ErrorCredentialExpired}},
 	{Status: http.StatusForbidden, Codes: []ErrorCode{ErrorForbidden}},
 	{Status: http.StatusConflict, Codes: []ErrorCode{ErrorInstanceMismatch}},
 	{Status: http.StatusMisdirectedRequest, Codes: []ErrorCode{ErrorInvalidHost}},
 	{Status: http.StatusUpgradeRequired, Codes: []ErrorCode{ErrorProtocolMismatch}},
+	{Status: http.StatusTooManyRequests, Codes: []ErrorCode{ErrorRateLimited}},
 }
 
 // TypedErrorEnvelope is the common typed protocol error response.

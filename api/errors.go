@@ -48,6 +48,12 @@ const (
 	ErrorCapacityExceeded            ErrorCode = "capacity_exceeded"
 	ErrorInternal                    ErrorCode = "internal"
 	ErrorUnavailable                 ErrorCode = "unavailable"
+	// ErrorCredentialExpired reports an expired device token; the client
+	// must pair again.
+	ErrorCredentialExpired ErrorCode = "credential_expired"
+	// ErrorRateLimited reports too many failed authentications or pairing
+	// redemptions; the client may retry later.
+	ErrorRateLimited ErrorCode = "rate_limited"
 )
 
 // ServerError is one failure declared by a Kit server operation.

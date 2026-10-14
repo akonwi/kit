@@ -136,16 +136,32 @@ func interactiveProviders(providerIDs []string) (map[string]bool, string) {
 	}
 }
 
+// interactiveLocation abbreviates a path on this machine relative to the
+// user's home directory.
 func interactiveLocation(_ context.Context, cwd string) string {
-	location := cwd
-	if home, err := os.UserHomeDir(); err == nil {
-		if relative, err := filepath.Rel(home, cwd); err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			location = filepath.Join("~", relative)
-		} else if relative == "." {
-			location = "~"
-		}
+	home, _ := os.UserHomeDir()
+	return homeRelative(home, cwd)
+}
+
+// homeRelative abbreviates path with ~ when it is home or inside it. An empty
+// home leaves every path unchanged. Server paths may belong to another
+// machine, so they are compared lexically.
+func homeRelative(home, path string) string {
+	if home == "" || path == "" {
+		return path
 	}
-	return location
+	home = filepath.Clean(home)
+	cleaned := filepath.Clean(path)
+	switch {
+	case cleaned == home:
+		return "~"
+	case home == string(filepath.Separator):
+		return cleaned
+	case strings.HasPrefix(cleaned, home+string(filepath.Separator)):
+		return "~" + strings.TrimPrefix(cleaned, home)
+	default:
+		return path
+	}
 }
 
 func runPrintOptions(ctx context.Context, options printOptions, stdout, stderr io.Writer) int {
@@ -424,15 +440,58 @@ func runInternalServer(ctx context.Context, args []string, stderr io.Writer) int
 	return 0
 }
 
+// errForegroundRestart explains why Kit does not restart a foreground server.
+const errForegroundRestart = "the server runs in the foreground with `kit server run`; restart it with whatever started it, such as its service manager"
+
+// runningInForeground reports whether this home's running server was started
+// with `kit server run`.
+func runningInForeground(ctx context.Context, paths apphome.Paths) bool {
+	registry, _, err := daemonctl.NewManager(paths).Status(ctx)
+	return err == nil && registry.Foreground
+}
+
+// runForegroundServer runs this home's server in the foreground until ctx
+// ends, logging to stderr, for containers and service managers. Clients
+// discover it as they do a daemon, and `kit server stop` ends it.
+func runForegroundServer(ctx context.Context, paths apphome.Paths, listen string, stderr io.Writer) int {
+	if listen != "" {
+		if _, err := serverlisten.Parse(listen); err != nil {
+			fmt.Fprintf(stderr, "kit: %v\n", err)
+			return 2
+		}
+	}
+	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	err := kitserver.Run(ctx, kitserver.RunOptions{Paths: paths, Logger: logger, Listen: listen, Foreground: true})
+	switch {
+	case errors.Is(err, kitserver.ErrAlreadyRunning):
+		fmt.Fprintln(stderr, "kit: a server is already running for this Kit home; stop it with `kit server stop`")
+		return 1
+	case err != nil:
+		fmt.Fprintf(stderr, "kit: server failed: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func runServerCommand(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: kit server <start|status|stop|restart>")
+		fmt.Fprintln(stderr, "usage: kit server <start|status|stop|restart|run>")
 		return 2
 	}
 	paths, err := apphome.Resolve("")
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
+	}
+	if args[0] == "run" {
+		switch {
+		case len(args) == 1:
+			return runForegroundServer(ctx, paths, "", stderr)
+		case len(args) == 3 && args[1] == "--listen":
+			return runForegroundServer(ctx, paths, args[2], stderr)
+		default:
+			return serverUsage(stderr)
+		}
 	}
 	var options []daemonctl.Option
 	if (args[0] == "start" || args[0] == "restart") && len(args) == 3 && args[1] == "--listen" {
@@ -491,6 +550,10 @@ func runServerCommand(ctx context.Context, args []string, stdout, stderr io.Writ
 		}
 		operationContext, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
+		if runningInForeground(operationContext, paths) {
+			fmt.Fprintln(stderr, "kit: "+errForegroundRestart)
+			return 1
+		}
 		if err := manager.Stop(operationContext); err != nil {
 			fmt.Fprintf(stderr, "kit: stop server: %v\n", err)
 			return 1
@@ -524,6 +587,6 @@ func writeServerStatus(output io.Writer, registry localdiscovery.Registry, healt
 }
 
 func serverUsage(output io.Writer) int {
-	fmt.Fprintln(output, "usage: kit server <start|status|stop|restart> [--listen host:port]")
+	fmt.Fprintln(output, "usage: kit server <start|status|stop|restart|run> [--listen host:port]")
 	return 2
 }

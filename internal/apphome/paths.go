@@ -30,6 +30,8 @@ type Paths struct {
 	MachineID string
 	// SavedServers lists the servers this home's clients can attach to.
 	SavedServers string
+	// ServerTokens holds the device tokens of saved URL servers.
+	ServerTokens string
 
 	Agents            string
 	Attachments       string
@@ -91,6 +93,7 @@ func FromHome(home string) Paths {
 		MachineID: filepath.Join(home, "machine-id"),
 
 		SavedServers: filepath.Join(home, "servers.json"),
+		ServerTokens: filepath.Join(home, "server-tokens.json"),
 
 		Agents:            filepath.Join(home, "agents"),
 		Attachments:       filepath.Join(home, "attachments"),

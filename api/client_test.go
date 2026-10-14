@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -321,7 +322,11 @@ func healthServer(t *testing.T, health func() httpapi.Health) *httptest.Server {
 
 func TestServerReportsIdentityAndMachineLocality(t *testing.T) {
 	const instanceID = "instance_test"
-	server := healthServer(t, func() httpapi.Health { return compatibleHealth(instanceID) })
+	server := healthServer(t, func() httpapi.Health {
+		health := compatibleHealth(instanceID)
+		health.Providers = []string{"anthropic", "openai"}
+		return health
+	})
 	client, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret")))
 	if err != nil {
 		t.Fatal(err)
@@ -345,9 +350,9 @@ func TestServerReportsIdentityAndMachineLocality(t *testing.T) {
 		}
 		want := ServerInfo{
 			ID: testServerID, KitVersion: version.Version, ProtocolVersion: version.SessionProtocolVersion,
-			Home: "/home/kit", SameMachine: test.same,
+			Home: "/home/kit", SameMachine: test.same, Providers: []string{"anthropic", "openai"},
 		}
-		if info != want {
+		if !reflect.DeepEqual(info, want) {
 			t.Fatalf("%s: Server() = %+v, want %+v", test.name, info, want)
 		}
 	}

@@ -178,12 +178,54 @@
         ],
         "type": "object"
       },
+      "AnnotationsCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "AnnotationsInvalidEvidenceError": {
         "additionalProperties": false,
         "properties": {
           "code": {
             "enum": [
               "invalid_evidence"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "AnnotationsRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
             ],
             "type": "string"
           },
@@ -357,6 +399,48 @@
         ],
         "type": "object"
       },
+      "AttachmentsCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "AttachmentsRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "BashAbortResult": {
         "additionalProperties": false,
         "properties": {
@@ -366,6 +450,27 @@
         },
         "required": [
           "aborting"
+        ],
+        "type": "object"
+      },
+      "BashCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
         ],
         "type": "object"
       },
@@ -499,6 +604,27 @@
           "sessionId",
           "entries",
           "hasMore"
+        ],
+        "type": "object"
+      },
+      "BashRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
         ],
         "type": "object"
       },
@@ -762,6 +888,56 @@
         ],
         "type": "object"
       },
+      "DeviceInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "current": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastAddress": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "lastUsedAt",
+          "expiresAt",
+          "current"
+        ],
+        "type": "object"
+      },
+      "DeviceList": {
+        "additionalProperties": false,
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceInfo"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "devices"
+        ],
+        "type": "object"
+      },
       "DiffCapacityExceededError": {
         "additionalProperties": false,
         "properties": {
@@ -799,6 +975,27 @@
         },
         "required": [
           "state"
+        ],
+        "type": "object"
+      },
+      "DiffCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
         ],
         "type": "object"
       },
@@ -1068,6 +1265,27 @@
           "code": {
             "enum": [
               "permission_denied"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "DiffRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
             ],
             "type": "string"
           },
@@ -1430,6 +1648,48 @@
           "entries",
           "truncated",
           "omissions"
+        ],
+        "type": "object"
+      },
+      "EventsCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "EventsRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
         ],
         "type": "object"
       },
@@ -2213,6 +2473,22 @@
         ],
         "type": "object"
       },
+      "PairingCode": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
       "PendingBoundary": {
         "additionalProperties": false,
         "properties": {
@@ -2364,6 +2640,27 @@
         ],
         "type": "object"
       },
+      "PluginCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "PluginFooter": {
         "additionalProperties": false,
         "properties": {
@@ -2466,6 +2763,27 @@
         "required": [
           "pluginId",
           "instance"
+        ],
+        "type": "object"
+      },
+      "PluginRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
         ],
         "type": "object"
       },
@@ -2808,6 +3126,38 @@
         ],
         "type": "object"
       },
+      "RedeemPairingInput": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "deviceName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "deviceName"
+        ],
+        "type": "object"
+      },
+      "RedeemPairingResult": {
+        "additionalProperties": false,
+        "properties": {
+          "device": {
+            "$ref": "#/components/schemas/DeviceInfo"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "device"
+        ],
+        "type": "object"
+      },
       "ReloadSessionResult": {
         "additionalProperties": false,
         "properties": {
@@ -2899,6 +3249,27 @@
         ],
         "type": "object"
       },
+      "ScratchpadCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "ScratchpadErrorDetails": {
         "additionalProperties": false,
         "properties": {
@@ -2938,6 +3309,27 @@
           "code": {
             "enum": [
               "scratchpad_migration_required"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ScratchpadRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
             ],
             "type": "string"
           },
@@ -3047,6 +3439,48 @@
           "code": {
             "enum": [
               "scratchpad_unsupported"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ServerCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ServerRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
             ],
             "type": "string"
           },
@@ -3441,6 +3875,48 @@
         "required": [
           "sessionId",
           "cwd"
+        ],
+        "type": "object"
+      },
+      "SessionsCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "SessionsRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
         ],
         "type": "object"
       },
@@ -4117,6 +4593,48 @@
         ],
         "type": "object"
       },
+      "SubagentsCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "SubagentsRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "SubmittedAnnotation": {
         "additionalProperties": false,
         "properties": {
@@ -4248,6 +4766,27 @@
           }
         ]
       },
+      "TranscriptCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "TranscriptCursorUnavailableError": {
         "additionalProperties": false,
         "properties": {
@@ -4354,6 +4893,27 @@
         ],
         "type": "object"
       },
+      "TranscriptRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "TurnAbortResult": {
         "additionalProperties": false,
         "properties": {
@@ -4402,6 +4962,48 @@
         "required": [
           "sessionId",
           "turnId"
+        ],
+        "type": "object"
+      },
+      "TurnsCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "TurnsRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
         ],
         "type": "object"
       },
@@ -4549,6 +5151,48 @@
         ],
         "type": "object"
       },
+      "VcsCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "VcsRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "WorkingTreeDiffAnnotationAnchor": {
         "additionalProperties": false,
         "properties": {
@@ -4650,6 +5294,27 @@
           "code",
           "message",
           "details"
+        ],
+        "type": "object"
+      },
+      "WorkspaceCredentialExpiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "credential_expired"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
         ],
         "type": "object"
       },
@@ -4969,6 +5634,27 @@
         ],
         "type": "object"
       },
+      "WorkspaceRateLimitedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "rate_limited"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "WorkspaceRef": {
         "additionalProperties": false,
         "properties": {
@@ -5139,14 +5825,14 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/v1/health": {
+    "/v1/devices": {
       "get": {
-        "operationId": "getHealth",
+        "operationId": "listDevices",
         "parameters": [
           {
             "in": "header",
             "name": "X-Kit-Instance-ID",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -5157,7 +5843,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Health"
+                  "$ref": "#/components/schemas/DeviceList"
                 }
               }
             },
@@ -5172,6 +5858,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/ServerCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -5179,6 +5866,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ServerCredentialExpiredError"
                         }
                       ]
                     }
@@ -5307,6 +5997,549 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/ServerRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ServerRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/v1/devices/{deviceID}": {
+      "delete": {
+        "operationId": "revokeDevice",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deviceID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "credential_expired": "#/components/schemas/ServerCredentialExpiredError",
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ServerCredentialExpiredError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "not_found": "#/components/schemas/NotFoundError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/NotFoundError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/ServerRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ServerRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "operationId": "getHealth",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "credential_expired": "#/components/schemas/ServerCredentialExpiredError",
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ServerCredentialExpiredError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/ServerRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ServerRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -5392,6 +6625,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/ServerCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -5399,6 +6633,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ServerCredentialExpiredError"
                         }
                       ]
                     }
@@ -5527,6 +6764,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/ServerRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ServerRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -5612,6 +6878,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/ServerCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -5619,6 +6886,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ServerCredentialExpiredError"
                         }
                       ]
                     }
@@ -5748,6 +7018,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/ServerRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ServerRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -5783,6 +7082,549 @@
             "daemonBearer": []
           }
         ],
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/v1/pairing": {
+      "post": {
+        "operationId": "createPairing",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingCode"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "credential_expired": "#/components/schemas/ServerCredentialExpiredError",
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ServerCredentialExpiredError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/ServerRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ServerRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/v1/pairing/redeem": {
+      "post": {
+        "operationId": "redeemPairing",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemPairingInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedeemPairingResult"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_request": "#/components/schemas/InvalidRequestError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidRequestError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "credential_expired": "#/components/schemas/ServerCredentialExpiredError",
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ServerCredentialExpiredError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "limit_exceeded": "#/components/schemas/LimitExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/LimitExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "capacity_exceeded": "#/components/schemas/CapacityExceededError",
+                          "rate_limited": "#/components/schemas/ServerRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ServerRateLimitedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/CapacityExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [],
         "tags": [
           "server"
         ]
@@ -5869,6 +7711,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SessionsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -5876,6 +7719,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SessionsCredentialExpiredError"
                         }
                       ]
                     }
@@ -6004,6 +7850,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/SessionsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SessionsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -6155,6 +8030,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SessionsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -6162,6 +8038,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SessionsCredentialExpiredError"
                         }
                       ]
                     }
@@ -6324,6 +8203,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/SessionsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SessionsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -6467,6 +8375,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SessionsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -6474,6 +8383,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SessionsCredentialExpiredError"
                         }
                       ]
                     }
@@ -6636,6 +8548,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/SessionsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SessionsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -6784,6 +8725,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SessionsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -6791,6 +8733,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SessionsCredentialExpiredError"
                         }
                       ]
                     }
@@ -6948,6 +8893,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/SessionsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SessionsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -7107,6 +9081,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SessionsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -7114,6 +9089,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SessionsCredentialExpiredError"
                         }
                       ]
                     }
@@ -7305,6 +9283,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/SessionsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SessionsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -7462,6 +9469,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/AnnotationsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -7469,6 +9477,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsCredentialExpiredError"
                         }
                       ]
                     }
@@ -7642,6 +9653,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/AnnotationsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/AnnotationsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -7814,6 +9854,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/AnnotationsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -7821,6 +9862,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsCredentialExpiredError"
                         }
                       ]
                     }
@@ -7978,6 +10022,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/AnnotationsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/AnnotationsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -8144,6 +10217,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/AnnotationsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -8151,6 +10225,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsCredentialExpiredError"
                         }
                       ]
                     }
@@ -8356,6 +10433,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/AnnotationsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/AnnotationsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -8522,6 +10628,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/AnnotationsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -8529,6 +10636,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsCredentialExpiredError"
                         }
                       ]
                     }
@@ -8735,6 +10845,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/AnnotationsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/AnnotationsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -8898,6 +11037,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/AttachmentsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -8905,6 +11045,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AttachmentsCredentialExpiredError"
                         }
                       ]
                     }
@@ -9091,6 +11234,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/AttachmentsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/AttachmentsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -9223,6 +11395,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/AttachmentsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -9230,6 +11403,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AttachmentsCredentialExpiredError"
                         }
                       ]
                     }
@@ -9416,6 +11592,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/AttachmentsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/AttachmentsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -9566,6 +11771,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/AttachmentsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -9573,6 +11779,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AttachmentsCredentialExpiredError"
                         }
                       ]
                     }
@@ -9760,6 +11969,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/AttachmentsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/AttachmentsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -9891,6 +12129,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/BashCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -9898,6 +12137,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/BashCredentialExpiredError"
                         }
                       ]
                     }
@@ -10059,6 +12301,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/BashRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/BashRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -10218,6 +12489,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/BashCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -10225,6 +12497,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/BashCredentialExpiredError"
                         }
                       ]
                     }
@@ -10386,6 +12661,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/BashRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/BashRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -10545,6 +12849,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/BashCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -10552,6 +12857,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/BashCredentialExpiredError"
                         }
                       ]
                     }
@@ -10713,6 +13021,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/BashRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/BashRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -10880,6 +13217,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/BashCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -10887,6 +13225,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/BashCredentialExpiredError"
                         }
                       ]
                     }
@@ -11048,6 +13389,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/BashRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/BashRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -11209,6 +13579,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SessionsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -11216,6 +13587,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SessionsCredentialExpiredError"
                         }
                       ]
                     }
@@ -11435,6 +13809,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/SessionsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SessionsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -11596,6 +13999,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SessionsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -11603,6 +14007,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SessionsCredentialExpiredError"
                         }
                       ]
                     }
@@ -11823,6 +14230,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/SessionsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SessionsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -11983,6 +14419,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SessionsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -11990,6 +14427,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SessionsCredentialExpiredError"
                         }
                       ]
                     }
@@ -12180,6 +14620,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/SessionsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SessionsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -12345,6 +14814,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/DiffCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -12352,6 +14822,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffCredentialExpiredError"
                         }
                       ]
                     }
@@ -12601,13 +15074,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/DiffCapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/DiffCapacityExceededError",
+                          "rate_limited": "#/components/schemas/DiffRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/DiffCapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffRateLimitedError"
                         }
                       ]
                     }
@@ -12789,6 +15266,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/DiffCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -12796,6 +15274,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffCredentialExpiredError"
                         }
                       ]
                     }
@@ -13045,13 +15526,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/DiffCapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/DiffCapacityExceededError",
+                          "rate_limited": "#/components/schemas/DiffRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/DiffCapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffRateLimitedError"
                         }
                       ]
                     }
@@ -13233,6 +15718,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/DiffCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -13240,6 +15726,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffCredentialExpiredError"
                         }
                       ]
                     }
@@ -13481,13 +15970,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/DiffCapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/DiffCapacityExceededError",
+                          "rate_limited": "#/components/schemas/DiffRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/DiffCapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffRateLimitedError"
                         }
                       ]
                     }
@@ -13669,6 +16162,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/DiffCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -13676,6 +16170,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffCredentialExpiredError"
                         }
                       ]
                     }
@@ -13925,13 +16422,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/DiffCapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/DiffCapacityExceededError",
+                          "rate_limited": "#/components/schemas/DiffRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/DiffCapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffRateLimitedError"
                         }
                       ]
                     }
@@ -14092,6 +16593,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SessionsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -14099,6 +16601,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SessionsCredentialExpiredError"
                         }
                       ]
                     }
@@ -14256,6 +16761,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/SessionsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SessionsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -14423,6 +16957,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/EventsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -14430,6 +16965,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/EventsCredentialExpiredError"
                         }
                       ]
                     }
@@ -14649,6 +17187,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/EventsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/EventsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -14824,6 +17391,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/EventsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -14831,6 +17399,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/EventsCredentialExpiredError"
                         }
                       ]
                     }
@@ -15050,6 +17621,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/EventsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/EventsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -15233,6 +17833,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/WorkspaceCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -15240,6 +17841,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/WorkspaceCredentialExpiredError"
                         }
                       ]
                     }
@@ -15485,13 +18089,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/WorkspaceCapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/WorkspaceCapacityExceededError",
+                          "rate_limited": "#/components/schemas/WorkspaceRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/WorkspaceCapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/WorkspaceRateLimitedError"
                         }
                       ]
                     }
@@ -15665,6 +18273,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SessionsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -15672,6 +18281,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SessionsCredentialExpiredError"
                         }
                       ]
                     }
@@ -15863,6 +18475,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/SessionsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SessionsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -16031,6 +18672,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/TurnsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -16038,6 +18680,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TurnsCredentialExpiredError"
                         }
                       ]
                     }
@@ -16257,6 +18902,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/TurnsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TurnsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -16435,6 +19109,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/TranscriptCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -16442,6 +19117,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TranscriptCredentialExpiredError"
                         }
                       ]
                     }
@@ -16662,6 +19340,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/TranscriptRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TranscriptRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -16815,6 +19522,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/PluginCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -16822,6 +19530,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/PluginCredentialExpiredError"
                         }
                       ]
                     }
@@ -17017,6 +19728,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/PluginRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/PluginRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -17167,6 +19907,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/PluginCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -17174,6 +19915,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/PluginCredentialExpiredError"
                         }
                       ]
                     }
@@ -17345,13 +20089,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/CapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/CapacityExceededError",
+                          "rate_limited": "#/components/schemas/PluginRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/CapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/PluginRateLimitedError"
                         }
                       ]
                     }
@@ -17522,6 +20270,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SessionsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -17529,6 +20278,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SessionsCredentialExpiredError"
                         }
                       ]
                     }
@@ -17691,6 +20443,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/SessionsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SessionsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -17841,6 +20622,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/ScratchpadCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -17848,6 +20630,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ScratchpadCredentialExpiredError"
                         }
                       ]
                     }
@@ -18014,6 +20799,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/ScratchpadRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ScratchpadRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -18176,6 +20990,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/ScratchpadCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -18183,6 +20998,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ScratchpadCredentialExpiredError"
                         }
                       ]
                     }
@@ -18390,6 +21208,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/ScratchpadRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ScratchpadRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -18560,6 +21407,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SubagentsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -18567,6 +21415,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SubagentsCredentialExpiredError"
                         }
                       ]
                     }
@@ -18738,13 +21589,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/CapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/CapacityExceededError",
+                          "rate_limited": "#/components/schemas/SubagentsRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/CapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SubagentsRateLimitedError"
                         }
                       ]
                     }
@@ -18926,6 +21781,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SubagentsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -18933,6 +21789,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SubagentsCredentialExpiredError"
                         }
                       ]
                     }
@@ -19133,13 +21992,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/CapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/CapacityExceededError",
+                          "rate_limited": "#/components/schemas/SubagentsRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/CapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SubagentsRateLimitedError"
                         }
                       ]
                     }
@@ -19327,6 +22190,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SubagentsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -19334,6 +22198,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SubagentsCredentialExpiredError"
                         }
                       ]
                     }
@@ -19505,13 +22372,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/CapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/CapacityExceededError",
+                          "rate_limited": "#/components/schemas/SubagentsRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/CapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SubagentsRateLimitedError"
                         }
                       ]
                     }
@@ -19691,6 +22562,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/SubagentsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -19698,6 +22570,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SubagentsCredentialExpiredError"
                         }
                       ]
                     }
@@ -19873,13 +22748,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/CapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/CapacityExceededError",
+                          "rate_limited": "#/components/schemas/SubagentsRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/CapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SubagentsRateLimitedError"
                         }
                       ]
                     }
@@ -20051,6 +22930,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/TranscriptCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -20058,6 +22938,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TranscriptCredentialExpiredError"
                         }
                       ]
                     }
@@ -20277,6 +23160,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/TranscriptRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TranscriptRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -20428,6 +23340,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/TurnsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -20435,6 +23348,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TurnsCredentialExpiredError"
                         }
                       ]
                     }
@@ -20654,6 +23570,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/TurnsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TurnsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -20805,6 +23750,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/TurnsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -20812,6 +23758,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TurnsCredentialExpiredError"
                         }
                       ]
                     }
@@ -21031,6 +23980,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/TurnsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TurnsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -21192,6 +24170,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/TurnsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -21199,6 +24178,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TurnsCredentialExpiredError"
                         }
                       ]
                     }
@@ -21418,6 +24400,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/TurnsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TurnsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -21579,6 +24590,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/TurnsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -21586,6 +24598,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TurnsCredentialExpiredError"
                         }
                       ]
                     }
@@ -21805,6 +24820,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/TurnsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TurnsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -21966,6 +25010,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/TurnsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -21973,6 +25018,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TurnsCredentialExpiredError"
                         }
                       ]
                     }
@@ -22192,6 +25240,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/TurnsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TurnsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -22353,6 +25430,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/TurnsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -22360,6 +25438,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TurnsCredentialExpiredError"
                         }
                       ]
                     }
@@ -22579,6 +25660,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/TurnsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TurnsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -22740,6 +25850,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/TurnsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -22747,6 +25858,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TurnsCredentialExpiredError"
                         }
                       ]
                     }
@@ -22966,6 +26080,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/TurnsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TurnsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -23125,6 +26268,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/TurnsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -23132,6 +26276,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TurnsCredentialExpiredError"
                         }
                       ]
                     }
@@ -23351,6 +26498,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/TurnsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TurnsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -23510,6 +26686,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/TurnsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -23517,6 +26694,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/TurnsCredentialExpiredError"
                         }
                       ]
                     }
@@ -23737,6 +26917,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/TurnsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TurnsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -23887,6 +27096,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/VcsCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -23894,325 +27104,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
-                        }
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "error": {
-                      "discriminator": {
-                        "mapping": {
-                          "forbidden": "#/components/schemas/ForbiddenError"
-                        },
-                        "propertyName": "code"
-                      },
-                      "oneOf": [
-                        {
-                          "$ref": "#/components/schemas/ForbiddenError"
-                        }
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "error": {
-                      "discriminator": {
-                        "mapping": {
-                          "not_found": "#/components/schemas/NotFoundError"
-                        },
-                        "propertyName": "code"
-                      },
-                      "oneOf": [
-                        {
-                          "$ref": "#/components/schemas/NotFoundError"
-                        }
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "error": {
-                      "discriminator": {
-                        "mapping": {
-                          "conflict": "#/components/schemas/ConflictError",
-                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
-                        },
-                        "propertyName": "code"
-                      },
-                      "oneOf": [
-                        {
-                          "$ref": "#/components/schemas/ConflictError"
                         },
                         {
-                          "$ref": "#/components/schemas/InstanceMismatchError"
-                        }
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "421": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "error": {
-                      "discriminator": {
-                        "mapping": {
-                          "invalid_host": "#/components/schemas/InvalidHostError"
-                        },
-                        "propertyName": "code"
-                      },
-                      "oneOf": [
-                        {
-                          "$ref": "#/components/schemas/InvalidHostError"
-                        }
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Misdirected Request"
-          },
-          "426": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "error": {
-                      "discriminator": {
-                        "mapping": {
-                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
-                        },
-                        "propertyName": "code"
-                      },
-                      "oneOf": [
-                        {
-                          "$ref": "#/components/schemas/ProtocolMismatchError"
-                        }
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Upgrade Required"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "error": {
-                      "discriminator": {
-                        "mapping": {
-                          "internal": "#/components/schemas/InternalError"
-                        },
-                        "propertyName": "code"
-                      },
-                      "oneOf": [
-                        {
-                          "$ref": "#/components/schemas/InternalError"
-                        }
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "error": {
-                      "discriminator": {
-                        "mapping": {
-                          "unavailable": "#/components/schemas/UnavailableError"
-                        },
-                        "propertyName": "code"
-                      },
-                      "oneOf": [
-                        {
-                          "$ref": "#/components/schemas/UnavailableError"
-                        }
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Service Unavailable"
-          }
-        },
-        "security": [
-          {
-            "daemonBearer": []
-          }
-        ],
-        "tags": [
-          "vcs"
-        ]
-      }
-    },
-    "/v1/sessions/{sessionID}/vcs/events": {
-      "get": {
-        "operationId": "streamSessionVCS",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Kit-Instance-ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Kit-Protocol-Version",
-            "required": true,
-            "schema": {
-              "enum": [
-                46
-              ],
-              "type": "integer"
-            }
-          },
-          {
-            "in": "path",
-            "name": "sessionID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/SessionVCSStatus"
-                }
-              }
-            },
-            "description": "Server-sent event stream; each record's data is one payload object"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "error": {
-                      "discriminator": {
-                        "mapping": {
-                          "invalid_request": "#/components/schemas/InvalidRequestError"
-                        },
-                        "propertyName": "code"
-                      },
-                      "oneOf": [
-                        {
-                          "$ref": "#/components/schemas/InvalidRequestError"
-                        }
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "error": {
-                      "discriminator": {
-                        "mapping": {
-                          "unauthorized": "#/components/schemas/UnauthorizedError"
-                        },
-                        "propertyName": "code"
-                      },
-                      "oneOf": [
-                        {
-                          "$ref": "#/components/schemas/UnauthorizedError"
+                          "$ref": "#/components/schemas/VcsCredentialExpiredError"
                         }
                       ]
                     }
@@ -24384,13 +27278,369 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/CapacityExceededError"
+                          "rate_limited": "#/components/schemas/VcsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/VcsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "vcs"
+        ]
+      }
+    },
+    "/v1/sessions/{sessionID}/vcs/events": {
+      "get": {
+        "operationId": "streamSessionVCS",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Kit-Protocol-Version",
+            "required": true,
+            "schema": {
+              "enum": [
+                46
+              ],
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionVCSStatus"
+                }
+              }
+            },
+            "description": "Server-sent event stream; each record's data is one payload object"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_request": "#/components/schemas/InvalidRequestError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidRequestError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "credential_expired": "#/components/schemas/VcsCredentialExpiredError",
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/VcsCredentialExpiredError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "not_found": "#/components/schemas/NotFoundError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/NotFoundError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "capacity_exceeded": "#/components/schemas/CapacityExceededError",
+                          "rate_limited": "#/components/schemas/VcsRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/CapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/VcsRateLimitedError"
                         }
                       ]
                     }
@@ -24577,6 +27827,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/WorkspaceCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -24584,6 +27835,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/WorkspaceCredentialExpiredError"
                         }
                       ]
                     }
@@ -24829,13 +28083,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/WorkspaceCapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/WorkspaceCapacityExceededError",
+                          "rate_limited": "#/components/schemas/WorkspaceRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/WorkspaceCapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/WorkspaceRateLimitedError"
                         }
                       ]
                     }
@@ -25025,6 +28283,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/WorkspaceCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -25032,6 +28291,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/WorkspaceCredentialExpiredError"
                         }
                       ]
                     }
@@ -25277,13 +28539,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/WorkspaceCapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/WorkspaceCapacityExceededError",
+                          "rate_limited": "#/components/schemas/WorkspaceRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/WorkspaceCapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/WorkspaceRateLimitedError"
                         }
                       ]
                     }
@@ -25473,6 +28739,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/WorkspaceCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -25480,6 +28747,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/WorkspaceCredentialExpiredError"
                         }
                       ]
                     }
@@ -25725,13 +28995,17 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "capacity_exceeded": "#/components/schemas/WorkspaceCapacityExceededError"
+                          "capacity_exceeded": "#/components/schemas/WorkspaceCapacityExceededError",
+                          "rate_limited": "#/components/schemas/WorkspaceRateLimitedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/WorkspaceCapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/WorkspaceRateLimitedError"
                         }
                       ]
                     }
@@ -25847,6 +29121,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "credential_expired": "#/components/schemas/ServerCredentialExpiredError",
                           "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
                         "propertyName": "code"
@@ -25854,6 +29129,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ServerCredentialExpiredError"
                         }
                       ]
                     }
@@ -25982,6 +29260,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/ServerRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ServerRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {

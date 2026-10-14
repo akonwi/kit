@@ -23,6 +23,9 @@ type Operation[Params, In, Out any] struct {
 	// OptionalInstance lets a request omit the instance header, so a client can
 	// learn the running server instance from the response.
 	OptionalInstance bool
+	// Unauthenticated accepts requests without a credential and without an
+	// instance header, as redeeming a pairing code does.
+	Unauthenticated bool
 }
 
 // ErrorResponse describes the codes permitted for one non-success status.
@@ -47,6 +50,7 @@ type Descriptor struct {
 	ResponseMediaTypes                  []string
 	NoProtocol                          bool
 	OptionalInstance                    bool
+	Unauthenticated                     bool
 }
 
 // Describe projects a typed operation into its reflection-friendly form.
@@ -54,7 +58,7 @@ func (op Operation[Params, In, Out]) Describe() Descriptor {
 	return Descriptor{ID: op.ID, Tag: op.Tag, Method: op.Method, Path: op.Path, Success: op.Success,
 		Params: typeOf[Params](), Input: typeOf[In](), Output: typeOf[Out](), AdditionalSuccess: append([]int(nil), op.AdditionalSuccess...), Errors: mergeErrorResponses(op.Errors, CommonErrorResponses),
 		RequestMediaType: op.RequestMediaType, ResponseMediaType: op.ResponseMediaType, ResponseMediaTypes: append([]string(nil), op.ResponseMediaTypes...), NoProtocol: op.NoProtocol,
-		OptionalInstance: op.OptionalInstance}
+		OptionalInstance: op.OptionalInstance, Unauthenticated: op.Unauthenticated}
 }
 
 func typeOf[T any]() reflect.Type { return reflect.TypeOf((*T)(nil)).Elem() }
