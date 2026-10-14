@@ -38,7 +38,9 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
         let controller = TextViewController(string: document.content, language: ReadOnlyFileEditor.language(for: document.path),
             configuration: FileEditorTheme.configuration(theme, wrapLines: wrapLines), cursorPositions: cursors, coordinators: [context.coordinator])
         _ = controller.view
-        if document.diff != nil { controller.gutterWidthOverride = document.diff?.side == nil ? 108 : 76 }
+        // Unified: two 30 pt number columns and a 16 pt sign column. Side by
+        // side: one 34 pt number column and the sign column.
+        if document.diff != nil { controller.gutterWidthOverride = document.diff?.side == nil ? 76 : 50 }
         if contentHeightChanged != nil {
             controller.forwardsVerticalScrollToParent = true
             controller.scrollView.hasVerticalScroller = false
@@ -160,7 +162,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
                     guard let self else { return }
                     let client = self.parent.client, session = self.parent.session
                     Task { await state.remove(client: client, session: session, id: note.id) }
-                }).overlay(RoundedRectangle(cornerRadius: 10).stroke(parent.theme.accent.opacity(flashing == note.id ? 0.8 : 0), lineWidth: 2))
+                }).overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(parent.theme.accent.opacity(flashing == note.id ? 1 : 0), lineWidth: 1))
                 contents.append((String(note.id), parent.document.range(note.anchor)!.upperBound, AnyView(content)))
             }
             if let editor = state.editor, let range = parent.document.range(editor.anchor) {
@@ -185,7 +187,12 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
                     host = existing
                     if hostConfigurations[key] != configuration { host.rootView = root }
                 }
-                else { host = NSHostingView(rootView: root); hosts[key] = host; controller.textView.addSubview(host) }
+                else {
+                    host = NSHostingView(rootView: root)
+                    // Notes live inside the text view, never under window chrome.
+                    host.safeAreaRegions = []
+                    hosts[key] = host; controller.textView.addSubview(host)
+                }
                 hostConfigurations[key] = configuration
                 let height = max(40, ceil(host.fittingSize.height)) + 16
                 host.frame.size = CGSize(width: width, height: height - 16)
@@ -203,9 +210,17 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
             gutter.muted = NSColor(parent.theme.muted)
             gutter.added = NSColor(parent.theme.token("diffAddedBg", fallback: parent.theme.success.opacity(0.10)))
             gutter.removed = NSColor(parent.theme.token("diffRemovedBg", fallback: parent.theme.danger.opacity(0.10)))
-            gutter.ranges = current.compactMap { parent.document.range($0.anchor) }
+            gutter.contextNumber = NSColor(parent.theme.strongBorder)
+            gutter.addedNumber = NSColor(parent.theme.success.opacity(0.8))
+            gutter.removedNumber = NSColor(parent.theme.danger.opacity(0.8))
+            gutter.addedSign = NSColor(parent.theme.success)
+            gutter.removedSign = NSColor(parent.theme.danger)
+            // Saved notes mark their lines in the rail; the range being
+            // written, or a note just revealed, tints its whole lines.
+            gutter.ranges = current.filter { $0.id != flashing }.compactMap { parent.document.range($0.anchor) }
+            gutter.activeRanges = current.filter { $0.id == flashing }.compactMap { parent.document.range($0.anchor) }
             if let editor = state.editor, let range = parent.document.range(editor.anchor) {
-                gutter.ranges.append(range)
+                gutter.activeRanges.append(range)
             }
             place()
             if let editor = state.editor, lastEditor != editor.token,
@@ -252,7 +267,8 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
             let clip = controller.scrollView.contentView
             let viewport = controller.textView.convert(clip.bounds, from: clip)
             var frame = controller.view.convert(clip.bounds, from: clip)
-            gutter.railWidth = max(0, manager.edgeInsets.left - 4)
+            // A diff's sign column runs up to the code; a file's rail stops short.
+            gutter.railWidth = max(0, manager.edgeInsets.left - (parent.document.diff == nil ? 4 : 0))
             if parent.document.diff == nil { frame.size.width = gutter.railWidth }
             gutter.frame = frame
             gutter.bounds = NSRect(x: 0, y: viewport.minY, width: frame.width, height: frame.height)
@@ -281,6 +297,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
 @MainActor final class AnnotationGutterOverlay: NSView {
     weak var manager: TextLayoutManager?
     var ranges: [ClosedRange<Int>] = []
+    var activeRanges: [ClosedRange<Int>] = []
     var color = NSColor.controlAccentColor
     var symbolColor = NSColor.textBackgroundColor
     var sourceLineCount = 0
@@ -291,6 +308,11 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
     var muted = NSColor.secondaryLabelColor
     var added = NSColor.systemGreen.withAlphaComponent(0.1)
     var removed = NSColor.systemRed.withAlphaComponent(0.1)
+    var contextNumber = NSColor.tertiaryLabelColor
+    var addedNumber = NSColor.systemGreen
+    var removedNumber = NSColor.systemRed
+    var addedSign = NSColor.systemGreen
+    var removedSign = NSColor.systemRed
     private(set) var selectionSide: String?
     var enabled = true {
         didSet { if !enabled { hovered = nil; cancelDrag() }; needsDisplay = true }
@@ -343,7 +365,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
     func buttonRect(for index: Int) -> NSRect? {
         guard let manager, let line = manager.lineStorage.getLine(atIndex: index) else { return nil }
         let height = line.height - (manager.blockHeights[index] ?? 0)
-        let size = min(18, height)
+        let size = min(16, height)
         return NSRect(x: max(0, railWidth - size), y: line.yPos + (min(height, 20) - size) / 2, width: size, height: size)
     }
     override func resetCursorRects() {
@@ -424,22 +446,30 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
                 if row.kind == "addition" || row.kind == "deletion" {
                     (row.kind == "addition" ? added : removed).setFill()
                     NSRect(x: 0, y: line.yPos, width: bounds.width, height: height).fill()
+                } else if row.kind == "hunk" {
+                    muted.withAlphaComponent(0.06).setFill()
+                    NSRect(x: 0, y: line.yPos, width: bounds.width, height: height).fill()
                 }
-                let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular), .foregroundColor: muted]
+                let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                let numberColor = row.kind == "addition" ? addedNumber : row.kind == "deletion" ? removedNumber : contextNumber
                 func drawNumber(_ value: Int?, right: CGFloat) {
                     guard let value else { return }
-                    let text = NSAttributedString(string: String(value), attributes: attributes)
+                    let text = NSAttributedString(string: String(value), attributes: [.font: font, .foregroundColor: numberColor])
                     text.draw(at: NSPoint(x: right - text.size().width, y: line.yPos + 2))
                 }
-                if let fixedSide { drawNumber(row.number(fixedSide), right: 48) }
-                else { drawNumber(row.oldLine, right: 58); drawNumber(row.newLine, right: 82) }
+                if let fixedSide { drawNumber(row.number(fixedSide), right: 28) }
+                else { drawNumber(row.oldLine, right: 24); drawNumber(row.newLine, right: 54) }
                 let marker = row.kind == "addition" ? "+" : row.kind == "deletion" ? "−" : ""
-                NSAttributedString(string: marker, attributes: attributes).draw(at: NSPoint(x: fixedSide == nil ? 95 : 61, y: line.yPos + 2))
+                NSAttributedString(string: marker, attributes: [.font: font, .foregroundColor: row.kind == "addition" ? addedSign : removedSign])
+                    .draw(at: NSPoint(x: fixedSide == nil ? 60 : 34, y: line.yPos + 2))
             }
-            if ranges.contains(where: { $0.contains(line.index) }) || selection?.contains(line.index) == true {
-                let rect = NSRect(x: 0, y: line.yPos, width: railWidth, height: height)
-                color.withAlphaComponent(selection?.contains(line.index) == true ? 0.25 : 0.14).setFill(); rect.fill()
-                color.setFill(); NSRect(x: 0, y: line.yPos, width: 2, height: height).fill()
+            if selection?.contains(line.index) == true || activeRanges.contains(where: { $0.contains(line.index) }) {
+                // The lines being commented on tint across the row.
+                color.withAlphaComponent(0.16).setFill()
+                NSRect(x: 0, y: line.yPos, width: diffRows == nil ? railWidth : bounds.width, height: height).fill()
+            } else if ranges.contains(where: { $0.contains(line.index) }) {
+                // Lines with saved notes tint their gutter.
+                color.withAlphaComponent(0.14).setFill(); NSRect(x: 0, y: line.yPos, width: railWidth, height: height).fill()
             }
             if enabled && hovered == line.index {
                 let button = buttonRect(for: line.index)!

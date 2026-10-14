@@ -46,12 +46,9 @@ extension TextViewController {
         minimapView = MinimapView(textView: textView, theme: configuration.appearance.theme)
         scrollView.addFloatingSubview(minimapView, for: .vertical)
 
-        let findViewController = FindViewController(target: self, childView: scrollView)
-        addChild(findViewController)
-        self.findViewController = findViewController
-        self.view.addSubview(findViewController.view)
-        findViewController.view.viewDidMoveToSuperview()
-        self.findViewController = findViewController
+        // Kit: no find panel. The scroll view fills the controller's view.
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        self.view.addSubview(scrollView)
 
         if let _undoManager {
             textView.setUndoManager(_undoManager)
@@ -83,8 +80,6 @@ extension TextViewController {
     }
 
     func setUpConstraints() {
-        guard let findViewController else { return }
-
         let maxWidthConstraint = minimapView.widthAnchor.constraint(lessThanOrEqualToConstant: MinimapView.maxWidth)
         let relativeWidthConstraint = minimapView.widthAnchor.constraint(
             equalTo: view.widthAnchor,
@@ -97,10 +92,10 @@ extension TextViewController {
         self.minimapXConstraint = minimapXConstraint
 
         NSLayoutConstraint.activate([
-            findViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            findViewController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            findViewController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            findViewController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             minimapView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
             minimapView.bottomAnchor.constraint(equalTo: scrollView.contentView.bottomAnchor),
@@ -256,10 +251,6 @@ extension TextViewController {
             return nil
         case (commandKey, "]"):
             handleIndent()
-            return nil
-        case (commandKey, "f"):
-            _ = self.textView.resignFirstResponder()
-            self.findViewController?.showFindPanel()
             return nil
         case (.init(rawValue: 0), "\u{1b}"): // Escape key
             if findViewController?.viewModel.isShowingFindPanel == true {

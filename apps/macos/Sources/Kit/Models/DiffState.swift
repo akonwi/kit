@@ -1,11 +1,18 @@
 import Foundation
 import Observation
 
-enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Split" }
+enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side by side" }
 
 @MainActor @Observable final class DiffState {
+    /// How often a shown Diff pane checks the target for changes, as in the TUI.
+    static let pollInterval: Duration = .seconds(5)
+    /// Below this width two columns don't fit, so side by side shows unified.
+    static let splitMinimumWidth: CGFloat = 640
+
     var layout: DiffLayout = .unified
     var wrapLines = false
+    /// Files whose sections are folded to their header.
+    var collapsed: Set<String> = []
     var fileStates: [String: DiffState] = [:]
     private var fileReadTail: Task<Void, Never>?
     var catalog: WireDiffTargetCatalog?
@@ -16,6 +23,8 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Split
     var document: DiffDocument?
     var loading = false
     var error: String?
+    /// A line under `error` when the reason needs one.
+    var errorDetail: String?
     var notice: String?
     var stale = false
     var fileCursor: String?
@@ -57,8 +66,27 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Split
         await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
 
+    /// The whole target's line counts, over the files listed so far.
+    /// Line totals across the listed files, or nil when the server sent no
+    /// counts for any of them.
+    var additions: Int? {
+        files.contains { $0.additions != nil } ? files.reduce(0) { $0 + ($1.additions ?? 0) } : nil
+    }
+    var deletions: Int? {
+        files.contains { $0.deletions != nil } ? files.reduce(0) { $0 + ($1.deletions ?? 0) } : nil
+    }
+
+    /// Whether side by side fits a pane `width` points wide.
+    static func splitFits(_ width: CGFloat) -> Bool { width >= splitMinimumWidth }
+
+    /// Lists targets again for the picker without changing what is shown.
+    func refreshCatalog(client: any DiffClient, session: String) async {
+        guard let catalog = try? await client.diffTargets(session), !Task.isCancelled else { return }
+        self.catalog = catalog
+    }
+
     func reveal(_ note: FileAnnotation) { navigation = note; navigationToken = UUID() }
-    func invalidate() { fileStates = [:]; epoch = UUID(); catalog = nil; target = nil; observation = nil; files = []; selectedPath = nil; document = nil; loading = false; error = nil }
+    func invalidate() { fileStates = [:]; epoch = UUID(); catalog = nil; target = nil; observation = nil; files = []; selectedPath = nil; document = nil; loading = false; error = nil; errorDetail = nil }
 
     /// Fetch in isolation so polling never clears the visible diff or interrupts a draft.
     func poll(client: any DiffClient, session: String, canApply: () -> Bool) async {
@@ -69,9 +97,9 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Split
         updated.selectedPath = selectedPath
         await updated.refresh(client: client, session: session)
         guard epoch == token, !Task.isCancelled, canApply() else { return }
-        if let error = updated.error { self.error = error; stale = true; return }
+        if let error = updated.error { self.error = error; errorDetail = updated.errorDetail; stale = true; return }
         catalog = updated.catalog
-        error = nil
+        error = nil; errorDetail = nil
         stale = false
         // Preserve expanded pages, source selection, and scroll position when unchanged.
         if document != nil, document?.file.path == updated.document?.file.path,
@@ -87,7 +115,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Split
     }
 
     func refresh(client: any DiffClient, session: String) async {
-        let token = UUID(); epoch = token; loading = true; error = nil
+        let token = UUID(); epoch = token; loading = true; error = nil; errorDetail = nil
         defer { if epoch == token { loading = false } }
         do {
             let catalog = try await client.diffTargets(session)
@@ -102,7 +130,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Split
 
     func select(_ target: WireDiffTargetEntry, client: any DiffClient, session: String, more: Bool = false) async {
         guard let catalog else { return }
-        let token = UUID(); epoch = token; loading = true; error = nil; stale = false
+        let token = UUID(); epoch = token; loading = true; error = nil; errorDetail = nil; stale = false
         let priorPath = selectedPath
         if !more {
             fileStates = [:]
@@ -131,7 +159,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Split
 
     func read(_ file: WireDiffFileSummary, client: any DiffClient, session: String, more: Bool = false) async {
         guard let observation else { return }
-        let token = UUID(); epoch = token; loading = true; error = nil; stale = false
+        let token = UUID(); epoch = token; loading = true; error = nil; errorDetail = nil; stale = false
         if !more { selectedPath = file.path; document = nil; notice = nil; hunks = []; lineCursor = nil; lineCursors = [] }
         defer { if epoch == token { loading = false } }
         do {
@@ -145,7 +173,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Split
 
     func openAnnotation(_ note: FileAnnotation, client: any DiffClient, session: String) async -> Bool {
         guard let anchor = note.diffAnchor else { return false }
-        let token = UUID(); epoch = token; loading = true; error = nil; stale = false
+        let token = UUID(); epoch = token; loading = true; error = nil; errorDetail = nil; stale = false
         defer { if epoch == token { loading = false } }
         do {
             let page = try await client.readDiff(session, input: .init(targetId: anchor.targetId, targetRevision: anchor.targetRevision,
@@ -193,6 +221,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Split
     private func fail(_ error: Error) {
         if error is CancellationError { return }
         self.error = error.localizedDescription
+        errorDetail = (error as? DiffReadError)?.detail
         stale = true
     }
 }

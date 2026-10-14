@@ -291,7 +291,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
               let version = Operations.ListDiffTargets.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
         let input = Components.Schemas.ListDiffTargetsInput(workspaceId: workspace.workspaceId)
         let output = try await api.listDiffTargets(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(input))
-        guard case let .ok(response) = output else { throw DiffReadError(code: "unavailable") }
+        guard case let .ok(response) = output else { throw DiffReadError(code: DiffReadError.code(in: output)) }
         let result: WireDiffTargetCatalog = try generated(try response.body.json, as: WireDiffTargetCatalog.self)
         guard result.sessionId == id, result.workspaceId == workspace.workspaceId,
               let targets = result.targets, targets.count <= 42,
@@ -304,7 +304,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard Self.validScratchpadSession(id), let version = Operations.ObserveDiff.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
         let body: Components.Schemas.ObserveDiffInput = try generated(input, as: Components.Schemas.ObserveDiffInput.self)
         let output = try await api.observeDiff(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
-        guard case let .ok(response) = output else { throw DiffReadError(code: "unavailable") }
+        guard case let .ok(response) = output else { throw DiffReadError(code: DiffReadError.code(in: output)) }
         let page: WireWorkingTreePage = try generated(try response.body.json, as: WireWorkingTreePage.self)
         try DiffValidation.observation(page.observation, session: id, target: input.expectedTargetId, revision: input.expectedTargetRevision)
         guard page.observation.target.workspaceId == input.workspaceId, let files = page.files, files.count <= 200,
@@ -318,7 +318,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard Self.validScratchpadSession(id), let version = Operations.ReadFileDiff.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
         let body: Components.Schemas.ReadFileDiffInput = try generated(input, as: Components.Schemas.ReadFileDiffInput.self)
         let output = try await api.readFileDiff(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
-        guard case let .ok(response) = output else { throw DiffReadError(code: "unavailable") }
+        guard case let .ok(response) = output else { throw DiffReadError(code: DiffReadError.code(in: output)) }
         let page: WireFileDiffPage = try generated(try response.body.json, as: WireFileDiffPage.self)
         try DiffValidation.observation(page.observation, session: id, target: input.targetId, revision: input.targetRevision)
         guard page.file.path == input.path, input.expectedFileRevision == nil || page.file.fileRevision == input.expectedFileRevision else { throw ClientError.invalidPayload }

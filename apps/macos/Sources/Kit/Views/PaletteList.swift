@@ -216,6 +216,7 @@ struct PaletteSearchField: NSViewRepresentable {
     @Environment(\.mica) private var theme
     @Binding var text: String
     let placeholder: String
+    var fontSize: CGFloat = 14
     let move: (Int) -> Void
     let complete: () -> String?
     let submit: () -> Void
@@ -237,10 +238,10 @@ struct PaletteSearchField: NSViewRepresentable {
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
         if field.stringValue != text { context.coordinator.replace(text, in: field) }
-        field.font = Typography.shared.font(size: 14)
+        field.font = Typography.shared.font(size: fontSize)
         field.textColor = NSColor(theme.text)
         field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
-            .font: Typography.shared.font(size: 14), .foregroundColor: NSColor(theme.strongBorder)
+            .font: Typography.shared.font(size: fontSize), .foregroundColor: NSColor(theme.strongBorder)
         ])
         field.setAccessibilityLabel(placeholder)
     }

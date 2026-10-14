@@ -13,7 +13,7 @@ struct ComposerView: View {
     @State private var pickerAnchor = ComposerPickerAnchor()
     @State private var focused = false
     @State private var attachmentDropTargeted = false
-    @State private var popover = ComposerPopover()
+    @State private var popover = AnchoredPopover()
     @State private var openMenu: ComposerChipMenu?
     @State private var lastClosedMenu: ComposerChipMenu?
     @State private var modelAnchor = ComposerPickerAnchor()

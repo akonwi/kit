@@ -76,9 +76,11 @@ struct MicaButtonStyle: ButtonStyle {
 /// and the queued tray. The bordered form marks the card's main action.
 struct SmallButtonStyle: ButtonStyle {
     var bordered = false
+    /// A filled button for the action a small form exists for, such as Comment.
+    var prominent = false
 
     func makeBody(configuration: Configuration) -> some View {
-        Label(configuration: configuration, bordered: bordered)
+        Label(configuration: configuration, bordered: bordered, prominent: prominent)
     }
 
     private struct Label: View {
@@ -87,12 +89,15 @@ struct SmallButtonStyle: ButtonStyle {
         @State private var hovering = false
         let configuration: Configuration
         let bordered: Bool
+        let prominent: Bool
 
         var body: some View {
             configuration.label
-                .font(.kit(size: 12)).foregroundStyle(theme.text).lineLimit(1)
-                .padding(.horizontal, 8).frame(height: 22)
-                .background(hovering || configuration.isPressed ? theme.hover : .clear,
+                .font(.kit(size: 12, weight: prominent ? .medium : .regular))
+                .foregroundStyle(prominent ? theme.surface : theme.text).lineLimit(1)
+                .padding(.horizontal, prominent ? 10 : 8).frame(height: 22)
+                .background(prominent ? theme.text.opacity(hovering || configuration.isPressed ? 0.85 : 1)
+                                : hovering || configuration.isPressed ? theme.hover : .clear,
                             in: RoundedRectangle(cornerRadius: 3))
                 .overlay {
                     if bordered { RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border) }

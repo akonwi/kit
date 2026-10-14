@@ -174,14 +174,25 @@ private actor ComposerMock: ComposerClient {
     }
     @Test func modelPopoverSitsAboveTheChipOnScreen() {
         let chip = NSRect(x: 100, y: 40, width: 110, height: 24)
-        #expect(ComposerPopover.frame(anchor: chip, size: CGSize(width: 320, height: 200),
+        #expect(AnchoredPopover.frame(anchor: chip, size: CGSize(width: 320, height: 200),
                                            screen: NSRect(x: 0, y: 0, width: 1440, height: 900))
             == NSRect(x: 100, y: 70, width: 320, height: 200))
         // Near the screen's right edge the card shifts left; near the top it is cut to fit.
-        #expect(ComposerPopover.frame(anchor: NSRect(x: 1300, y: 760, width: 110, height: 24),
+        #expect(AnchoredPopover.frame(anchor: NSRect(x: 1300, y: 760, width: 110, height: 24),
                                            size: CGSize(width: 320, height: 200),
                                            screen: NSRect(x: 0, y: 0, width: 1440, height: 900))
             == NSRect(x: 1120, y: 790, width: 320, height: 110))
+    }
+    @Test func diffPopoversHangBelowTheirControl() {
+        let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let target = NSRect(x: 200, y: 700, width: 100, height: 22)
+        #expect(AnchoredPopover.frame(anchor: target, size: CGSize(width: 320, height: 200), screen: screen, edge: .below)
+            == NSRect(x: 200, y: 494, width: 320, height: 200))
+        // The view menu lines up with the ⋯ button's right edge; near the
+        // bottom of the screen the card is cut to fit.
+        #expect(AnchoredPopover.frame(anchor: NSRect(x: 1000, y: 120, width: 22, height: 22), size: CGSize(width: 188, height: 200),
+                                      screen: screen, edge: .below, alignment: .trailing)
+            == NSRect(x: 834, y: 0, width: 188, height: 114))
     }
     @Test func composerModelPickerFormatsContextLikeTUI() {
         #expect(ComposerModelPicker.contextLabel(0) == nil)

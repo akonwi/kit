@@ -437,19 +437,34 @@ from stale state; the server remains responsible for validation at submission.
 The retained Diff pane reads the target catalog and accepts only server-issued
 working-tree, branch, and commit references. Changed files and semantic hunks
 load in bounded pages; continuations carry the exact target/file revisions.
-Files appear as individually titled sections in one continuous vertical scroll
-surface, with addition/deletion counts and a Files menu that jumps to a section.
+A 30 pt header row holds the target button, the file count with total
+additions and deletions, and a trailing ⋯ button. The target button opens a
+searchable picker below it; the ⋯ button opens a view menu, aligned to its
+trailing edge, with Wrap lines, Unified, and Side by side. Both are arrowless
+anchored cards, and a pick applies and closes. Side by side needs a pane at least
+640 pt wide; narrower panes fall back to Unified and dim the option with "Tile
+is too narrow". Layout and wrapping are retained by the workspace across target
+changes.
+Files appear as titled sections in one continuous vertical scroll surface. Each
+34 pt file header shows its path and counts, pins to the top while its section
+scrolls, and collapses the section on click. Hunks within a file are separated by
+a ⋯ gap row rather than a leading hunk header.
 Visible sections load on demand through serialized reads and retain independent
 line pagination. Each native editor sizes to its source and inline-note height;
 vertical wheel events pass to the containing diff scroll view.
-The header offers Unified/Split layout and line wrapping controls, retained by the
-workspace across target changes. Split mode pairs replacement runs and leaves
+Split mode pairs replacement runs and leaves
 unmatched rows blank without assigning them source coordinates. Both native
 editors share row heights so wrapped source and inline notes stay aligned.
 Comments remain pinned to their original source side; switching presentation
 preserves an unsaved draft.
 The pane shows explicit loading, empty, partial, nontext, complex, stale, and
-failure states. Visible diff panes poll every 30 seconds, deferring while a comment is being edited or saved. Unchanged revisions retain expanded pages and editor position; hidden panes do not poll. Workspace invalidation discards in-flight
+failure states. Loading uses a braille spinner. A clean working tree reads
+"Working tree is clean"; an empty branch or commit reads "No changes". Server
+refusals use the TUI's wording with a second explanatory line where it helps.
+Visible diff panes poll every 5 seconds without an indicator, deferring while a
+comment is being edited or saved. Unchanged revisions retain expanded pages and
+editor position; collapsed files stay collapsed across refreshes; hidden panes
+do not poll. Workspace invalidation discards in-flight
 results, and operation generations prevent older reads from replacing new state.
 
 The native editor shares annotation inputs and notes with file tabs. A semantic
@@ -457,7 +472,10 @@ old/new gutter projects source-side coordinates independently of displayed rows,
 hunk headers, continuation fragments, and inline note gaps. Deletions anchor the
 old side, additions the new side, and context accepts either number column.
 The hover comment button sits at the code-facing edge of the gutter and uses a
-pointing-hand cursor.
+pointing-hand cursor. The comment input ends with Cancel and a prominent
+Comment (Save when editing) button. Saved notes are raised cards that show Edit
+and Delete on hover; a note whose file changed reads "File changed" and offers
+"Select new range".
 Ranges cannot span omitted context or exceed 200 source lines. Ordinary native
 selection, syntax highlighting, scrolling, and source-copy behavior are retained.
 Refreshing preserves unsaved comments at their original revisions and requires

@@ -19,6 +19,9 @@ public class TextLayoutManager: NSObject {
             for index in Set(blockHeights.keys).union(oldValue.keys) {
                 guard let line = lineStorage.getLine(atIndex: index) else { continue }
                 let delta = (blockHeights[index] ?? 0) - (oldValue[index] ?? 0)
+                // Lines whose block height is unchanged need no update; the
+                // storage rejects zero deltas.
+                guard delta != 0 else { continue }
                 lineStorage.update(atOffset: line.range.location, delta: 0, deltaHeight: delta)
             }
             setNeedsLayout()

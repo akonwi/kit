@@ -11,6 +11,7 @@ that space; source storage, UTF-16 ranges, fragments, and line counts do not.
 Kit owns hosted annotation views and gutter markers outside this package.
 When blocks exist, TextView uses normal AppKit subview hit testing so hosted
 inputs and buttons receive mouse clicks.
+Changing blockHeights updates only lines whose block height changed.
 Empty blockHeights preserves upstream behavior. Folding and editable documents
 are outside the scope of this read-only adapter.
 

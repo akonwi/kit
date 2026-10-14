@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// A saved comment under the lines it covers: interface text on a raised
+/// card, with Edit and Delete appearing while the pointer is over it.
 struct AnnotationNote: View {
     @Environment(\.mica) private var theme
     let annotation: FileAnnotation
@@ -12,22 +14,50 @@ struct AnnotationNote: View {
                 Label("File changed", systemImage: "exclamationmark.triangle")
                     .font(.kit(size: 11)).foregroundStyle(theme.muted)
             }
-            HStack(alignment: .top, spacing: 12) {
-                Text(annotation.body).font(.kit(size: 14)).textSelection(.enabled)
+            HStack(alignment: .top, spacing: 8) {
+                Text(annotation.body).font(.kit(size: 13)).lineSpacing(3).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(spacing: 12) {
-                    Button(annotation.stale ? "Select new range" : "Edit", action: edit)
-                    Button("Delete", action: delete)
-                }.font(.kit(size: 11)).buttonStyle(.plain).opacity(hovered ? 1 : 0)
+                HStack(spacing: 2) {
+                    if annotation.stale {
+                        Button("Select new range", action: edit).buttonStyle(SmallButtonStyle())
+                    } else {
+                        NoteAction(symbol: "pencil", label: "Edit", action: edit)
+                    }
+                    NoteAction(symbol: "trash", label: "Delete", action: delete)
+                }
+                .padding(.top, -4).padding(.trailing, -6)
+                .opacity(hovered ? 1 : 0)
             }
-        }.padding(12).foregroundStyle(theme.text)
+        }.padding(.horizontal, 12).padding(.vertical, 10).foregroundStyle(theme.text)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(theme.raised, in: RoundedRectangle(cornerRadius: 10))
+            .background(theme.raised, in: RoundedRectangle(cornerRadius: 4))
             .onHover { hovered = $0 }
             .contextMenu {
                 Button(annotation.stale ? "Select new range" : "Edit", action: edit)
                 Button("Delete", action: delete)
             }
+    }
+}
+
+/// A 22 pt icon button on a note card.
+private struct NoteAction: View {
+    @Environment(\.mica) private var theme
+    let symbol: String
+    let label: String
+    let action: () -> Void
+    @State private var hovered = false
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 11))
+                .foregroundStyle(hovered ? theme.text : theme.muted)
+                .frame(width: 22, height: 22)
+                .background(hovered ? theme.hover : .clear, in: RoundedRectangle(cornerRadius: 3))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
 
