@@ -74,14 +74,14 @@ struct Edge {
 
 // Where an edge's label is drawn: on its drop into a target no other edge
 // enters, on its stem from a source no other edge leaves, or else on the
-// first placeholder of an edge that skips layers, or on its own track's
-// sideways run. A loop's label goes `back`, beside its outer column.
+// first placeholder of an edge that skips layers; a labeled edge with both
+// ends shared always skips one. A loop's label goes `back`, beside its outer
+// column.
 enum Spot {
   none,
   drop,
   stem,
   middle,
-  track,
   back,
 }
 
@@ -109,10 +109,10 @@ private struct Star {
   // Whether the star is one edge running straight down, needing no track.
   straight: Bool,
   track: Int,
-  // Cells across the flow its track needs.
-  room: Int,
-  // Where the star's track lies within its channel's tracks.
-  at: Int,
+  // The columns of its stems and drops, and its set of joined lines.
+  stems: [Int],
+  drops: [Int],
+  group: Int,
 }
 
 private fn maximum(left: Int, right: Int) Int {
@@ -227,13 +227,15 @@ fn topological(graph: Graph) [Int]!Str {
 
 // Each node's layer: one past its deepest predecessor. A source moves down to
 // sit just above its nearest successor.
-fn layers(graph: Graph, order: [Int]) [Int] {
+fn layers(graph: Graph, order: [Int], lengths: [Int]) [Int] {
   let layer = mut fill(graph.nodes.size(), 0)
   for node in order {
+    mut index = 0
     for edge in graph.edges {
       if edge.from == node {
-        layer.set(edge.to, maximum(get(layer.@, edge.to), get(layer.@, node) + 1))
+        layer.set(edge.to, maximum(get(layer.@, edge.to), get(layer.@, node) + get(lengths, index)))
       }
+      index =+ 1
     }
   }
   mut index = order.size() - 1
@@ -241,12 +243,15 @@ fn layers(graph: Graph, order: [Int]) [Int] {
     let node = get(order, index)
     mut has_incoming = false
     mut nearest = -1
+    mut edge_index = 0
     for edge in graph.edges {
       if edge.to == node {
         has_incoming = true
       }
+      let length = get(lengths, edge_index)
+      edge_index =+ 1
       if edge.from == node {
-        let below = get(layer.@, edge.to) - 1
+        let below = get(layer.@, edge.to) - length
         nearest = match nearest < 0 {
           true => below,
           false => minimum(nearest, below),
@@ -411,6 +416,159 @@ private fn settle(across: Bool, row: [Int], widths: [Int], desired: [Int], cente
   }
 }
 
+// Where segments leave and enter their vertices. Segments sharing a port
+// share the line at it: edges from one node branch from one stem, and edges
+// into one node merge into one arrow. Lines that join this way must not
+// suggest edges that don't exist, so a set of joined lines is kept only when
+// each of its stems reaches each of its drops.
+private struct Ports {
+  // Each segment's stem port and drop port.
+  stem: [Int],
+  drop: [Int],
+  // Each segment's set of joined lines.
+  group: [Int],
+}
+
+private fn stroke_code(stroke: Stroke) Int {
+  match stroke {
+    Stroke::solid => 0,
+    Stroke::dotted => 1,
+    Stroke::thick => 2,
+  }
+}
+
+private fn head_code(head: Head) Int {
+  match head {
+    Head::arrow => 0,
+    Head::cross => 1,
+    Head::circle => 2,
+    Head::none => 3,
+  }
+}
+
+private fn root(parent: [Int], port: Int) Int {
+  mut at = port
+  while get(parent, at) != at {
+    at = get(parent, at)
+  }
+  at
+}
+
+// The set of joined lines each segment belongs to: segments sharing a stem
+// or drop port are joined.
+private fn join(stem: [Int], drop: [Int], ports: Int) [Int] {
+  let parent = mut List::new<Int>()
+  mut port = 0
+  while port < ports {
+    parent.push(port)
+    port =+ 1
+  }
+  mut index = 0
+  while index < stem.size() {
+    let a = root(parent.@, get(stem, index))
+    let b = root(parent.@, get(drop, index))
+    if a != b {
+      parent.set(a, b)
+    }
+    index =+ 1
+  }
+  let groups = mut List::new<Int>()
+  for each in stem {
+    groups.push(root(parent.@, each))
+  }
+  groups.@
+}
+
+// Gives each segment its ports. Edges share a stem when they leave one
+// vertex with the same stroke, and a drop when they enter one vertex with
+// the same stroke and head, so every shared line is drawn as all its edges
+// are. A set
+// of joined lines missing one of its stem-to-drop edges gives each of its
+// segments its own drop, or its own stem when that takes fewer ports.
+private fn assign_ports(graph: Graph, segments: [Segment], spots: [Spot]) Ports {
+  let ids = mut Map::new<Int>()
+  mut total = 0
+  let stem = mut List::new<Int>()
+  let drop = mut List::new<Int>()
+  for segment in segments {
+    let edge = graph.edges.at(segment.edge).expect("edge")
+    let stem_key = "s{segment.from}:{stroke_code(edge.stroke)}"
+    let drop_key = match segment.to == edge.to {
+      true => "d{segment.to}:{stroke_code(edge.stroke)}:{head_code(edge.head)}",
+      false => "d{segment.to}",
+    }
+    for key in [stem_key, drop_key] {
+      if ids.get(key).is_none() {
+        ids.set(key, total)
+        total =+ 1
+      }
+    }
+    stem.push(ids.get(stem_key).or(0))
+    drop.push(ids.get(drop_key).or(0))
+  }
+  let groups = join(stem.@, drop.@, total)
+  // Count each set's segments, stems, and drops.
+  let lines = mut fill(total, 0)
+  let stems = mut fill(total, 0)
+  let drops = mut fill(total, 0)
+  let seen = mut fill(total, 0)
+  mut index = 0
+  for group in groups {
+    lines.set(group, get(lines.@, group) + 1)
+    let a = get(stem.@, index)
+    let b = get(drop.@, index)
+    if get(seen.@, a) == 0 {
+      seen.set(a, 1)
+      stems.set(group, get(stems.@, group) + 1)
+    }
+    if get(seen.@, b) == 0 {
+      seen.set(b, 1)
+      drops.set(group, get(drops.@, group) + 1)
+    }
+    index =+ 1
+  }
+  index = 0
+  for group in groups {
+    let n = get(lines.@, group)
+    let s = get(stems.@, group)
+    let d = get(drops.@, group)
+    if n != s * d {
+      match d >= s {
+        true => drop.set(index, total),
+        false => stem.set(index, total),
+      }
+      total =+ 1
+    }
+    index =+ 1
+  }
+  Ports{
+    stem: stem.@,
+    drop: drop.@,
+    group: join(stem.@, drop.@, total),
+  }
+}
+
+// The number of distinct ports among those of the segments where use is 1.
+private fn distinct(ports: [Int], vertices: [Int], vertex: Int) Int {
+  let found = mut List::new<Int>()
+  mut index = 0
+  for port in ports {
+    if get(vertices, index) == vertex {
+      mut known = false
+      for other in found {
+        if other == port {
+          known = true
+        }
+      }
+      if not known {
+        found.push(port)
+      }
+    }
+    index =+ 1
+  }
+  found.size()
+}
+
 // Draws graph, with title above it when given.
 fn draw(graph: Graph, title: Str, flow: Flow) canvas::Canvas!Str {
   // Flowing across, nodes are three rows tall side by side, and as thick as
@@ -419,16 +577,27 @@ fn draw(graph: Graph, title: Str, flow: Flow) canvas::Canvas!Str {
   // Edges that close a loop are set aside; the rest flow forward.
   let back = back_edges(graph)
   let forward_edges = mut List::new<Edge>()
+  // A labeled edge whose ends are both shared has no line of its own
+  // between adjacent layers, so it spans two, with a placeholder for its
+  // label.
+  let lengths = mut List::new<Int>()
   mut edge_number = 0
   for edge in graph.edges {
     if get(back, edge_number) == 0 {
       forward_edges.push(edge)
+      let shared = edges_into(graph, edge.to) > 1 and edges_from(graph, edge.from) > 1
+      lengths.push(
+        match edge.label != "" and shared {
+          true => 2,
+          false => 1,
+        },
+      )
     }
     edge_number =+ 1
   }
   let forward = Graph{nodes: graph.nodes, edges: forward_edges.@}
   let order = try topological(forward)
-  let node_layers = layers(forward, order)
+  let node_layers = layers(forward, order, lengths.@)
   let real = graph.nodes.size()
 
   // Vertices: the nodes, then a placeholder for each layer an edge skips.
@@ -464,7 +633,7 @@ fn draw(graph: Graph, title: Str, flow: Flow) canvas::Canvas!Str {
       edges_into(graph, edge.to) == 1 => Spot::drop,
       edges_from(graph, edge.from) == 1 => Spot::stem,
       get(node_layers, edge.to) - get(node_layers, edge.from) > 1 => Spot::middle,
-      _ => Spot::track,
+      _ => Spot::middle,
     }
     // Labels lie along their lines when flowing across, needing no room
     // beside them.
@@ -532,6 +701,52 @@ fn draw(graph: Graph, title: Str, flow: Flow) canvas::Canvas!Str {
   mut depth = 0
   for k in layer {
     depth = maximum(depth, k + 1)
+  }
+  // Each loop leaves through an exit and enters through an entry, two
+  // vertices added after the rest once loops have their columns.
+  let loops = mut List::new<Int>()
+  let all_segments = mut List::new<Segment>()
+  for segment in segments {
+    all_segments.push(segment)
+  }
+  edge_index = 0
+  for edge in graph.edges {
+    if get(back, edge_index) == 1 {
+      let exit = count + 2 * loops.size()
+      all_segments.push(
+        Segment{
+          from: edge.from,
+          to: exit,
+          edge: edge_index,
+        },
+      )
+      all_segments.push(
+        Segment{
+          from: exit + 1,
+          to: edge.to,
+          edge: edge_index,
+        },
+      )
+      loops.push(edge_index)
+    }
+    edge_index =+ 1
+  }
+  let ports = assign_ports(graph, all_segments.@, spots.@)
+  // A node is long enough across the flow for its ports, two cells apart.
+  let froms = mut List::new<Int>()
+  let tos = mut List::new<Int>()
+  for segment in all_segments {
+    froms.push(segment.from)
+    tos.push(segment.to)
+  }
+  mut node = 0
+  while node < real {
+    let needed = 2 * maximum(distinct(ports.stem, froms.@, node), distinct(ports.drop, tos.@, node)) + 1
+    if needed > get(boxes.@, node) {
+      boxes.set(node, needed)
+      widths.set(node, maximum(get(widths.@, node), needed))
+    }
+    node =+ 1
   }
   match count > max_vertices {
     true => Result::err("the flowchart is too large"),
@@ -717,15 +932,10 @@ fn draw(graph: Graph, title: Str, flow: Flow) canvas::Canvas!Str {
         right = maximum(right, get(center.@, vertex) - room / 2 + room)
         vertex =+ 1
       }
-      let loops = mut List::new<Int>()
       let spans = mut fill(graph.edges.size(), 0)
-      edge_index = 0
-      for edge in graph.edges {
-        if get(back, edge_index) == 1 {
-          loops.push(edge_index)
-          spans.set(edge_index, get(layer.@, edge.from) - get(layer.@, edge.to))
-        }
-        edge_index =+ 1
+      for looped in loops {
+        let edge = graph.edges.at(looped).expect("edge")
+        spans.set(looped, get(layer.@, edge.from) - get(layer.@, edge.to))
       }
       let columns = mut fill(graph.edges.size(), -1)
       mut column = right + 1
@@ -811,6 +1021,7 @@ fn draw(graph: Graph, title: Str, flow: Flow) canvas::Canvas!Str {
         columns.@,
         thick.@,
         flow,
+        ports,
       )
     },
   }
@@ -829,9 +1040,10 @@ private fn route(
   rows: [[Int]],
   real: Int,
   virtual_start: Int,
-  columns: [Int],
+  outer: [Int],
   thick: [Int],
   flow: Flow,
+  ports: Ports,
 ) canvas::Canvas!Str {
   let count = layer.size()
   let depth = rows.size()
@@ -841,44 +1053,74 @@ private fn route(
   // within their box, stems within theirs; placeholders move aside.
   let stem_shift = mut fill(count, 0)
   let drop_shift = mut fill(count, 0)
-  // A drop lines up with a predecessor's stem when that column lies inside
-  // its box, so the edge runs straight; the stem nearest the center wins.
+  // Ports sit two cells apart across a vertex, in the order of where their
+  // other ends lie.
+  let stem_offset = port_offsets(segments, ports.stem, center.@, true)
+  let drop_offset = port_offsets(segments, ports.drop, center.@, false)
+  let froms = mut List::new<Int>()
+  let tos = mut List::new<Int>()
+  for segment in segments {
+    froms.push(segment.from)
+    tos.push(segment.to)
+  }
+  // The cells each vertex's ports reach past their middle one.
+  let stem_reach = mut List::new<Int>()
+  let drop_reach = mut List::new<Int>()
   mut vertex = 0
+  while vertex < count {
+    stem_reach.push(distinct(ports.stem, froms.@, vertex) - 1)
+    drop_reach.push(distinct(ports.drop, tos.@, vertex) - 1)
+    vertex =+ 1
+  }
+  // A vertex's drops shift to line one up with its predecessor's stem when
+  // they all stay inside its box, so that edge runs straight; the smallest
+  // shift wins.
+  vertex = 0
   while vertex < real {
     let box = get(boxes, vertex)
     let x = get(center.@, vertex)
-    let low = x - box / 2 + 1
-    let high = x - box / 2 + box - 2
-    mut best = -1
+    let reach = get(drop_reach.@, vertex)
+    let low = x - box / 2 + 1 + reach
+    let high = x - box / 2 + box - 2 - reach
+    mut best = 0
+    mut found = false
+    mut index = 0
     for segment in segments {
-      let stem = get(center.@, segment.from)
-      if segment.to == vertex and stem >= low and stem <= high {
-        if best < 0 or distance(stem, x) < distance(best, x) {
-          best = stem
+      let stem = get(center.@, segment.from) + get(stem_offset, index)
+      let shift = stem - x - get(drop_offset, index)
+      if segment.to == vertex and x + shift >= low and x + shift <= high {
+        if (not found) or distance(shift, 0) < distance(best, 0) {
+          best = shift
+          found = true
         }
       }
+      index =+ 1
     }
-    if best >= 0 and not has_drop_label(graph, spots, vertex) {
-      drop_shift.set(vertex, best - x)
+    if found and not has_drop_label(graph, spots, vertex) {
+      drop_shift.set(vertex, best)
     }
     vertex =+ 1
   }
-  let stem_at = fn(vertex: Int) Int {
-    get(center.@, vertex) + get(stem_shift.@, vertex)
+  let stem_at = fn(index: Int) Int {
+    let from = segments.at(index).expect("segment").from
+    get(center.@, from) + get(stem_shift.@, from) + get(stem_offset, index)
   }
-  let drop_at = fn(vertex: Int) Int {
-    get(center.@, vertex) + get(drop_shift.@, vertex)
+  let drop_at = fn(index: Int) Int {
+    let to = segments.at(index).expect("segment").to
+    get(center.@, to) + get(drop_shift.@, to) + get(drop_offset, index)
   }
   // Each channel's segments, since only those can meet.
-  let channels = mut List::new<[Segment]>()
+  let channels = mut List::new<[Int]>()
   for _ in rows {
     channels.push([])
   }
+  mut numbered = 0
   for segment in segments {
     let k = get(layer, segment.from)
     let grown = mut channels.at(k).or([])
-    grown.push(segment)
+    grown.push(numbered)
     channels.set(k, grown.@)
+    numbered =+ 1
   }
   mut changed = true
   mut rounds = 0
@@ -886,18 +1128,22 @@ private fn route(
     changed = false
     // Cheap tests first: only a stem and drop that meet need the search for
     // a path between them.
-    for a in segments {
-      for b in channels.at(get(layer, a.from)).or([]) {
+    for a, ai in segments {
+      for bi in channels.at(get(layer, a.from)).or([]) {
+        let b = segments.at(bi).expect("segment")
         // A loop's entry has no stem and its exit no drop.
         let drawn = a.from < virtual_start and b.to < virtual_start
-        let meet = (not changed) and drawn and stem_at(a.from) == drop_at(b.to)
-        let related = meet and (a.from == b.from or a.to == b.to or connected(segments, a.from, b.to))
+        let meet = (not changed) and drawn and stem_at(ai) == drop_at(bi)
+        // Lines in one set are joined anyway.
+        let related = get(ports.group, ai) == get(ports.group, bi)
         if meet and not related {
           let target = get(boxes, b.to)
           let source = get(boxes, a.from)
-          if b.to < real and get(drop_shift.@, b.to) < target - target / 2 - 2 {
+          let drop_room = target - target / 2 - 2 - get(drop_reach.@, b.to)
+          let stem_room = 1 - source / 2 + get(stem_reach.@, a.from)
+          if b.to < real and get(drop_shift.@, b.to) < drop_room {
             drop_shift.set(b.to, get(drop_shift.@, b.to) + 1)
-          } else if a.from < real and get(stem_shift.@, a.from) > 1 - source / 2 {
+          } else if a.from < real and get(stem_shift.@, a.from) > stem_room {
             stem_shift.set(a.from, get(stem_shift.@, a.from) - 1)
           } else {
             // Move the placeholder and everything after it in its layer.
@@ -918,12 +1164,34 @@ private fn route(
     }
     rounds =+ 1
   }
-  let stem_x = fn(vertex: Int) Int {
-    get(center.@, vertex) + get(stem_shift.@, vertex)
+  // Moving vertices aside may leave room before the first; close it, with
+  // the loops' columns.
+  mut least = -1
+  vertex = 0
+  while vertex < virtual_start {
+    let edge_left = get(center.@, vertex) - get(widths, vertex) / 2
+    if least < 0 or edge_left < least {
+      least = edge_left
+    }
+    vertex =+ 1
   }
-  let drop_x = fn(vertex: Int) Int {
-    get(center.@, vertex) + get(drop_shift.@, vertex)
+  let gap = maximum(least, 0)
+  vertex = 0
+  while vertex < count {
+    center.set(vertex, get(center.@, vertex) - gap)
+    vertex =+ 1
   }
+  let columns = mut List::new<Int>()
+  for x in outer {
+    columns.push(
+      match x >= 0 {
+        true => x - gap,
+        false => x,
+      },
+    )
+  }
+  let stem_x = stem_at
+  let drop_x = drop_at
   match changed {
     true => Result::err("the flowchart couldn't be laid out"),
     false => {
@@ -939,17 +1207,17 @@ private fn route(
         mut index = 0
         for segment in segments {
           if get(layer, segment.from) == k {
-            let fan_out = segments_from(segments, segment.from) > 1
-            let fan_in = segments_into(segments, segment.to) > 1
-            let alone = spots.at(segment.edge).or(Spot::none) == Spot::track
+            let stem_port = get(ports.stem, index)
+            let drop_port = get(ports.drop, index)
+            let fan_out = sharing(ports.stem, stem_port) > 1
+            let fan_in = sharing(ports.drop, drop_port) > 1
             let key = match {
-              alone => "edge:{index}",
-              fan_out => "from:{segment.from}",
-              fan_in => "into:{segment.to}",
+              fan_out => "from:{stem_port}",
+              fan_in => "into:{drop_port}",
               _ => "edge:{index}",
             }
-            let low = minimum(stem_x(segment.from), drop_x(segment.to))
-            let high = maximum(stem_x(segment.from), drop_x(segment.to))
+            let low = minimum(stem_x(index), drop_x(index))
+            let high = maximum(stem_x(index), drop_x(index))
             mut star = -1
             mut search = first
             while search < stars.size() {
@@ -964,18 +1232,14 @@ private fn route(
                 found.push(stars.size())
                 let _ = stars.push(
                   Star{
-                    // Flowing across, a labeled edge on its own track keeps
-                    // the track, which is as wide as its label.
                     key: key,
                     left: low,
                     right: high,
-                    straight: low == high and key == "edge:{index}" and (not across and alone),
+                    straight: low == high and key == "edge:{index}",
                     track: -1,
-                    room: match across and alone {
-                      true => ui::text_width(graph.edges.at(segment.edge).expect("edge").label) + 4,
-                      false => 1,
-                    },
-                    at: 0,
+                    stems: [stem_x(index)],
+                    drops: [drop_x(index)],
+                    group: get(ports.group, index),
                   },
                 )
                 ()
@@ -985,6 +1249,8 @@ private fn route(
                 let grown = mut stars.at(star).expect("star")
                 grown.left = minimum(grown.left, low)
                 grown.right = maximum(grown.right, high)
+                grown.stems.push(stem_x(index))
+                grown.drops.push(drop_x(index))
                 let _ = stars.set(star, grown.@)
                 ()
               },
@@ -992,56 +1258,68 @@ private fn route(
           }
           index =+ 1
         }
-        // Interval coloring: each star takes the first track it fits on.
+        // Tracks: taking stars from the left, each joins the track, or
+        // opens a new one at the place among them, where it crosses the
+        // fewest lines, preferring to join and then the topmost. Stars share
+        // a track only when they stay clear of each other.
         let lefts = mut fill(stars.size(), 0)
         for star in found {
           lefts.set(star, stars.at(star).expect("star").left)
         }
-        let ends = mut List::new<Int>()
+        let level = mut fill(stars.size(), -1)
+        let placed = mut List::new<Int>()
+        mut used = 0
         for star in sort_by(found.@, lefts.@) {
-          let current = mut stars.at(star).expect("star")
-          if not current.straight {
-            mut track = -1
-            mut search = 0
-            while search < ends.size() {
-              if track < 0 and get(ends.@, search) + 1 < current.left {
-                track = search
-              }
-              search =+ 1
-            }
-            if track < 0 {
-              track = ends.size()
-              let _ = ends.push(current.right)
-            } else {
-              let _ = ends.set(track, current.right)
-            }
-            current.track = track
-            stars.set(star, current.@)
-          }
-        }
-        // Tracks are a cell apart, and flowing across, a labeled edge's
-        // track is as wide as its label.
-        let rooms = mut fill(ends.size(), 1)
-        for star in found {
           let current = stars.at(star).expect("star")
-          if current.track >= 0 {
-            rooms.set(current.track, maximum(get(rooms.@, current.track), current.room))
+          if not current.straight {
+            // Candidates: joining track t is 2t + 1; opening a track before
+            // track t is 2t.
+            mut best = 2 * used
+            mut fewest = -1
+            mut candidate = 0
+            while candidate <= 2 * used {
+              let joining = candidate % 2 == 1
+              let at = candidate / 2
+              mut cost = 0
+              for other in placed {
+                let them = stars.at(other).expect("star")
+                let track = get(level.@, other)
+                let clear = them.right + 1 < current.left or current.right + 1 < them.left
+                cost = match {
+                  cost < 0 => cost,
+                  joining and track == at and (not clear) => -1,
+                  joining and track == at => cost,
+                  track < at => cost + crossings_above(them, current),
+                  _ => cost + crossings_above(current, them),
+                }
+              }
+              let better = fewest < 0 or cost < fewest or cost == fewest and joining and best % 2 == 0
+              if cost >= 0 and better {
+                fewest = cost
+                best = candidate
+              }
+              candidate =+ 1
+            }
+            let at = best / 2
+            if best % 2 == 0 {
+              // Open a track: those from here on move down one.
+              for other in placed {
+                if get(level.@, other) >= at {
+                  level.set(other, get(level.@, other) + 1)
+                }
+              }
+              used =+ 1
+            }
+            level.set(star, at)
+            placed.push(star)
           }
         }
-        let starts = mut List::new<Int>()
-        mut total = 0
-        for room in rooms {
-          starts.push(total)
-          total =+ room
-        }
-        for star in found {
+        for star in placed {
           let current = mut stars.at(star).expect("star")
-          if current.track >= 0 {
-            current.at = get(starts.@, current.track) + get(rooms.@, current.track) / 2
-            stars.set(star, current.@)
-          }
+          current.track = get(level.@, star)
+          stars.set(star, current.@)
         }
-        tracks.set(k, total)
+        tracks.set(k, used)
         k =+ 1
       }
 
@@ -1098,7 +1376,7 @@ private fn route(
       mut cross = 0
       mut edge_index = 0
       for edge in graph.edges {
-        let x = get(columns, edge_index)
+        let x = get(columns.@, edge_index)
         if x >= 0 {
           cross = maximum(cross, x + 1)
           if edge.label != "" and not across {
@@ -1150,15 +1428,15 @@ private fn route(
             match {
               vertex < real => {
                 let node = graph.nodes.at(vertex).expect("node")
-                let box = ui::text_width(node.text) + 4
+                let box = get(boxes, vertex)
                 match across {
                   true => {
                     let x0 = minimum(pen.x(c, top), pen.x(c, top + get(thick, vertex) - 1))
-                    draw_node(drawing, node, x0, pen.y(c, top) - 1, box)
+                    draw_node(drawing, node, x0, pen.y(c, top) - box / 2, get(thick, vertex), box)
                   },
                   false => {
                     let y0 = minimum(pen.y(c, top), pen.y(c, top + 2))
-                    draw_node(drawing, node, c - box / 2, y0, box)
+                    draw_node(drawing, node, c - box / 2, y0, box, 3)
                   },
                 }
               },
@@ -1174,11 +1452,11 @@ private fn route(
           let labels = mut List::new<Int>()
           let exit_rows = mut fill(graph.edges.size(), 0)
           let entry_rows = mut fill(graph.edges.size(), 0)
-          // Sideways runs that may carry a label: edge, start, end, and row
-          // on the drawing.
+          // Loops' runs beneath a diagram flowing sideways, for their labels:
+          // edge, start, end, and row on the drawing.
           let runs = mut List::new<Int>()
-          // Upright runs that may carry a label beside or across them: edge,
-          // column, top, bottom, and the label's first column.
+          // Loops' climbs beside a diagram flowing down or up, for their
+          // labels: edge, column, top, bottom, and the label's first column.
           let climbs = mut List::new<Int>()
           // Places a label across the band from a0 to a1 on the line at
           // cross; flowing down or up, on the band's middle row.
@@ -1222,9 +1500,9 @@ private fn route(
             let dashed = edge.stroke == Stroke::dotted
             let heavy = edge.stroke == Stroke::thick
             let star = stars.at(get(star_of.@, index)).expect("star")
-            let from = stem_x(segment.from)
-            let to = drop_x(segment.to)
-            let row = band_end + 1 + get(stem_rows.@, k) + star.at
+            let from = stem_x(index)
+            let to = drop_x(index)
+            let row = band_end + 1 + get(stem_rows.@, k) + star.track
             match {
               // A loop leaves its source for its outer column, and enters
               // its target from it.
@@ -1262,30 +1540,6 @@ private fn route(
             if spot == Spot::middle and first {
               place(segment.edge, to, below, below + get(heights.@, k + 1) - 1)
             }
-            // Flowing across, a track label sits across the middle of its
-            // track's run, or along the track when it runs straight.
-            if spot == Spot::track and across {
-              let size = ui::text_width(" {edge.label} ")
-              let x = pen.x(from, row)
-              let y0 = minimum(pen.y(from, row), pen.y(to, row))
-              let y1 = maximum(pen.y(from, row), pen.y(to, row))
-              match from == to {
-                true => place(segment.edge, from, row - size / 2 - 1, row + size / 2 + 1),
-                false => {
-                  climbs.push(segment.edge)
-                  climbs.push(x)
-                  climbs.push(y0)
-                  climbs.push(y1)
-                  climbs.push(x - size / 2)
-                },
-              }
-            }
-            if spot == Spot::track and from != to and (not across) and (not track_labeled(runs.@, segment.edge)) {
-              runs.push(segment.edge)
-              runs.push(minimum(from, to))
-              runs.push(maximum(from, to))
-              runs.push(pen.y(0, row))
-            }
             index =+ 1
           }
           index = 0
@@ -1303,7 +1557,7 @@ private fn route(
           // Its label sits beside the climb, or along it when flowing across.
           edge_index = 0
           for edge in graph.edges {
-            let x = get(columns, edge_index)
+            let x = get(columns.@, edge_index)
             if x >= 0 {
               let top = get(entry_rows.@, edge_index)
               let bottom = get(exit_rows.@, edge_index)
@@ -1339,7 +1593,7 @@ private fn route(
             }
             edge_index =+ 1
           }
-          // A track label takes the clearest stretch of its run, once every
+          // A loop's label takes the clearest stretch of its run, once every
           // line is drawn.
           index = 0
           while index < runs.size() {
@@ -1355,7 +1609,7 @@ private fn route(
             }
             index =+ 4
           }
-          // An upright run's label takes the clearest row along it.
+          // A loop's label takes the clearest row beside its climb.
           index = 0
           while index < climbs.size() {
             let edge = graph.edges.at(get(climbs.@, index)).expect("edge")
@@ -1585,19 +1839,6 @@ private fn clear_rows(drawing: canvas::Canvas, line: Int, y0: Int, y1: Int, left
   best
 }
 
-// Whether a track label was already placed for edge.
-private fn track_labeled(labels: [Int], edge: Int) Bool {
-  mut found = false
-  mut index = 0
-  while index < labels.size() {
-    if get(labels, index) == edge {
-      found = true
-    }
-    index =+ 4
-  }
-  found
-}
-
 private fn edges_into(graph: Graph, node: Int) Int {
   mut total = 0
   for edge in graph.edges {
@@ -1618,15 +1859,14 @@ private fn edges_from(graph: Graph, node: Int) Int {
   total
 }
 
-// Whether an edge into node carries a label on its drop or its track, so the
-// drop stays centered: under the label, or off the source's stem so the edge
-// keeps a sideways run for its label.
+// Whether an edge into node carries a label on its drop, so the drop stays
+// centered under the label.
 private fn has_drop_label(graph: Graph, spots: [Spot], node: Int) Bool {
   mut found = false
   mut index = 0
   for edge in graph.edges {
     let spot = spots.at(index).or(Spot::none)
-    if edge.to == node and (spot == Spot::drop or spot == Spot::track) {
+    if edge.to == node and spot == Spot::drop {
       found = true
     }
     index =+ 1
@@ -1635,21 +1875,33 @@ private fn has_drop_label(graph: Graph, spots: [Spot], node: Int) Bool {
 }
 
 // Draws a node's outline in its shape, with its text inside.
-private fn draw_node(drawing: mut canvas::Canvas, node: Node, x0: Int, top: Int, box: Int) {
+private fn draw_node(
+  drawing: mut canvas::Canvas,
+  node: Node,
+  x0: Int,
+  top: Int,
+  box: Int,
+  height: Int,
+) {
   let x1 = x0 + box - 1
-  let bottom = top + 2
+  let bottom = top + height - 1
+  let middle = top + height / 2
   let rounded = node.shape == Shape::round or node.shape == Shape::stadium or node.shape == Shape::circle
   drawing.outline(x0, top, x1, bottom, canvas::Role::frame, rounded)
   match node.shape {
     Shape::stadium => {
-      drawing.write(x0, top + 1, "(", canvas::Role::frame, false)
-      drawing.write(x1, top + 1, ")", canvas::Role::frame, false)
+      drawing.write(x0, middle, "(", canvas::Role::frame, false)
+      drawing.write(x1, middle, ")", canvas::Role::frame, false)
     },
     Shape::database => {
       drawing.write(x0, top, "╓", canvas::Role::frame, false)
       drawing.write(x1, top, "╖", canvas::Role::frame, false)
-      drawing.write(x0, top + 1, "║", canvas::Role::frame, false)
-      drawing.write(x1, top + 1, "║", canvas::Role::frame, false)
+      mut y = top + 1
+      while y < bottom {
+        drawing.write(x0, y, "║", canvas::Role::frame, false)
+        drawing.write(x1, y, "║", canvas::Role::frame, false)
+        y =+ 1
+      }
       drawing.write(x0, bottom, "╙", canvas::Role::frame, false)
       drawing.write(x1, bottom, "╜", canvas::Role::frame, false)
     },
@@ -1661,7 +1913,13 @@ private fn draw_node(drawing: mut canvas::Canvas, node: Node, x0: Int, top: Int,
     },
     _ => (),
   }
-  drawing.write(x0 + 2, top + 1, node.text, canvas::Role::label, false)
+  drawing.write(
+    x0 + (box - ui::text_width(node.text)) / 2,
+    middle,
+    node.text,
+    canvas::Role::label,
+    false,
+  )
 }
 
 private fn distance(a: Int, b: Int) Int {
@@ -1671,33 +1929,118 @@ private fn distance(a: Int, b: Int) Int {
   }
 }
 
-// Whether a segment runs from vertex a to vertex b.
-private fn connected(segments: [Segment], a: Int, b: Int) Bool {
+// The lines that cross a run when star a runs on a track above star b: b's
+// stems pass down through a's run, and a's drops through b's, except where
+// they are the run's own stem or drop.
+private fn crossings_above(a: Star, b: Star) Int {
+  mut total = 0
+  for x in b.stems {
+    if x >= a.left and x <= a.right and (not has(a.stems, x)) {
+      total =+ 1
+    }
+  }
+  for x in a.drops {
+    if x >= b.left and x <= b.right and (not has(b.drops, x)) {
+      total =+ 1
+    }
+  }
+  total
+}
+
+private fn has(values: [Int], value: Int) Bool {
   mut found = false
-  for segment in segments {
-    if segment.from == a and segment.to == b {
+  for each in values {
+    if each == value {
       found = true
     }
   }
   found
 }
 
-private fn segments_from(segments: [Segment], vertex: Int) Int {
+// The number of segments using port.
+private fn sharing(ports: [Int], port: Int) Int {
   mut total = 0
-  for segment in segments {
-    if segment.from == vertex {
+  for each in ports {
+    if each == port {
       total =+ 1
     }
   }
   total
 }
 
-private fn segments_into(segments: [Segment], vertex: Int) Int {
-  mut total = 0
+// Each segment's port offset from its vertex's middle: a vertex's ports sit
+// two cells apart, ordered by the mean position of the vertices at their
+// lines' other ends.
+private fn port_offsets(segments: [Segment], ports: [Int], center: [Int], stems: Bool) [Int] {
+  let offsets = mut List::new<Int>()
+  mut index = 0
   for segment in segments {
-    if segment.to == vertex {
-      total =+ 1
+    let vertex = match stems {
+      true => segment.from,
+      false => segment.to,
     }
+    // This vertex's ports, each with the sum and count of its other ends.
+    let found = mut List::new<Int>()
+    let sums = mut List::new<Int>()
+    let counts = mut List::new<Int>()
+    mut other = 0
+    for each in segments {
+      let mine = match stems {
+        true => each.from,
+        false => each.to,
+      }
+      if mine == vertex {
+        let port = get(ports, other)
+        let far = match stems {
+          true => get(center, each.to),
+          false => get(center, each.from),
+        }
+        mut slot = -1
+        mut search = 0
+        for known in found {
+          if known == port {
+            slot = search
+          }
+          search =+ 1
+        }
+        if slot < 0 {
+          found.push(port)
+          sums.push(far)
+          let _ = counts.push(1)
+          ()
+        } else {
+          sums.set(slot, get(sums.@, slot) + far)
+          let _ = counts.set(slot, get(counts.@, slot) + 1)
+          ()
+        }
+      }
+      other =+ 1
+    }
+    // Rank this segment's port among them, by mean position, then by port.
+    let port = get(ports, index)
+    mut rank = 0
+    mut mine = 0
+    mut search = 0
+    for known in found {
+      if known == port {
+        mine = search
+      }
+      search =+ 1
+    }
+    let my_sum = get(sums.@, mine)
+    let my_count = get(counts.@, mine)
+    search = 0
+    for known in found {
+      let sum = get(sums.@, search)
+      let n = get(counts.@, search)
+      let before = sum * my_count < my_sum * n or sum * my_count == my_sum * n and known < port
+      if before {
+        rank =+ 1
+      }
+      search =+ 1
+    }
+    offsets.push(2 * rank - (found.size() - 1))
+    index =+ 1
   }
-  total
+  offsets.@
 }

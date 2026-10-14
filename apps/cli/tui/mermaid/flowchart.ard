@@ -1034,19 +1034,23 @@ test fn labels_ride_on_an_edge_that_skips_a_layer() Void!Str {
   )
 }
 
-test fn labels_take_a_clear_stretch_of_their_track() Void!Str {
+test fn labeled_edges_between_shared_ends_skip_a_layer() Void!Str {
   expect_drawing(
     "flowchart TD\nA --> B & C\nA -->|go| D\nE --> D\nF --> D",
     [
-      "    ┌───┐   ┌───┐   ┌───┐",
-      "    │ A │   │ E │   │ F │",
-      "    └─┬─┘   └─┬─┘   └─┬─┘",
-      "  ┌───┼───┐   └───┬───┘",
-      "  │   └───┼ go ───┤",
-      "  ▼       ▼       ▼",
-      "┌───┐   ┌───┐   ┌───┐",
-      "│ B │   │ C │   │ D │",
-      "└───┘   └───┘   └───┘",
+      "                ┌───┐",
+      "                │ A │",
+      "                └─┬─┘",
+      "  ┌───────┬───────┴────────────────────┐",
+      "  ▼       ▼                            │",
+      "┌───┐   ┌───┐       ┌───┐   ┌───┐      │",
+      "│ B │   │ C │       │ E │   │ F │     go",
+      "└───┘   └───┘       └─┬─┘   └─┬─┘      │",
+      "                      └───────┼────────┘",
+      "                              ▼",
+      "                            ┌───┐",
+      "                            │ D │",
+      "                            └───┘",
     ],
   )
 }
@@ -1213,17 +1217,21 @@ test fn loops_run_beneath_a_flowchart_flowing_across() Void!Str {
   )
 }
 
-test fn labels_flowing_across_sit_on_stems_and_tracks() Void!Str {
+test fn labels_flowing_across_sit_on_their_lines() Void!Str {
   try expect_drawing(
     "flowchart LR\nA --> C\nA -->|approve| D\nB --> D\nB --> C",
     [
-      "┌───┐                ┌───┐",
-      "│ A ├───────┬─────┬─►│ C │",
-      "└───┘       │     │  └───┘",
-      "         approve  │",
-      "┌───┐       │     │  ┌───┐",
-      "│ B ├───────┴─────┴─►│ D │",
-      "└───┘                └───┘",
+      "          ┌───┐",
+      "┌───┐  ┌─►│   │",
+      "│ A ├──┤  │ C │",
+      "└───┘ ┌┼─►│   │",
+      "      ││  └───┘",
+      "┌───┐ ││",
+      "│ B ├─┤│                 ┌───┐",
+      "└───┘ ││              ┌─►│ D │",
+      "      │└─── approve ──┤  └───┘",
+      "      │               │",
+      "      └───────────────┘",
     ],
   )
   expect_drawing(
@@ -1249,8 +1257,8 @@ test fn loop_labels_take_a_clear_row_beside_their_climb() Void!Str {
       " ┌───────┐  │",
       " │ Draft │  │",
       " └───┬───┘  │ changes",
-      "     ├┈┈┈┈┈┈┼┈┈┈┈┈┈┈┈┈┈┐",
-      "     ▼      │          ┊",
+      "     │ ┌┈┈┈┈┼┈┈┈┈┈┈┈┈┈┈┐",
+      "     ▼ ▼    │          ┊",
       "┌────────┐  │          ┊",
       "│ Review │  │          ┊",
       "└────┬───┘  │          ┊",
@@ -1265,6 +1273,66 @@ test fn loop_labels_take_a_clear_row_beside_their_climb() Void!Str {
   )
 }
 
+// Edges share a line only when it shows each of them truly: different ends
+// or strokes, parallel edges, and sources that don't reach all of a shared
+// line's targets get lines of their own.
+test fn edges_share_lines_only_when_each_is_drawn_truly() Void!Str {
+  try expect_drawing(
+    "flowchart TD\nA --> C\nB --x C",
+    [
+      "┌───┐   ┌───┐",
+      "│ A │   │ B │",
+      "└─┬─┘   └─┬─┘",
+      "  └──┐ ┌──┘",
+      "     ▼ ×",
+      "    ┌───┐",
+      "    │ C │",
+      "    └───┘",
+    ],
+  )
+
+  try expect_drawing(
+    "flowchart TD\nA --> B\nA -.-> B",
+    [
+      "┌───┐",
+      "│ A │",
+      "└┬─┬┘",
+      " │ ┊",
+      " ▼ ▼",
+      "┌───┐",
+      "│ B │",
+      "└───┘",
+    ],
+  )
+
+  try expect_drawing(
+    "flowchart TD\nA --> C & D\nB --> D",
+    [
+      "  ┌───┐   ┌───┐",
+      "  │ A │   │ B │",
+      "  └─┬─┘   └─┬─┘",
+      "  ┌─┴────┐ ┌┘",
+      "  ▼      ▼ ▼",
+      "┌───┐   ┌───┐",
+      "│ C │   │ D │",
+      "└───┘   └───┘",
+    ],
+  )
+
+  expect_drawing(
+    "flowchart LR\nA --> C\nB --o C",
+    [
+      "┌───┐",
+      "│ A ├─┐  ┌───┐",
+      "└───┘ └─►│   │",
+      "         │ C │",
+      "┌───┐ ┌─○│   │",
+      "│ B ├─┘  └───┘",
+      "└───┘",
+    ],
+  )
+}
+
 test fn unsupported_flowchart_syntax_is_rejected() Void!Str {
   try expect_rejected("flowchart XY\nA --> B", "unknown direction `XY`")
   try expect_rejected("flowchart TD\nA{{{{hex}}}} --> B", "`{{{{` nodes aren't drawn yet")
@@ -1272,10 +1340,6 @@ test fn unsupported_flowchart_syntax_is_rejected() Void!Str {
   try expect_rejected("flowchart TD\nA <--> B", "`<-->` links aren't drawn yet")
   try expect_rejected("flowchart TD\nA -->|open B", "unclosed `|` in `A -->|open B`")
   try expect_rejected("flowchart TD\nA -- open B", "unsupported link in `A -- open B`")
-  try expect_rejected(
-    "flowchart TD\nA --> B & C\nA -->|a label far too long for its run| D\nE --> D\nF --> D",
-    "the edge labels don't fit",
-  )
   try expect_rejected("flowchart TD\nsubgraph one\nA --> B\nend", "subgraphs aren't drawn yet")
   try expect_rejected("flowchart TD\nA -->\nB", "unsupported line `A -->`")
   try expect_rejected("flowchart TD\nA[open --> B", "unclosed `[` in `A[open --> B`")

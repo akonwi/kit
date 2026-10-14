@@ -91,19 +91,25 @@ participants and 200 statements, and the drawing fits within 480 columns and
 | `A:::name` | The node; the class is ignored |
 
 Statements may be separated by `;`, and a repeated edge is drawn once.
-Keywords match exactly, as in Mermaid, so `End` or `Style` can name a node. Nodes appear in layers by their longest
-path from a start node, and an edge that skips layers runs straight past them.
-Edges from one node branch from a shared line, and edges into one node merge
-into one arrow. An edge that loops back, including one from a node to itself,
+Keywords match exactly, as in Mermaid, so `End` or `Style` can name a node.
+
+Nodes appear in layers by their longest path from a start node, and an edge
+that skips layers runs straight past them. Edges from one node with the same
+line style branch from a shared line, and edges into one node with the same
+line style and end merge into one arrow, as long as every source on the
+joined lines leads to every target on them. Otherwise edges get their own
+lines and arrows, and a node grows to fit them. An edge that loops back, including one from a node to itself,
 runs around the outside of the diagram, to the right of a diagram flowing up
 or down and beneath one flowing sideways; shorter loops sit inside longer
 ones. In a diagram flowing sideways, nodes in a layer sit one above another
-and line up at the layer's start, and node text still reads left to right. Node and edge text is one line; text over 40 columns is cut
-short with an ellipsis.
+and line up at the layer's start, and node text still reads left to right.
+Node and edge text is one line; text over 40 columns is cut short with an
+ellipsis.
 
 Edge text sits where only its edge runs: just above the arrow into a node no
 other edge enters, else just below a node no other edge leaves, else beside
-the layers the edge skips, else on its own run between the layers. A loop's
+the layers the edge skips. An edge with text between a node other edges leave
+and a node other edges enter skips a layer to make that room. A loop's
 text sits beside its climb, or on its run beneath a diagram flowing sideways.
 In a diagram flowing sideways, text sits on its edge's line, as in
 `─ yes ─►`. A diagram whose edge text has no such room shows its source.
