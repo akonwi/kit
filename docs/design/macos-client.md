@@ -200,7 +200,9 @@ toolbar and tool-call icons, 12 pt for status, metadata and composer icons, and
 10 pt for carets, links and inline close buttons. SF Symbols are not used.
 Spinners, status dots and traffic lights are drawn shapes. Every tile tab shows
 its icon, accent-coloured on the focused tile's selected tab and muted
-otherwise, so selecting a tab never shifts the strip. To add an icon, copy
+otherwise, so selecting a tab never shifts the strip. Hovering a closable tab,
+or focusing it from the keyboard, swaps its icon for a 12 pt close button in
+the same slot; tabs never grow a trailing close button. To add an icon, copy
 its regular SVG from the same Phosphor release and add a matching `Icon` case.
 
 ### File annotation interaction

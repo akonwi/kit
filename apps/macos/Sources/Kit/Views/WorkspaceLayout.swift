@@ -184,10 +184,23 @@ private struct WorkspaceTab: View {
     @FocusState private var keyboardFocused: Bool
 
     var body: some View {
+        // Hover or keyboard focus swaps the icon for the close button in the
+        // same slot, so the tab never changes width.
+        let showsClose = pane.closable && (hovering || keyboardFocused)
         HStack(spacing: 8) {
+            if showsClose {
+                Button(action: close) {
+                    IconView(.x, size: 12)
+                        .foregroundStyle(theme.text)
+                        .frame(width: 14, height: 14).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Close Tab")
+                .accessibilityLabel("Close \(pane.title)")
+            }
             Button { workspace.select(pane) } label: {
                 HStack(spacing: 8) {
-                    icon.frame(width: 14, height: 14)
+                    if !showsClose { icon.frame(width: 14, height: 14) }
                     Text(pane.title).lineLimit(1).truncationMode(.middle)
                         .font(.kit(size: 12, weight: selected ? .semibold : .regular))
                         .foregroundStyle(selected ? theme.text : theme.muted)
@@ -197,15 +210,6 @@ private struct WorkspaceTab: View {
             }
             .buttonStyle(.plain)
             .focused($keyboardFocused)
-            if pane.closable && (selected || hovering || keyboardFocused) {
-                Button(action: close) {
-                    IconView(.x, size: 10)
-                        .foregroundStyle(theme.muted)
-                        .frame(width: 14, height: 14).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close \(pane.title)")
-            }
         }
         .padding(.horizontal, 10)
         .frame(maxHeight: .infinity)
@@ -230,10 +234,14 @@ private struct WorkspaceTab: View {
         .contextMenu { WorkspaceTabActions(state: state, workspace: workspace, pane: pane) }
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityActions {
+            if pane.closable { Button("Close \(pane.title)", action: close) }
+        }
     }
 
     /// Every tab shows its icon so activating one never shifts the strip; a
-    /// running subagent shows its spinner in the icon's place.
+    /// running subagent shows its spinner in the icon's place. Hover swaps
+    /// either for the close button.
     @ViewBuilder private var icon: some View {
         let tint = selected && focused ? theme.accent : theme.muted
         if case .agent = pane, running {
