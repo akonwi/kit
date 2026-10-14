@@ -126,6 +126,9 @@ type Service struct {
 	mu     sync.Mutex
 	byHash map[Hash]*entry
 	byID   map[string]*entry
+	// issuing counts devices being stored, which hold places under
+	// MaxDevices until they are added or fail.
+	issuing int
 }
 
 // Options configures a Service.
@@ -198,12 +201,30 @@ func (s *Service) Issue(ctx context.Context, name, address string) (Record, stri
 	if err := ValidateName(name); err != nil {
 		return Record{}, "", err
 	}
+	// Reserve a place under MaxDevices before storing, so concurrent
+	// redemptions cannot exceed it.
 	s.mu.Lock()
-	full := len(s.byID) >= MaxDevices
-	s.mu.Unlock()
-	if full {
+	if len(s.byID)+s.issuing >= MaxDevices {
+		s.mu.Unlock()
 		return Record{}, "", ErrCapacity
 	}
+	s.issuing++
+	s.mu.Unlock()
+	record, token, err := s.store(ctx, name, address)
+	s.mu.Lock()
+	s.issuing--
+	if err == nil {
+		s.add(record)
+	}
+	s.mu.Unlock()
+	if err != nil {
+		return Record{}, "", err
+	}
+	return record, token, nil
+}
+
+// store creates and persists a device and its token.
+func (s *Service) store(ctx context.Context, name, address string) (Record, string, error) {
 	id, err := identifier.New(IDPrefix)
 	if err != nil {
 		return Record{}, "", err
@@ -221,9 +242,6 @@ func (s *Service) Issue(ctx context.Context, name, address string) (Record, stri
 	if err := s.repository.InsertDevice(ctx, record); err != nil {
 		return Record{}, "", fmt.Errorf("store device: %w", err)
 	}
-	s.mu.Lock()
-	s.add(record)
-	s.mu.Unlock()
 	return record, token, nil
 }
 

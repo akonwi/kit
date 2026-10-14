@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -348,4 +351,87 @@ func TestStartupPairingIsAnnouncedOnlyWhileServingWithoutDevices(t *testing.T) {
 
 func newTextLogger(output *bytes.Buffer) *slog.Logger {
 	return slog.New(slog.NewTextHandler(output, &slog.HandlerOptions{Level: slog.LevelInfo}))
+}
+
+func TestUnauthenticatedRequestsMustSendTheirBodyPromptly(t *testing.T) {
+	previous := unauthenticatedReadTimeout
+	unauthenticatedReadTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { unauthenticatedReadTimeout = previous })
+	harness := newDeviceHarness(t)
+	// The raw handler, without the harness's middleware, which reads bodies.
+	server := httptest.NewServer(newHandler(localHandlerOptions{
+		access: serveraccess.NewPolicy(nil, nil), token: "test",
+		registry: localdiscovery.Registry{InstanceID: "instance_test"},
+		devices:  harness.devices, pairing: pairing.NewRegistry(nil),
+	}))
+	t.Cleanup(server.Close)
+
+	for _, test := range []struct{ name, request, credential string }{
+		{name: "pairing redemption", request: "POST /v1/pairing/redeem"},
+		{name: "a rejected credential", request: "GET /v1/devices", credential: "wrong"},
+		{name: "a rejected host", request: "POST /v1/pairing/redeem", credential: "host"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			connection, err := net.Dial("tcp", server.Listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer connection.Close()
+			host := "127.0.0.1"
+			if test.credential == "host" {
+				host = "attacker.example"
+			}
+			header := test.request + " HTTP/1.1\r\nHost: " + host + "\r\nContent-Type: application/json\r\nContent-Length: 4000\r\n"
+			if test.credential != "" && test.credential != "host" {
+				header += "Authorization: Bearer " + test.credential + "\r\n"
+			}
+			if _, err := io.WriteString(connection, header+"\r\n{"); err != nil {
+				t.Fatal(err)
+			}
+			// The body never completes; the server must give up on it.
+			_ = connection.SetReadDeadline(time.Now().Add(5 * time.Second))
+			started := time.Now()
+			_, _ = io.Copy(io.Discard, connection)
+			if elapsed := time.Since(started); elapsed > 3*time.Second {
+				t.Fatalf("connection held for %v", elapsed)
+			}
+		})
+	}
+}
+
+func TestFailureLimitsShareAnIPv6Slash64(t *testing.T) {
+	for address, want := range map[string]string{
+		"2001:db8:1:2:aaaa::1": "2001:db8:1:2::/64",
+		"2001:db8:1:2:bbbb::9": "2001:db8:1:2::/64",
+		"::ffff:192.0.2.1":     "::ffff:192.0.2.1",
+		"192.0.2.1":            "192.0.2.1",
+		"not an address":       "not an address",
+	} {
+		if got := limitKey(address); got != want {
+			t.Errorf("limitKey(%q) = %q, want %q", address, got, want)
+		}
+	}
+	limiter := newFailureLimiter()
+	for index := range failureBurst {
+		if !limiter.fail(fmt.Sprintf("2001:db8::%x", index+1)) {
+			t.Fatalf("failure %d was limited", index)
+		}
+	}
+	if limiter.fail("2001:db8::ffff") {
+		t.Fatal("a new address in the same /64 escaped the limit")
+	}
+}
+
+func TestFailureLimitsSurviveAddressCycling(t *testing.T) {
+	limiter := newFailureLimiter()
+	for range failureBurst {
+		limiter.fail("192.0.2.1")
+	}
+	// A caller cycling through many addresses cannot grow the table.
+	for index := range maxLimitedAddresses * 2 {
+		limiter.fail(fmt.Sprintf("10.%d.%d.%d", index>>16&255, index>>8&255, index&255))
+	}
+	if len(limiter.addresses) > maxLimitedAddresses {
+		t.Fatalf("tracked %d addresses", len(limiter.addresses))
+	}
 }

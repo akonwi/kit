@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -43,19 +44,52 @@ func newFailureLimiter() *failureLimiter {
 }
 
 // fail records a failure from address and reports whether it is within the
-// address's limit.
+// address's limit. IPv6 addresses share their /64, which one host can usually
+// draw addresses from freely.
 func (l *failureLimiter) fail(address string) bool {
+	key := limitKey(address)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	limiter, ok := l.addresses[address]
+	limiter, ok := l.addresses[key]
 	if !ok {
 		if len(l.addresses) >= maxLimitedAddresses {
-			clear(l.addresses)
+			l.evict()
 		}
 		limiter = rate.NewLimiter(rate.Every(failureInterval), failureBurst)
-		l.addresses[address] = limiter
+		l.addresses[key] = limiter
 	}
 	return limiter.Allow()
+}
+
+// evict forgets addresses whose limits have fully recovered, which no longer
+// constrain them, or else one arbitrary address, so a caller cycling
+// addresses cannot reset every other caller's limit at once.
+func (l *failureLimiter) evict() {
+	for key, limiter := range l.addresses {
+		if limiter.Tokens() >= failureBurst {
+			delete(l.addresses, key)
+		}
+	}
+	for key := range l.addresses {
+		if len(l.addresses) < maxLimitedAddresses {
+			return
+		}
+		delete(l.addresses, key)
+	}
+}
+
+// limitKey is the address a failure counts against: an IPv6 address's /64,
+// or the address itself.
+func limitKey(address string) string {
+	parsed, err := netip.ParseAddr(address)
+	if err != nil || !parsed.Unmap().Is6() {
+		return address
+	}
+	prefix, err := parsed.WithZone("").Prefix(64)
+	if err != nil {
+		return address
+	}
+	return prefix.String()
 }
 
 // access authenticates requests with the daemon's local token or a device
@@ -107,6 +141,17 @@ func (a *access) skipsCredential(request *http.Request) bool {
 	return request.URL.RawPath == "" && a.unauthenticated[request.Method+" "+request.URL.Path]
 }
 
+// unauthenticatedReadTimeout, a variable for tests, bounds how long a request without a valid
+// credential may take to send its body, so a caller cannot hold connections
+// open by sending one slowly.
+var unauthenticatedReadTimeout = 10 * time.Second
+
+// limitUnauthenticatedRead applies unauthenticatedReadTimeout to the rest of
+// the request, including any unread body the server drains after a rejection.
+func limitUnauthenticatedRead(writer http.ResponseWriter) {
+	_ = http.NewResponseController(writer).SetReadDeadline(time.Now().Add(unauthenticatedReadTimeout))
+}
+
 // bearer returns the token of an RFC 6750 Authorization header.
 func bearer(header string) (string, bool) {
 	scheme, token, ok := strings.Cut(header, " ")
@@ -118,6 +163,7 @@ func bearer(header string) (string, bool) {
 // rejection.
 func (a *access) authenticate(writer http.ResponseWriter, request *http.Request) (*http.Request, func(), bool) {
 	if a.skipsCredential(request) {
+		limitUnauthenticatedRead(writer)
 		return request, func() {}, true
 	}
 	token, ok := bearer(request.Header.Get("Authorization"))
@@ -139,6 +185,7 @@ func (a *access) authenticate(writer http.ResponseWriter, request *http.Request)
 			return nil, nil, false
 		}
 	}
+	limitUnauthenticatedRead(writer)
 	if !a.failures.fail(remoteHost(request)) {
 		httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusTooManyRequests, httpapi.ErrorRateLimited, "too many failed authentications", nil))
 		return nil, nil, false

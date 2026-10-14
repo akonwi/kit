@@ -103,10 +103,15 @@ ends its open requests, including event streams.
 ## Limits
 
 Failed authentications and failed pairing redemptions are rate-limited per
-remote address. Past the limit, further failures receive HTTP 429 with the
-error code `rate_limited`. A valid credential or pairing code is never refused,
-so clients that share an address behind a proxy are not locked out by one of
-them.
+remote address, or per /64 for IPv6. Past the limit, further failures receive
+HTTP 429 with the error code `rate_limited`. A valid credential or pairing code
+is never refused, so clients that share an address behind a proxy are not
+locked out by one of them.
+
+A request without a valid credential, including a pairing redemption, must
+send its body within 10 seconds, so callers cannot hold connections open by
+sending slowly. A server holds at most 1024 devices; redeeming a code past that
+fails with `capacity_exceeded` until devices are revoked or expire.
 
 ## Session API
 

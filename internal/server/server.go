@@ -520,10 +520,12 @@ func newHandler(options localHandlerOptions) http.Handler {
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if !options.access.HostAllowed(request.Host) {
+			limitUnauthenticatedRead(writer)
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusMisdirectedRequest, httpapi.ErrorInvalidHost, "invalid host", nil))
 			return
 		}
 		if !options.access.OriginAllowed(request.Header.Get("Origin"), request.Host) {
+			limitUnauthenticatedRead(writer)
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusForbidden, httpapi.ErrorForbidden, "forbidden", nil))
 			return
 		}

@@ -14,6 +14,10 @@ type memoryRepository struct {
 	mu      sync.Mutex
 	records map[string]Record
 	touches int
+	// inserting, when set, receives each insert, which then waits for
+	// release.
+	inserting chan struct{}
+	release   chan struct{}
 }
 
 func newMemoryRepository(records ...Record) *memoryRepository {
@@ -25,6 +29,10 @@ func newMemoryRepository(records ...Record) *memoryRepository {
 }
 
 func (r *memoryRepository) InsertDevice(_ context.Context, record Record) error {
+	if r.inserting != nil {
+		r.inserting <- struct{}{}
+		<-r.release
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.records[record.ID] = record
@@ -241,6 +249,30 @@ func TestIssueStopsAtCapacity(t *testing.T) {
 	service, _ := newTestService(t, repository)
 	if _, _, err := service.Issue(t.Context(), "one more", ""); !errors.Is(err, ErrCapacity) {
 		t.Fatalf("Issue() at capacity error = %v, want ErrCapacity", err)
+	}
+}
+
+func TestConcurrentIssuesCannotExceedCapacity(t *testing.T) {
+	repository := newMemoryRepository()
+	for index := range MaxDevices - 1 {
+		id := fmt.Sprintf("%s%032x", IDPrefix, index)
+		repository.records[id] = Record{ID: id, Name: "d", TokenHash: HashToken(id), ExpiresAt: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)}
+	}
+	service, _ := newTestService(t, repository)
+	repository.inserting, repository.release = make(chan struct{}), make(chan struct{})
+	issued := make(chan error, 1)
+	go func() {
+		_, _, err := service.Issue(t.Context(), "last", "")
+		issued <- err
+	}()
+	// The last place is held while its device is stored.
+	<-repository.inserting
+	if _, _, err := service.Issue(t.Context(), "one more", ""); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("Issue() while the last place is held: error = %v, want ErrCapacity", err)
+	}
+	close(repository.release)
+	if err := <-issued; err != nil {
+		t.Fatalf("Issue() of the last place: %v", err)
 	}
 }
 
