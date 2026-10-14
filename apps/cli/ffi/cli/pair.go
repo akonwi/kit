@@ -69,7 +69,7 @@ func runPair(ctx context.Context, server string, extraURLs []string, stdout, std
 	target := attachTarget{}
 	if server != "" {
 		var err error
-		if target, err = resolveAttachTarget(ctx, server); err != nil {
+		if target, err = resolveAttachTarget(ctx, server, stderr); err != nil {
 			return reportAttachError(stderr, err)
 		}
 	}

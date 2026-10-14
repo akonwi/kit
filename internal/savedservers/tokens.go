@@ -13,12 +13,19 @@ import (
 
 // Tokens holds the device tokens of saved URL servers, by server name, in a
 // file readable only by its owner and separate from provider credentials.
+// Each token is bound to the URL it was issued for and is returned only for
+// that URL, so it is never sent to another server saved under the name later.
 type Tokens struct {
 	path string
 }
 
+type tokenEntry struct {
+	URL   string `json:"url"`
+	Token string `json:"token"`
+}
+
 type tokenDocument struct {
-	Tokens map[string]string `json:"tokens"`
+	Tokens map[string]tokenEntry `json:"tokens"`
 }
 
 // NewTokens returns a token store for an absolute path.
@@ -29,36 +36,42 @@ func NewTokens(path string) (*Tokens, error) {
 	return &Tokens{path: filepath.Clean(path)}, nil
 }
 
-// Get returns the token saved for a server, or ErrNotFound.
-func (t *Tokens) Get(name string) (string, error) {
+// Get returns the token saved for a server at serverURL, or ErrNotFound when
+// none is saved for that name and URL.
+func (t *Tokens) Get(name, serverURL string) (string, error) {
 	tokens, err := t.read()
 	if err != nil {
 		return "", err
 	}
-	token, ok := tokens[name]
-	if !ok {
-		return "", fmt.Errorf("%w: no device token for %q", ErrNotFound, name)
+	entry, ok := tokens[name]
+	if canonical, err := CanonicalURL(serverURL); !ok || err != nil || entry.URL != canonical {
+		return "", fmt.Errorf("%w: no device token for %q at %s", ErrNotFound, name, serverURL)
 	}
-	return token, nil
+	return entry.Token, nil
 }
 
-// Set saves a server's token, replacing any earlier one.
-func (t *Tokens) Set(name, token string) error {
+// Set saves the token a server at serverURL issued, replacing any earlier
+// one for the name.
+func (t *Tokens) Set(name, serverURL, token string) error {
 	if err := ValidateName(name); err != nil {
+		return err
+	}
+	canonical, err := CanonicalURL(serverURL)
+	if err != nil {
 		return err
 	}
 	if !devices.IsToken(token) {
 		return errors.New("device token is malformed")
 	}
-	return t.mutate(func(tokens map[string]string) { tokens[name] = token })
+	return t.mutate(func(tokens map[string]tokenEntry) { tokens[name] = tokenEntry{URL: canonical, Token: token} })
 }
 
 // Delete forgets a server's token; forgetting a missing token succeeds.
 func (t *Tokens) Delete(name string) error {
-	return t.mutate(func(tokens map[string]string) { delete(tokens, name) })
+	return t.mutate(func(tokens map[string]tokenEntry) { delete(tokens, name) })
 }
 
-func (t *Tokens) mutate(change func(map[string]string)) error {
+func (t *Tokens) mutate(change func(map[string]tokenEntry)) error {
 	unlock, err := lockFile(t.path)
 	if err != nil {
 		return err
@@ -76,10 +89,10 @@ func (t *Tokens) mutate(change func(map[string]string)) error {
 	return replaceFile(t.path, append(data, '\n'))
 }
 
-func (t *Tokens) read() (map[string]string, error) {
+func (t *Tokens) read() (map[string]tokenEntry, error) {
 	file, err := os.Open(t.path)
 	if errors.Is(err, os.ErrNotExist) {
-		return map[string]string{}, nil
+		return map[string]tokenEntry{}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read server tokens %q: %w", t.path, err)
@@ -104,7 +117,7 @@ func (t *Tokens) read() (map[string]string, error) {
 		return nil, fmt.Errorf("decode server tokens %q: %w", t.path, err)
 	}
 	if decoded.Tokens == nil {
-		decoded.Tokens = map[string]string{}
+		decoded.Tokens = map[string]tokenEntry{}
 	}
 	return decoded.Tokens, nil
 }

@@ -91,7 +91,7 @@ func targetFor(server savedservers.Server) attachTarget {
 // with its URL; an HTTP(S) URL is the saved server with that URL; an argument
 // containing a path separator, or starting with '.' or '~', is a Kit home
 // path; anything else is a saved name.
-func resolveAttachTarget(ctx context.Context, argument string) (attachTarget, error) {
+func resolveAttachTarget(ctx context.Context, argument string, stderr io.Writer) (attachTarget, error) {
 	if argument == savedservers.LocalName {
 		return attachTarget{}, nil
 	}
@@ -112,7 +112,7 @@ func resolveAttachTarget(ctx context.Context, argument string) (attachTarget, er
 		if err != nil {
 			return attachTarget{}, err
 		}
-		if err := pairServer(ctx, tokens, server.Name, argument); err != nil {
+		if err := pairServer(ctx, tokens, server.Name, argument, stderr); err != nil {
 			return attachTarget{}, err
 		}
 		return targetFor(server), nil
@@ -147,18 +147,49 @@ func resolveAttachTarget(ctx context.Context, argument string) (attachTarget, er
 }
 
 // pairServer redeems a pairing link as this machine and saves the device token
-// under name.
-func pairServer(ctx context.Context, tokens *savedservers.Tokens, name, link string) error {
+// under name, bound to the link's server URL. It warns on stderr when the link
+// sends the code and token across the network unencrypted.
+func pairServer(ctx context.Context, tokens *savedservers.Tokens, name, link string, stderr io.Writer) error {
+	if serverURL, _, err := pairing.ParseLink(link); err == nil && !securePairingURL(serverURL) {
+		fmt.Fprintf(stderr, "kit: warning: %s is plain HTTP; the pairing code and device token cross the network\nunencrypted unless the network itself is private, such as a tailnet\n", serverURL)
+	}
 	pairContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	paired, err := kit.Pair(pairContext, link, deviceName())
 	if err != nil {
 		return fmt.Errorf("pair with %s: %w", name, describePairingFailure(err))
 	}
-	if err := tokens.Set(name, paired.Token); err != nil {
+	previous, _ := tokens.Get(name, paired.ServerURL)
+	if err := tokens.Set(name, paired.ServerURL, paired.Token); err != nil {
 		return fmt.Errorf("save device token for %q: %w", name, err)
 	}
+	if previous != "" && previous != paired.Token {
+		retireDevice(ctx, paired.ServerURL, previous)
+	}
 	return nil
+}
+
+// retireDevice revokes the device a replaced token belongs to, which would
+// otherwise stay valid with no copy left here to revoke it. A token the server
+// no longer accepts needs nothing.
+func retireDevice(ctx context.Context, serverURL, token string) {
+	retireContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	client, err := kit.Connect(retireContext, kit.Endpoint(serverURL, kit.AccessToken(token)))
+	if err != nil {
+		return
+	}
+	defer client.Close()
+	listed, err := client.Devices(retireContext)
+	if err != nil {
+		return
+	}
+	for _, device := range listed {
+		if device.Current {
+			_ = client.RevokeDevice(retireContext, device.ID)
+			return
+		}
+	}
 }
 
 func describePairingFailure(err error) error {
@@ -295,7 +326,7 @@ func connectTarget(ctx context.Context, target attachTarget) (*kit.Client, error
 	if err != nil {
 		return nil, err
 	}
-	token, err := tokens.Get(target.Name)
+	token, err := tokens.Get(target.Name, target.URL)
 	if errors.Is(err, savedservers.ErrNotFound) {
 		return nil, errNoToken
 	}
@@ -426,12 +457,14 @@ func addServer(ctx context.Context, store *savedservers.Store, tokens *savedserv
 			fmt.Fprintf(stderr, "kit: %s is already saved as %q; re-pair it with `kit attach LINK`\n", serverURL, existing.Name)
 			return 1
 		}
-		if err := pairServer(ctx, tokens, name, location); err != nil {
+		// Saving the server first claims the name, so a concurrent add of
+		// the same name fails before pairing rather than replacing a token.
+		if err := store.Add(savedservers.Server{Name: name, Kind: savedservers.KindURL, URL: serverURL}); err != nil {
 			fmt.Fprintf(stderr, "kit: %v\n", err)
 			return 1
 		}
-		if err := store.Add(savedservers.Server{Name: name, Kind: savedservers.KindURL, URL: serverURL}); err != nil {
-			_ = tokens.Delete(name)
+		if err := pairServer(ctx, tokens, name, location, stderr); err != nil {
+			_ = store.Remove(name)
 			fmt.Fprintf(stderr, "kit: %v\n", err)
 			return 1
 		}

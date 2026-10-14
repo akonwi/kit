@@ -42,7 +42,13 @@ links for the attached server with copy actions.
 When the server revokes this device, or its token expires, `kit servers` shows
 `needs pairing` and `kit attach` explains how to pair again. Get a new link
 with `kit server pair` on the server and run `kit attach LINK`; attaching
-through a link for a saved server's URL pairs it again and attaches.
+through a link for a saved server's URL pairs it again and attaches. Pairing
+again while the old token still works revokes the old device, so each machine
+keeps one device on the server.
+
+Redeeming a plain `http://` link to another machine prints a warning: the
+pairing code and device token cross the network unencrypted unless the
+network itself is private.
 
 ### Working directory
 
@@ -85,7 +91,8 @@ Saved servers are stored in `$KIT_HOME/servers.json`, which holds no secrets:
 
 Device tokens are stored by server name in `$KIT_HOME/server-tokens.json`,
 which only its owner can read and which is separate from provider
-credentials. Kit refuses to read it if other users can.
+credentials. Kit refuses to read it if other users can. Each token is bound
+to the URL that issued it and is only sent to that URL.
 
 The attach picker offers this home's server, which starts on attach, and the
 saved servers that are running. Others are listed with why they cannot be

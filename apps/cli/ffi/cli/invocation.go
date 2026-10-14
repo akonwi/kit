@@ -74,7 +74,7 @@ func Parse(ctx context.Context, args []string, stdout, stderr io.Writer) Invocat
 			invocation = Invocation{Kind: InvocationServers, options: options, servers: choices}
 			return 0
 		}
-		target, err := resolveAttachTarget(ctx, server)
+		target, err := resolveAttachTarget(ctx, server, stderr)
 		if err != nil {
 			return reportAttachError(stderr, err)
 		}
@@ -101,7 +101,7 @@ func Open(invocation Invocation, sessionID string) Invocation {
 // named server, as chosen from the server picker. A server that cannot be
 // resolved is reported to stderr and yields an InvocationExit.
 func Attach(ctx context.Context, invocation Invocation, server string, stderr io.Writer) Invocation {
-	target, err := resolveAttachTarget(ctx, server)
+	target, err := resolveAttachTarget(ctx, server, stderr)
 	if err != nil {
 		return Invocation{Kind: InvocationExit, ExitCode: reportAttachError(stderr, err)}
 	}

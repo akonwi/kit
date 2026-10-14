@@ -125,8 +125,27 @@ func TestURLServersPairAttachAndRecoverFromRevocation(t *testing.T) {
 		t.Fatalf("remove: exit %d, %q", code, stdout)
 	}
 	tokens, _ := savedservers.NewTokens(filepath.Join(clientHome, "server-tokens.json"))
-	if _, err := tokens.Get("vps"); err == nil {
+	if _, err := tokens.Get("vps", serverURL); err == nil {
 		t.Fatal("the removed server's token was kept")
+	}
+}
+
+func TestAFailedPairingWarnsAboutPlainHTTPAndSavesNothing(t *testing.T) {
+	serverHome := isolatedHome(t)
+	startDaemon(t, serverHome)
+	clientHome := isolatedHome(t)
+	link := pairingLink(t, serverHome)
+	// The same code at a plain-HTTP address on another machine, which does
+	// not resolve.
+	remote := "http://kit.example.invalid" + link[strings.Index(link, "/pair#"):]
+	code, _, stderr := runServers(t, "add", "vps", remote)
+	warning := "kit: warning: http://kit.example.invalid is plain HTTP; the pairing code and device token cross the network\n" +
+		"unencrypted unless the network itself is private, such as a tailnet\n"
+	if code != 1 || !strings.HasPrefix(stderr, warning+"kit: pair with vps: ") {
+		t.Fatalf("add: exit %d, stderr %q", code, stderr)
+	}
+	if saved, err := os.ReadFile(filepath.Join(clientHome, "servers.json")); err == nil && strings.Contains(string(saved), "vps") {
+		t.Fatalf("servers.json after a failed pairing:\n%s", saved)
 	}
 }
 
@@ -238,5 +257,38 @@ func TestServerPathsAreAbbreviatedRelativeToTheServerHome(t *testing.T) {
 		if got := homeRelative(test.home, test.path); got != test.want {
 			t.Errorf("homeRelative(%q, %q) = %q, want %q", test.home, test.path, got, test.want)
 		}
+	}
+}
+
+func TestRepairingRevokesTheReplacedDevice(t *testing.T) {
+	serverHome := isolatedHome(t)
+	startDaemon(t, serverHome)
+	isolatedHome(t)
+	if code, _, stderr := runServers(t, "add", "vps", pairingLink(t, serverHome)); code != 0 {
+		t.Fatalf("add: %s", stderr)
+	}
+	var out, errs bytes.Buffer
+	repaired := Parse(context.Background(), []string{"attach", pairingLink(t, serverHome), "--cwd", t.TempDir()}, &out, &errs)
+	if repaired.Kind != InvocationInteractive {
+		t.Fatalf("attach link = %+v, stderr %q", repaired, errs.String())
+	}
+
+	server, err := kit.Connect(t.Context(), kit.Home(serverHome))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	listed, err := server.Devices(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("devices after re-pairing = %+v, want only the new one", listed)
+	}
+	// The remaining device is the one whose token is saved.
+	environment := OpenEnvironment(context.Background(), repaired, &errs)
+	environment.Close()
+	if environment.ExitCode != 0 {
+		t.Fatalf("attach after re-pairing: %s", errs.String())
 	}
 }

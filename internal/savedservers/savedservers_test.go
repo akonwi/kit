@@ -193,21 +193,29 @@ func TestTokensAreSavedPrivately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tokens.Get("vps"); !errors.Is(err, ErrNotFound) {
+	const serverURL = "https://kit.example.com"
+	if _, err := tokens.Get("vps", serverURL); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get() before Set error = %v", err)
 	}
 	token := "kit_device_" + strings.Repeat("A", 43)
-	if err := tokens.Set("vps", token); err != nil {
+	if err := tokens.Set("vps", "HTTPS://Kit.Example.com/", token); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
-	if got, err := tokens.Get("vps"); err != nil || got != token {
+	if got, err := tokens.Get("vps", serverURL); err != nil || got != token {
 		t.Fatalf("Get() = %q, %v", got, err)
+	}
+	// A token is bound to the URL that issued it.
+	if _, err := tokens.Get("vps", "https://other.example.com"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get() for another URL error = %v", err)
 	}
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("token file mode = %v, %v", info.Mode().Perm(), err)
 	}
-	if err := tokens.Set("vps", "not-a-token"); err == nil {
+	if err := tokens.Set("vps", serverURL, "not-a-token"); err == nil {
 		t.Fatal("Set accepted a malformed token")
+	}
+	if err := tokens.Set("vps", "kit.example.com", token); err == nil {
+		t.Fatal("Set accepted a URL that is not an origin")
 	}
 	if err := tokens.Delete("vps"); err != nil {
 		t.Fatal(err)
@@ -215,13 +223,13 @@ func TestTokensAreSavedPrivately(t *testing.T) {
 	if err := tokens.Delete("vps"); err != nil {
 		t.Fatalf("second Delete() error = %v", err)
 	}
-	if _, err := tokens.Get("vps"); !errors.Is(err, ErrNotFound) {
+	if _, err := tokens.Get("vps", serverURL); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get() after Delete error = %v", err)
 	}
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tokens.Get("vps"); err == nil {
+	if _, err := tokens.Get("vps", serverURL); err == nil {
 		t.Fatal("a token file readable by others was accepted")
 	}
 }
