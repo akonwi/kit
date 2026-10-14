@@ -146,11 +146,11 @@ private struct TileChrome: View {
                 }.scrollIndicators(.hidden)
                 if let selected = tile?.selected, focused || hovering {
                     HStack(spacing: 2) {
-                        TileIconButton(symbol: "rectangle.split.2x1", help: "Split Right") { workspace.split(selected, .right) }
+                        TileIconButton(icon: .squareSplitHorizontal, help: "Split Right") { workspace.split(selected, .right) }
                             .disabled(!workspace.canSplit(selected))
-                        TileIconButton(symbol: "rectangle.split.1x2", help: "Split Down") { workspace.split(selected, .bottom) }
+                        TileIconButton(icon: .squareSplitVertical, help: "Split Down") { workspace.split(selected, .bottom) }
                             .disabled(!workspace.canSplit(selected))
-                        TileIconButton(symbol: workspace.zoomedTile == id ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                        TileIconButton(icon: workspace.zoomedTile == id ? .cornersIn : .cornersOut,
                                        help: workspace.zoomedTile == id ? "Unzoom" : "Zoom") {
                             workspace.focus(tile: id); workspace.toggleZoom()
                         }.disabled(workspace.root.tiles.count < 2)
@@ -199,7 +199,7 @@ private struct WorkspaceTab: View {
             .focused($keyboardFocused)
             if pane.closable && (selected || hovering || keyboardFocused) {
                 Button(action: close) {
-                    Image(systemName: "xmark").font(.system(size: 9, weight: .medium))
+                    IconView(.x, size: 10)
                         .foregroundStyle(theme.muted)
                         .frame(width: 14, height: 14).contentShape(Rectangle())
                 }
@@ -232,19 +232,19 @@ private struct WorkspaceTab: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    /// Paper shows an icon on the selected tab only; a running subagent keeps
-    /// its spinner either way.
+    /// Every tab shows its icon so activating one never shifts the strip; a
+    /// running subagent shows its spinner in the icon's place.
     @ViewBuilder private var icon: some View {
         let tint = selected && focused ? theme.accent : theme.muted
         if case .agent = pane, running {
             KitSpinner().accessibilityLabel("Running")
-        } else if selected {
+        } else {
             switch pane {
-            case .agent: RobotTabIcon().foregroundStyle(tint)
-            case .conversation: Image(systemName: "bubble.left").font(.system(size: 12)).foregroundStyle(tint)
-            case .review: Image(systemName: "chevron.left.forwardslash.chevron.right").font(.system(size: 11)).foregroundStyle(tint)
-            case .scratchpad: Image(systemName: "note.text").font(.system(size: 12)).foregroundStyle(tint)
-            case .file: Image(systemName: "doc").font(.system(size: 12)).foregroundStyle(tint)
+            case .agent: IconView(.robot).foregroundStyle(tint)
+            case .conversation: IconView(.chatCircle).foregroundStyle(tint)
+            case .review: IconView(.gitDiff).foregroundStyle(tint)
+            case .scratchpad: IconView(.note).foregroundStyle(tint)
+            case .file: IconView(.file).foregroundStyle(tint)
             }
         }
     }
@@ -368,15 +368,14 @@ private struct WorkspaceTabActions: View {
 private struct TileIconButton: View {
     @Environment(\.mica) private var theme
     @Environment(\.isEnabled) private var enabled
-    let symbol: String
+    let icon: Icon
     let help: String
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 12))
+            IconView(icon)
                 .foregroundStyle(theme.muted)
                 .frame(width: 24, height: 24)
                 .background(hovering && enabled ? theme.hover : .clear, in: RoundedRectangle(cornerRadius: 3))
@@ -387,15 +386,6 @@ private struct TileIconButton: View {
         .onHover { hovering = $0 }
         .help(help)
         .accessibilityLabel(help)
-    }
-}
-
-/// Phosphor Robot (regular), rendered from the bundled vector asset.
-private struct RobotTabIcon: View {
-    var body: some View {
-        if let url = Bundle.module.url(forResource: "robot", withExtension: "svg"), let image = NSImage(contentsOf: url) {
-            Image(nsImage: image).renderingMode(.template).resizable().scaledToFit()
-        }
     }
 }
 
@@ -506,7 +496,7 @@ struct FilePane: View {
                         .disabled(selectedLines == nil || loading || entry?.stale == true ||
                             state.annotationState.pending || state.annotationState.editor != nil)
                 }
-                Button { revision += 1 } label: { Image(systemName: "arrow.clockwise") }
+                Button { revision += 1 } label: { IconView(.arrowClockwise, size: 12) }
                     .buttonStyle(.plain).accessibilityLabel("Refresh file").help("Refresh file").disabled(loading)
             }.padding(.horizontal, 20).padding(.vertical, 10)
             Rule()
@@ -520,7 +510,7 @@ struct FilePane: View {
                     state.annotationState.inspected = note
                 } label: {
                     HStack {
-                        Label("File changed", systemImage: "exclamationmark.triangle")
+                        Label { Text("File changed") } icon: { IconView(.warning, size: 12) }
                         Text(note.body).lineLimit(1)
                         Spacer()
                         Text("View captured source")

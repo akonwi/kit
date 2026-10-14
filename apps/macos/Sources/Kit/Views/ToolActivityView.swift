@@ -46,8 +46,7 @@ struct ToolActivityView: View {
                         if inProgress && !expanded {
                             KitSpinner().foregroundStyle(theme.accent)
                         } else {
-                            Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                                .font(.kit(size: 9, weight: .semibold))
+                            IconView(expanded ? .caretDown : .caretRight, size: 10)
                         }
                     }.frame(width: 16)
                     Text("\(tools.count) tool \(tools.count == 1 ? "call" : "calls")")
@@ -142,8 +141,7 @@ private struct ToolCallRow: View {
             }.frame(maxWidth: .infinity, alignment: .leading)
             facts
             if expandable {
-                Image(systemName: shown ? "chevron.down" : "chevron.right")
-                    .font(.kit(size: 8, weight: .semibold))
+                IconView(shown ? .caretDown : .caretRight, size: 10)
                     .foregroundStyle(shown ? theme.text : theme.muted)
                     .frame(width: 10)
             } else {
@@ -165,12 +163,11 @@ private struct ToolCallRow: View {
         if tool.running {
             KitSpinner().foregroundStyle(theme.accent)
         } else if tool.notRun == true {
-            Image(systemName: "nosign").font(.kit(size: 12)).foregroundStyle(theme.muted)
+            IconView(.prohibit).foregroundStyle(theme.muted)
         } else if tool.failed {
-            Image(systemName: "exclamationmark.circle").font(.kit(size: 13)).foregroundStyle(theme.danger)
+            IconView(.warningCircle).foregroundStyle(theme.danger)
         } else {
-            Image(systemName: Self.symbol(for: tool, presentation: presentation))
-                .font(.kit(size: 12)).foregroundStyle(theme.muted)
+            IconView(Self.icon(for: tool, presentation: presentation)).foregroundStyle(theme.muted)
         }
     }
 
@@ -234,25 +231,26 @@ private struct ToolCallRow: View {
         return parts.joined(separator: ", ")
     }
 
-    static func symbol(for tool: ToolActivity, presentation: ToolPresentation) -> String {
-        if presentation.server != nil { return "powerplug" }
-        if presentation.pluginTool != nil { return "puzzlepiece.extension" }
-        if tool.bashCommand != nil { return "terminal" }
+    static func icon(for tool: ToolActivity, presentation: ToolPresentation) -> Icon {
+        if presentation.server != nil { return .plugsConnected }
+        if presentation.pluginTool != nil { return .plug }
+        if tool.bashCommand != nil { return .terminalWindow }
         switch tool.name.lowercased() {
-        case "peer_session": return "arrow.left.arrow.right"
-        case "create_session": return "plus.square"
-        case "show_image", "inspect_image": return "photo"
-        case "read": return "doc"
-        case "write": return "doc.badge.plus"
-        case "edit", "apply_patch": return "pencil"
-        case "grep", "search": return "magnifyingglass"
-        case "find", "glob": return "doc.on.doc"
-        case "ls", "change_cwd": return "folder"
-        case "activate_skill": return "sparkles"
-        case "subagent", "subagent_send", "subagent_reply", "subagent_inspect", "subagent_inbox": return "person.2"
-        case "edit_scratchpad", "read_scratchpad": return "note.text"
-        case "confirm_from_user", "input_from_user", "select_from_user", "guided_questions": return "bubble.left"
-        default: return "wrench.and.screwdriver"
+        case "peer_session": return .arrowsLeftRight
+        case "create_session": return .plusSquare
+        case "show_image", "inspect_image": return .image
+        case "read": return .file
+        case "write": return .filePlus
+        case "edit", "apply_patch": return .pencilSimple
+        case "grep", "search": return .magnifyingGlass
+        case "find", "glob": return .files
+        case "ls", "change_cwd": return .folder
+        case "activate_skill": return .sparkle
+        case "subagent", "subagent_send", "subagent_reply", "subagent_inspect", "subagent_inbox": return .robot
+        case "edit_scratchpad": return .notePencil
+        case "read_scratchpad": return .note
+        case "confirm_from_user", "input_from_user", "select_from_user", "guided_questions": return .chatCircleDots
+        default: return .wrench
         }
     }
 }
@@ -287,7 +285,7 @@ private struct ToolChip: View {
                 .font(.kit(size: 11, design: .monospaced))
                 .lineLimit(1).truncationMode(path ? .head : .tail)
             if linked {
-                Image(systemName: "arrow.up.right").font(.kit(size: 8, weight: .semibold))
+                IconView(.arrowUpRight, size: 10)
                     .foregroundStyle(hovering ? theme.accent : theme.muted)
             }
         }
@@ -304,7 +302,7 @@ private struct ToolChip: View {
 /// optional status, and a muted one-line summary with a chevron.
 struct DisclosureChipLabel: View {
     @Environment(\.mica) private var theme
-    let icon: String
+    let icon: Icon
     let iconColor: Color
     let title: String
     var status: String? = nil
@@ -318,8 +316,7 @@ struct DisclosureChipLabel: View {
     var body: some View {
         let detail = expanded || hovering ? theme.text : theme.muted
         HStack(spacing: 9) {
-            Image(systemName: icon)
-                .font(.kit(size: 13)).frame(width: 16)
+            IconView(icon).frame(width: 16)
                 .foregroundStyle(iconColor)
             HStack(alignment: .firstTextBaseline, spacing: 9) {
                 Text(title).foregroundStyle(theme.text).fixedSize()
@@ -332,8 +329,7 @@ struct DisclosureChipLabel: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .foregroundStyle(detail)
             }
-            Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                .font(.kit(size: 8, weight: .semibold))
+            IconView(expanded ? .caretDown : .caretRight, size: 10)
                 .foregroundStyle(detail)
                 .padding(.leading, -1)
         }

@@ -90,7 +90,7 @@ struct InteractionDock: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: "questionmark.circle").font(.system(size: 13)).foregroundStyle(theme.warning)
+            IconView(.question).foregroundStyle(theme.warning)
             ZStack(alignment: .leading) {
                 Text(flow.title).font(.kit(size: 13, weight: .semibold)).lineLimit(1)
                     .id(flow.id).transition(.opacity)
@@ -106,7 +106,7 @@ struct InteractionDock: View {
                 }
             }
             Button { finish(true) } label: {
-                Image(systemName: "xmark").font(.system(size: 10, weight: .medium))
+                IconView(.x, size: 11)
                     .frame(width: 24, height: 24).contentShape(Rectangle())
             }
             .buttonStyle(.plain).foregroundStyle(theme.muted)
@@ -121,8 +121,8 @@ struct InteractionDock: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let unsupported = flow.unsupported {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "exclamationmark.circle").font(.system(size: 11))
+                HStack(spacing: 8) {
+                    IconView(.warningCircle, size: 12)
                     Text(unsupported).font(.kit(size: 12))
                 }.foregroundStyle(theme.danger)
             } else {
@@ -174,7 +174,7 @@ struct InteractionDock: View {
                 if flow.guided && flow.step > 0 {
                     Button { backward() } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: "chevron.left").font(.system(size: 9, weight: .semibold))
+                            IconView(.caretLeft, size: 10)
                             Text("Back")
                         }
                     }
@@ -429,7 +429,7 @@ struct DockOptionList: View {
 
     private func overflow(_ count: Int, up: Bool) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: up ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .semibold))
+            IconView(up ? .caretUp : .caretDown, size: 10)
             Text(String(count) + " more").font(.kit(size: 11))
         }
         .foregroundStyle(theme.muted)
@@ -445,7 +445,7 @@ private struct DockCheckbox: View {
     var body: some View {
         if checked {
             RoundedRectangle(cornerRadius: 2).fill(theme.accent).frame(width: 14, height: 14)
-                .overlay(Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(theme.surface))
+                .overlay(IconView(.check, size: 10).foregroundStyle(theme.surface))
         } else {
             RoundedRectangle(cornerRadius: 2).strokeBorder(theme.strongBorder).frame(width: 14, height: 14)
         }

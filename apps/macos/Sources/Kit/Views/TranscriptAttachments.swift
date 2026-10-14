@@ -31,7 +31,7 @@ private struct TranscriptAttachmentCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Label(content?.info.filename ?? reference.filename,
-                      systemImage: reference.isImage || reference.mediaType?.hasPrefix("image/") == true ? "photo" : "doc")
+                      icon: reference.isImage || reference.mediaType?.hasPrefix("image/") == true ? .image : .file)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer()
                 if let content {

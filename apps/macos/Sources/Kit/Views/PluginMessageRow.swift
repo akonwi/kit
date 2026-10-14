@@ -22,7 +22,7 @@ struct PluginMessageRow: View {
                 state.expanded = !expanded
                 if !expanded { onExpand() }
             } label: {
-                DisclosureChipLabel(icon: "puzzlepiece.extension", iconColor: theme.muted, title: origin.pluginID,
+                DisclosureChipLabel(icon: .plug, iconColor: theme.muted, title: origin.pluginID,
                                     summary: Self.summary(message.text), monospacedSummary: false,
                                     expanded: expanded, hovering: hovering)
             }

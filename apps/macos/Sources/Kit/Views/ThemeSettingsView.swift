@@ -35,7 +35,7 @@ struct ThemeSettingsView: View {
         let theme = configuration.theme(dark: dark, installed: library.themes)
         return VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label(dark ? "Dark theme" : "Light theme", systemImage: dark ? "moon" : "sun.max")
+                Label(dark ? "Dark theme" : "Light theme", icon: dark ? .moon : .sun, size: 14)
                     .font(.kit(size: 13, weight: .semibold))
                 Spacer()
                 if activeDark == dark { Text("Active").font(.kit(size: 10, weight: .medium)).foregroundStyle(.secondary) }

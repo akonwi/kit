@@ -22,7 +22,7 @@ struct DiffTargetPicker: View {
         let targets = targets
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(theme.muted)
+                IconView(.magnifyingGlass, size: 12).foregroundStyle(theme.muted)
                 PaletteSearchField(text: $query, placeholder: "Search targets…", fontSize: 12,
                     move: { step in
                         guard !targets.isEmpty else { return }
@@ -68,7 +68,7 @@ struct DiffTargetPicker: View {
     private func row(_ target: WireDiffTargetEntry, selected: Bool) -> some View {
         Button { choose(target) } label: {
             HStack(spacing: 8) {
-                Image(systemName: "checkmark").font(.kit(size: 10, weight: .semibold))
+                IconView(.check, size: 10)
                     .opacity(target.targetId == model.target?.targetId ? 1 : 0).frame(width: 12)
                 DiffTargetName(target: target)
                 Spacer(minLength: 8)
@@ -145,7 +145,7 @@ struct DiffViewMenu: View {
             action()
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "checkmark").font(.kit(size: 10, weight: .semibold))
+                IconView(.check, size: 10)
                     .opacity(checked && note == nil ? 1 : 0).frame(width: 12)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.kit(size: 12))

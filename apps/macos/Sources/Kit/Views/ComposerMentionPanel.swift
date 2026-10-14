@@ -176,7 +176,7 @@ private struct ComposerMentionList: View {
             ForEach(state.visibleMatches, id: \.self) { path in
                 Button { select(path) } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: path.hasSuffix("/") ? "folder" : "doc")
+                        IconView(path.hasSuffix("/") ? .folder : .file, size: 12)
                         Text(path).lineLimit(1).truncationMode(.middle)
                         Spacer(minLength: 0)
                         if path.hasSuffix("/") { Text("directory").foregroundStyle(theme.muted) }
@@ -203,7 +203,7 @@ private struct ComposerHistoryList: View {
         let selectedID = state.selected?.id
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
+                IconView(.magnifyingGlass, size: 12)
                 Text(state.query.isEmpty ? (state.mode == .bash ? "Shell history" : "Message history") : state.query)
                     .lineLimit(1)
                 Spacer(minLength: 0)

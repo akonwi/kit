@@ -24,7 +24,7 @@ struct AnnotationStrip: View {
                                     reveal(note)
                                 } label: {
                                     HStack(spacing: 6) {
-                                        Image(systemName: note.statusLabel != nil ? "exclamationmark.triangle" : "text.bubble")
+                                        IconView(note.statusLabel != nil ? .warning : .chatCenteredText, size: 12)
                                         Text(note.label).font(.kit(size: 11, design: .monospaced))
                                         Text(note.statusLabel ?? note.body).lineLimit(1).frame(maxWidth: 160)
                                     }
@@ -33,7 +33,7 @@ struct AnnotationStrip: View {
                                     guard let client = state.catalogClient as? any AnnotationClient else { return }
                                     let session = state.selectedID
                                     Task { await annotations.remove(client: client, session: session, id: note.id) }
-                                } label: { Image(systemName: "xmark") }
+                                } label: { IconView(.x, size: 10) }
                                     .buttonStyle(.plain).accessibilityLabel("Delete annotation " + note.label)
                             }.font(.kit(size: 11)).padding(8)
                                 .background(theme.raised, in: RoundedRectangle(cornerRadius: 6))

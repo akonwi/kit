@@ -13,8 +13,8 @@ struct SettingsView: View {
         let theme = ThemeConfiguration.decode(storedConfiguration).theme(dark: dark, installed: installedThemes)
         HStack(spacing: 0) {
             VStack(spacing: 6) {
-                section("Appearance", icon: "circle.lefthalf.filled", id: "appearance", theme: theme)
-                section("Models", icon: "square.3.layers.3d", id: "models", theme: theme)
+                section("Appearance", icon: .circleHalf, id: "appearance", theme: theme)
+                section("Models", icon: .stack, id: "models", theme: theme)
                 Spacer()
             }.padding(12).padding(.top, 16).frame(width: 170).background(theme.raised)
             Rectangle().fill(theme.border).frame(width: 1)
@@ -40,9 +40,9 @@ struct SettingsView: View {
         .preferredColorScheme(scheme)
     }
 
-    private func section(_ title: String, icon: String, id: String, theme: MicaTheme) -> some View {
+    private func section(_ title: String, icon: Icon, id: String, theme: MicaTheme) -> some View {
         Button { selection = id } label: {
-            Label(title, systemImage: icon).frame(maxWidth: .infinity, alignment: .leading)
+            Label(title, icon: icon, size: 14).frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12).padding(.vertical, 10)
                 .background(selection == id ? theme.hover : .clear, in: RoundedRectangle(cornerRadius: 6))
         }.buttonStyle(.plain).accessibilityAddTraits(selection == id ? .isSelected : [])

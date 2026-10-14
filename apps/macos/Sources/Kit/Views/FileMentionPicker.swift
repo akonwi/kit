@@ -43,16 +43,16 @@ struct FileMentionPicker: View {
         let matches = files
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: "doc.text.magnifyingglass").foregroundStyle(theme.muted)
+                IconView(.fileMagnifyingGlass, size: 16).foregroundStyle(theme.muted)
                 TextField(state.ui.filePickerIntent == "open" ? "Find a workspace file…" : "Mention a file…", text: $query)
                     .textFieldStyle(.plain).font(.kit(size: 15)).focused($focused).onSubmit { choose() }
-                Button { dismiss() } label: { Image(systemName: "xmark") }.buttonStyle(.plain).accessibilityLabel("Close file picker")
+                Button { dismiss() } label: { IconView(.x, size: 12) }.buttonStyle(.plain).accessibilityLabel("Close file picker")
             }.padding(20)
             Rule()
             HStack {
                 Text("Workspace files").foregroundStyle(theme.muted)
                 Spacer()
-                Button { revision += 1 } label: { Image(systemName: "arrow.clockwise") }
+                Button { revision += 1 } label: { IconView(.arrowClockwise, size: 12) }
                     .buttonStyle(.plain).help("Refresh files (⌘R)").accessibilityLabel("Refresh files")
                     .keyboardShortcut("r", modifiers: .command).disabled(loading)
             }.padding(16)
@@ -63,7 +63,7 @@ struct FileMentionPicker: View {
                     ForEach(Array(matches.enumerated()), id: \.element) { index, file in
                         Button { selection = index; choose() } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: "doc")
+                                IconView(.file, size: 12)
                                 Text(file).font(.kit(size: 12, design: .monospaced)).lineLimit(2).multilineTextAlignment(.leading)
                                 Spacer()
                             }.padding(12).background(selection == index ? theme.hover : Color.clear).contentShape(Rectangle())

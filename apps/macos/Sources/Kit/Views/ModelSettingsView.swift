@@ -52,7 +52,7 @@ struct ModelSettingsView: View {
                         HStack {
                             Text("Context window overrides").fontWeight(.semibold)
                             Spacer()
-                            Button("Add model", systemImage: "plus") { adding = true; addingFocus = true }
+                            Button("Add model", icon: .plus) { adding = true; addingFocus = true }
                                 .buttonStyle(.link)
                         }
                         Text("Override the context limit for an exact provider and model.")
@@ -163,7 +163,7 @@ private struct ModelOverrideRow: View {
                     .accessibilityLabel("Context window for \(name ?? selector)")
                     .onSubmit(commit).onChange(of: focused) { if !focused { commit() } }
                 Text("tokens").font(.kit(size: 11)).foregroundStyle(theme.muted)
-                Button { update(nil) } label: { Image(systemName: "xmark") }
+                Button { update(nil) } label: { IconView(.x, size: 10) }
                     .buttonStyle(.plain).foregroundStyle(theme.muted).accessibilityLabel("Remove \(name ?? selector) override")
             }
             if !valid { Text("Enter a positive whole number of tokens.").font(.kit(size: 12)).foregroundStyle(theme.danger) }

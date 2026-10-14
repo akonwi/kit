@@ -11,7 +11,7 @@ struct AnnotationNote: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if annotation.stale {
-                Label("File changed", systemImage: "exclamationmark.triangle")
+                Label("File changed", icon: .warning)
                     .font(.kit(size: 11)).foregroundStyle(theme.muted)
             }
             HStack(alignment: .top, spacing: 8) {
@@ -21,9 +21,9 @@ struct AnnotationNote: View {
                     if annotation.stale {
                         Button("Select new range", action: edit).buttonStyle(SmallButtonStyle())
                     } else {
-                        NoteAction(symbol: "pencil", label: "Edit", action: edit)
+                        NoteAction(icon: .pencilSimple, label: "Edit", action: edit)
                     }
-                    NoteAction(symbol: "trash", label: "Delete", action: delete)
+                    NoteAction(icon: .trash, label: "Delete", action: delete)
                 }
                 .padding(.top, -4).padding(.trailing, -6)
                 .opacity(hovered ? 1 : 0)
@@ -42,13 +42,13 @@ struct AnnotationNote: View {
 /// A 22 pt icon button on a note card.
 private struct NoteAction: View {
     @Environment(\.mica) private var theme
-    let symbol: String
+    let icon: Icon
     let label: String
     let action: () -> Void
     @State private var hovered = false
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 11))
+            IconView(icon, size: 12)
                 .foregroundStyle(hovered ? theme.text : theme.muted)
                 .frame(width: 22, height: 22)
                 .background(hovered ? theme.hover : .clear, in: RoundedRectangle(cornerRadius: 3))
@@ -80,15 +80,15 @@ struct AnnotationDesignPreview: View {
             }
             Rule()
             HStack(spacing: 8) {
-                Image(systemName: "text.bubble")
+                IconView(.chatCenteredText, size: 12)
                 Text(note.label).font(.kit(size: 11, design: .monospaced))
                 Text(note.body).lineLimit(1)
-                Image(systemName: "xmark")
+                IconView(.x, size: 10)
             }.font(.kit(size: 11)).padding(8).background(theme.raised, in: RoundedRectangle(cornerRadius: 6))
             HStack {
                 Text("Ask Kit…").foregroundStyle(theme.muted)
                 Spacer()
-                Image(systemName: "arrow.up.circle.fill").foregroundStyle(theme.accent)
+                IconView(.arrowUp, size: 12).foregroundStyle(theme.accent)
             }.padding(16).background(theme.raised, in: RoundedRectangle(cornerRadius: 10))
             Rule()
             Text("Accepted message").font(.kit(size: 12)).foregroundStyle(theme.muted)

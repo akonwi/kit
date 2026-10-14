@@ -191,6 +191,18 @@ opaque `tokens.bg` color, not its filename, and themes without a usable opaque
 background take the active mode. The imported definition is kept whole even
 when some roles have no native consumer yet.
 
+### Icons
+
+Icons are Phosphor Regular (`@phosphor-icons/core` 2.1.1), bundled as SVGs in
+`Sources/Kit/Resources/Icons` and named by the `Icon` enum. They draw as
+template images tinted by the role colour, at the Paper box sizes: 14 pt for tab,
+toolbar and tool-call icons, 12 pt for status, metadata and composer icons, and
+10 pt for carets, links and inline close buttons. SF Symbols are not used.
+Spinners, status dots and traffic lights are drawn shapes. Every tile tab shows
+its icon, accent-coloured on the focused tile's selected tab and muted
+otherwise, so selecting a tab never shifts the strip. To add an icon, copy
+its regular SVG from the same Phosphor release and add a matching `Icon` case.
+
 ### File annotation interaction
 
 Hovering a source line reveals a gutter + control. Clicking it annotates that

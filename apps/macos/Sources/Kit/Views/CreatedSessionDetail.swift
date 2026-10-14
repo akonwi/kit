@@ -30,7 +30,7 @@ struct CreatedSessionDetail: View {
                     .textSelection(.enabled)
                 Spacer(minLength: 0)
                 if let id = value.sessionID, let sessionLink {
-                    Button("Open session", systemImage: "arrow.up.right") { sessionLink.open(id) }
+                    Button("Open session", icon: .arrowUpRight) { sessionLink.open(id) }
                         .buttonStyle(MicaButtonStyle(compact: true))
                 }
             }

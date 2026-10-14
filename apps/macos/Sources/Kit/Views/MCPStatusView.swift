@@ -20,7 +20,7 @@ struct MCPStatusView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             MetaLabel(text: "WARNINGS")
                             ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in
-                                Label(warning, systemImage: "exclamationmark.triangle")
+                                Label(warning, icon: .warning)
                                     .font(.kit(size: 12)).foregroundStyle(theme.warning)
                                     .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                             }
@@ -64,7 +64,7 @@ struct MCPStatusView: View {
                 }.font(.kit(size: 11))
             }
             if !server.lastError.isEmpty {
-                Label(server.lastError, systemImage: "exclamationmark.circle")
+                Label(server.lastError, icon: .warningCircle)
                     .font(.kit(size: 12)).foregroundStyle(theme.danger)
             }
         }

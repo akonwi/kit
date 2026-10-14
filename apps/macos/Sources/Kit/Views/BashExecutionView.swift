@@ -15,14 +15,14 @@ struct BashExecutionView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 10) {
                 if execution.running { KitSpinner() }
-                else { Image(systemName: "terminal").foregroundStyle(theme.muted) }
+                else { IconView(.terminalWindow).foregroundStyle(theme.muted) }
                 HighlightedCodeText(language: "bash", source: execution.command, fontSize: 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let status = Self.status(of: execution) {
                     Text(status).font(.kit(size: 11)).foregroundStyle(theme.muted)
                 }
                 Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(execution.command, forType: .string) } label: {
-                    Image(systemName: "doc.on.doc")
+                    IconView(.copy)
                 }.buttonStyle(.plain).accessibilityLabel("Copy shell command")
                     .opacity(hovered ? 1 : 0)
                     .allowsHitTesting(hovered)

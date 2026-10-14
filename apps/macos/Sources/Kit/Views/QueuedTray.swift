@@ -64,7 +64,7 @@ struct QueuedTray: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "square.stack.3d.up").font(.system(size: 11)).foregroundStyle(theme.muted)
+            IconView(.stack, size: 12).foregroundStyle(theme.muted)
             Text(String(queue.count) + " queued").font(.kit(size: 12)).foregroundStyle(theme.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Group {

@@ -59,7 +59,7 @@ struct PaletteListScreen: View {
         let key = PaletteCommand.matchKey(query, wholeQuery: wholeQuery)
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").font(.system(size: 14)).foregroundStyle(theme.muted)
+                IconView(.magnifyingGlass, size: 16).foregroundStyle(theme.muted)
                 PaletteSearchField(text: $query, placeholder: placeholder, move: move,
                                    complete: completeSelected, submit: activateSelected, cancel: dismiss)
             }
@@ -181,7 +181,7 @@ struct PaletteRow: View {
             }
             if let reason = row.unavailableReason {
                 HStack(spacing: 6) {
-                    Image(systemName: "nosign").font(.system(size: 10))
+                    IconView(.prohibit, size: 12)
                     Text(row.description.isEmpty ? reason : reason + " · " + row.description)
                         .lineLimit(1).truncationMode(.tail)
                 }

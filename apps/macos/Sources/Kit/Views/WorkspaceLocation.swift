@@ -66,7 +66,7 @@ struct WorkspaceLocation: View {
         HStack(spacing: 12) {
             if !path.isEmpty {
                 HStack(spacing: 5) {
-                    Image(systemName: "folder").font(.system(size: 10))
+                    IconView(.folderSimple, size: 12)
                     ViewThatFits(in: .horizontal) {
                         Text(displayPath).fixedSize()
                         Text(Self.shortened(displayPath)).lineLimit(1).truncationMode(.head)
@@ -76,7 +76,7 @@ struct WorkspaceLocation: View {
             }
             if let branch = Self.branchLabel(session) {
                 HStack(spacing: 5) {
-                    Image(systemName: "arrow.triangle.branch").font(.system(size: 10))
+                    IconView(.gitBranch, size: 12)
                     Text(branch).lineLimit(1).truncationMode(.middle)
                 }
                 .layoutPriority(1)
@@ -103,7 +103,7 @@ private struct PullRequestChip: View {
     var body: some View {
         Button { openURL(destination) } label: {
             HStack(spacing: 5) {
-                Image(systemName: "arrow.triangle.pull").font(.system(size: 10))
+                IconView(.gitPullRequest, size: 12)
                 Text("PR #\(number)")
             }
             .foregroundStyle(theme.text)

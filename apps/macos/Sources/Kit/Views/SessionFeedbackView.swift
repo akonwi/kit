@@ -39,7 +39,7 @@ struct SessionFeedbackView: View {
                         Button { expanded = false; expandedReportID = nil } label: {
                             HStack(spacing: 4) {
                                 Text("Collapse")
-                                Image(systemName: "chevron.up").font(.system(size: 9, weight: .semibold))
+                                IconView(.caretUp, size: 10)
                             }
                         }
                         .buttonStyle(.plain).foregroundStyle(theme.muted)
@@ -114,7 +114,7 @@ struct SessionFeedbackView: View {
             Button { expanded = true } label: {
                 HStack(spacing: 6) {
                     Text("\(newestFirst.count - 1) more").foregroundStyle(theme.text)
-                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                    IconView(.caretDown, size: 10)
                         .foregroundStyle(theme.muted)
                 }
                 .font(.kit(size: 12)).padding(.horizontal, 8).frame(height: 22)
@@ -207,8 +207,8 @@ struct SessionFeedbackCard: View {
     private var color: Color {
         switch item.tone { case .info: theme.accent; case .warning: theme.warning; case .error: theme.danger }
     }
-    private var symbol: String {
-        switch item.tone { case .info: "info.circle"; case .warning: "exclamationmark.triangle"; case .error: "exclamationmark.circle" }
+    private var icon: Icon {
+        switch item.tone { case .info: .info; case .warning: .warning; case .error: .warningCircle }
     }
     private var isExpanded: Bool { item.reloadReport == nil ? expanded : reportExpanded }
     /// Details appear only when there is more to read than the two lines.
@@ -216,8 +216,8 @@ struct SessionFeedbackCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 13)).foregroundStyle(color)
-                .frame(height: 16).accessibilityHidden(true)
+            IconView(icon).foregroundStyle(color)
+                .frame(height: 16)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(item.title).font(.kit(size: 13, weight: .medium)).foregroundStyle(color)
@@ -238,7 +238,7 @@ struct SessionFeedbackCard: View {
             }.frame(maxWidth: .infinity, alignment: .leading)
             if interactive {
                 Button(action: close) {
-                    Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.muted)
+                    IconView(.x, size: 10).foregroundStyle(theme.muted)
                         .frame(width: 18, height: 16).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).focused($focused)
@@ -292,7 +292,7 @@ struct SessionFeedbackCard: View {
                 } label: {
                     HStack(spacing: 4) {
                         Text(isExpanded ? "Less" : "Details")
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down").font(.system(size: 9, weight: .semibold))
+                        IconView(isExpanded ? .caretUp : .caretDown, size: 10)
                     }
                     .font(.kit(size: 12)).foregroundStyle(theme.muted).frame(height: 22).contentShape(Rectangle())
                 }
@@ -353,8 +353,7 @@ struct SessionReloadEvidenceView: View {
                 Divider().overlay(theme.border)
                 Button { sourcesExpanded.toggle() } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: sourcesExpanded ? "chevron.down" : "chevron.right")
-                            .font(.kit(size: 9))
+                        IconView(sourcesExpanded ? .caretDown : .caretRight, size: 10)
                         Text("Loaded sources (\(report.sources.count))")
                         Spacer()
                         Text(sourcesExpanded ? "Hide" : "Show")

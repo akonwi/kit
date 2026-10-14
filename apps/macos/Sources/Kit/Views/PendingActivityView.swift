@@ -82,7 +82,7 @@ struct PendingActivityView: View {
         case .failedToStop(let message):
             failure("Couldn’t stop the turn: " + message)
         case let .retrying(at, attempt):
-            Image(systemName: "arrow.clockwise").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.warning)
+            IconView(.arrowClockwise, size: 12).foregroundStyle(theme.warning)
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text("Retrying in " + String(ActivityLine.secondsRemaining(at, now: context.date)) + "s").lineLimit(1)
             }
@@ -110,7 +110,7 @@ struct PendingActivityView: View {
     }
 
     @ViewBuilder private func failure(_ message: String) -> some View {
-        Image(systemName: "exclamationmark.circle").font(.system(size: 12)).foregroundStyle(theme.danger)
+        IconView(.warningCircle, size: 12).foregroundStyle(theme.danger)
         Text(message).foregroundStyle(theme.danger).lineLimit(1).truncationMode(.tail).help(message)
             .frame(maxWidth: .infinity, alignment: .leading)
         Button("Retry", action: retry).buttonStyle(SmallButtonStyle(bordered: true))

@@ -85,7 +85,7 @@ struct ReviewPane: View {
             DiffHeaderButton(open: openMenu == .target, action: { toggle(.target) }) {
                 HStack(spacing: 6) {
                     DiffTargetName(target: model.target, fallback: model.observation == nil ? "Working tree" : "Captured target")
-                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+                    IconView(.caretDown, size: 10)
                         .foregroundStyle(theme.muted)
                 }
             }
@@ -107,7 +107,7 @@ struct ReviewPane: View {
             }
             Spacer(minLength: 8)
             DiffHeaderButton(open: openMenu == .view, square: true, action: { toggle(.view) }) {
-                Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold))
+                IconView(.dotsThree)
                     .foregroundStyle(openMenu == .view ? theme.text : theme.muted)
             }
             .background(ComposerPickerAnchorView(anchor: viewAnchor))
@@ -320,8 +320,7 @@ private struct DiffFileHeader: View {
     var body: some View {
         Button { toggle(scrolled && atTop) } label: {
             HStack(spacing: 8) {
-                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.muted).frame(width: 10)
+                IconView(collapsed ? .caretRight : .caretDown, size: 10).foregroundStyle(theme.muted)
                 Text(file.path).font(.kit(size: 12, design: .monospaced)).foregroundStyle(theme.text)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 8)

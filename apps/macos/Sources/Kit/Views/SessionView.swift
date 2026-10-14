@@ -32,7 +32,7 @@ struct SessionView: View {
             .onChange(of: state.selectedID) { latestOutOfView = false }
             .overlay(alignment: .bottomTrailing) {
                 if latestOutOfView {
-                    Button("Latest", systemImage: "arrow.down") { resumeRequest += 1 }
+                    Button("Latest", icon: .arrowDown) { resumeRequest += 1 }
                         .buttonStyle(MicaButtonStyle(compact: true)).padding(16)
                 }
             }

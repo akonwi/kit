@@ -198,7 +198,7 @@ struct CodeBlock: View {
             HStack {
                 MetaLabel(text: language.isEmpty ? "CODE" : language.uppercased())
                 Spacer()
-                Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "document.on.document") {
+                Button(copied ? "Copied" : "Copy", icon: copied ? .check : .copy, size: 10) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(source, forType: .string)
                     copied = true

@@ -47,7 +47,7 @@ struct ComposerThinkingMenu: View {
             ForEach(Array(levels.enumerated()), id: \.element) { index, level in
                 Button { pick(level) } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "checkmark").font(.kit(size: 10, weight: .semibold))
+                        IconView(.check, size: 10)
                             .opacity(level == selected ? 1 : 0).frame(width: 12)
                         Text(level).font(.kit(size: 12)).lineLimit(1)
                         Spacer(minLength: 8)

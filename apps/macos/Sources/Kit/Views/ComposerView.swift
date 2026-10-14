@@ -51,7 +51,7 @@ struct ComposerView: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         if !state.ui.workspace.notes.isEmpty {
-                            attachmentChip("Review · \(state.ui.workspace.notes.count) notes", icon: "text.bubble") {
+                            attachmentChip("Review · \(state.ui.workspace.notes.count) notes", icon: .chatCenteredText) {
                                 state.ui.workspace.notes = [:]
                             } content: {
                                 Button("Review · \(state.ui.workspace.notes.count) notes") { state.ui.workspace.open(.review) }
@@ -98,7 +98,7 @@ struct ComposerView: View {
             HStack(spacing: 12) {
                 if let shell = state.shellMode {
                     HStack(spacing: 8) {
-                        Image(systemName: "terminal")
+                        IconView(.terminalWindow, size: 12)
                         Text("Shell")
                         Button(shell.excluded ? "Excluded from context" : "Include in context") {
                             ui.draft = (shell.excluded ? "!" : "!!") + String(ui.draft.dropFirst(shell.excluded ? 2 : 1))
@@ -121,7 +121,7 @@ struct ComposerView: View {
                     else if state.replaying { state.stop() }
                     else { state.send() }
                 } label: {
-                    Image(systemName: state.activeBashID != nil || state.running || state.replaying ? "stop.fill" : "arrow.up")
+                    IconView(state.activeBashID != nil || state.running || state.replaying ? .stop : .arrowUp, size: 12)
                         .frame(width: 26, height: 26)
                         .foregroundStyle(theme.surface)
                         .background(theme.text, in: RoundedRectangle(cornerRadius: 3))
@@ -281,7 +281,7 @@ struct ComposerView: View {
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.border, lineWidth: 1))
         .overlay(alignment: .topTrailing) {
             Button { removeAttachment(name) } label: {
-                Image(systemName: "xmark").font(.kit(size: 9, weight: .medium))
+                IconView(.x, size: 10)
                     .frame(width: 20, height: 20)
                     .background(theme.surface, in: Circle())
             }.buttonStyle(.plain).padding(3).accessibilityLabel("Remove \(name)")
@@ -289,13 +289,13 @@ struct ComposerView: View {
         .help(name)
     }
 
-    private func attachmentChip<Content: View>(_ name: String, icon: String,
+    private func attachmentChip<Content: View>(_ name: String, icon: Icon,
         remove: @escaping () -> Void, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: icon).foregroundStyle(theme.muted)
+            IconView(icon, size: 12).foregroundStyle(theme.muted)
             content()
             Button(action: remove) {
-                Image(systemName: "xmark").font(.kit(size: 9, weight: .medium))
+                IconView(.x, size: 10)
                     .frame(width: 18, height: 18).contentShape(Rectangle())
             }.buttonStyle(.plain).foregroundStyle(theme.muted)
                 .accessibilityLabel("Remove \(name)")
@@ -307,12 +307,10 @@ struct ComposerView: View {
         .help(name)
     }
 
-    private func attachmentIcon(_ name: String) -> String {
+    private func attachmentIcon(_ name: String) -> Icon {
         switch (name as NSString).pathExtension.lowercased() {
-        case "png", "jpg", "jpeg", "gif", "webp", "heic": "photo"
-        case "pdf": "doc.richtext"
-        case "swift", "go", "js", "ts", "tsx", "py", "json", "sh": "doc.text"
-        default: "doc"
+        case "png", "jpg", "jpeg", "gif", "webp", "heic": .image
+        default: .file
         }
     }
 

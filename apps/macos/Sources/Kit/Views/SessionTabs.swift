@@ -55,7 +55,7 @@ struct SessionSidebar: View {
         VStack(spacing: 0) {
             HStack {
                 Spacer()
-                ChromeIconButton(symbol: "plus", help: "New session tab (⌘T)") { model.openLauncher() }
+                ChromeIconButton(icon: .plus, help: "New session tab (⌘T)") { model.openLauncher() }
             }
             .padding(.horizontal, 8)
             .frame(height: SessionChrome.rowHeight)
@@ -121,7 +121,7 @@ private struct SessionSidebarRow: View {
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if hovering {
-                    ChromeIconButton(symbol: "xmark", size: 10, frame: 18, help: "Close tab", action: close)
+                    ChromeIconButton(icon: .x, size: 10, frame: 18, help: "Close tab", action: close)
                 }
             }
             .padding(.horizontal, 8)
@@ -199,7 +199,7 @@ struct SessionTopTabs: View {
             if !hidden.isEmpty {
                 SessionTabOverflowMenu(hidden: hidden) { model.select($0) }
             }
-            ChromeIconButton(symbol: "plus", frame: 28, help: "New session tab (⌘T)") { model.openLauncher() }
+            ChromeIconButton(icon: .plus, frame: 28, help: "New session tab (⌘T)") { model.openLauncher() }
             SessionTabPlacementToggle(placement: $placement).padding(.leading, 6)
         }
         .padding(.leading, 16).padding(.trailing, 10)
@@ -274,7 +274,7 @@ private struct SessionTopTab: View {
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if selected || hovering {
-                    ChromeIconButton(symbol: "xmark", size: 10, frame: 16, help: "Close tab", action: close)
+                    ChromeIconButton(icon: .x, size: 10, frame: 16, help: "Close tab", action: close)
                 } else if let project {
                     Text(project).font(.kit(size: 10, design: .monospaced)).foregroundStyle(theme.strongBorder)
                         .lineLimit(1).truncationMode(.middle)
@@ -319,10 +319,9 @@ struct SessionTabStatusMarker: View {
         switch status {
         case .running: KitSpinner().foregroundStyle(theme.accent)
         case .awaitingResponse:
-            Image(systemName: "questionmark").font(.system(size: 10, weight: .bold)).foregroundStyle(theme.warning)
+            IconView(.questionMark, size: 12).foregroundStyle(theme.warning)
         case .idle where finished:
-            Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(theme.success)
-                .accessibilityLabel("Finished")
+            IconView(.check, size: 12, label: "Finished").foregroundStyle(theme.success)
         case .idle: Color.clear.frame(height: 14)
         }
     }
@@ -341,18 +340,17 @@ struct SessionTabPlacementToggle: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            option(.side, symbol: "sidebar.left", label: "Session tabs in sidebar")
-            option(.top, symbol: "rectangle.topthird.inset.filled", label: "Session tabs on top")
+            option(.side, icon: .sidebarSimple, label: "Session tabs in sidebar")
+            option(.top, icon: .browser, label: "Session tabs on top")
         }
         .padding(2)
         .background(theme.surface, in: RoundedRectangle(cornerRadius: 3))
         .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border))
     }
 
-    private func option(_ value: SessionTabPlacement, symbol: String, label: String) -> some View {
+    private func option(_ value: SessionTabPlacement, icon: Icon, label: String) -> some View {
         Button { placement = value } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 12))
+            IconView(icon)
                 .foregroundStyle(placement == value ? theme.text : theme.muted)
                 .frame(width: 26, height: 22)
                 .background(placement == value ? theme.frameHover : .clear, in: RoundedRectangle(cornerRadius: 2))
@@ -368,8 +366,8 @@ struct SessionTabPlacementToggle: View {
 /// A square, borderless icon button for window chrome.
 struct ChromeIconButton: View {
     @Environment(\.mica) private var theme
-    let symbol: String
-    var size: CGFloat = 13
+    let icon: Icon
+    var size: CGFloat = 14
     var frame: CGFloat = 26
     let help: String
     let action: () -> Void
@@ -377,8 +375,7 @@ struct ChromeIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: size))
+            IconView(icon, size: size)
                 .foregroundStyle(theme.muted)
                 .frame(width: frame, height: frame)
                 .background(hovering ? theme.frameHover : .clear, in: RoundedRectangle(cornerRadius: 3))

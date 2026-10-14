@@ -100,7 +100,7 @@ struct ComposerModelPicker: View {
                             Button { selection = index; select(model.id) } label: {
                                 let locked = lockedNote != nil
                                 HStack(spacing: 8) {
-                                    Image(systemName: "checkmark").font(.kit(size: 10, weight: .semibold))
+                                    IconView(.check, size: 10)
                                         .opacity(selectedID == model.id ? 1 : 0)
                                         .frame(width: 12)
                                     Text(model.name).font(.kit(size: 13)).lineLimit(1).truncationMode(.middle)

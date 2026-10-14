@@ -8,7 +8,7 @@ struct SessionChooserView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Image(systemName: "text.bubble").font(.kit(size: 32, weight: .light)).foregroundStyle(theme.accent)
+            IconView(.chatCenteredText, size: 32).foregroundStyle(theme.accent)
             Text("Open a session").font(.kit(size: 24, weight: .semibold))
             Text(state.isDemo ? "Choose a demo session for this window." : "Choose a session from the connected server.").foregroundStyle(theme.muted)
             if !state.isDemo {
@@ -27,7 +27,7 @@ struct SessionChooserView: View {
                                 Text(session.workspace).font(.kit(size: 11)).foregroundStyle(theme.muted)
                             }
                             Spacer()
-                            Image(systemName: "arrow.up.forward")
+                            IconView(.arrowUpRight, size: 12)
                         }.padding(14).contentShape(Rectangle())
                             .background(theme.raised, in: RoundedRectangle(cornerRadius: 8))
                     }.buttonStyle(.plain)

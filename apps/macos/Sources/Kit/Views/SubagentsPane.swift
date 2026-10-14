@@ -63,7 +63,7 @@ struct AgentPane: View {
                     latestOutOfView: $latestOutOfView, loadHistory: {}, theme: theme, attachmentClient: state.attachmentClient, attachmentSession: state.selectedID, reading: reading)
                     .overlay(alignment: .bottomTrailing) {
                         if latestOutOfView {
-                            Button("Latest", systemImage: "arrow.down") { resumeRequest += 1 }
+                            Button("Latest", icon: .arrowDown) { resumeRequest += 1 }
                                 .buttonStyle(MicaButtonStyle(compact: true)).padding(16)
                         }
                     }
@@ -149,7 +149,7 @@ struct SubagentConfigurationControls: View {
             Button { modelPickerPresented = true } label: {
                 HStack(spacing: 4) {
                     Text(modelLabel).lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9))
+                    IconView(.caretUpDown, size: 10)
                 }
             }
             .buttonStyle(.borderless).tint(theme.text).fixedSize()
@@ -173,7 +173,7 @@ struct SubagentConfigurationControls: View {
                 Section("Thinking for \(agent.name)") {
                     ForEach(thinkingLevels, id: \.self) { value in
                         Button { Task { await state.configureSubagent(agent.name, thinking: value) } } label: {
-                            if value == agent.thinkingLevel { Label(value.capitalized, systemImage: "checkmark") }
+                            if value == agent.thinkingLevel { Label { Text(value.capitalized) } icon: { Image(.check) } }
                             else { Text(value.capitalized) }
                         }
                     }
@@ -203,7 +203,7 @@ private struct SubagentConfigurationFeedback: View {
                     .foregroundStyle(operation.error != nil ? theme.danger : theme.muted)
                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
-                Button { operation.clearFeedback() } label: { Image(systemName: "xmark") }
+                Button { operation.clearFeedback() } label: { IconView(.x, size: 10) }
                     .buttonStyle(.plain).foregroundStyle(theme.muted)
                     .help("Dismiss").accessibilityLabel("Dismiss configuration message")
             }.padding(.horizontal, 16).padding(.vertical, 10)
@@ -246,7 +246,7 @@ private struct SubagentComposer: View {
                     .workspaceFocusTarget(pane)
                 Button(action: send) {
                     if operation.pending { KitSpinner() }
-                    else { Image(systemName: "arrow.up") }
+                    else { IconView(.arrowUp, size: 12) }
                 }.buttonStyle(MicaButtonStyle(compact: true))
                     .disabled(!enabled || operation.pending || operation.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .help(isNew ? "Start task" : "Send message")
