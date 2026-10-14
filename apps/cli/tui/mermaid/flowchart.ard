@@ -66,12 +66,16 @@ private fn label_text(value: Str) Str {
   }
 }
 
-// Whether a link starts anywhere in line.
+// Whether a link starts anywhere in line outside quoted text.
 private fn has_link(line: Str) Bool {
   mut found = false
+  mut quoted = false
   mut index = 0
   while index < line.size() {
-    if link_starts(line, index) {
+    if char_at(line, index) == "\"" {
+      quoted = not quoted
+    }
+    if (not quoted) and link_starts(line, index) {
       found = true
     }
     index =+ 1
@@ -1413,6 +1417,9 @@ test fn unsupported_flowchart_syntax_is_rejected() Void!Str {
   try expect_rejected("flowchart TD\nsubgraph one\nA --> B\nend", "subgraphs aren't drawn yet")
   try expect_rejected("flowchart TD\nA -->\nB", "unsupported line `A -->`")
   try expect_rejected("flowchart TD\nA --> B\nstyle --> C", "unsupported line `style --> C`")
+  // A link inside quotes, as in a URL, is part of the styling.
+  let clicked = try render("flowchart TD", ["A --> B", "click A href \"https://example.com/a--b\""], "")
+  try testing::assert(clicked.lines().size() == 8, "a quoted `--` in a click statement still draws")
   try expect_rejected("flowchart TD\nA[open --> B", "unclosed `[` in `A[open --> B`")
   expect_rejected("flowchart TD\n%% nothing", "the flowchart has no nodes")
 }
