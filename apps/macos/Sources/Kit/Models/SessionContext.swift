@@ -23,16 +23,3 @@ struct SessionContext: Equatable {
         }
     }
 }
-
-struct ContextUsageView: View {
-    let context: SessionContext
-    @Environment(\.mica) private var theme
-    var body: some View {
-        Text("\(context.percentage)%")
-            .monospacedDigit()
-            .foregroundStyle(context.color(in: theme))
-            .padding(.horizontal, 6).padding(.vertical, 3)
-            .help("Context used: \(context.tokens.formatted()) of \(context.capacity.formatted()) tokens")
-            .accessibilityLabel("Context used, \(context.percentage) percent")
-    }
-}

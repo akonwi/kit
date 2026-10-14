@@ -43,6 +43,20 @@ insertion, multiline editing, and keyboard behavior are preserved. Very long
 drafts still need a layout policy that keeps all content and actions reachable
 without an internal scrollbar.
 
+The controls row holds one bordered chip on the left and send or stop on the
+right. The chip is split by a hairline into the model and the thinking level; a
+model without thinking levels shows only the model. Files are attached only by
+dropping or pasting them; there is no attach button. Context usage is shown in
+session details, not in the composer. In shell mode the chip gives way to the
+shell controls.
+
+Each half opens its own popover 6 pt above it, aligned to its left edge, with
+no arrow. The model half lists the session's models; while a turn runs they
+are dimmed under "Model can change when the turn ends". The thinking half lists
+the model's levels under a THINKING caption, the current one checked. Up and
+Down move, Return picks, and a pick applies at once and closes the popover. Esc
+or a click outside closes it without a change.
+
 ### Pickers and overlays
 
 The command palette and other pickers take keyboard focus when opened, support

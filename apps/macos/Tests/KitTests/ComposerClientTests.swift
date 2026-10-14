@@ -163,6 +163,26 @@ private actor ComposerMock: ComposerClient {
         #expect(ComposerView.activeModelLabel(id: "second/echo", models: models) == "Echo")
         #expect(ComposerView.activeModelLabel(id: "third/echo", models: models) == "echo")
     }
+    @Test func thinkingLevelsComeFromTheSelectedModel() throws {
+        let models = try JSONDecoder().decode([WireModelCapability].self, from: Data(#"""
+        [{"id":"anthropic/opus","name":"Opus 4.6","provider":"anthropic","api":"test","contextWindow":1000000,"available":true,
+          "thinkingLevels":["off","low","medium","high"]},
+         {"id":"moonshot/kimi","name":"Kimi K2","provider":"moonshot","api":"test","contextWindow":256000,"available":true}]
+        """#.utf8))
+        #expect(ComposerView.thinkingLevels(model: "anthropic/opus", models: models) == ["off", "low", "medium", "high"])
+        #expect(ComposerView.thinkingLevels(model: "moonshot/kimi", models: models) == [])
+    }
+    @Test func modelPopoverSitsAboveTheChipOnScreen() {
+        let chip = NSRect(x: 100, y: 40, width: 110, height: 24)
+        #expect(ComposerPopover.frame(anchor: chip, size: CGSize(width: 320, height: 200),
+                                           screen: NSRect(x: 0, y: 0, width: 1440, height: 900))
+            == NSRect(x: 100, y: 70, width: 320, height: 200))
+        // Near the screen's right edge the card shifts left; near the top it is cut to fit.
+        #expect(ComposerPopover.frame(anchor: NSRect(x: 1300, y: 760, width: 110, height: 24),
+                                           size: CGSize(width: 320, height: 200),
+                                           screen: NSRect(x: 0, y: 0, width: 1440, height: 900))
+            == NSRect(x: 1120, y: 790, width: 320, height: 110))
+    }
     @Test func composerModelPickerFormatsContextLikeTUI() {
         #expect(ComposerModelPicker.contextLabel(0) == nil)
         #expect(ComposerModelPicker.contextLabel(999) == "999")
@@ -173,8 +193,8 @@ private actor ComposerMock: ComposerClient {
         #expect(ComposerModelPicker.contextLabel(1_048_576) == "1.0M")
     }
     @Test func composerModelPickerCapsVisibleHeight() throws {
-        #expect(ComposerModelPicker.listHeight(count: 0) == 38)
-        #expect(ComposerModelPicker.listHeight(count: 3) == 98)
+        #expect(ComposerModelPicker.listHeight(count: 0) == 36)
+        #expect(ComposerModelPicker.listHeight(count: 3) == 92)
         #expect(ComposerModelPicker.listHeight(count: 100) == 300)
         let data = "[" + (0..<100).map { index in
             "{\"id\":\"provider/model\(index)\",\"name\":\"Model \(index)\",\"provider\":\"provider\",\"api\":\"test\",\"contextWindow\":10000,\"available\":true}"
