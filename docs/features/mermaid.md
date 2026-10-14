@@ -79,7 +79,7 @@ participants and 200 statements, and the drawing fits within 480 columns and
 | `A(text)`, `A((text))` | A box with rounded corners |
 | `A([text])` | A rounded box with `(` `)` sides |
 | `A[(text)]` | A box with `║` sides, for a database |
-| `A{text}` | A box with `<` `>` sides, for a decision, whose branches fork at a `◆` |
+| `A{text}` | A box with `<` `>` sides, for a decision; branches sharing a line fork at a `◆` |
 | `A --> B`, `A ---> B` | An arrow into the target |
 | `A --- B` | A line joining the target |
 | `A -.-> B`, `A -.- B` | A dotted arrow or line |
@@ -121,16 +121,24 @@ edge may name a subgraph by its id. Each subgraph is then drawn on its own
 under its title, with its nodes and the edges among them, and a dashed box,
 such as `Server · API`, for each node outside it that its edges reach. A
 subgraph inside another is a box in its parent's section and gets its own
-section after. A subgraph is written `subgraph id`, `subgraph id[title]`, or
-`subgraph "title"`; a `direction` inside it sets the way its section flows.
-A node belongs to the subgraph it is first mentioned in.
+section after. Only a subgraph inside a section is marked `▸`; one outside
+is named with where it is, and an edge naming a subgraph reaches an
+`all of …` box in that subgraph's own section. A subgraph is written
+`subgraph id`, `subgraph id[title]`, or `subgraph "title"`; a `direction`
+inside it sets the way its section flows. As in Mermaid, a subgraph takes
+the nodes its statements mention when its `end` is reached, unless a
+subgraph that ended earlier took them, so a node listed in a subgraph
+belongs to it even if edges mentioned it first.
 
 `classDef`, `class`, `style`, `linkStyle`, and `click` statements are accepted
 but not drawn. Other node shapes and links show the source instead.
 
 A flowchart is drawn when it has at most 60 nodes, 120 edges, 200
 statements, and 20 subgraphs, and its drawing, with all its sections, fits
-within 480 columns and 800 rows.
+within 480 columns and 800 rows. Since an edge can appear in several
+sections, the sections together are also bounded: each counts as the square
+of its nodes and edges, and together they may cost no more than the largest
+flowchart without subgraphs.
 
 ### Other diagram types
 

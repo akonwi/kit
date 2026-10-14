@@ -125,12 +125,20 @@ in sections, one under another:
 - An edge that crosses a subgraph's boundary also appears in that
   subgraph's section, reaching a dashed box for the node outside, named with
   the subgraph that holds it, so each section shows exactly which nodes
-  connect beyond it.
+  connect beyond it. Only a subgraph inside a section is marked `▸`; a
+  subgraph outside is named with where it is, and an edge naming a subgraph
+  reaches an `all of …` box in that subgraph's own section.
 - Edges between the same boxes collapse into one unless their strokes,
   heads, or text differ, and each section flows in its subgraph's
   `direction`, else its parent's.
 
-A node belongs to the subgraph it is first mentioned in, as in Mermaid.
+As in Mermaid, a subgraph takes the nodes its own statements mention when
+its `end` is reached, unless a subgraph that ended earlier took them, so
+inner subgraphs take their nodes first. An edge can appear in each section
+along its way, so the sections are bounded together: each counts as the
+square of its nodes and edges, since layout grows faster than a graph's
+size, and together they may cost no more than the largest flowchart without
+subgraphs.
 
 ## Consequences
 
