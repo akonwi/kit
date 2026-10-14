@@ -374,6 +374,7 @@ func newServerCommand(deps commandDependencies) *cobra.Command {
 		{name: "status", description: "Inspect server status"},
 		{name: "stop", description: "Stop the server"},
 		{name: "restart", description: "Restart the server", listen: true},
+		{name: "run", description: "Run the server in the foreground, logging to stderr", listen: true},
 	} {
 		action := action
 		var listen string
