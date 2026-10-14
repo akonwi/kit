@@ -9,6 +9,7 @@ require (
 	github.com/rockorager/go-uucode v1.2.2
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/image v0.35.0
+	rsc.io/qr v0.2.0
 )
 
 require (

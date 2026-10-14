@@ -26,6 +26,9 @@ type commandDependencies struct {
 	auth            func(context.Context, []string, io.Writer, io.Writer) int
 	server          func(context.Context, []string, io.Writer, io.Writer) int
 	servers         func(context.Context, []string, io.Writer, io.Writer) int
+	// pair prints pairing links for the given extra server URLs.
+	pair    func(context.Context, []string, io.Writer, io.Writer) int
+	devices func(context.Context, []string, io.Writer, io.Writer) int
 	// attach runs the terminal client for the named server, or picks one when
 	// the name is empty.
 	attach func(context.Context, interactiveOptions, string, io.Writer, io.Writer) int
@@ -40,6 +43,10 @@ func defaultCommandDependencies() commandDependencies {
 		auth:            runAuthCommand,
 		server:          runServerCommand,
 		servers:         runServersCommand,
+		pair: func(ctx context.Context, urls []string, stdout, stderr io.Writer) int {
+			return runServerPair(ctx, urls, stdout, stderr, stdoutIsTerminal())
+		},
+		devices: runServerDevices,
 	}
 }
 
@@ -380,6 +387,40 @@ func newServerCommand(deps commandDependencies) *cobra.Command {
 		}
 		command.AddCommand(subcommand)
 	}
+	var urls []string
+	pair := &cobra.Command{
+		Use:   "pair",
+		Short: "Print a pairing link for another device",
+		Long: "Print a single-use pairing link for each URL that reaches the running server: each\n" +
+			"server.allowedHosts entry, each --url, and the loopback URL. The code expires after\n" +
+			"5 minutes. Redeeming it gives the other device a token for this server.",
+		Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return resultForCode(deps.pair(command.Context(), urls, command.OutOrStdout(), command.ErrOrStderr()))
+		},
+	}
+	pair.Flags().StringArrayVar(&urls, "url", nil, "also print a link for this server URL, such as a reverse proxy's")
+	devices := &cobra.Command{
+		Use: "devices", Short: "Manage paired devices", Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return resultForCode(deps.devices(command.Context(), []string{"list"}, command.OutOrStdout(), command.ErrOrStderr()))
+		},
+	}
+	devices.AddCommand(
+		&cobra.Command{
+			Use: "list", Aliases: []string{"ls"}, Short: "List paired devices", Args: cobra.NoArgs,
+			RunE: func(command *cobra.Command, _ []string) error {
+				return resultForCode(deps.devices(command.Context(), []string{"list"}, command.OutOrStdout(), command.ErrOrStderr()))
+			},
+		},
+		&cobra.Command{
+			Use: "revoke ID-OR-NAME", Short: "Revoke a device's access", Args: cobra.ExactArgs(1),
+			RunE: func(command *cobra.Command, arguments []string) error {
+				return resultForCode(deps.devices(command.Context(), append([]string{"revoke"}, arguments...), command.OutOrStdout(), command.ErrOrStderr()))
+			},
+		},
+	)
+	command.AddCommand(pair, devices)
 	return command
 }
 
@@ -472,6 +513,11 @@ func newInternalServerCommand(deps commandDependencies) *cobra.Command {
 			return resultForCode(deps.internalServer(command.Context(), arguments, command.ErrOrStderr()))
 		},
 	}
+}
+
+func stdoutIsTerminal() bool {
+	info, err := os.Stdout.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 func stdinIsTerminal() bool {

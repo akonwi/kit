@@ -64,6 +64,10 @@ kit servers add dev ~/.kit-dev
 kit attach dev
 kit attach          # pick from saved servers
 
+# Pair another device with this server, and manage paired devices:
+kit server pair
+kit server devices
+
 # Inspect the complete command tree and operate the local daemon:
 kit --help
 kit server status

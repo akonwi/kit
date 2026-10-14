@@ -59,6 +59,9 @@ func Emit() ([]byte, error) {
 			"parameters": operationParameters(descriptor), "responses": responses,
 			"security": []any{map[string]any{"daemonBearer": []any{}}},
 		}
+		if descriptor.Unauthenticated {
+			operation["security"] = []any{}
+		}
 		if stream := descriptor.Stream; stream != nil {
 			operation["x-kit-stream"] = map[string]any{
 				"records": stream.Records, "resumable": stream.Resumable, "maxRecordBytes": stream.MaxRecordBytes,
@@ -95,8 +98,9 @@ func Emit() ([]byte, error) {
 }
 
 func operationParameters(descriptor httpapi.Descriptor) []any {
-	parameters := []any{
-		map[string]any{"name": httpapi.InstanceHeader, "in": "header", "required": !descriptor.OptionalInstance, "schema": map[string]any{"type": "string"}},
+	parameters := []any{}
+	if !descriptor.Unauthenticated {
+		parameters = append(parameters, map[string]any{"name": httpapi.InstanceHeader, "in": "header", "required": !descriptor.OptionalInstance, "schema": map[string]any{"type": "string"}})
 	}
 	if !descriptor.NoProtocol {
 		parameters = append(parameters, map[string]any{"name": httpapi.ProtocolHeader, "in": "header", "required": true, "schema": map[string]any{"type": "integer", "enum": []int{version.SessionProtocolVersion}}})

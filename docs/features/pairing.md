@@ -1,0 +1,101 @@
+# Pairing devices
+
+A client on the server's machine authenticates with the token the daemon
+publishes in its Kit home. A client on another machine needs a **device
+token**, which it obtains only by redeeming a **pairing link**.
+
+## Pairing links
+
+```sh
+kit server pair
+kit server pair --url https://kit.example.com
+```
+
+`kit server pair` asks the running server for a pairing code and prints a link
+for every URL that reaches it:
+
+- each `server.allowedHosts` entry as `https://HOST`, or as the
+  `server.allowedOrigins` entry naming that host when there is one;
+- each `--url`, for a reverse proxy or tunnel whose address the settings do not
+  name;
+- the server's loopback URL, for a client on this machine or one reaching it
+  through an SSH port forward.
+
+On a terminal it also draws a QR code of the first link. Run it in any shell
+on the server's machine: its own terminal, SSH, or a hosting console. It never
+starts the server.
+
+A link looks like `https://kit.example.ts.net/pair#a3k9…`. The code is in the
+URL fragment, so browsers and proxies never send or log it. A code works once
+and expires after 5 minutes.
+
+A plain `http://` link to another machine carries the code, and then the
+device token, unencrypted. `kit server pair` warns about such links; use them
+only on a private network such as a tailnet.
+
+### First device on a headless server
+
+A server that serves beyond loopback (`server.listen` is not loopback, or
+`server.allowedHosts` is set) and has no unexpired devices logs pairing links
+when it starts:
+
+```
+level=INFO msg="pair a device with this link" link=https://kit.example.ts.net/pair#a3k9… expires=…
+```
+
+That code expires after 1 hour. Each start logs a new one until a device is
+paired, for deployments whose only visible output is the server log.
+
+## Device tokens
+
+Redeeming a link returns a device token for a device named by the client. A
+server keeps at most 1024 devices; past that, pairing fails with
+`capacity_exceeded` until one is revoked.
+Tokens begin with `kit_device_` so secret scanners recognize them. The server
+stores only their SHA-256 hashes.
+
+A token expires 30 days after its last use or one year after pairing,
+whichever comes first. An expired token is rejected with the error code
+`credential_expired`, so a client can ask to pair again, and requests already
+open, including event streams, end when the token expires. Expired devices are
+deleted 30 days after they expire.
+
+Every credential has the same authority: a paired device can do anything this
+machine's own clients can, including pairing further devices and stopping the
+server.
+
+## Managing devices
+
+```sh
+kit server devices                 # list
+kit server devices revoke laptop   # by name, or by ID
+```
+
+The list shows each device's name, ID, last use, last address, and expiry. The
+last address is the request's network peer as the server saw it; behind a
+proxy it is the proxy's address. Revoking a device stops its token at once and
+ends its open requests, including event streams.
+
+## Limits
+
+Failed authentications and failed pairing redemptions are rate-limited per
+remote address. Past the limit, further failures receive HTTP 429 with the
+error code `rate_limited`. A valid credential or pairing code is never refused,
+so clients that share an address behind a proxy are not locked out by one of
+them.
+
+## Session API
+
+| Operation | Credential |
+| --- | --- |
+| `POST /v1/pairing/redeem` | none; redeems a code for a token |
+| `POST /v1/pairing` | any; issues a 5-minute code |
+| `GET /v1/devices` | any; marks the requesting device `current` |
+| `DELETE /v1/devices/{deviceID}` | any |
+
+Go clients use `kit.Pair(ctx, link, name)`, then
+`kit.Connect(ctx, kit.Endpoint(paired.ServerURL, kit.AccessToken(paired.Token)))`,
+and `Client.CreatePairing`, `Client.Devices`, and `Client.RevokeDevice`.
+
+Attaching the TUI to a paired server by URL is tracked in
+[#177](https://github.com/akonwi/kit/issues/177).

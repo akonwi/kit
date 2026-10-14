@@ -94,6 +94,7 @@ type Client struct {
 	transport      operationTransport
 	compatibility  compatibilityTransport
 	sessions       sessionTransport
+	devices        deviceTransport
 	lifetime       context.Context
 	cancel         context.CancelFunc
 	closed         bool
@@ -158,6 +159,7 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 	client := newClient(transport, transport.CloseIdleConnections)
 	client.compatibility = transport
 	client.sessions = transport
+	client.devices = transport
 	return client, nil
 }
 

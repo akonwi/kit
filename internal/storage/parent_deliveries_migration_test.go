@@ -125,7 +125,7 @@ func TestParentDeliveriesMigrationPreservesBoundariesAndAcknowledgements(t *test
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	if version, err := store.CurrentMigration(t.Context()); err != nil || version != 15 {
+	if version, err := store.CurrentMigration(t.Context()); err != nil || version != 16 {
 		t.Fatalf("migration version = %d, %v", version, err)
 	}
 	pending, err := store.PendingMailbox(t.Context(), owner, 8)

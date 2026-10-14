@@ -314,6 +314,12 @@ func (c *Client) ProbeConnection(ctx context.Context, connection Connection, req
 		if rejectedInstance(response.StatusCode, body) {
 			return Connection{}, Health{}, errInstanceChanged
 		}
+		// Declared failures, such as an expired device token, keep their
+		// stable codes; anything else is reported with the raw status.
+		var declared *APIError
+		if err := httpapi.DecodeOperationError(httpapi.GetHealth, response.StatusCode, body); errors.As(err, &declared) {
+			return Connection{}, Health{}, err
+		}
 		return Connection{}, Health{}, fmt.Errorf("server health returned %s: %s", response.Status, strings.TrimSpace(string(body)))
 	}
 	var health Health
