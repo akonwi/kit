@@ -36,12 +36,15 @@ enum Flow {
 }
 
 enum Shape {
+  // A subgraph drawn on its own, or a node outside the drawing: a dashed
+  // box standing in for what is drawn elsewhere.
   box,
   round,
   stadium,
   circle,
   database,
   decision,
+  elsewhere,
 }
 
 enum Stroke {
@@ -2024,7 +2027,15 @@ private fn draw_node(
   let bottom = top + height - 1
   let middle = top + height / 2
   let rounded = node.shape == Shape::round or node.shape == Shape::stadium or node.shape == Shape::circle
-  drawing.outline(x0, top, x1, bottom, canvas::Role::frame, rounded)
+  match node.shape == Shape::elsewhere {
+    true => {
+      drawing.horizontal(top, x0, x1, canvas::Role::frame, true)
+      drawing.horizontal(bottom, x0, x1, canvas::Role::frame, true)
+      drawing.vertical(x0, top, bottom, canvas::Role::frame, true)
+      drawing.vertical(x1, top, bottom, canvas::Role::frame, true)
+    },
+    false => drawing.outline(x0, top, x1, bottom, canvas::Role::frame, rounded),
+  }
   match node.shape {
     // A decision points out at both sides; its branches fork at a diamond.
     Shape::stadium => {

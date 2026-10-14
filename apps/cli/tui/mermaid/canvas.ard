@@ -70,6 +70,37 @@ private fn maximum(a: Int, b: Int) Int {
   }
 }
 
+// parts drawn one under another, a blank row apart.
+fn stack(parts: [Canvas]) mut Canvas {
+  mut width = 0
+  mut height = 0
+  for part in parts {
+    width = maximum(width, part.width)
+    if height > 0 {
+      height =+ 1
+    }
+    height =+ part.height
+  }
+  let drawing = new(width, height)
+  mut top = 0
+  for part in parts {
+    mut y = 0
+    while y < part.height {
+      mut x = 0
+      while x < part.width {
+        let from = y * part.width + x
+        let to = (top + y) * width + x
+        drawing.texts.set(to, part.texts.at(from).or(""))
+        drawing.cells.set(to, part.cells.at(from).or(0))
+        x =+ 1
+      }
+      y =+ 1
+    }
+    top =+ part.height + 1
+  }
+  drawing
+}
+
 private fn role_code(role: Role) Int {
   match role {
     Role::frame => 0,

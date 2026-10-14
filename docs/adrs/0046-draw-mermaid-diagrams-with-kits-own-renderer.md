@@ -106,8 +106,31 @@ other graph-shaped diagrams can share:
   junctions resolve the same way in all four, while boxes and text are placed
   directly on the drawing so text always reads left to right. Flowing
   sideways, labels sit on their edge's line and their bands are as long as
-  the label, and a labeled edge on its own track gets a track as wide as its
-  label, with the text across the track's upright run.
+  the label.
+
+### Subgraphs
+
+A subgraph is not drawn as a frame inside its flowchart. Nesting frames
+would need clustered layering and ordering, frame-aware spacing and routing,
+and a combined layout for subgraphs that flow in their own direction, and a
+large frame in a narrow pane is hard to read. Instead the flowchart is drawn
+in sections, one under another:
+
+- The flowchart comes first, with each top-level subgraph drawn as one
+  dashed box marked `▸` with its title. Edges to and from the nodes inside a
+  subgraph attach to its box, and an edge may name a subgraph directly.
+- Each subgraph follows in the order it is declared, under its title, with
+  its own nodes and the edges among them. A subgraph inside it is again one
+  box, drawn in its own section after.
+- An edge that crosses a subgraph's boundary also appears in that
+  subgraph's section, reaching a dashed box for the node outside, named with
+  the subgraph that holds it, so each section shows exactly which nodes
+  connect beyond it.
+- Edges between the same boxes collapse into one unless their strokes,
+  heads, or text differ, and each section flows in its subgraph's
+  `direction`, else its parent's.
+
+A node belongs to the subgraph it is first mentioned in, as in Mermaid.
 
 ## Consequences
 

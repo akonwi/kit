@@ -114,12 +114,23 @@ text sits beside its climb, or on its run beneath a diagram flowing sideways.
 In a diagram flowing sideways, text sits on its edge's line, as in
 `─ yes ─►`. A diagram whose edge text has no such room shows its source.
 
-`classDef`, `class`, `style`, `linkStyle`, and `click` statements are accepted
-but not drawn. Other node shapes and links, and subgraphs, show the source
-instead.
+`subgraph` … `end` blocks are drawn as sections, one under another. The
+flowchart comes first, with each subgraph drawn as one dashed box marked
+`▸` with its title; edges to and from its nodes attach to the box, and an
+edge may name a subgraph by its id. Each subgraph is then drawn on its own
+under its title, with its nodes and the edges among them, and a dashed box,
+such as `Server · API`, for each node outside it that its edges reach. A
+subgraph inside another is a box in its parent's section and gets its own
+section after. A subgraph is written `subgraph id`, `subgraph id[title]`, or
+`subgraph "title"`; a `direction` inside it sets the way its section flows.
+A node belongs to the subgraph it is first mentioned in.
 
-A flowchart is drawn when it has at most 60 nodes, 120 edges, and 200
-statements, and the drawing fits within 480 columns and 800 rows.
+`classDef`, `class`, `style`, `linkStyle`, and `click` statements are accepted
+but not drawn. Other node shapes and links show the source instead.
+
+A flowchart is drawn when it has at most 60 nodes, 120 edges, 200
+statements, and 20 subgraphs, and its drawing, with all its sections, fits
+within 480 columns and 800 rows.
 
 ### Other diagram types
 

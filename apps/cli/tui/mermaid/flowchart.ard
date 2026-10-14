@@ -16,7 +16,9 @@ use go:strings
 // a cross `x`, a circle `o`, or nothing; link text as `-->|text|` or
 // `-- text -->`; chains such as `A --> B --> C`; `&` groups such as
 // `A & B --> C`; `;` between statements; and `:::class` suffixes. Edges may
-// loop back, including from a node to itself.
+// loop back, including from a node to itself. `subgraph` blocks, nested and
+// with their own `direction`, are drawn as sections: each is one box in its
+// parent's drawing and drawn on its own beneath it.
 // `classDef`, `class`, `style`, `linkStyle`, and `click` statements are
 // accepted without being drawn. Anything else is rejected so the source is
 // shown instead.
@@ -24,13 +26,30 @@ use go:strings
 let max_nodes = 60
 let max_edges = 120
 let max_statements = 200
+let max_groups = 20
+let max_height = 800
 // Node text wider than this is cut short with an ellipsis.
 let max_text = 40
+
+// A subgraph: the subgraph it sits in, or -1 at the top level, and the
+// direction it flows in when it names one.
+struct Group {
+  id: Str,
+  title: Str,
+  parent: Int,
+  flow: layers::Flow?,
+}
 
 struct Flowchart {
   nodes: [layers::Node],
   edges: [layers::Edge],
   flow: layers::Flow,
+  groups: [Group],
+  // Each node's subgraph, or -1 at the top level.
+  member: [Int],
+  // The subgraph a node's id names, or -1. Such a node stands for the
+  // subgraph in edges and is not drawn itself.
+  alias: [Int],
 }
 
 // Text as one line, cut to max_text cells.
@@ -248,6 +267,12 @@ private struct Parser {
   edges: [layers::Edge],
   // Statements read so far, counting each one between `;`s.
   statements: Int,
+  groups: [Group],
+  // The subgraphs open where the parser is, innermost last.
+  open: [Int],
+  member: [Int],
+  // Whether each node was given text or a shape.
+  explicit: [Bool],
 }
 
 impl Parser {
@@ -266,11 +291,15 @@ impl Parser {
           },
         )
         self.indexes.set(id, added)
+        // A node belongs to the subgraph it is first mentioned in.
+        self.member.push(self.open.at(self.open.size() - 1).or(-1))
+        self.explicit.push(false)
         added
       },
     }
     match text {
       given => {
+        self.explicit.set(index, true)
         let _ = self.nodes.set(
           index,
           layers::Node{
@@ -602,8 +631,29 @@ impl Parser {
     match {
       // Styling is accepted without being drawn, but a link means the line
       // isn't styling.
-      word == "subgraph" or word == "end" or word == "direction" => {
-        Result::err("subgraphs aren't drawn yet")
+      word == "subgraph" => self.subgraph(strings::TrimSpace(line.slice(start: word.size()).or(""))),
+      word == "end" and line == "end" => {
+        match self.open.size() == 0 {
+          true => Result::err("`end` without a `subgraph`"),
+          false => {
+            self.open = all_but_last(self.open)
+            Result::ok(())
+          },
+        }
+      },
+      word == "direction" => {
+        let direction = strings::ToUpper(strings::TrimSpace(line.slice(start: word.size()).or("")))
+        let current = self.open.at(self.open.size() - 1).or(-1)
+        match {
+          current < 0 => Result::err("`direction` is only drawn inside a subgraph"),
+          flow(direction).is_none() => Result::err("unknown direction `{direction}`"),
+          _ => {
+            let group = mut self.groups.at(current).expect("group")
+            group.flow = flow(direction)
+            let _ = self.groups.set(current, group.@)
+            Result::ok(())
+          },
+        }
       },
       word == "classDef" or word == "class" or word == "style" or word == "linkStyle" or word == "click" => {
         match has_link(line) {
@@ -632,6 +682,62 @@ impl Parser {
   }
 }
 
+impl Parser {
+  // Opens a subgraph: `subgraph id`, `subgraph id[title]`, or
+  // `subgraph "title"`.
+  fn mut subgraph(rest: Str) Void!Str {
+    let quoted = rest.size() >= 2 and strings::HasPrefix(rest, "\"") and strings::HasSuffix(rest, "\"")
+    let bracket = strings::Index(rest, "[")
+    mut id = rest
+    mut title = rest
+    mut failure = ""
+    if quoted {
+      id = label_text(rest)
+      title = id
+    } else if bracket >= 0 {
+      match strings::HasSuffix(rest, "]") {
+        true => {
+          id = strings::TrimSpace(rest.slice(end: bracket).or(""))
+          title = label_text(rest.slice(start: bracket + 1, end: rest.size() - 1).or(""))
+        },
+        false => { failure = "unclosed `[` in `subgraph {rest}`" },
+      }
+    }
+    for group in self.groups {
+      if group.id == id {
+        failure = "subgraph `{id}` is declared twice"
+      }
+    }
+    match {
+      failure != "" => Result::err(failure),
+      id == "" => Result::err("a subgraph needs a name"),
+      self.groups.size() >= max_groups => Result::err("more than {max_groups} subgraphs"),
+      _ => {
+        self.open.push(self.groups.size())
+        self.groups.push(
+          Group{
+            id: id,
+            title: clean(title),
+            parent: self.open.at(self.open.size() - 2).or(-1),
+            flow: Maybe::new<layers::Flow>(),
+          },
+        )
+        Result::ok(())
+      },
+    }
+  }
+}
+
+private fn all_but_last(values: [Int]) [Int] {
+  let kept = mut List::new<Int>()
+  mut index = 0
+  while index + 1 < values.size() {
+    kept.push(values.at(index).or(0))
+    index =+ 1
+  }
+  kept.@
+}
+
 // The flow a header's direction names.
 private fn flow(direction: Str) layers::Flow? {
   match direction {
@@ -654,6 +760,10 @@ fn parse(header: Str, lines: [Str]) Flowchart!Str {
     indexes: [:],
     edges: [],
     statements: 0,
+    groups: [],
+    open: [],
+    member: [],
+    explicit: [],
   }
   mut failure = match {
     fields.size() > 2 => "unexpected text after `{fields.at(0).or("")} {direction}`",
@@ -669,6 +779,28 @@ fn parse(header: Str, lines: [Str]) Flowchart!Str {
       }
     }
   }
+  if failure == "" and parser.open.size() > 0 {
+    let open = parser.groups.at(parser.open.at(parser.open.size() - 1).or(0)).expect("group")
+    failure = "subgraph `{open.id}` isn't closed with `end`"
+  }
+  // A node whose id names a subgraph stands for it.
+  let alias = mut List::new<Int>()
+  mut index = 0
+  for node in parser.nodes {
+    mut named = -1
+    mut number = 0
+    for group in parser.groups {
+      if group.id == node.id {
+        named = number
+      }
+      number =+ 1
+    }
+    if named >= 0 and parser.explicit.at(index).or(false) and failure == "" {
+      failure = "`{node.id}` names both a node and a subgraph"
+    }
+    alias.push(named)
+    index =+ 1
+  }
   match {
     failure != "" => Result::err(failure),
     parser.nodes.size() == 0 => Result::err("the flowchart has no nodes"),
@@ -680,6 +812,9 @@ fn parse(header: Str, lines: [Str]) Flowchart!Str {
           nodes: parser.nodes,
           edges: parser.edges,
           flow: flow(direction).or(layers::Flow::down),
+          groups: parser.groups,
+          member: parser.member,
+          alias: alias.@,
         },
       )
     },
@@ -689,7 +824,196 @@ fn parse(header: Str, lines: [Str]) Flowchart!Str {
 // Draws the statements after a flowchart header.
 fn render(header: Str, lines: [Str], title: Str) canvas::Canvas!Str {
   let chart = try parse(header, lines)
-  layers::draw(layers::Graph{nodes: chart.nodes, edges: chart.edges}, clean(title), chart.flow)
+  match chart.groups.size() == 0 {
+    true => {
+      layers::draw(layers::Graph{nodes: chart.nodes, edges: chart.edges}, clean(title), chart.flow)
+    },
+    false => sections(chart, clean(title)),
+  }
+}
+
+// Draws the flowchart with each subgraph as one box, then each subgraph on
+// its own beneath it, in the order they are declared.
+private fn sections(chart: Flowchart, title: Str) canvas::Canvas!Str {
+  let parts = mut List::new<canvas::Canvas>()
+  mut height = 0
+  mut failure = ""
+  mut group = -1
+  while group < chart.groups.size() and failure == "" {
+    let graph = section(chart, group)
+    if graph.nodes.size() > 0 {
+      let heading = match group < 0 {
+        true => title,
+        false => chart.groups.at(group).expect("group").title,
+      }
+      match layers::draw(graph, heading, section_flow(chart, group)) {
+        ok(drawing) => {
+          height =+ drawing.height + 1
+          parts.push(drawing)
+        },
+        err(reason) => {
+          failure = match group < 0 {
+            true => reason,
+            false => "in subgraph `{chart.groups.at(group).expect("group").id}`, {reason}",
+          }
+        },
+      }
+    }
+    group =+ 1
+  }
+  match {
+    failure != "" => Result::err(failure),
+    height > max_height + 1 => Result::err("the flowchart is taller than {max_height} rows"),
+    _ => Result::ok(canvas::stack(parts.@).@),
+  }
+}
+
+// The direction a subgraph flows in: its own, else its parent's.
+private fn section_flow(chart: Flowchart, group: Int) layers::Flow {
+  mut at = group
+  mut found = Maybe::new<layers::Flow>()
+  mut going = at >= 0
+  while going {
+    let current = chart.groups.at(at).expect("group")
+    found = current.flow
+    at = current.parent
+    going = found.is_none() and at >= 0
+  }
+  found.or(chart.flow)
+}
+
+// Whether subgraph group lies within outer, or is it; -1 is the whole
+// flowchart.
+private fn inside(chart: Flowchart, group: Int, outer: Int) Bool {
+  mut at = group
+  mut found = outer < 0
+  mut going = (not found) and at >= 0
+  while going {
+    found = at == outer
+    at = chart.groups.at(at).expect("group").parent
+    going = (not found) and at >= 0
+  }
+  found
+}
+
+// The subgraph directly inside outer that holds group.
+private fn child_of(chart: Flowchart, group: Int, outer: Int) Int {
+  mut at = group
+  mut parent = chart.groups.at(at).expect("group").parent
+  while parent != outer and parent >= 0 {
+    at = parent
+    parent = chart.groups.at(at).expect("group").parent
+  }
+  at
+}
+
+// The box standing for a subgraph drawn on its own.
+private fn group_box(chart: Flowchart, group: Int) layers::Node {
+  let found = chart.groups.at(group).expect("group")
+  layers::Node{
+    id: found.id,
+    text: clean("▸ {found.title}"),
+    shape: layers::Shape::elsewhere,
+  }
+}
+
+// What an end of an edge is in the drawing of subgraph outer: the node
+// itself, the box of the subgraph inside outer that holds it, or a box for
+// something outside. Keys name each one: `n`, `g`, or `x` for outside.
+private struct End {
+  key: Str,
+  node: layers::Node,
+}
+
+private fn group_end(chart: Flowchart, group: Int, outer: Int) End {
+  match group != outer and inside(chart, group, outer) {
+    true => {
+      let child = child_of(chart, group, outer)
+      End{key: "g{child}", node: group_box(chart, child)}
+    },
+    false => End{key: "xg{group}", node: group_box(chart, group)},
+  }
+}
+
+private fn node_end(chart: Flowchart, node: Int, outer: Int) End {
+  let alias = chart.alias.at(node).or(-1)
+  let group = chart.member.at(node).or(-1)
+  let found = chart.nodes.at(node).expect("node")
+  match {
+    // Outside: named with the subgraph that holds it.
+    alias >= 0 => group_end(chart, alias, outer),
+    group == outer => End{key: "n{node}", node: found},
+    group >= 0 and inside(chart, group, outer) => group_end(chart, group, outer),
+    _ => {
+      let text = match group < 0 {
+        true => found.text,
+        false => clean("{chart.groups.at(group).expect("group").title} · {found.text}"),
+      }
+      End{
+        key: "xn{node}",
+        node: layers::Node{
+          id: found.id,
+          text: text,
+          shape: layers::Shape::elsewhere,
+        },
+      }
+    },
+  }
+}
+
+// The graph drawn for subgraph outer, or the whole flowchart for -1: its own
+// nodes, a box for each subgraph inside it, and a box for each node outside
+// it that its edges reach. Edges within one inner subgraph are left to that
+// subgraph's drawing, and repeated edges are drawn once.
+private fn section(chart: Flowchart, outer: Int) layers::Graph {
+  let nodes = mut List::new<layers::Node>()
+  let keys = mut Map::new<Int>()
+  let add = fn(end: End) Int {
+    match keys.get(end.key) {
+      found => found,
+      _ => {
+        let index = nodes.size()
+        nodes.push(end.node)
+        keys.set(end.key, index)
+        index
+      },
+    }
+  }
+  mut index = 0
+  for _ in chart.nodes {
+    let end = node_end(chart, index, outer)
+    if chart.alias.at(index).or(-1) < 0 and not strings::HasPrefix(end.key, "x") {
+      let _ = add(end)
+    }
+    index =+ 1
+  }
+  index = 0
+  for group in chart.groups {
+    if group.parent == outer {
+      let _ = add(group_end(chart, index, outer))
+    }
+    index =+ 1
+  }
+  let edges = mut List::new<layers::Edge>()
+  for edge in chart.edges {
+    let from = node_end(chart, edge.from, outer)
+    let to = node_end(chart, edge.to, outer)
+    let outside = strings::HasPrefix(from.key, "x") and strings::HasPrefix(to.key, "x")
+    let inner = from.key == to.key and strings::HasPrefix(from.key, "g")
+    if not outside or inner {
+      let mapped = layers::Edge{
+        from: add(from),
+        to: add(to),
+        stroke: edge.stroke,
+        head: edge.head,
+        label: edge.label,
+      }
+      if not has_edge(edges.@, mapped) {
+        edges.push(mapped)
+      }
+    }
+  }
+  layers::Graph{nodes: nodes.@, edges: edges.@}
 }
 
 fn expect_drawing(source: Str, expected: [Str]) Void!Str {
@@ -1407,6 +1731,151 @@ test fn edges_skipping_layers_keep_their_stroke() Void!Str {
   )
 }
 
+// Each subgraph is one box in the flowchart and drawn on its own beneath
+// it, with a box for each node outside it that its edges reach.
+test fn subgraphs_are_drawn_on_their_own_beneath_the_flowchart() Void!Str {
+  expect_drawing(
+    "flowchart TD\nsubgraph Client\n  A[UI] --> B[Session client]\nend\nsubgraph Server\n  C[API] --> D[(SQLite)]\nend\nB --> C",
+    [
+      "┌┈┈┈┈┈┈┈┈┈┈┐",
+      "┊ ▸ Client ┊",
+      "└┈┈┈┈┈┬┈┈┈┈┘",
+      "      │",
+      "      ▼",
+      "┌┈┈┈┈┈┈┈┈┈┈┐",
+      "┊ ▸ Server ┊",
+      "└┈┈┈┈┈┈┈┈┈┈┘",
+      "",
+      "Client",
+      "",
+      "      ┌────┐",
+      "      │ UI │",
+      "      └──┬─┘",
+      "         │",
+      "         ▼",
+      "┌────────────────┐",
+      "│ Session client │",
+      "└────────┬───────┘",
+      "         │",
+      "         ▼",
+      " ┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐",
+      " ┊ Server · API ┊",
+      " └┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘",
+      "",
+      "Server",
+      "",
+      "┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐",
+      "┊ Client · Session client ┊",
+      "└┈┈┈┈┈┈┈┈┈┈┈┈┬┈┈┈┈┈┈┈┈┈┈┈┈┘",
+      "             │",
+      "             ▼",
+      "          ┌─────┐",
+      "          │ API │",
+      "          └──┬──┘",
+      "             │",
+      "             ▼",
+      "        ╓────────╖",
+      "        ║ SQLite ║",
+      "        ╙────────╜",
+    ],
+  )
+}
+
+test fn subgraphs_nest_and_flow_their_own_way() Void!Str {
+  expect_drawing(
+    "flowchart LR\nU[User] --> Web\nsubgraph Web[Web app]\n  direction TB\n  P[Pages] --> S[State]\n  subgraph Cache[Edge cache]\n    K[Keys]\n  end\n  S --> K\nend\nS -.-> API\nAPI --> DB[(Postgres)]",
+    [
+      "┌──────┐    ┌┈┈┈┈┈┈┈┈┈┈┈┐    ┌─────┐    ╓──────────╖",
+      "│ User ├───►┊ ▸ Web app ├┈┈┈►│ API ├───►║ Postgres ║",
+      "└──────┘    └┈┈┈┈┈┈┈┈┈┈┈┘    └─────┘    ╙──────────╜",
+      "",
+      "Web app",
+      "",
+      "           ┌───────┐",
+      "           │ Pages │",
+      "           └───┬───┘",
+      "               │",
+      "               ▼",
+      "           ┌───────┐",
+      "           │ State │",
+      "           └──┬─┬──┘",
+      "              │ └┈┈┈┈┈┐",
+      "              ▼       ▼",
+      "┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐   ┌┈┈┈┈┈┐",
+      "┊ ▸ Edge cache ┊   ┊ API ┊",
+      "└┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘   └┈┈┈┈┈┘",
+      "",
+      "Edge cache",
+      "",
+      "┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐",
+      "┊ Web app · State ┊",
+      "└┈┈┈┈┈┈┈┈┬┈┈┈┈┈┈┈┈┘",
+      "         │",
+      "         ▼",
+      "     ┌──────┐",
+      "     │ Keys │",
+      "     └──────┘",
+    ],
+  )
+}
+
+test fn edges_may_name_subgraphs() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --> one\nsubgraph one\n  B --> C\nend\nsubgraph two\n  D\nend\none --> two",
+    [
+      "  ┌───┐",
+      "  │ A │",
+      "  └─┬─┘",
+      "    │",
+      "    ▼",
+      "┌┈┈┈┈┈┈┈┐",
+      "┊ ▸ one ┊",
+      "└┈┈┈┬┈┈┈┘",
+      "    │",
+      "    ▼",
+      "┌┈┈┈┈┈┈┈┐",
+      "┊ ▸ two ┊",
+      "└┈┈┈┈┈┈┈┘",
+      "",
+      "one",
+      "",
+      "┌───┐",
+      "│ B │",
+      "└─┬─┘",
+      "  │",
+      "  ▼",
+      "┌───┐",
+      "│ C │",
+      "└───┘",
+      "",
+      "two",
+      "",
+      "┌───┐",
+      "│ D │",
+      "└───┘",
+    ],
+  )
+}
+
+test fn malformed_subgraphs_are_rejected() Void!Str {
+  try expect_rejected("flowchart TD\nsubgraph one\nA --> B", "subgraph `one` isn't closed with `end`")
+  try expect_rejected("flowchart TD\nA --> B\nend", "`end` without a `subgraph`")
+  try expect_rejected(
+    "flowchart TD\ndirection LR\nA --> B",
+    "`direction` is only drawn inside a subgraph",
+  )
+  try expect_rejected("flowchart TD\nsubgraph one\ndirection XY\nA\nend", "unknown direction `XY`")
+  try expect_rejected(
+    "flowchart TD\nsubgraph one\nA\nend\nsubgraph one\nB\nend",
+    "subgraph `one` is declared twice",
+  )
+  try expect_rejected(
+    "flowchart TD\nsubgraph one\nA\nend\none[One] --> A",
+    "`one` names both a node and a subgraph",
+  )
+  expect_rejected("flowchart TD\nsubgraph one[open\nA\nend", "unclosed `[` in `subgraph one[open`")
+}
+
 test fn unsupported_flowchart_syntax_is_rejected() Void!Str {
   try expect_rejected("flowchart XY\nA --> B", "unknown direction `XY`")
   try expect_rejected("flowchart TD\nA{{{{hex}}}} --> B", "`{{{{` nodes aren't drawn yet")
@@ -1414,7 +1883,6 @@ test fn unsupported_flowchart_syntax_is_rejected() Void!Str {
   try expect_rejected("flowchart TD\nA <--> B", "`<-->` links aren't drawn yet")
   try expect_rejected("flowchart TD\nA -->|open B", "unclosed `|` in `A -->|open B`")
   try expect_rejected("flowchart TD\nA -- open B", "unsupported link in `A -- open B`")
-  try expect_rejected("flowchart TD\nsubgraph one\nA --> B\nend", "subgraphs aren't drawn yet")
   try expect_rejected("flowchart TD\nA -->\nB", "unsupported line `A -->`")
   try expect_rejected("flowchart TD\nA --> B\nstyle --> C", "unsupported line `style --> C`")
   // A link inside quotes, as in a URL, is part of the styling.
