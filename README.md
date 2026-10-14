@@ -58,6 +58,12 @@ kit print "Continue the latest session for this directory"
 kit print --model openai/gpt-4o-mini "Say hello"
 cat changes.diff | kit print --temp "Review this diff"
 
+# Attach to another Kit home's running server, by path or saved name:
+kit attach ~/.kit-dev
+kit servers add dev ~/.kit-dev
+kit attach dev
+kit attach          # pick from saved servers
+
 # Inspect the complete command tree and operate the local daemon:
 kit --help
 kit server status

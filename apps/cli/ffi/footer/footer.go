@@ -32,6 +32,15 @@ type Location struct {
 	LinkText string
 	// URL is the validated pull-request address.
 	URL string
+	// Server names the server the session runs on, or is empty for this
+	// home's own server.
+	Server string
+}
+
+// WithServer returns location labeled with the server it is on.
+func WithServer(location Location, server string) Location {
+	location.Server = server
+	return location
 }
 
 // VCSLocation describes directory with status, which is nil outside a Git
@@ -90,7 +99,9 @@ type Span struct {
 }
 
 // Spans fits the location and the plugin's items into width cells, right
-// aligned by the caller. The directory is shortened from its start before the
+// aligned by the caller. A server name leads, as `vps · ~/kit (main)`, and is
+// kept whole while anything else fits, even when a plugin hides the
+// location. The directory is shortened from its start before the
 // Git status; at very narrow widths a complete pull-request label outranks
 // the branch and directory. With items, the location gets about half the
 // width, and items that do not fit become `… N more`. A plugin may hide the
@@ -99,6 +110,23 @@ func Spans(footer protocol.PluginFooter, location Location, width int) []Span {
 	if width <= 0 {
 		width = 1 << 20
 	}
+	if location.Server == "" {
+		return contentSpans(footer, location, width)
+	}
+	prefix := location.Server + " " + middleDot + " "
+	remaining := width - uucode.StringWidth(prefix)
+	var rest []Span
+	if remaining > 0 {
+		rest = contentSpans(footer, location, remaining)
+	}
+	if len(rest) == 0 {
+		return []Span{{Text: truncateStart(location.Server, width)}}
+	}
+	return append([]Span{{Text: prefix}}, rest...)
+}
+
+// contentSpans fits the location without its server, and the items.
+func contentSpans(footer protocol.PluginFooter, location Location, width int) []Span {
 	if len(footer.Items) == 0 {
 		if footer.LocationHidden {
 			return nil

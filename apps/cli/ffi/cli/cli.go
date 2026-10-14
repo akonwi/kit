@@ -73,6 +73,8 @@ type interactiveOptions struct {
 	Name         string
 	Model        string
 	Thinking     string
+	// Server is the server to attach to; the zero value is this home's own.
+	Server attachTarget
 }
 
 func resolveCWD(requested string) (string, error) {

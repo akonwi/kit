@@ -10,8 +10,10 @@ import (
 
 // TUIOptions configures one terminal client attached to one session.
 type TUIOptions struct {
-	Context               context.Context
-	Client                *kit.Client
+	Context context.Context
+	Client  *kit.Client
+	// Server labels the attached server, or is empty for this home's own.
+	Server                string
 	CWD                   string
 	Location              string
 	ResolveLocation       func(context.Context, string) string
