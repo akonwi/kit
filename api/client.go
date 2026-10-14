@@ -23,14 +23,18 @@ var ErrIncompatibleServer = clienttransport.ErrIncompatibleServer
 // CompatibilityError describes an authenticated server incompatibility.
 type CompatibilityError = clienttransport.CompatibilityError
 
+// ErrServerChanged indicates that a different Kit server now answers at an
+// explicitly addressed endpoint than the one the client first connected to.
+var ErrServerChanged = clienttransport.ErrServerChanged
+
 // Credential is an opaque server access credential.
 type Credential struct {
-	token, instanceID string
+	token string
 }
 
 // AccessToken creates credentials for an explicitly addressed Kit server.
-func AccessToken(token, instanceID string) Credential {
-	return Credential{token: token, instanceID: instanceID}
+func AccessToken(token string) Credential {
+	return Credential{token: token}
 }
 
 type targetKind uint8
@@ -38,6 +42,7 @@ type targetKind uint8
 const (
 	targetInvalid targetKind = iota
 	targetLocal
+	targetHome
 	targetEndpoint
 )
 
@@ -51,7 +56,14 @@ type Target struct {
 // Local discovers the registered daemon under the effective Kit home.
 func Local() Target { return Target{kind: targetLocal} }
 
-// Endpoint addresses one explicit Kit server.
+// Home discovers the daemon registered under another Kit home, such as an
+// isolated development home. Like every target, it never starts, replaces,
+// or stops that daemon, and it follows the daemon across restarts.
+func Home(path string) Target { return Target{kind: targetHome, address: path} }
+
+// Endpoint addresses one explicit Kit server. The client learns the running
+// server instance, follows it across restarts, and fails with
+// ErrServerChanged if a different server answers at the address.
 func Endpoint(address string, credential Credential) Target {
 	return Target{kind: targetEndpoint, address: address, credential: credential}
 }
@@ -115,15 +127,26 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 		transport = clienttransport.New(func() (clienttransport.Connection, error) {
 			return localdiscovery.Resolve(paths)
 		})
+	case targetHome:
+		if strings.TrimSpace(target.address) == "" {
+			return nil, errors.New("Kit home path is required")
+		}
+		paths, err := apphome.Resolve(target.address)
+		if err != nil {
+			return nil, fmt.Errorf("resolve Kit home: %w", err)
+		}
+		transport = clienttransport.New(func() (clienttransport.Connection, error) {
+			return localdiscovery.Resolve(paths)
+		})
 	case targetEndpoint:
 		address, err := validateEndpoint(target.address)
 		if err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(target.credential.token) == "" || strings.TrimSpace(target.credential.instanceID) == "" {
-			return nil, errors.New("endpoint token and instance id are required")
+		if strings.TrimSpace(target.credential.token) == "" {
+			return nil, errors.New("endpoint token is required")
 		}
-		transport = clienttransport.NewEndpoint(address, target.credential.token, target.credential.instanceID)
+		transport = clienttransport.NewEndpoint(address, target.credential.token)
 	default:
 		return nil, errors.New("Kit server target is invalid")
 	}

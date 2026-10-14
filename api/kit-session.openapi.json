@@ -5146,7 +5146,7 @@
           {
             "in": "header",
             "name": "X-Kit-Instance-ID",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }

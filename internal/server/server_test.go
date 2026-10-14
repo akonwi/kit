@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/daemonctl"
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/serveridentity"
 )
@@ -182,6 +184,37 @@ func TestRunServesHealthAndStopsGracefully(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Errorf("token mode = %o, want 600", info.Mode().Perm())
+	}
+
+	token, err := os.ReadFile(paths.ServerToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthWithInstance := func(instance *string) (int, httpapi.Health) {
+		t.Helper()
+		request, err := http.NewRequest(http.MethodGet, registry.URL+"/v1/health", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
+		if instance != nil {
+			request.Header.Set(httpapi.InstanceHeader, *instance)
+		}
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		var health httpapi.Health
+		_ = json.NewDecoder(response.Body).Decode(&health)
+		return response.StatusCode, health
+	}
+	if status, learned := healthWithInstance(nil); status != http.StatusOK || learned.InstanceID != registry.InstanceID {
+		t.Errorf("health without an instance header = %d %q, want 200 with instance %q", status, learned.InstanceID, registry.InstanceID)
+	}
+	stale := "instance_stale"
+	if status, _ := healthWithInstance(&stale); status != http.StatusConflict {
+		t.Errorf("health with a stale instance header = %d, want %d", status, http.StatusConflict)
 	}
 
 	response, err := http.Get(registry.URL + "/v1/health")

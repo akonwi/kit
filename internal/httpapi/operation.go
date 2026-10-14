@@ -20,6 +20,9 @@ type Operation[Params, In, Out any] struct {
 	ResponseMediaTypes []string
 	// NoProtocol omits the session protocol header for lifecycle endpoints.
 	NoProtocol bool
+	// OptionalInstance lets a request omit the instance header, so a client can
+	// learn the running server instance from the response.
+	OptionalInstance bool
 }
 
 // ErrorResponse describes the codes permitted for one non-success status.
@@ -43,13 +46,15 @@ type Descriptor struct {
 	RequestMediaType, ResponseMediaType string
 	ResponseMediaTypes                  []string
 	NoProtocol                          bool
+	OptionalInstance                    bool
 }
 
 // Describe projects a typed operation into its reflection-friendly form.
 func (op Operation[Params, In, Out]) Describe() Descriptor {
 	return Descriptor{ID: op.ID, Tag: op.Tag, Method: op.Method, Path: op.Path, Success: op.Success,
 		Params: typeOf[Params](), Input: typeOf[In](), Output: typeOf[Out](), AdditionalSuccess: append([]int(nil), op.AdditionalSuccess...), Errors: mergeErrorResponses(op.Errors, CommonErrorResponses),
-		RequestMediaType: op.RequestMediaType, ResponseMediaType: op.ResponseMediaType, ResponseMediaTypes: append([]string(nil), op.ResponseMediaTypes...), NoProtocol: op.NoProtocol}
+		RequestMediaType: op.RequestMediaType, ResponseMediaType: op.ResponseMediaType, ResponseMediaTypes: append([]string(nil), op.ResponseMediaTypes...), NoProtocol: op.NoProtocol,
+		OptionalInstance: op.OptionalInstance}
 }
 
 func typeOf[T any]() reflect.Type { return reflect.TypeOf((*T)(nil)).Elem() }

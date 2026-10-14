@@ -76,10 +76,85 @@ type Health = httpapi.Health
 // Client performs authenticated session API requests.
 type Client struct {
 	resolve     Resolver
+	endpoint    *endpoint
 	http        *http.Client
 	sessionHTTP *http.Client
 	lifetime    context.Context
 	lifetimeErr error
+}
+
+// ErrServerChanged indicates that a different server now answers at an
+// explicitly addressed endpoint.
+var ErrServerChanged = errors.New("a different Kit server answers at this endpoint")
+
+// errInstanceChanged marks a request rejected because it named a server
+// instance that is no longer running.
+var errInstanceChanged = errors.New("server instance changed")
+
+// endpoint learns the running instance of an explicitly addressed server from
+// health, learns it again after the server restarts, and pins the server
+// identity from the first handshake so a different server is never adopted.
+type endpoint struct {
+	url, token string
+
+	mu       sync.Mutex
+	current  Connection
+	serverID string
+}
+
+// connection returns the learned connection, performing a handshake when no
+// instance is known.
+func (e *endpoint) connection(ctx context.Context, client *Client) (Connection, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.current.InstanceID != "" {
+		return e.current, nil
+	}
+	learned, health, err := client.ProbeConnection(ctx, Connection{URL: e.url, Token: e.token}, false)
+	if err != nil {
+		return Connection{}, err
+	}
+	if err := CheckCompatibility(learned.ProtocolVersion, learned.KitVersion); err != nil {
+		return Connection{}, err
+	}
+	if err := validateIdentity(health); err != nil {
+		return Connection{}, err
+	}
+	if e.serverID != "" && health.ServerID != e.serverID {
+		return Connection{}, fmt.Errorf("%w: expected %s, found %s", ErrServerChanged, e.serverID, health.ServerID)
+	}
+	e.serverID = health.ServerID
+	learned.ServerID, learned.MachineID, learned.Home = health.ServerID, health.MachineID, health.Home
+	e.current = learned
+	return learned, nil
+}
+
+// forget discards a learned instance that the server rejected, so the next
+// request handshakes again.
+func (e *endpoint) forget(instanceID string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.current.InstanceID == instanceID {
+		e.current = Connection{}
+	}
+}
+
+// instanceRejected records that connection's instance is no longer running.
+func (c *Client) instanceRejected(connection Connection) {
+	if c.endpoint != nil {
+		c.endpoint.forget(connection.InstanceID)
+	}
+}
+
+// rejectedInstance reports whether an error response rejected the request's
+// server instance. Such requests were refused before routing, so they had no
+// effect and may be retried.
+func rejectedInstance(statusCode int, body []byte) bool {
+	if statusCode != http.StatusConflict {
+		return false
+	}
+	var apiError *APIError
+	return errors.As(DecodeAPIError(statusCode, body), &apiError) && apiError.Code == string(httpapi.ErrorInstanceMismatch)
 }
 
 // New creates a transport using resolve for every request.
@@ -141,16 +216,19 @@ func (c *Client) operationContext(ctx context.Context) (context.Context, func())
 	}
 }
 
-// NewEndpoint creates a transport for one fixed explicit endpoint.
-func NewEndpoint(endpoint, token, instanceID string) *Client {
-	connection := Connection{
-		URL: endpoint, Token: token, InstanceID: instanceID,
-		ProtocolVersion: version.SessionProtocolVersion, KitVersion: version.Version,
-	}
-	return New(func() (Connection, error) { return connection, nil })
+// NewEndpoint creates a transport for an explicitly addressed server. It
+// learns the running instance from health and learns it again after the
+// server restarts. It never manages the server's lifecycle.
+func NewEndpoint(url, token string) *Client {
+	client := New(nil)
+	client.endpoint = &endpoint{url: url, token: token}
+	return client
 }
 
-func (c *Client) connection() (Connection, error) {
+func (c *Client) connection(ctx context.Context) (Connection, error) {
+	if c != nil && c.endpoint != nil {
+		return c.endpoint.connection(ctx, c)
+	}
 	if c == nil || c.resolve == nil {
 		return Connection{}, errors.New("server connection resolver is unavailable")
 	}
@@ -166,7 +244,7 @@ func (c *Client) connection() (Connection, error) {
 
 // RequestShutdown asks the connected server to stop.
 func (c *Client) RequestShutdown(ctx context.Context) error {
-	connection, err := c.connection()
+	connection, err := c.connection(ctx)
 	if err != nil {
 		return err
 	}
@@ -199,23 +277,33 @@ func (c *Client) CloseIdleConnections() {
 
 // Probe verifies the resolved server's identity, authentication, and readiness.
 func (c *Client) Probe(ctx context.Context, requireDatabase bool) (Connection, Health, error) {
-	connection, err := c.connection()
-	if err != nil {
-		return Connection{}, Health{}, err
+	for attempt := 0; ; attempt++ {
+		connection, err := c.connection(ctx)
+		if err != nil {
+			return Connection{}, Health{}, err
+		}
+		probed, health, err := c.ProbeConnection(ctx, connection, requireDatabase)
+		if errors.Is(err, errInstanceChanged) && attempt == 0 {
+			c.instanceRejected(connection)
+			continue
+		}
+		return probed, health, err
 	}
-	return c.ProbeConnection(ctx, connection, requireDatabase)
 }
 
 // ProbeConnection verifies identity, authentication, and readiness for a
 // connection the caller already resolved, so the result describes exactly that
-// publication rather than one resolved again.
+// publication rather than one resolved again. A connection without an instance
+// learns the running instance from the response.
 func (c *Client) ProbeConnection(ctx context.Context, connection Connection, requireDatabase bool) (Connection, Health, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, connection.URL+"/v1/health", nil)
 	if err != nil {
 		return Connection{}, Health{}, fmt.Errorf("create health request: %w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+connection.Token)
-	request.Header.Set(httpapi.InstanceHeader, connection.InstanceID)
+	if connection.InstanceID != "" {
+		request.Header.Set(httpapi.InstanceHeader, connection.InstanceID)
+	}
 	response, err := c.http.Do(request)
 	if err != nil {
 		return Connection{}, Health{}, transportError("contact server", err)
@@ -223,6 +311,9 @@ func (c *Client) ProbeConnection(ctx context.Context, connection Connection, req
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4<<10))
+		if rejectedInstance(response.StatusCode, body) {
+			return Connection{}, Health{}, errInstanceChanged
+		}
 		return Connection{}, Health{}, fmt.Errorf("server health returned %s: %s", response.Status, strings.TrimSpace(string(body)))
 	}
 	var health Health
@@ -230,7 +321,12 @@ func (c *Client) ProbeConnection(ctx context.Context, connection Connection, req
 	if err := decoder.Decode(&health); err != nil {
 		return Connection{}, Health{}, protocolErrorf("decode server health: %w", err)
 	}
-	if health.InstanceID != connection.InstanceID {
+	if connection.InstanceID == "" {
+		if health.InstanceID == "" || len(health.InstanceID) > 128 {
+			return Connection{}, Health{}, protocolErrorf("server returned invalid instance id %q", health.InstanceID)
+		}
+		connection.InstanceID = health.InstanceID
+	} else if health.InstanceID != connection.InstanceID {
 		return Connection{}, Health{}, errors.New("server instance does not match connection")
 	}
 	if connection.VerifyPublishedIdentity {

@@ -2,9 +2,12 @@
 //
 // Connect authenticates and checks protocol compatibility before returning a
 // concurrent Client. Local targets only discover the daemon registered under
-// the effective Kit home; Connect(Local()) never starts, replaces, stops, or
-// migrates a daemon. Applications that own local daemon lifecycle must do that
-// before connecting.
+// the effective Kit home, and Home targets the daemon registered under another
+// Kit home. Endpoint targets an explicitly addressed server and learns its
+// running instance. No target starts, replaces, stops, or migrates a daemon;
+// applications that own local daemon lifecycle must do that before
+// connecting. Every target follows its server across restarts, and an Endpoint
+// client fails with ErrServerChanged if a different server answers.
 //
 // Sessions are immutable attachments owned by a Client. Client.Close cancels
 // client-owned requests and streams, but canceling a caller context only

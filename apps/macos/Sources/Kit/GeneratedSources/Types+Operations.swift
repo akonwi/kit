@@ -19,7 +19,7 @@ internal enum Operations {
             /// - Remark: Generated from `#/paths/v1/health/GET/header`.
             internal struct Headers: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/health/GET/header/X-Kit-Instance-ID`.
-                internal var xKitInstanceID: Swift.String
+                internal var xKitInstanceID: Swift.String?
                 internal var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetHealth.AcceptableContentType>]
                 /// Creates a new `Headers`.
                 ///
@@ -27,7 +27,7 @@ internal enum Operations {
                 ///   - xKitInstanceID:
                 ///   - accept:
                 internal init(
-                    xKitInstanceID: Swift.String,
+                    xKitInstanceID: Swift.String? = nil,
                     accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetHealth.AcceptableContentType>] = .defaultValues()
                 ) {
                     self.xKitInstanceID = xKitInstanceID
@@ -39,7 +39,7 @@ internal enum Operations {
             ///
             /// - Parameters:
             ///   - headers:
-            internal init(headers: Operations.GetHealth.Input.Headers) {
+            internal init(headers: Operations.GetHealth.Input.Headers = .init()) {
                 self.headers = headers
             }
         }

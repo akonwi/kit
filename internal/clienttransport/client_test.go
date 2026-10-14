@@ -33,7 +33,7 @@ func TestCheckCompatibilityComparesOnlyProtocols(t *testing.T) {
 func TestNewEndpointDisablesEnvironmentProxy(t *testing.T) {
 	t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
 	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
-	client := NewEndpoint("http://kit.invalid", "secret", "instance_test")
+	client := NewEndpoint("http://kit.invalid", "secret")
 
 	for name, httpClient := range map[string]*http.Client{
 		"bounded": client.http,

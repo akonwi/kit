@@ -96,7 +96,7 @@ func Emit() ([]byte, error) {
 
 func operationParameters(descriptor httpapi.Descriptor) []any {
 	parameters := []any{
-		map[string]any{"name": httpapi.InstanceHeader, "in": "header", "required": true, "schema": map[string]any{"type": "string"}},
+		map[string]any{"name": httpapi.InstanceHeader, "in": "header", "required": !descriptor.OptionalInstance, "schema": map[string]any{"type": "string"}},
 	}
 	if !descriptor.NoProtocol {
 		parameters = append(parameters, map[string]any{"name": httpapi.ProtocolHeader, "in": "header", "required": true, "schema": map[string]any{"type": "integer", "enum": []int{version.SessionProtocolVersion}}})

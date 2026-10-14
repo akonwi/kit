@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,8 +15,10 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/httpapi"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/version"
 )
 
@@ -155,7 +159,8 @@ func TestClientCloseCancelsOwnedOperationsAndIsIdempotent(t *testing.T) {
 func TestConnectEndpointAuthenticatesAndChecksCompatibility(t *testing.T) {
 	const instanceID = "instance_test"
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("Authorization") != "Bearer secret" || request.Header.Get(httpapi.InstanceHeader) != instanceID {
+		learning := request.URL.Path == "/v1/health" && len(request.Header.Values(httpapi.InstanceHeader)) == 0
+		if request.Header.Get("Authorization") != "Bearer secret" || !learning && request.Header.Get(httpapi.InstanceHeader) != instanceID {
 			http.Error(response, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -175,7 +180,7 @@ func TestConnectEndpointAuthenticatesAndChecksCompatibility(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := Connect(t.Context(), Endpoint(server.URL+"/", AccessToken("secret", instanceID)))
+	client, err := Connect(t.Context(), Endpoint(server.URL+"/", AccessToken("secret")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +208,7 @@ func TestConnectedClientsHaveIndependentLifetimes(t *testing.T) {
 	}))
 	defer server.Close()
 
-	target := Endpoint(server.URL, AccessToken("secret", instanceID))
+	target := Endpoint(server.URL, AccessToken("secret"))
 	first, err := Connect(t.Context(), target)
 	if err != nil {
 		t.Fatal(err)
@@ -242,7 +247,7 @@ func TestAttachedSessionOperationsReturnClientClosedAfterClose(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret", instanceID)))
+	client, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +280,7 @@ func TestConnectEndpointDoesNotFollowRedirects(t *testing.T) {
 	}))
 	defer origin.Close()
 
-	client, err := Connect(t.Context(), Endpoint(origin.URL, AccessToken("secret", "instance_test")))
+	client, err := Connect(t.Context(), Endpoint(origin.URL, AccessToken("secret")))
 	if client != nil || err == nil {
 		t.Fatalf("client = %v, err = %v", client, err)
 	}
@@ -317,7 +322,7 @@ func healthServer(t *testing.T, health func() httpapi.Health) *httptest.Server {
 func TestServerReportsIdentityAndMachineLocality(t *testing.T) {
 	const instanceID = "instance_test"
 	server := healthServer(t, func() httpapi.Health { return compatibleHealth(instanceID) })
-	client, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret", instanceID)))
+	client, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +366,7 @@ func TestConnectRejectsMalformedServerIdentity(t *testing.T) {
 			corrupt(&health)
 			return health
 		})
-		_, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret", instanceID)))
+		_, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret")))
 		var protocolErr *ProtocolError
 		if !errors.As(err, &protocolErr) {
 			t.Fatalf("%s: Connect() error = %v, want ProtocolError", name, err)
@@ -377,8 +382,72 @@ func TestConnectReportsOtherProtocolsAsIncompatibleBeforeIdentity(t *testing.T) 
 			ProtocolVersion: version.SessionProtocolVersion - 1, DatabaseReady: true,
 		}
 	})
-	_, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret", instanceID)))
+	_, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret")))
 	if !errors.Is(err, ErrIncompatibleServer) {
 		t.Fatalf("Connect() error = %v, want ErrIncompatibleServer", err)
+	}
+}
+
+func TestConnectHomeFollowsThatHomesDaemonAcrossRestarts(t *testing.T) {
+	token := strings.Repeat("ab", 32)
+	var instance atomic.Value
+	instance.Store("instance_one")
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		current := instance.Load().(string)
+		if request.Header.Get("Authorization") != "Bearer "+token || request.Header.Get(httpapi.InstanceHeader) != current {
+			http.Error(response, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/v1/health":
+			_ = json.NewEncoder(response).Encode(compatibleHealth(current))
+		case "/v1/sessions":
+			_ = json.NewEncoder(response).Encode(protocol.SessionList{Sessions: []protocol.SessionInfo{}})
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	home := filepath.Join(t.TempDir(), "dev-home")
+	paths := apphome.FromHome(home)
+	publish := func(instanceID string) {
+		t.Helper()
+		if err := localdiscovery.Clear(paths); err != nil {
+			t.Fatal(err)
+		}
+		if err := localdiscovery.Publish(paths, token, localdiscovery.Registry{
+			RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: version.SessionProtocolVersion,
+			KitVersion: version.Version, PID: 42, InstanceID: instanceID, URL: server.URL, StartedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish("instance_one")
+
+	client, err := Connect(t.Context(), Home(home))
+	if err != nil {
+		t.Fatalf("Connect(Home) error = %v", err)
+	}
+	defer client.Close()
+	if _, err := client.ListSessions(t.Context(), ListSessionsOptions{}); err != nil {
+		t.Fatalf("ListSessions() error = %v", err)
+	}
+
+	instance.Store("instance_two")
+	publish("instance_two")
+	if _, err := client.ListSessions(t.Context(), ListSessionsOptions{}); err != nil {
+		t.Fatalf("ListSessions() after the daemon restarted error = %v", err)
+	}
+}
+
+func TestConnectHomeWithoutADaemonFails(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "empty-home")
+	if _, err := Connect(t.Context(), Home(home)); err == nil {
+		t.Fatal("Connect(Home) succeeded without a published daemon")
+	}
+	if _, err := os.Stat(apphome.FromHome(home).ServerRegistry); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Connect(Home) published or started a daemon: %v", err)
 	}
 }

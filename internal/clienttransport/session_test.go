@@ -28,7 +28,7 @@ func TestConfigureSubagentRejectsMismatchedConversationIdentity(t *testing.T) {
 	}))
 	defer server.Close()
 	model := "test/model"
-	_, err := NewEndpoint(server.URL, "secret", "instance_test").ConfigureSubagent(t.Context(), sessionID, conversationID, protocol.ConfigureSubagentInput{Generation: 1, Model: &model})
+	_, err := fixedEndpoint(server.URL, "secret", "instance_test").ConfigureSubagent(t.Context(), sessionID, conversationID, protocol.ConfigureSubagentInput{Generation: 1, Model: &model})
 	var protocolErr *ProtocolError
 	if !errors.As(err, &protocolErr) {
 		t.Fatalf("ConfigureSubagent() error = %T %v, want protocol error", err, err)
@@ -45,7 +45,7 @@ func TestForkSessionReturnsFirstTurnErrorWithPublishedChild(t *testing.T) {
 		_, _ = io.WriteString(response, "{"+child+","+failure+"}")
 	}))
 	defer server.Close()
-	endpoint := NewEndpoint(server.URL, "secret", "instance_test")
+	endpoint := fixedEndpoint(server.URL, "secret", "instance_test")
 
 	result, err := endpoint.ForkSession(t.Context(), sourceID, protocol.ForkSessionInput{Prompt: &protocol.PromptInput{Text: "explore the other approach"}})
 	if err != nil {
@@ -76,7 +76,7 @@ func TestSessionEventStreamCancellationClosesRequest(t *testing.T) {
 	defer server.Close()
 
 	ctx, cancel := context.WithCancel(t.Context())
-	client := NewEndpoint(server.URL, "secret", "instance_test")
+	client := fixedEndpoint(server.URL, "secret", "instance_test")
 	body, err := client.StreamSessionEvents(ctx, sessionID, "stream_test", 0)
 	if err != nil {
 		cancel()
@@ -118,7 +118,7 @@ func TestOpenAttachmentValidatesMetadataAndAppliesCredentials(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewEndpoint(server.URL, "secret", instanceID)
+	client := fixedEndpoint(server.URL, "secret", instanceID)
 	info, body, err := client.OpenAttachment(t.Context(), sessionID, attachmentID)
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestOpenAttachmentRejectsIntegrityMetadataMismatch(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewEndpoint(server.URL, "secret", "instance_test")
+			client := fixedEndpoint(server.URL, "secret", "instance_test")
 			_, body, err := client.OpenAttachment(t.Context(), sessionID, attachmentID)
 			if err == nil && body != nil {
 				_, err = io.ReadAll(body)

@@ -501,7 +501,11 @@ func newHandler(options localHandlerOptions) http.Handler {
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusUnauthorized, httpapi.ErrorUnauthorized, "unauthorized", nil))
 			return
 		}
-		if subtle.ConstantTimeCompare(
+		// Health without an instance header is how an explicitly addressed
+		// client learns the running instance; every other request is bound to it.
+		learningInstance := httpapi.GetHealth.OptionalInstance && request.Method == httpapi.GetHealth.Method &&
+			request.URL.Path == httpapi.GetHealth.Path && len(request.Header.Values(instanceHeader)) == 0
+		if !learningInstance && subtle.ConstantTimeCompare(
 			[]byte(request.Header.Get(instanceHeader)),
 			[]byte(options.registry.InstanceID),
 		) != 1 {
