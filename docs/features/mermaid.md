@@ -22,9 +22,10 @@ sideways. Its colors follow the active theme.
 ## When a diagram isn't drawn
 
 A diagram that uses unsupported syntax, is malformed, or is too large shows its
-source with the reason it wasn't drawn, such as `Diagram not drawn: flowcharts
-aren't drawn yet`. While a response is streaming, a diagram shows its source
-until its closing fence arrives.
+source with the reason it wasn't drawn, such as
+``Diagram not drawn: `classDiagram` diagrams aren't drawn yet``. While a
+response is streaming, a diagram shows its source until its closing fence
+arrives.
 
 ## Supported syntax
 
