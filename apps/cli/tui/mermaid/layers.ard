@@ -23,22 +23,57 @@ let line_gap = 2
 let sweeps = 4
 let placement_passes = 8
 
+enum Shape {
+  box,
+  round,
+  stadium,
+  circle,
+  database,
+  decision,
+}
+
 enum Stroke {
   solid,
+  dotted,
+  thick,
+}
+
+enum Head {
+  none,
+  arrow,
+  cross,
+  circle,
 }
 
 struct Node {
   id: Str,
   text: Str,
+  shape: Shape,
 }
 
 struct Edge {
   from: Int,
   to: Int,
   stroke: Stroke,
-  // Whether the edge ends in an arrowhead.
-  head: Bool,
+  head: Head,
+  // Text drawn on the edge, or empty.
+  label: Str,
 }
+
+// Where an edge's label is drawn: on its drop into a target no other edge
+// enters, on its stem from a source no other edge leaves, or else on the
+// first placeholder of an edge that skips layers, or on its own track's
+// sideways run.
+enum Spot {
+  none,
+  drop,
+  stem,
+  middle,
+  track,
+}
+
+// Cells a label leaves around itself on a node's border.
+let label_room = 4
 
 struct Graph {
   nodes: [Node],
@@ -329,10 +364,32 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
 
   // Vertices: the nodes, then a placeholder for each layer an edge skips.
   let layer = mut List::new<Int>()
+  // Box widths, and the widths vertices are spaced by: a node with a label
+  // on its border makes room for it.
+  let boxes = mut List::new<Int>()
   let widths = mut List::new<Int>()
   for node, index in graph.nodes {
     layer.push(get(node_layers, index))
+    boxes.push(ui::text_width(node.text) + 4)
     widths.push(ui::text_width(node.text) + 4)
+  }
+  let spots = mut List::new<Spot>()
+  for edge in graph.edges {
+    let label = ui::text_width(edge.label)
+    let spot = match {
+      edge.label == "" => Spot::none,
+      edges_into(graph, edge.to) == 1 => Spot::drop,
+      edges_from(graph, edge.from) == 1 => Spot::stem,
+      get(node_layers, edge.to) - get(node_layers, edge.from) > 1 => Spot::middle,
+      _ => Spot::track,
+    }
+    if spot == Spot::drop {
+      widths.set(edge.to, maximum(get(widths.@, edge.to), label + label_room))
+    }
+    if spot == Spot::stem {
+      widths.set(edge.from, maximum(get(widths.@, edge.from), label + label_room))
+    }
+    spots.push(spot)
   }
   let segments = mut List::new<Segment>()
   mut edge_index = 0
@@ -342,7 +399,15 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
     while k < get(layer.@, edge.to) {
       let placeholder = layer.size()
       layer.push(k)
-      widths.push(1)
+      boxes.push(1)
+      // The first placeholder of an edge labeled there makes room for it.
+      let middle = spots.at(edge_index).or(Spot::none) == Spot::middle and from == edge.from
+      widths.push(
+        match middle {
+          true => ui::text_width(edge.label) + label_room,
+          false => 1,
+        },
+      )
       segments.push(
         Segment{
           from: from,
@@ -540,7 +605,7 @@ fn draw(graph: Graph, title: Str) canvas::Canvas!Str {
         center.set(vertex, get(center.@, vertex) - left)
         vertex =+ 1
       }
-      route(graph, title, layer.@, widths.@, center.@, segments.@, rows.@, real)
+      route(graph, title, layer.@, boxes.@, widths.@, spots.@, center.@, segments.@, rows.@, real)
     },
   }
 }
@@ -550,7 +615,9 @@ private fn route(
   graph: Graph,
   title: Str,
   layer: [Int],
+  boxes: [Int],
   widths: [Int],
+  spots: [Spot],
   centers: [Int],
   segments: [Segment],
   rows: [[Int]],
@@ -568,7 +635,7 @@ private fn route(
   // its box, so the edge runs straight; the stem nearest the center wins.
   mut vertex = 0
   while vertex < real {
-    let box = get(widths, vertex)
+    let box = get(boxes, vertex)
     let x = get(center.@, vertex)
     let low = x - box / 2 + 1
     let high = x - box / 2 + box - 2
@@ -581,7 +648,7 @@ private fn route(
         }
       }
     }
-    if best >= 0 {
+    if best >= 0 and not has_drop_label(graph, spots, vertex) {
       drop_shift.set(vertex, best - x)
     }
     vertex =+ 1
@@ -596,8 +663,8 @@ private fn route(
         let drop = get(center.@, b.to) + get(drop_shift.@, b.to)
         let related = a.from == b.from or a.to == b.to or connected(segments, a.from, b.to)
         if (not changed) and (not related) and get(layer, a.from) == get(layer, b.from) and stem == drop {
-          let target = get(widths, b.to)
-          let source = get(widths, a.from)
+          let target = get(boxes, b.to)
+          let source = get(boxes, a.from)
           if b.to < real and get(drop_shift.@, b.to) < target - target / 2 - 2 {
             drop_shift.set(b.to, get(drop_shift.@, b.to) + 1)
           } else if a.from < real and get(stem_shift.@, a.from) > 1 - source / 2 {
@@ -643,7 +710,9 @@ private fn route(
           if get(layer, segment.from) == k {
             let fan_out = segments_from(segments, segment.from) > 1
             let fan_in = segments_into(segments, segment.to) > 1
+            let alone = spots.at(segment.edge).or(Spot::none) == Spot::track
             let key = match {
+              alone => "edge:{index}",
               fan_out => "from:{segment.from}",
               fan_in => "into:{segment.to}",
               _ => "edge:{index}",
@@ -716,7 +785,21 @@ private fn route(
         k =+ 1
       }
 
-      // Rows: a title, then each layer of boxes and the channel below it.
+      // Rows: a title, then each layer of boxes and the channel below it: a
+      // row for stem labels, the tracks, a row for drop labels, and arrows.
+      let stem_rows = mut fill(depth, 0)
+      let drop_rows = mut fill(depth, 0)
+      for segment in segments {
+        let edge = graph.edges.at(segment.edge).expect("edge")
+        let spot = spots.at(segment.edge).or(Spot::none)
+        let k = get(layer, segment.from)
+        if spot == Spot::stem and segment.from == edge.from {
+          stem_rows.set(k, 1)
+        }
+        if spot == Spot::drop and segment.to == edge.to {
+          drop_rows.set(k, 1)
+        }
+      }
       let title_rows = match title == "" {
         true => 0,
         false => 2,
@@ -726,15 +809,15 @@ private fn route(
       k = 0
       while k < depth {
         tops.push(y)
-        y =+ 3 + maximum(get(tracks.@, k), 1) + 1
+        y =+ 3 + get(stem_rows.@, k) + maximum(get(tracks.@, k), 1) + get(drop_rows.@, k) + 1
         k =+ 1
       }
-      let height = y - (maximum(get(tracks.@, depth - 1), 1) + 1)
+      let height = get(tops.@, depth - 1) + 3
       mut width = ui::text_width(title)
       mut vertex = 0
       while vertex < count {
-        let box = get(widths, vertex)
-        width = maximum(width, get(center.@, vertex) - box / 2 + box)
+        let room = get(widths, vertex)
+        width = maximum(width, get(center.@, vertex) - room / 2 + room)
         vertex =+ 1
       }
       match {
@@ -752,51 +835,84 @@ private fn route(
             match vertex < real {
               true => {
                 let node = graph.nodes.at(vertex).expect("node")
-                let box = get(widths, vertex)
-                let x0 = x - box / 2
-                drawing.outline(x0, top, x0 + box - 1, top + 2, canvas::Role::frame, false)
-                drawing.write(x0 + 2, top + 1, node.text, canvas::Role::label, false)
+                let box = get(boxes, vertex)
+                draw_node(drawing, node, x - box / 2, top, box)
               },
               false => drawing.vertical(x, top, top + 2, canvas::Role::arrow, false),
             }
             vertex =+ 1
           }
           let heads = mut List::new<Int>()
+          let head_glyphs = mut List::new<Str>()
+          let labels = mut List::new<Int>()
+          // Sideways runs that may carry a label: edge, start, end, and row.
+          let runs = mut List::new<Int>()
           mut index = 0
           for segment in segments {
             let edge = graph.edges.at(segment.edge).expect("edge")
+            let spot = spots.at(segment.edge).or(Spot::none)
             let k = get(layer, segment.from)
             let bottom = get(tops.@, k) + 2
             let below = get(tops.@, k + 1)
-            let target = segment.to < real
-            let head = target and edge.head
+            let target = segment.to == edge.to
+            let head = target and edge.head != Head::none
             let end = match head {
               true => below - 1,
               false => below,
             }
+            let dashed = edge.stroke == Stroke::dotted
+            let heavy = edge.stroke == Stroke::thick
             let star = stars.at(get(star_of.@, index)).expect("star")
             let from = stem_x(segment.from)
             let to = drop_x(segment.to)
+            let row = bottom + 1 + get(stem_rows.@, k) + star.track
             match star.straight {
-              true => drawing.vertical(from, bottom, end, canvas::Role::arrow, false),
+              true => drawing.vertical_styled(from, bottom, end, canvas::Role::arrow, dashed, heavy),
               false => {
-                let row = bottom + 1 + star.track
-                drawing.vertical(from, bottom, row, canvas::Role::arrow, false)
+                drawing.vertical_styled(from, bottom, row, canvas::Role::arrow, dashed, heavy)
                 if from != to {
-                  drawing.horizontal(
+                  drawing.horizontal_styled(
                     row,
                     minimum(from, to),
                     maximum(from, to),
                     canvas::Role::arrow,
-                    false,
+                    dashed,
+                    heavy,
                   )
                 }
-                drawing.vertical(to, row, end, canvas::Role::arrow, false)
+                drawing.vertical_styled(to, row, end, canvas::Role::arrow, dashed, heavy)
               },
             }
             if head {
               heads.push(to)
               heads.push(below - 1)
+              head_glyphs.push(head_glyph(edge.head))
+            }
+            // A label's column and row, and the column its line runs in.
+            let first = segment.from == edge.from
+            if spot == Spot::drop and target {
+              labels.push(segment.edge)
+              labels.push(to)
+              labels.push(below - 2)
+              labels.push(to)
+            }
+            if spot == Spot::stem and first {
+              labels.push(segment.edge)
+              labels.push(from)
+              labels.push(bottom + 1)
+              labels.push(from)
+            }
+            if spot == Spot::middle and first {
+              labels.push(segment.edge)
+              labels.push(to)
+              labels.push(below + 1)
+              labels.push(to)
+            }
+            if spot == Spot::track and from != to and (not track_labeled(runs.@, segment.edge)) {
+              runs.push(segment.edge)
+              runs.push(minimum(from, to))
+              runs.push(maximum(from, to))
+              runs.push(row)
             }
             index =+ 1
           }
@@ -805,17 +921,194 @@ private fn route(
             drawing.write(
               get(heads.@, index),
               get(heads.@, index + 1),
-              "▼",
+              head_glyphs.at(index / 2).or("▼"),
               canvas::Role::arrow,
               false,
             )
             index =+ 2
           }
-          Result::ok(drawing.@)
+          // A track label takes the clearest stretch of its run, once every
+          // line is drawn.
+          index = 0
+          while index < runs.size() {
+            let edge = graph.edges.at(get(runs.@, index)).expect("edge")
+            let row = get(runs.@, index + 3)
+            let x = clear_run(
+              drawing.@,
+              row,
+              get(runs.@, index + 1),
+              get(runs.@, index + 2),
+              ui::text_width(" {edge.label} "),
+            )
+            if x >= 0 {
+              labels.push(get(runs.@, index))
+              labels.push(x)
+              labels.push(row)
+              labels.push(-1)
+            }
+            index =+ 4
+          }
+          // Labels go last, each over its own line and nothing else.
+          mut fits = true
+          let placed = mut fill(graph.edges.size(), 0)
+          index = 0
+          while index < labels.size() {
+            let edge = graph.edges.at(get(labels.@, index)).expect("edge")
+            let x = get(labels.@, index + 1)
+            let y = get(labels.@, index + 2)
+            let line = get(labels.@, index + 3)
+            let text = " {edge.label} "
+            let x0 = x - ui::text_width(text) / 2
+            let x1 = x0 + ui::text_width(text) - 1
+            mut column = x0
+            while column <= x1 {
+              let shown = match column >= 0 and column < width {
+                true => drawing.shown(column, y),
+                false => "",
+              }
+              let clear = match line < 0 {
+                true => shown == "─" or shown == "┈" or shown == "━",
+                false => shown == " " or column == line,
+              }
+              if not clear {
+                fits = false
+              }
+              column =+ 1
+            }
+            if fits {
+              drawing.write(x0, y, text, canvas::Role::label, false)
+              placed.set(get(labels.@, index), 1)
+            }
+            index =+ 4
+          }
+          mut edge_index = 0
+          for edge in graph.edges {
+            if edge.label != "" and get(placed.@, edge_index) == 0 {
+              fits = false
+            }
+            edge_index =+ 1
+          }
+          match fits {
+            true => Result::ok(drawing.@),
+            false => Result::err("the edge labels don't fit"),
+          }
         },
       }
     },
   }
+}
+
+private fn head_glyph(head: Head) Str {
+  match head {
+    Head::arrow => "▼",
+    Head::cross => "×",
+    Head::circle => "○",
+    Head::none => "",
+  }
+}
+
+// The center of the window of width cells on row y, strictly between x0 and
+// x1, that covers only a plain sideways line, nearest the middle; or -1.
+private fn clear_run(drawing: canvas::Canvas, y: Int, x0: Int, x1: Int, width: Int) Int {
+  let middle = (x0 + x1) / 2
+  mut best = -1
+  mut start = x0 + 1
+  while start + width - 1 <= x1 - 1 {
+    mut clear = true
+    mut column = start
+    while column < start + width {
+      let shown = drawing.shown(column, y)
+      if shown != "─" and shown != "┈" and shown != "━" {
+        clear = false
+      }
+      column =+ 1
+    }
+    let x = start + width / 2
+    if clear and (best < 0 or distance(x, middle) < distance(best, middle)) {
+      best = x
+    }
+    start =+ 1
+  }
+  best
+}
+
+// Whether a track label was already placed for edge.
+private fn track_labeled(labels: [Int], edge: Int) Bool {
+  mut found = false
+  mut index = 0
+  while index < labels.size() {
+    if get(labels, index) == edge {
+      found = true
+    }
+    index =+ 4
+  }
+  found
+}
+
+private fn edges_into(graph: Graph, node: Int) Int {
+  mut total = 0
+  for edge in graph.edges {
+    if edge.to == node {
+      total =+ 1
+    }
+  }
+  total
+}
+
+private fn edges_from(graph: Graph, node: Int) Int {
+  mut total = 0
+  for edge in graph.edges {
+    if edge.from == node {
+      total =+ 1
+    }
+  }
+  total
+}
+
+// Whether an edge into node carries a label on its drop or its track, so the
+// drop stays centered: under the label, or off the source's stem so the edge
+// keeps a sideways run for its label.
+private fn has_drop_label(graph: Graph, spots: [Spot], node: Int) Bool {
+  mut found = false
+  mut index = 0
+  for edge in graph.edges {
+    let spot = spots.at(index).or(Spot::none)
+    if edge.to == node and (spot == Spot::drop or spot == Spot::track) {
+      found = true
+    }
+    index =+ 1
+  }
+  found
+}
+
+// Draws a node's outline in its shape, with its text inside.
+private fn draw_node(drawing: mut canvas::Canvas, node: Node, x0: Int, top: Int, box: Int) {
+  let x1 = x0 + box - 1
+  let bottom = top + 2
+  let rounded = node.shape == Shape::round or node.shape == Shape::stadium or node.shape == Shape::circle
+  drawing.outline(x0, top, x1, bottom, canvas::Role::frame, rounded)
+  match node.shape {
+    Shape::stadium => {
+      drawing.write(x0, top + 1, "(", canvas::Role::frame, false)
+      drawing.write(x1, top + 1, ")", canvas::Role::frame, false)
+    },
+    Shape::database => {
+      drawing.write(x0, top, "╓", canvas::Role::frame, false)
+      drawing.write(x1, top, "╖", canvas::Role::frame, false)
+      drawing.write(x0, top + 1, "║", canvas::Role::frame, false)
+      drawing.write(x1, top + 1, "║", canvas::Role::frame, false)
+      drawing.write(x0, bottom, "╙", canvas::Role::frame, false)
+      drawing.write(x1, bottom, "╜", canvas::Role::frame, false)
+    },
+    Shape::decision => {
+      drawing.write(x0, top, "╱", canvas::Role::frame, false)
+      drawing.write(x1, top, "╲", canvas::Role::frame, false)
+      drawing.write(x0, bottom, "╲", canvas::Role::frame, false)
+      drawing.write(x1, bottom, "╱", canvas::Role::frame, false)
+    },
+    _ => (),
+  }
+  drawing.write(x0 + 2, top + 1, node.text, canvas::Role::label, false)
 }
 
 private fn distance(a: Int, b: Int) Int {

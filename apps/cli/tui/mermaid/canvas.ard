@@ -41,6 +41,8 @@ struct Canvas {
   masks: [Int],
   // Whether a straight line cell is drawn dashed.
   dashed: [Bool],
+  // Whether a straight line cell is drawn heavy.
+  heavy: [Bool],
   // Whether a corner cell is drawn rounded.
   rounded: [Bool],
   // Whether a cell is the trailing half of a wide character.
@@ -66,6 +68,7 @@ fn new(width: Int, height: Int) mut Canvas {
     texts: texts.@,
     masks: masks.@,
     dashed: unset(width * height),
+    heavy: unset(width * height),
     rounded: unset(width * height),
     covered: unset(width * height),
     roles: roles.@,
@@ -95,10 +98,12 @@ private fn with(mask: Int, bit: Int) Int {
 }
 
 // The box-drawing character for a set of connected directions.
-fn glyph(mask: Int, dashed: Bool, rounded: Bool) Str {
+fn glyph(mask: Int, dashed: Bool, rounded: Bool, heavy: Bool) Str {
   let vertical = mask == up or mask == down or mask == up + down
   let horizontal = mask == left or mask == right or mask == left + right
   match {
+    heavy and vertical => "┃",
+    heavy and horizontal => "━",
     dashed and vertical => "┊",
     dashed and horizontal => "┈",
     vertical => "│",
@@ -143,6 +148,20 @@ impl Canvas {
 
   // Adds the bits of mask to the line at x, y. A text cell is left alone.
   fn mut connect(x: Int, y: Int, mask: Int, role: Role, dashed: Bool, rounded: Bool) {
+    self.connect_styled(x, y, mask, role, dashed, rounded, false)
+  }
+
+  // connect with a heavy line, which stays heavy only where every line
+  // through the cell is heavy.
+  fn mut connect_styled(
+    x: Int,
+    y: Int,
+    mask: Int,
+    role: Role,
+    dashed: Bool,
+    rounded: Bool,
+    heavy: Bool,
+  ) {
     if self.inside(x, y) {
       let index = y * self.width + x
       let fresh = self.masks.at(index).or(0) == 0
@@ -155,6 +174,7 @@ impl Canvas {
         }
         self.masks.set(index, next)
         self.dashed.set(index, dashed and (fresh or self.dashed.at(index).or(false)))
+        self.heavy.set(index, heavy and (fresh or self.heavy.at(index).or(false)))
         self.rounded.set(index, rounded and (fresh or self.rounded.at(index).or(false)))
         self.roles.set(index, role)
       }
@@ -163,6 +183,10 @@ impl Canvas {
 
   // Draws a horizontal line from x0 to x1 on row y.
   fn mut horizontal(y: Int, x0: Int, x1: Int, role: Role, dashed: Bool) {
+    self.horizontal_styled(y, x0, x1, role, dashed, false)
+  }
+
+  fn mut horizontal_styled(y: Int, x0: Int, x1: Int, role: Role, dashed: Bool, heavy: Bool) {
     mut x = x0
     while x <= x1 {
       mut mask = 0
@@ -175,13 +199,17 @@ impl Canvas {
       if mask == 0 {
         mask = left + right
       }
-      self.connect(x, y, mask, role, dashed, false)
+      self.connect_styled(x, y, mask, role, dashed, false, heavy)
       x =+ 1
     }
   }
 
   // Draws a vertical line from y0 to y1 in column x.
   fn mut vertical(x: Int, y0: Int, y1: Int, role: Role, dashed: Bool) {
+    self.vertical_styled(x, y0, y1, role, dashed, false)
+  }
+
+  fn mut vertical_styled(x: Int, y0: Int, y1: Int, role: Role, dashed: Bool, heavy: Bool) {
     mut y = y0
     while y <= y1 {
       mut mask = 0
@@ -194,7 +222,7 @@ impl Canvas {
       if mask == 0 {
         mask = up + down
       }
-      self.connect(x, y, mask, role, dashed, false)
+      self.connect_styled(x, y, mask, role, dashed, false, heavy)
       y =+ 1
     }
   }
@@ -257,7 +285,14 @@ impl Canvas {
     let mask = self.masks.at(index).or(0)
     match {
       self.covered.at(index).or(false) => "",
-      mask > 0 => glyph(mask, self.dashed.at(index).or(false), self.rounded.at(index).or(false)),
+      mask > 0 => {
+        glyph(
+          mask,
+          self.dashed.at(index).or(false),
+          self.rounded.at(index).or(false),
+          self.heavy.at(index).or(false),
+        )
+      },
       _ => self.texts.at(index).or(" "),
     }
   }
@@ -340,4 +375,14 @@ test fn writing_over_half_a_wide_character_blanks_the_other_half() Void!Str {
   let rows = canvas.lines()
   let shown = strings::Join(mut rows, "|")
   testing::assert(shown == " ab", "got {shown}|")
+}
+
+test fn heavy_lines_stay_heavy_only_when_straight() Void!Str {
+  let canvas = new(5, 3)
+  canvas.horizontal_styled(1, 0, 4, Role::arrow, false, true)
+  canvas.vertical(2, 0, 2, Role::frame, false)
+  canvas.vertical_styled(4, 0, 1, Role::arrow, false, true)
+  let rows = canvas.lines()
+  let shown = strings::Join(mut rows, "|")
+  testing::assert(shown == "  │ ┃|━━┼━┘|  │", "got {shown}")
 }

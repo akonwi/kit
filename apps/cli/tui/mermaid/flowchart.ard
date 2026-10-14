@@ -8,12 +8,16 @@ use go:strings
 // Mermaid flowcharts: a reviewed subset parsed into a graph and drawn with
 // the layered layout.
 //
-// Supported: `flowchart` or `graph` flowing top down (`TD` or `TB`), nodes
-// written as an id or as `id[text]`, `-->` arrows and `---` lines of any
-// length, chains such as `A --> B --> C`, `&` groups such as `A & B --> C`,
-// `;` between statements, and `:::class` suffixes. `classDef`, `class`,
-// `style`, `linkStyle`, and `click` statements are accepted without being
-// drawn. Anything else is rejected so the source is shown instead.
+// Supported: `flowchart` or `graph` flowing top down (`TD` or `TB`); nodes
+// written as an id or with text in a box `[]`, round `()`, stadium `([])`,
+// circle `(())`, database `[()]`, or decision `{}` shape; solid `-->`,
+// dotted `-.->`, and thick `==>` links of any length, ending in an arrow,
+// a cross `x`, a circle `o`, or nothing; link text as `-->|text|` or
+// `-- text -->`; chains such as `A --> B --> C`; `&` groups such as
+// `A & B --> C`; `;` between statements; and `:::class` suffixes.
+// `classDef`, `class`, `style`, `linkStyle`, and `click` statements are
+// accepted without being drawn. Anything else is rejected so the source is
+// shown instead.
 
 let max_nodes = 60
 let max_edges = 120
@@ -95,8 +99,98 @@ private struct Scan {
   next: Int,
   // The node indexes of a group.
   nodes: [Int],
-  // A link's line and head.
-  head: Bool,
+  // A link's stroke, head, and label.
+  link: Link,
+}
+
+private struct Link {
+  stroke: layers::Stroke,
+  head: layers::Head,
+  label: Str,
+}
+
+private fn no_link() Link {
+  Link{
+    stroke: layers::Stroke::solid,
+    head: layers::Head::none,
+    label: "",
+  }
+}
+
+// The end of the run of chars characters starting at index.
+private fn run_of(line: Str, index: Int, chars: Str) Int {
+  mut at = index
+  mut going = true
+  while going {
+    let current = char_at(line, at)
+    going = current != "" and strings::ContainsAny(current, chars)
+    if going {
+      at =+ 1
+    }
+  }
+  at
+}
+
+// The end of the link token starting at index: its line, then a head.
+private fn link_end(line: Str, index: Int) Int {
+  let end = run_of(line, index, "-=.~<")
+  let next = char_at(line, end)
+  match next != "" and strings::ContainsAny(next, ">xo") {
+    true => end + 1,
+    false => end,
+  }
+}
+
+// The stroke and head of a whole link token such as `-->`, `-.-`, or `==>`.
+// Longer links, with more of their line characters, mean the same.
+private fn classify(token: Str) Link!Str {
+  let last = token.slice(start: token.size() - 1).or("")
+  let head = match last {
+    ">" => layers::Head::arrow,
+    "x" => layers::Head::cross,
+    "o" => layers::Head::circle,
+    _ => layers::Head::none,
+  }
+  let line = match head == layers::Head::none {
+    true => token,
+    false => token.slice(end: token.size() - 1).or(""),
+  }
+  let headed = head != layers::Head::none
+  let dashes = line.size() >= 2 and strings::Trim(line, "-") == ""
+  let equals = line.size() >= 2 and strings::Trim(line, "=") == ""
+  // `-.-` and `-..-`, with or without a head.
+  let inner = line.slice(start: 1, end: line.size() - 1).or("")
+  let dotted = line.size() >= 3 and strings::HasPrefix(line, "-") and strings::HasSuffix(line, "-") and inner != "" and strings::Trim(inner, ".") == ""
+  match {
+    dashes and (headed or line.size() >= 3) => {
+      Result::ok(
+        Link{
+          stroke: layers::Stroke::solid,
+          head: head,
+          label: "",
+        },
+      )
+    },
+    equals and (headed or line.size() >= 3) => {
+      Result::ok(
+        Link{
+          stroke: layers::Stroke::thick,
+          head: head,
+          label: "",
+        },
+      )
+    },
+    dotted => {
+      Result::ok(
+        Link{
+          stroke: layers::Stroke::dotted,
+          head: head,
+          label: "",
+        },
+      )
+    },
+    _ => Result::err("`{token}` links aren't drawn yet"),
+  }
 }
 
 private struct Parser {
@@ -108,19 +202,32 @@ private struct Parser {
 impl Parser {
   // The index of node id, declaring it on first use. Text, when given,
   // replaces the node's text.
-  fn mut node(id: Str, text: Str?) Int {
+  fn mut node(id: Str, text: Str?, shape: layers::Shape) Int {
     let index = match self.indexes.get(id) {
       found => found,
       _ => {
         let added = self.nodes.size()
-        self.nodes.push(layers::Node{id: id, text: clean(id)})
+        self.nodes.push(
+          layers::Node{
+            id: id,
+            text: clean(id),
+            shape: layers::Shape::box,
+          },
+        )
         self.indexes.set(id, added)
         added
       },
     }
     match text {
       given => {
-        let _ = self.nodes.set(index, layers::Node{id: id, text: clean(given)})
+        let _ = self.nodes.set(
+          index,
+          layers::Node{
+            id: id,
+            text: clean(given),
+            shape: shape,
+          },
+        )
         ()
       },
       _ => (),
@@ -134,65 +241,98 @@ impl Parser {
     let id = line.slice(start: start, end: end).or("")
     mut at = end
     mut text = Maybe::new<Str>()
+    mut shape = layers::Shape::box
     mut failure = ""
-    let opener = char_at(line, at)
+    let rest = line.slice(start: at).or("")
+    // The opening and closing of each supported shape, longest first.
+    let opened = match {
+      strings::HasPrefix(rest, "(((") => Maybe::new<Str>(),
+      strings::HasPrefix(rest, "((") => Maybe::new("(("),
+      strings::HasPrefix(rest, "([") => Maybe::new("(["),
+      strings::HasPrefix(rest, "(") => Maybe::new("("),
+      strings::HasPrefix(rest, "[(") => Maybe::new("[("),
+      strings::HasPrefix(rest, "[[") or strings::HasPrefix(rest, "[/") or strings::HasPrefix(rest, "[\\") => {
+        Maybe::new<Str>()
+      },
+      strings::HasPrefix(rest, "[") => Maybe::new("["),
+      strings::HasPrefix(rest, "{{{{") => Maybe::new<Str>(),
+      strings::HasPrefix(rest, "{{") => Maybe::new("{{"),
+      _ => Maybe::new<Str>(),
+    }
+    let shaped = strings::ContainsAny(char_at(line, at), "[({{>")
     if id == "" {
       failure = "unsupported line `{line}`"
-    } else if opener == "[" {
-      let inner = char_at(line, at + 1)
-      if inner == "(" or inner == "[" or inner == "/" or inner == "\\" {
-        failure = "`[{inner}` nodes aren't drawn yet"
-      } else {
-        let content = at + 1
-        let quoted = char_at(line, content) == "\""
-        let closing = match quoted {
-          true => {
-            let quote = strings::Index(line.slice(start: content + 1).or(""), "\"")
-            match quote < 0 {
-              true => -1,
-              false => {
-                let after = content + 1 + quote + 1
-                match char_at(line, after) == "]" {
-                  true => after,
-                  false => -1,
-                }
-              },
-            }
-          },
-          false => {
-            let found = strings::Index(line.slice(start: content).or(""), "]")
-            match found < 0 {
-              true => -1,
-              false => content + found,
-            }
-          },
-        }
-        match closing < 0 {
-          true => { failure = "unclosed `[` in `{line}`" },
-          false => {
-            mut value = line.slice(start: content, end: closing).or("")
-            if quoted {
-              value = value.slice(start: 1, end: value.size() - 1).or("")
-            }
-            text = Maybe::new(value)
-            at = closing + 1
-          },
-        }
+    } else if shaped and opened.is_none() {
+      failure = "`{rest.slice(end: 2).or(rest)}` nodes aren't drawn yet"
+    } else {
+      match opened {
+        open => {
+          let close = match open {
+            "((" => "))",
+            "([" => "])",
+            "(" => ")",
+            "[(" => ")]",
+            "{{" => "}}",
+            _ => "]",
+          }
+          shape = match open {
+            "((" => layers::Shape::circle,
+            "([" => layers::Shape::stadium,
+            "(" => layers::Shape::round,
+            "[(" => layers::Shape::database,
+            "{{" => layers::Shape::decision,
+            _ => layers::Shape::box,
+          }
+          let content = at + open.size()
+          let quoted = char_at(line, content) == "\""
+          let closing = match quoted {
+            true => {
+              let quote = strings::Index(line.slice(start: content + 1).or(""), "\"")
+              match quote < 0 {
+                true => -1,
+                false => {
+                  let after = content + 1 + quote + 1
+                  match strings::HasPrefix(line.slice(start: after).or(""), close) {
+                    true => after,
+                    false => -1,
+                  }
+                },
+              }
+            },
+            false => {
+              let found = strings::Index(line.slice(start: content).or(""), close)
+              match found < 0 {
+                true => -1,
+                false => content + found,
+              }
+            },
+          }
+          match closing < 0 {
+            true => { failure = "unclosed `{open}` in `{line}`" },
+            false => {
+              mut value = line.slice(start: content, end: closing).or("")
+              if quoted {
+                value = value.slice(start: 1, end: value.size() - 1).or("")
+              }
+              text = Maybe::new(value)
+              at = closing + close.size()
+            },
+          }
+        },
+        _ => (),
       }
-    } else if opener == "(" or opener == "{{" or opener == ">" {
-      failure = "`{opener}` nodes aren't drawn yet"
     }
     if failure == "" and line.slice(start: at, end: at + 3).or("") == ":::" {
       at = name_end(line, at + 3)
     }
     match failure == "" {
       true => {
-        let node = self.node(id, text)
+        let node = self.node(id, text, shape)
         Result::ok(
           Scan{
             next: at,
             nodes: [node],
-            head: false,
+            link: no_link(),
           },
         )
       },
@@ -230,7 +370,7 @@ impl Parser {
           Scan{
             next: at,
             nodes: found.@,
-            head: false,
+            link: no_link(),
           },
         )
       },
@@ -238,46 +378,90 @@ impl Parser {
     }
   }
 
-  // A link between groups.
+  // A link between groups, with its text when it has one.
   fn mut link(line: Str, start: Int) Scan!Str {
-    mut at = start
-    mut going = true
-    while going {
-      going = strings::ContainsAny(char_at(line, at), "-=.~<")
-      if going {
-        at =+ 1
-      }
-    }
-    let run = line.slice(start: start, end: at).or("")
-    let head = char_at(line, at)
-    let has_head = head == ">" or head == "x" or head == "o"
-    if has_head {
-      at =+ 1
-    }
-    let token = line.slice(start: start, end: at).or("")
-    let dashes = strings::Trim(run, "-") == ""
-    match {
-      char_at(line, at) == "|" => Result::err("edge labels aren't drawn yet"),
-      dashes and run.size() >= 2 and head == ">" => {
-        Result::ok(
-          Scan{
-            next: at,
-            nodes: [],
-            head: true,
+    let run_end = run_of(line, start, "-=.")
+    let run = line.slice(start: start, end: run_end).or("")
+    let opening = run == "--" or run == "-." or run == "=="
+    let spaced = char_at(line, run_end) == " "
+    match opening and spaced {
+      // `-- text -->`: the text runs up to the closing part of the link.
+      true => {
+        let closings = match run {
+          "-." => [".->", ".-"],
+          "==" => ["==>", "==="],
+          _ => ["-->", "---", "--x", "--o"],
+        }
+        let rest = line.slice(start: run_end).or("")
+        mut found = -1
+        for closing in closings {
+          let at = strings::Index(rest, closing)
+          if at >= 0 and (found < 0 or at < found) {
+            found = at
+          }
+        }
+        match found < 0 {
+          true => Result::err("unsupported link in `{line}`"),
+          false => {
+            let label = strings::TrimSpace(rest.slice(end: found).or(""))
+            let close_start = run_end + found
+            let close_end = link_end(line, close_start)
+            let token = run + line.slice(start: close_start, end: close_end).or("")
+            match classify(token) {
+              ok(link) => {
+                let labeled = mut link
+                labeled.label = clean(label)
+                Result::ok(
+                  Scan{
+                    next: close_end,
+                    nodes: [],
+                    link: labeled.@,
+                  },
+                )
+              },
+              err(reason) => Result::err(reason),
+            }
           },
-        )
+        }
       },
-      dashes and run.size() >= 3 and (not has_head) => {
-        Result::ok(
-          Scan{
-            next: at,
-            nodes: [],
-            head: false,
+      false => {
+        let end = link_end(line, start)
+        let token = line.slice(start: start, end: end).or("")
+        match classify(token) {
+          ok(link) => {
+            // `-->|text|`
+            match char_at(line, end) == "|" {
+              true => {
+                let close = strings::Index(line.slice(start: end + 1).or(""), "|")
+                match close < 0 {
+                  true => Result::err("unclosed `|` in `{line}`"),
+                  false => {
+                    let labeled = mut link
+                    labeled.label = clean(line.slice(start: end + 1, end: end + 1 + close).or(""))
+                    Result::ok(
+                      Scan{
+                        next: end + 1 + close + 1,
+                        nodes: [],
+                        link: labeled.@,
+                      },
+                    )
+                  },
+                }
+              },
+              false => {
+                Result::ok(
+                  Scan{
+                    next: end,
+                    nodes: [],
+                    link: link,
+                  },
+                )
+              },
+            }
           },
-        )
+          err(reason) => Result::err(reason),
+        }
       },
-      run == "--" and not has_head => Result::err("edge labels aren't drawn yet"),
-      _ => Result::err("`{token}` links aren't drawn yet"),
     }
   }
 
@@ -305,8 +489,9 @@ impl Parser {
                         layers::Edge{
                           from: from,
                           to: to,
-                          stroke: layers::Stroke::solid,
-                          head: link.head,
+                          stroke: link.link.stroke,
+                          head: link.link.head,
+                          label: link.link.label,
                         },
                       )
                     }
@@ -613,14 +798,202 @@ test fn quoted_text_classes_and_styling_statements() Void!Str {
   )
 }
 
+test fn shapes_have_their_own_outlines() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Box] --> B(Round) --> C([Stadium]) --> D((Circle)) --> E[(Database)] --> F{{Decision?}}",
+    [
+      "   ┌─────┐",
+      "   │ Box │",
+      "   └──┬──┘",
+      "      │",
+      "      ▼",
+      "  ╭───────╮",
+      "  │ Round │",
+      "  ╰───┬───╯",
+      "      │",
+      "      ▼",
+      " ╭─────────╮",
+      " ( Stadium )",
+      " ╰────┬────╯",
+      "      │",
+      "      ▼",
+      " ╭────────╮",
+      " │ Circle │",
+      " ╰────┬───╯",
+      "      │",
+      "      ▼",
+      "╓──────────╖",
+      "║ Database ║",
+      "╙─────┬────╜",
+      "      │",
+      "      ▼",
+      "╱───────────╲",
+      "│ Decision? │",
+      "╲───────────╱",
+    ],
+  )
+}
+
+test fn decisions_label_their_branches() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA{{Tool call?}} -->|yes| B[Run tool]\nA -->|no| C[Reply]",
+    [
+      "      ╱────────────╲",
+      "      │ Tool call? │",
+      "      ╲──────┬─────╱",
+      "      ┌──────┴─────┐",
+      "     yes          no",
+      "      ▼            ▼",
+      "┌──────────┐   ┌───────┐",
+      "│ Run tool │   │ Reply │",
+      "└──────────┘   └───────┘",
+    ],
+  )
+}
+
+test fn dotted_and_thick_links() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA -.-> B ==> C --- D -.- E === F",
+    [
+      "┌───┐",
+      "│ A │",
+      "└─┬─┘",
+      "  ┊",
+      "  ▼",
+      "┌───┐",
+      "│ B │",
+      "└─┬─┘",
+      "  ┃",
+      "  ▼",
+      "┌───┐",
+      "│ C │",
+      "└─┬─┘",
+      "  │",
+      "  │",
+      "┌─┴─┐",
+      "│ D │",
+      "└─┬─┘",
+      "  ┊",
+      "  ┊",
+      "┌─┴─┐",
+      "│ E │",
+      "└─┬─┘",
+      "  ┃",
+      "  ┃",
+      "┌─┴─┐",
+      "│ F │",
+      "└───┘",
+    ],
+  )
+}
+
+test fn crosses_and_circles_end_links() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --x B\nA --o C",
+    [
+      "    ┌───┐",
+      "    │ A │",
+      "    └─┬─┘",
+      "  ┌───┴───┐",
+      "  ×       ○",
+      "┌───┐   ┌───┐",
+      "│ B │   │ C │",
+      "└───┘   └───┘",
+    ],
+  )
+}
+
+test fn labels_sit_on_stems_when_edges_merge() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA[Parse] -->|tokens| C[Build]\nB[Lex] -->|chars| C",
+    [
+      " ┌───────┐    ┌─────┐",
+      " │ Parse │    │ Lex │",
+      " └───┬───┘    └──┬──┘",
+      "  tokens       chars",
+      "     └─────┬─────┘",
+      "           ▼",
+      "       ┌───────┐",
+      "       │ Build │",
+      "       └───────┘",
+    ],
+  )
+}
+
+test fn labeled_branches_merge_again() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA{{Valid?}} -- yes --> B[Save]\nA -- no --> C[Reject]\nB --> D[Done]\nC --> D",
+    [
+      "     ╱────────╲",
+      "     │ Valid? │",
+      "     ╲────┬───╱",
+      "    ┌─────┴─────┐",
+      "   yes         no",
+      "    ▼           ▼",
+      "┌──────┐   ┌────────┐",
+      "│ Save │   │ Reject │",
+      "└───┬──┘   └────┬───┘",
+      "    └─────┬─────┘",
+      "          ▼",
+      "      ┌──────┐",
+      "      │ Done │",
+      "      └──────┘",
+    ],
+  )
+}
+
+test fn labels_ride_on_an_edge_that_skips_a_layer() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA{{ok?}} -->|yes| D[End]\nA -->|no| C[Fix]\nC --> D",
+    [
+      "     ╱─────╲",
+      "     │ ok? │",
+      "     ╲──┬──╱",
+      "   ┌────┴────┐",
+      "  no         │",
+      "   ▼         │",
+      "┌─────┐      │",
+      "│ Fix │     yes",
+      "└──┬──┘      │",
+      "   └────┬────┘",
+      "        ▼",
+      "     ┌─────┐",
+      "     │ End │",
+      "     └─────┘",
+    ],
+  )
+}
+
+test fn labels_take_a_clear_stretch_of_their_track() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --> B & C\nA -->|go| D\nE --> D\nF --> D",
+    [
+      "    ┌───┐   ┌───┐   ┌───┐",
+      "    │ A │   │ E │   │ F │",
+      "    └─┬─┘   └─┬─┘   └─┬─┘",
+      "  ┌───┼───┐   └───┬───┘",
+      "  │   └───┼ go ───┤",
+      "  ▼       ▼       ▼",
+      "┌───┐   ┌───┐   ┌───┐",
+      "│ B │   │ C │   │ D │",
+      "└───┘   └───┘   └───┘",
+    ],
+  )
+}
+
 test fn unsupported_flowchart_syntax_is_rejected() Void!Str {
   try expect_rejected("flowchart TD\nA --> B\nB --> A", "flowcharts with loops aren't drawn yet")
   try expect_rejected("flowchart LR\nA --> B", "`LR` flowcharts aren't drawn yet")
   try expect_rejected("flowchart XY\nA --> B", "unknown direction `XY`")
-  try expect_rejected("flowchart TD\nA -->|yes| B", "edge labels aren't drawn yet")
-  try expect_rejected("flowchart TD\nA -- yes --> B", "edge labels aren't drawn yet")
-  try expect_rejected("flowchart TD\nA -.-> B", "`-.->` links aren't drawn yet")
-  try expect_rejected("flowchart TD\nA(round) --> B", "`(` nodes aren't drawn yet")
+  try expect_rejected("flowchart TD\nA{{{{hex}}}} --> B", "`{{{{` nodes aren't drawn yet")
+  try expect_rejected("flowchart TD\nA[[sub]] --> B", "`[[` nodes aren't drawn yet")
+  try expect_rejected("flowchart TD\nA <--> B", "`<-->` links aren't drawn yet")
+  try expect_rejected("flowchart TD\nA -->|open B", "unclosed `|` in `A -->|open B`")
+  try expect_rejected("flowchart TD\nA -- open B", "unsupported link in `A -- open B`")
+  try expect_rejected(
+    "flowchart TD\nA --> B & C\nA -->|a label far too long for its run| D\nE --> D\nF --> D",
+    "the edge labels don't fit",
+  )
   try expect_rejected("flowchart TD\nsubgraph one\nA --> B\nend", "subgraphs aren't drawn yet")
   try expect_rejected("flowchart TD\nA -->\nB", "unsupported line `A -->`")
   try expect_rejected("flowchart TD\nA[open --> B", "unclosed `[` in `A[open --> B`")

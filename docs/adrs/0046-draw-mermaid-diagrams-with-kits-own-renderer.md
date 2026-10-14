@@ -66,6 +66,11 @@ other graph-shaped diagrams can share:
   drop lines up with a predecessor's stem when that column falls inside the
   target's box, and a stem never shares a column with a drop into an
   unrelated node.
+- **Labels.** Edge text sits only where its edge runs alone: on the drop into
+  a node no other edge enters, on the stem from a node no other edge leaves,
+  beside the layers the edge skips, or on a sideways run of its own. Nodes and
+  placeholders carrying text are spaced to make room for it, and a diagram
+  whose text would cover another line shows its source.
 
 ## Consequences
 

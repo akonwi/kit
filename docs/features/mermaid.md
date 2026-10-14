@@ -74,21 +74,34 @@ participants and 200 statements, and the drawing fits within 480 columns and
 |---|---|
 | `flowchart TD`, `flowchart TB`, `graph TD` | Layers flowing top down |
 | `A`, `A[text]`, `A["text"]` | A box |
+| `A(text)`, `A((text))` | A box with rounded corners |
+| `A([text])` | A rounded box with `(` `)` sides |
+| `A[(text)]` | A box with `║` sides, for a database |
+| `A{text}` | A box with slanted corners, for a decision |
 | `A --> B`, `A ---> B` | An arrow into the target's top |
 | `A --- B` | A line joining the target's top |
+| `A -.-> B`, `A -.- B` | A dotted arrow or line |
+| `A ==> B`, `A === B` | A thick arrow or line |
+| `A --x B`, `A --o B` | A line ending in `×` or `○` |
+| `A -->|text| B`, `A -- text --> B` | An edge with its text on it |
 | `A --> B --> C` | A chain of edges |
 | `A & B --> C & D` | An edge from each node on the left to each on the right |
-| `A:::name` | A box; the class is ignored |
+| `A:::name` | The node; the class is ignored |
 
 Statements may be separated by `;`. Nodes appear in layers by their longest
 path from a start node, and an edge that skips layers runs straight past them.
 Edges from one node branch from a shared line, and edges into one node merge
-into one arrow. Node text is one line; text over 40 columns is cut short with
-an ellipsis.
+into one arrow. Node and edge text is one line; text over 40 columns is cut
+short with an ellipsis.
+
+Edge text sits where only its edge runs: just above the arrow into a node no
+other edge enters, else just below a node no other edge leaves, else beside
+the layers the edge skips, else on its own sideways run. A diagram whose edge
+text has no such room shows its source.
 
 `classDef`, `class`, `style`, `linkStyle`, and `click` statements are accepted
-but not drawn. Loops, edge labels, dotted and thick links, other node shapes,
-subgraphs, and the `LR`, `RL`, and `BT` directions show the source instead.
+but not drawn. Loops, other node shapes and links, subgraphs, and the `LR`,
+`RL`, and `BT` directions show the source instead.
 
 A flowchart is drawn when it has at most 60 nodes, 120 edges, and 200
 statements, and the drawing fits within 480 columns and 800 rows.
