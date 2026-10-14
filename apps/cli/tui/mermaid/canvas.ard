@@ -1,0 +1,343 @@
+use ard/testing
+
+use cooper/ui
+use go:strings
+
+// A character grid that Mermaid layouts draw on. Line cells record the
+// directions they connect, so crossings and junctions resolve to the matching
+// box-drawing character no matter the drawing order; text replaces lines.
+
+// What a cell depicts, which the view maps to theme colors.
+enum Role {
+  // Participant boxes, lifelines, and block frames.
+  // Message lines and arrowheads.
+  // Participant names.
+  // Message text.
+  // Note boxes and their text.
+  // Block keywords such as `loop` and `alt`.
+  // Block conditions.
+  frame,
+  arrow,
+  name,
+  label,
+  note,
+  keyword,
+  condition,
+  title,
+}
+
+let up = 1
+let right = 2
+let down = 4
+let left = 8
+
+struct Canvas {
+  width: Int,
+  height: Int,
+  // The text a cell shows. Line cells are empty and show their mask's glyph;
+  // a wide character's trailing cells are empty with no mask and are skipped.
+  texts: [Str],
+  // The directions a line cell connects: up, right, down, and left bits.
+  masks: [Int],
+  // Whether a straight line cell is drawn dashed.
+  dashed: [Bool],
+  // Whether a corner cell is drawn rounded.
+  rounded: [Bool],
+  // Whether a cell is the trailing half of a wide character.
+  covered: [Bool],
+  roles: [Role],
+  bold: [Bool],
+}
+
+fn new(width: Int, height: Int) mut Canvas {
+  let texts = mut List::new<Str>()
+  let masks = mut List::new<Int>()
+  let roles = mut List::new<Role>()
+  mut index = 0
+  while index < width * height {
+    texts.push(" ")
+    masks.push(0)
+    roles.push(Role::frame)
+    index =+ 1
+  }
+  (mut Canvas{
+    width: width,
+    height: height,
+    texts: texts.@,
+    masks: masks.@,
+    dashed: unset(width * height),
+    rounded: unset(width * height),
+    covered: unset(width * height),
+    roles: roles.@,
+    bold: unset(width * height),
+  })
+}
+
+private fn unset(size: Int) [Bool] {
+  let values = mut List::new<Bool>()
+  mut index = 0
+  while index < size {
+    values.push(false)
+    index =+ 1
+  }
+  values.@
+}
+
+private fn has(mask: Int, bit: Int) Bool {
+  mask / bit % 2 == 1
+}
+
+private fn with(mask: Int, bit: Int) Int {
+  match has(mask, bit) {
+    true => mask,
+    false => mask + bit,
+  }
+}
+
+// The box-drawing character for a set of connected directions.
+fn glyph(mask: Int, dashed: Bool, rounded: Bool) Str {
+  let vertical = mask == up or mask == down or mask == up + down
+  let horizontal = mask == left or mask == right or mask == left + right
+  match {
+    dashed and vertical => "┊",
+    dashed and horizontal => "┈",
+    vertical => "│",
+    horizontal => "─",
+    mask == right + down => {
+      match rounded {
+        true => "╭",
+        false => "┌",
+      }
+    },
+    mask == left + down => {
+      match rounded {
+        true => "╮",
+        false => "┐",
+      }
+    },
+    mask == up + right => {
+      match rounded {
+        true => "╰",
+        false => "└",
+      }
+    },
+    mask == up + left => {
+      match rounded {
+        true => "╯",
+        false => "┘",
+      }
+    },
+    mask == up + right + down => "├",
+    mask == up + left + down => "┤",
+    mask == left + right + down => "┬",
+    mask == up + left + right => "┴",
+    mask == up + right + down + left => "┼",
+    _ => " ",
+  }
+}
+
+impl Canvas {
+  private fn inside(x: Int, y: Int) Bool {
+    x >= 0 and y >= 0 and x < self.width and y < self.height
+  }
+
+  // Adds the bits of mask to the line at x, y. A text cell is left alone.
+  fn mut connect(x: Int, y: Int, mask: Int, role: Role, dashed: Bool, rounded: Bool) {
+    if self.inside(x, y) {
+      let index = y * self.width + x
+      let fresh = self.masks.at(index).or(0) == 0
+      if (not fresh) or self.texts.at(index).or(" ") == " " {
+        mut next = self.masks.at(index).or(0)
+        for bit in [up, right, down, left] {
+          if has(mask, bit) {
+            next = with(next, bit)
+          }
+        }
+        self.masks.set(index, next)
+        self.dashed.set(index, dashed and (fresh or self.dashed.at(index).or(false)))
+        self.rounded.set(index, rounded and (fresh or self.rounded.at(index).or(false)))
+        self.roles.set(index, role)
+      }
+    }
+  }
+
+  // Draws a horizontal line from x0 to x1 on row y.
+  fn mut horizontal(y: Int, x0: Int, x1: Int, role: Role, dashed: Bool) {
+    mut x = x0
+    while x <= x1 {
+      mut mask = 0
+      if x > x0 {
+        mask =+ left
+      }
+      if x < x1 {
+        mask =+ right
+      }
+      if mask == 0 {
+        mask = left + right
+      }
+      self.connect(x, y, mask, role, dashed, false)
+      x =+ 1
+    }
+  }
+
+  // Draws a vertical line from y0 to y1 in column x.
+  fn mut vertical(x: Int, y0: Int, y1: Int, role: Role, dashed: Bool) {
+    mut y = y0
+    while y <= y1 {
+      mut mask = 0
+      if y > y0 {
+        mask =+ up
+      }
+      if y < y1 {
+        mask =+ down
+      }
+      if mask == 0 {
+        mask = up + down
+      }
+      self.connect(x, y, mask, role, dashed, false)
+      y =+ 1
+    }
+  }
+
+  // Draws a box's outline with the given corners.
+  fn mut outline(x0: Int, y0: Int, x1: Int, y1: Int, role: Role, rounded: Bool) {
+    self.horizontal(y0, x0, x1, role, false)
+    self.horizontal(y1, x0, x1, role, false)
+    self.vertical(x0, y0, y1, role, false)
+    self.vertical(x1, y0, y1, role, false)
+    for corner in [[x0, y0], [x1, y0], [x0, y1], [x1, y1]] {
+      let x = corner.at(0).or(0)
+      let y = corner.at(1).or(0)
+      if self.inside(x, y) {
+        self.rounded.set(y * self.width + x, rounded)
+      }
+    }
+  }
+
+  // Writes value from x on row y, replacing what was drawn there. A wide
+  // character covers the cells after it; text past the right edge is cut.
+  fn mut write(x: Int, y: Int, value: Str, role: Role, bold: Bool) {
+    mut column = x
+    for part in ui::graphemes(value) {
+      if part.width > 0 and column + part.width <= self.width {
+        self.put(column, y, part.text, role, bold)
+        mut covered = 1
+        while covered < part.width {
+          self.put(column + covered, y, "", role, bold)
+          self.covered.set(y * self.width + column + covered, true)
+          covered =+ 1
+        }
+      }
+      column =+ part.width
+    }
+  }
+
+  private fn mut put(x: Int, y: Int, value: Str, role: Role, bold: Bool) {
+    if self.inside(x, y) {
+      let index = y * self.width + x
+      // Replacing half of a wide character blanks its other half.
+      if self.covered.at(index).or(false) and x > 0 {
+        self.texts.set(index - 1, " ")
+      }
+      if x + 1 < self.width and self.covered.at(index + 1).or(false) {
+        self.texts.set(index + 1, " ")
+        self.covered.set(index + 1, false)
+      }
+      self.texts.set(index, value)
+      self.masks.set(index, 0)
+      self.covered.set(index, false)
+      self.roles.set(index, role)
+      self.bold.set(index, bold)
+    }
+  }
+
+  // The character shown at a cell; empty for a wide character's trailing half.
+  fn shown(x: Int, y: Int) Str {
+    let index = y * self.width + x
+    let mask = self.masks.at(index).or(0)
+    match {
+      self.covered.at(index).or(false) => "",
+      mask > 0 => glyph(mask, self.dashed.at(index).or(false), self.rounded.at(index).or(false)),
+      _ => self.texts.at(index).or(" "),
+    }
+  }
+
+  fn role(x: Int, y: Int) Role {
+    self.roles.at(y * self.width + x).or(Role::frame)
+  }
+
+  fn is_bold(x: Int, y: Int) Bool {
+    self.bold.at(y * self.width + x).or(false)
+  }
+
+  // Whether a cell shows nothing, so a run of them needs no style.
+  fn blank(x: Int, y: Int) Bool {
+    self.shown(x, y) == " "
+  }
+
+  // The drawing as plain rows, with trailing spaces removed.
+  fn lines() [Str] {
+    let rows = mut List::new<Str>()
+    mut y = 0
+    while y < self.height {
+      let row = mut List::new<Str>()
+      mut x = 0
+      while x < self.width {
+        row.push(self.shown(x, y))
+        x =+ 1
+      }
+      rows.push(strings::TrimRight(strings::Join(row, ""), " "))
+      y =+ 1
+    }
+    rows.@
+  }
+}
+
+test fn crossing_lines_resolve_to_junctions() Void!Str {
+  let canvas = new(5, 3)
+  canvas.vertical(2, 0, 2, Role::frame, false)
+  canvas.horizontal(1, 0, 4, Role::arrow, false)
+  canvas.outline(0, 0, 4, 2, Role::frame, false)
+  let rows = canvas.lines()
+  let shown = strings::Join(mut rows, "|")
+  testing::assert(shown == "┌─┬─┐|├─┼─┤|└─┴─┘", "got {shown}")
+}
+
+test fn dashed_lines_stay_dashed_only_when_straight() Void!Str {
+  let canvas = new(5, 3)
+  canvas.horizontal(1, 0, 4, Role::arrow, true)
+  canvas.vertical(2, 0, 2, Role::frame, false)
+  let rows = canvas.lines()
+  let shown = strings::Join(mut rows, "|")
+  testing::assert(shown == "  │|┈┈┼┈┈|  │", "got {shown}")
+}
+
+test fn rounded_outline_keeps_rounded_corners() Void!Str {
+  let canvas = new(4, 3)
+  canvas.outline(0, 0, 3, 2, Role::frame, true)
+  let rows = canvas.lines()
+  let shown = strings::Join(mut rows, "|")
+  testing::assert(shown == "╭──╮|│  │|╰──╯", "got {shown}")
+}
+
+test fn text_replaces_lines_and_wide_characters_cover_two_cells() Void!Str {
+  let canvas = new(6, 1)
+  canvas.horizontal(0, 0, 5, Role::arrow, false)
+  canvas.write(1, 0, "你a", Role::label, false)
+  canvas.connect(2, 0, left + right, Role::arrow, false, false)
+  let rows = canvas.lines()
+  let shown = strings::Join(mut rows, "|")
+  try testing::assert(shown == "─你a──", "got {shown}")
+  testing::assert(canvas.shown(2, 0) == "", "trailing half of a wide character shows nothing")
+}
+
+test fn writing_over_half_a_wide_character_blanks_the_other_half() Void!Str {
+  let canvas = new(4, 1)
+  canvas.write(0, 0, "你", Role::label, false)
+  canvas.write(1, 0, "a", Role::label, false)
+  canvas.write(2, 0, "好", Role::label, false)
+  canvas.write(2, 0, "b", Role::label, false)
+  let rows = canvas.lines()
+  let shown = strings::Join(mut rows, "|")
+  testing::assert(shown == " ab", "got {shown}|")
+}

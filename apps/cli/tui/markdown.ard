@@ -4,6 +4,7 @@ use cooper/ui
 use go:github.com/akonwi/kit/internal/hyperlink
 use go:github.com/akonwi/kit/internal/markdown as parser
 use kit/tui/code
+use kit/tui/mermaid
 use kit/tui/theme
 use go:strings
 use go:unicode/utf8
@@ -38,6 +39,9 @@ struct Document {
   props: mut Props,
   parsed_source: Str,
   parsed: parser::Document,
+  // Whether the source ends inside a code fence, as streaming output does
+  // before the fence closes.
+  fence_open: Bool,
 }
 
 struct InlineDocument {
@@ -80,8 +84,72 @@ private fn new(props: mut Props) mut Document {
   (mut Document{
     parsed_source: props.source,
     parsed: parser::Parse(props.source),
+    fence_open: ends_inside_fence(props.source),
     props: props,
   })
+}
+
+// The run of fence characters a line starts with, after any quote markers,
+// list marker, and indentation, or empty when it doesn't start a fence.
+private fn fence_run(line: Str) Str {
+  mut rest = strings::TrimLeft(line, " \t")
+  mut quoted = strings::HasPrefix(rest, ">")
+  while quoted {
+    rest = strings::TrimLeft(strings::TrimPrefix(rest, ">"), " \t")
+    quoted = strings::HasPrefix(rest, ">")
+  }
+  for marker in ["- ", "* ", "+ "] {
+    if strings::HasPrefix(rest, marker) {
+      rest = strings::TrimLeft(strings::TrimPrefix(rest, marker), " \t")
+    }
+  }
+  let digits = strings::TrimLeft(rest, "0123456789")
+  if digits.size() < rest.size() and (strings::HasPrefix(digits, ". ") or strings::HasPrefix(digits, ") ")) {
+    rest = strings::TrimLeft(digits.slice(start: 2).or(""), " \t")
+  }
+  let character = rest.slice(end: 1).or("")
+  match character == "`" or character == "~" {
+    true => {
+      let run = rest.slice(end: rest.size() - strings::TrimLeft(rest, character).size()).or("")
+      match run.size() >= 3 {
+        true => run,
+        false => "",
+      }
+    },
+    false => "",
+  }
+}
+
+// The text after a line's fence run.
+private fn fence_info(line: Str, run: Str) Str {
+  let at = strings::Index(line, run)
+  strings::TrimSpace(line.slice(start: at + run.size()).or(""))
+}
+
+// Whether source ends inside an unclosed code fence, as streaming output does
+// before the fence closes. A fence closes on a line of at least as many of
+// its own characters and nothing else.
+fn ends_inside_fence(source: Str) Bool {
+  mut open = ""
+  for line in strings::Split(source, "\n") {
+    let run = fence_run(line)
+    match open == "" {
+      true => {
+        let info = fence_info(line, run)
+        // A backtick fence's info string can't contain backticks.
+        if run != "" and not strings::HasPrefix(run, "`") and strings::Contains(info, "`") {
+          open = run
+        }
+      },
+      false => {
+        let closes = run != "" and run.slice(end: 1).or("") == open.slice(end: 1).or("")
+        if closes and run.size() >= open.size() and fence_info(line, run) == "" {
+          open = ""
+        }
+      },
+    }
+  }
+  open != ""
 }
 
 impl cui::Component for Document {
@@ -89,6 +157,7 @@ impl cui::Component for Document {
     if self.props.source != self.parsed_source {
       self.parsed_source = self.props.source
       self.parsed = parser::Parse(self.props.source)
+      self.fence_open = ends_inside_fence(self.props.source)
     }
     render_document(
       self.props.themes,
@@ -96,6 +165,7 @@ impl cui::Component for Document {
       self.props.base,
       self.props.semantic,
       self.parsed,
+      self.fence_open,
     )
   }
 }
@@ -130,6 +200,7 @@ private fn render_document(
   base: ui::TextStyle,
   semantic: Bool,
   document: parser::Document,
+  fence_open: Bool,
 ) cui::View {
   let colors = themes.current()
   match document.PlainTextFallback {
@@ -147,7 +218,8 @@ private fn render_document(
           },
           _ => (),
         }
-        children.push(render_block(themes, id, block_index, base, semantic, block))
+        let complete = (not fence_open) or block_index + 1 < document.Blocks.size()
+        children.push(render_block(themes, id, block_index, base, semantic, block, complete))
         prior = Maybe::new(block)
         block_index =+ 1
       }
@@ -297,9 +369,13 @@ private fn render_block(
   base: ui::TextStyle,
   semantic: Bool,
   block: parser::Block,
+  complete: Bool,
 ) cui::View {
   let colors = themes.current()
   mut child = match {
+    block.Kind == parser::BlockCode and complete and mermaid::is_mermaid(block.Language) => {
+      mermaid::view(themes, "{id}:{block_index}", block.Code, base, semantic)
+    },
     block.Kind == parser::BlockHeading => {
       rich_text(
         colors,

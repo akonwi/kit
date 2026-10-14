@@ -771,3 +771,124 @@ test fn inline_markdown_reparses_changed_source_in_the_retained_component() Void
     "changed inline activity is reparsed",
   )
 }
+
+test fn closed_mermaid_fence_draws_its_diagram() Void!Str {
+  let terminal = mount("Flow:\n\n```mermaid\nsequenceDiagram\n  A->>B: hi\n```", 30, 12)
+  defer terminal.destroy()
+  expect_prefix_rows(
+    terminal,
+    [
+      "Flow:",
+      "",
+      "┌───┐   ┌───┐",
+      "│ A │   │ B │",
+      "└─┬─┘   └─┬─┘",
+      "  │       │",
+      "  │  hi   │",
+      "  ├──────►│",
+      "  │       │",
+      "",
+    ],
+  )
+}
+
+test fn streaming_mermaid_fence_shows_source_until_it_closes() Void!Str {
+  let terminal = headless::new(30, 12)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut SourceModel{source: "```mermaid\nsequenceDiagram\n  A->>B: hi"}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(app, cui::child(source_host, SourceProps{model: model, themes: themes}))
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_prefix_rows(terminal, [" sequenceDiagram", "   A->>B: hi", ""])
+  renderer.update(fn() {
+    model.source = "```mermaid\nsequenceDiagram\n  A->>B: hi\n```"
+  })
+  terminal.flush()
+  expect_prefix_rows(
+    terminal,
+    [
+      "┌───┐   ┌───┐",
+      "│ A │   │ B │",
+      "└─┬─┘   └─┬─┘",
+      "  │       │",
+      "  │  hi   │",
+      "  ├──────►│",
+      "  │       │",
+      "",
+    ],
+  )
+}
+
+test fn undrawable_mermaid_shows_source_with_the_reason() Void!Str {
+  let terminal = mount("```mermaid\nflowchart LR\n  A --> B\n```", 40, 6)
+  defer terminal.destroy()
+  expect_prefix_rows(
+    terminal,
+    [" flowchart LR", "   A --> B", "Diagram not drawn: flowcharts aren't", "drawn yet", ""],
+  )
+}
+
+test fn unclosed_fences_are_recognized_inside_quotes_and_lists() Void!Str {
+  let closed = [
+    "```mermaid\nA\n```",
+    "> ```mermaid\n> A\n> ```\n",
+    "- item\n\n  ```mermaid\n  A\n  ```",
+    "- ```mermaid\n  A\n  ```",
+    "````mermaid\nA\n`````",
+    "~~~mermaid\nA\n~~~",
+    "```mermaid\nA\n```\n\n[x]: https://example.com",
+    "Run `code` here",
+  ]
+  let open = [
+    "```mermaid\nA",
+    "```mermaid",
+    "```mermaid\nA\n``",
+    "```mermaid\nA\n``` trailing",
+    "````mermaid\nA\n```",
+    "~~~mermaid\nA\n```",
+    "```mermaid\nA\n```\n\n```go\nfmt",
+  ]
+  for source in closed {
+    try testing::assert(not markdown::ends_inside_fence(source), "closed: {source}")
+  }
+  for source in open {
+    try testing::assert(markdown::ends_inside_fence(source), "open: {source}")
+  }
+  testing::pass()
+}
+
+test fn drawn_mermaid_repaints_with_the_theme() Void!Str {
+  let terminal = headless::new(30, 10)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let themes = mut theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(
+    app,
+    markdown::view(themes.@, "themed-diagram", "```mermaid\nsequenceDiagram\n  A->>B: hi\n```"),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let tokens = mut Map::new<kittheme::Color>()
+  tokens.set(
+    kittheme::TokenBorderDefault,
+    kittheme::Color{
+      R: 17,
+      G: 29,
+      B: 211,
+      A: 255,
+    },
+  )
+  let resolved = theme::resolve(kittheme::Definition{Tokens: tokens.@}, ctheme::default())
+  renderer.update(fn() {
+    themes.replace(resolved)
+  })
+  terminal.flush()
+  let corner = terminal.frame().cell(0, 0).expect("box corner")
+  try testing::assert(corner.grapheme == "┌", "the diagram is drawn: {corner.grapheme}")
+  testing::assert(
+    same_color(corner.style.foreground.expect("border color"), resolved.border),
+    "participant boxes repaint in the new border color",
+  )
+}

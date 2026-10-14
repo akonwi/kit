@@ -1,0 +1,422 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/code
+use kit/tui/mermaid/canvas
+use kit/tui/mermaid/sequence
+use kit/tui/theme
+use go:strings
+
+// Mermaid diagrams in Markdown, drawn with box-drawing characters by Kit's
+// own renderers. A diagram that is unsupported, malformed, or too large
+// shows its source with the reason it wasn't drawn.
+
+// The largest source drawn.
+let max_source = 16384
+
+// Whether a fenced code block's language is Mermaid.
+fn is_mermaid(language: Str) Bool {
+  strings::ToLower(strings::TrimSpace(language)) == "mermaid"
+}
+
+private fn first_word(line: Str) Str {
+  let space = strings::IndexAny(line, " \t")
+  match space >= 0 {
+    true => line.slice(end: space).or(line),
+    false => line,
+  }
+}
+
+// Draws source, or explains why it can't be drawn.
+fn render(source: Str) canvas::Canvas!Str {
+  match source.size() > max_source {
+    true => Result::err("the source is larger than {max_source / 1024} KiB"),
+    false => render_lines(source),
+  }
+}
+
+private fn render_lines(source: Str) canvas::Canvas!Str {
+  let lines = strings::Split(strings::ReplaceAll(source, "\r\n", "\n"), "\n")
+  mut index = 0
+  mut title = ""
+  mut failure = ""
+  mut blank = true
+  while blank {
+    blank = index < lines.size() and strings::TrimSpace(lines.at(index).or("")) == ""
+    if blank {
+      index =+ 1
+    }
+  }
+  // YAML frontmatter, of which only the title is used.
+  if strings::TrimSpace(lines.at(index).or("")) == "---" {
+    index =+ 1
+    mut closed = false
+    mut scanning = index < lines.size()
+    while scanning {
+      let line = strings::TrimSpace(lines.at(index).or(""))
+      if line == "---" {
+        closed = true
+      } else if strings::HasPrefix(lines.at(index).or(""), "title:") {
+        title = strings::Trim(strings::TrimSpace(strings::TrimPrefix(line, "title:")), "\"'")
+      }
+      index =+ 1
+      scanning = (not closed) and index < lines.size()
+    }
+    if not closed {
+      failure = "the frontmatter isn't closed"
+    }
+  }
+  // The header is the first statement; comments and directives come first.
+  mut header = ""
+  mut searching = index < lines.size()
+  while searching {
+    let line = strings::TrimSpace(lines.at(index).or(""))
+    if line != "" and not strings::HasPrefix(line, "%%") {
+      header = line
+    }
+    index =+ 1
+    searching = header == "" and index < lines.size()
+  }
+  let body = mut List::new<Str>()
+  while index < lines.size() {
+    body.push(lines.at(index).or(""))
+    index =+ 1
+  }
+  let kind = first_word(header)
+  match {
+    failure != "" => Result::err(failure),
+    header == "" => Result::err("the diagram is empty"),
+    kind == "sequenceDiagram" and header == kind => sequence::render(body.@, title),
+    kind == "sequenceDiagram" => Result::err("unexpected text after `sequenceDiagram`"),
+    kind == "flowchart" or kind == "graph" => Result::err("flowcharts aren't drawn yet"),
+    _ => Result::err("`{kind}` diagrams aren't drawn yet"),
+  }
+}
+
+struct Props {
+  themes: theme::Context,
+  id: Str,
+  source: Str,
+  base: ui::TextStyle,
+  semantic: Bool,
+}
+
+// A Mermaid diagram, drawn when possible and otherwise shown as source.
+fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle, semantic: Bool) cui::View {
+  cui::child(
+    new,
+    Props{
+      themes: themes,
+      id: id,
+      source: source,
+      base: base,
+      semantic: semantic,
+    },
+    key: "mermaid:{id}",
+  )
+}
+
+private struct Diagram {
+  props: mut Props,
+  rendered_source: Str,
+  result: canvas::Canvas!Str,
+  // The drawing's styled text, kept until the source, theme, or semantic
+  // coloring changes.
+  painted: ui::StyledText?,
+  painted_revision: Int,
+  painted_semantic: Bool,
+}
+
+private fn new(props: mut Props) mut Diagram {
+  (mut Diagram{
+    rendered_source: props.source,
+    result: render(props.source),
+    painted: Maybe::new<ui::StyledText>(),
+    painted_revision: -1,
+    painted_semantic: props.semantic,
+    props: props,
+  })
+}
+
+impl cui::Component for Diagram {
+  fn mut render() cui::View {
+    // A diagram is drawn again only when its source changes.
+    if self.props.source != self.rendered_source {
+      self.rendered_source = self.props.source
+      self.result = render(self.props.source)
+      self.painted = Maybe::new<ui::StyledText>()
+    }
+    let colors = self.props.themes.current()
+    match self.result {
+      ok(drawing) => {
+        let revision = self.props.themes.revision()
+        let stale = revision != self.painted_revision or self.props.semantic != self.painted_semantic
+        if stale or self.painted.is_none() {
+          self.painted = Maybe::new(styled(colors, self.props.semantic, drawing))
+          self.painted_revision = revision
+          self.painted_semantic = self.props.semantic
+        }
+        drawn(
+          colors,
+          self.props.id,
+          self.props.base,
+          drawing,
+          self.painted.expect("painted diagram"),
+        )
+      },
+      err(reason) => source_view(self.props.@, reason),
+    }
+  }
+}
+
+private fn source_view(props: Props, reason: Str) cui::View {
+  let colors = props.themes.current()
+  let note = mut props.base
+  note.foreground = colors.muted
+  note.italic = true
+  cui::box(
+    [
+      code::view(
+        "mermaid-source:{props.id}",
+        code::Props{
+          themes: props.themes,
+          language: "mermaid",
+          path: "",
+          source: props.source,
+          base: props.base,
+          semantic: props.semantic,
+          wrap: true,
+          marker: "",
+          marker_color: Maybe::new<ui::Color>(),
+          fill: colors.surface,
+          inset: 1,
+        },
+      ),
+      cui::text(
+        "Diagram not drawn: {reason}",
+        text_style: note.@,
+        selectable: true,
+        selection_style: theme::selection_style(colors),
+      ),
+    ],
+    styles: ui::style(flex_direction: ui::FlexDirection::column),
+  )
+}
+
+// The color a cell's role is drawn in; text keeps the base color.
+private fn role_color(colors: theme::Theme, role: canvas::Role) ui::Color? {
+  match role {
+    canvas::Role::frame => Maybe::new(colors.border),
+    canvas::Role::arrow => Maybe::new(colors.muted),
+    canvas::Role::note => Maybe::new(colors.muted),
+    canvas::Role::keyword => Maybe::new(colors.accent_text),
+    canvas::Role::condition => Maybe::new(colors.muted),
+    canvas::Role::name => Maybe::new<ui::Color>(),
+    canvas::Role::label => Maybe::new<ui::Color>(),
+    canvas::Role::title => Maybe::new<ui::Color>(),
+  }
+}
+
+private fn push_run(
+  spans: mut [ui::Span],
+  colors: theme::Theme,
+  semantic: Bool,
+  text: Str,
+  role: canvas::Role,
+  bold: Bool,
+) {
+  if text != "" {
+    let foreground = match semantic {
+      true => role_color(colors, role),
+      false => Maybe::new<ui::Color>(),
+    }
+    spans.push(
+      ui::span(
+        text,
+        style: ui::span_style(
+          foreground: foreground,
+          bold: match bold {
+            true => Maybe::new(true),
+            false => Maybe::new<Bool>(),
+          },
+        ),
+      ),
+    )
+  }
+}
+
+// The cells of row y from x0 up to x1, as text.
+private fn cells(drawing: canvas::Canvas, y: Int, x0: Int, x1: Int) Str {
+  let parts = mut List::new<Str>()
+  mut x = x0
+  while x < x1 {
+    parts.push(drawing.shown(x, y))
+    x =+ 1
+  }
+  strings::Join(parts, "")
+}
+
+// The drawing as styled text, one span per run of cells with the same role.
+// Blank cells join whichever run they fall in.
+fn styled(colors: theme::Theme, semantic: Bool, drawing: canvas::Canvas) ui::StyledText {
+  let spans = mut List::new<ui::Span>()
+  let rows = drawing.lines()
+  mut y = 0
+  for row in rows {
+    if y > 0 {
+      spans.push(ui::span("\n"))
+    }
+    let length = ui::text_width(row)
+    mut start = 0
+    mut role = canvas::Role::frame
+    mut bold = false
+    mut x = 0
+    while x < length {
+      let shown = drawing.shown(x, y)
+      if shown != "" and shown != " " {
+        let cell_role = drawing.role(x, y)
+        let cell_bold = drawing.is_bold(x, y)
+        if cell_role != role or cell_bold != bold {
+          push_run(spans, colors, semantic, cells(drawing, y, start, x), role, bold)
+          start = x
+          role = cell_role
+          bold = cell_bold
+        }
+      }
+      x =+ 1
+    }
+    push_run(spans, colors, semantic, cells(drawing, y, start, length), role, bold)
+    y =+ 1
+  }
+  ui::styled_text(spans.@)
+}
+
+private fn pointer_scroll_bindings() keymap::Bindings<ui::ScrollBoxAction> {
+  keymap::bindings([])
+}
+
+// A drawn diagram keeps its shape: it scrolls sideways instead of wrapping.
+private fn drawn(
+  colors: theme::Theme,
+  id: Str,
+  base: ui::TextStyle,
+  drawing: canvas::Canvas,
+  painted: ui::StyledText,
+) cui::View {
+  let picture = cui::text(
+    painted,
+    key: "mermaid-drawing:{id}",
+    styles: ui::style(
+      width: ui::cells(drawing.width),
+      height: ui::cells(drawing.height),
+      flex_shrink: 0.0,
+    ),
+    text_style: base,
+    wrap: ui::TextWrap::none,
+    selectable: true,
+    selection_style: theme::selection_style(colors),
+  )
+  cui::box(
+    [
+      cui::scroll_box(
+        [picture],
+        key: "mermaid-scroll:{id}",
+        styles: ui::style(
+          width: ui::percent(100.0),
+          height: ui::cells(drawing.height),
+          min_width: ui::cells(0),
+          flex_shrink: 0.0,
+        ),
+        scrollbar_options: ui::scrollbar_options(visibility: ui::ScrollbarVisibility::hidden),
+        focusable: false,
+        key_bindings: pointer_scroll_bindings(),
+      ),
+    ],
+    styles: ui::style(
+      width: ui::percent(100.0),
+      height: ui::cells(drawing.height),
+      min_width: ui::cells(0),
+      flex_shrink: 0.0,
+    ),
+  )
+}
+
+test fn sequence_diagrams_render_after_frontmatter_and_directives() Void!Str {
+  let drawing = try render("---\ntitle: Login\n---\n%%{{init: {{}}}}%%\nsequenceDiagram\n  A->>B: hi")
+  let rows = drawing.lines()
+  let shown = strings::Join(mut rows, "|")
+  testing::assert(
+    shown == "Login||┌───┐   ┌───┐|│ A │   │ B │|└─┬─┘   └─┬─┘|  │       │|  │  hi   │|  ├──────►│|  │       │",
+    "got {shown}",
+  )
+}
+
+test fn only_a_top_level_frontmatter_title_is_used() Void!Str {
+  let drawing = try render("---\nconfig:\n  title: nested\n---\nsequenceDiagram\nA->>A")
+  let rows = drawing.lines()
+  testing::assert(
+    rows.at(0).or("") == "┌───┐",
+    "first row is the participant box: {rows.at(0).or("")}",
+  )
+}
+
+test fn unsupported_diagrams_explain_why_they_are_not_drawn() Void!Str {
+  let reasons = [
+    render("flowchart LR\n  A --> B"),
+    render("classDiagram\n  A <|-- B"),
+    render("\n%% nothing\n"),
+    render("---\ntitle: open"),
+    render("sequenceDiagram autonumber\nA->>B: hi"),
+    render("sequenceDiagram\n" + strings::Repeat("A->>B: hi\n", 2000)),
+  ]
+  let expected = [
+    "flowcharts aren't drawn yet",
+    "`classDiagram` diagrams aren't drawn yet",
+    "the diagram is empty",
+    "the frontmatter isn't closed",
+    "unexpected text after `sequenceDiagram`",
+    "the source is larger than 16 KiB",
+  ]
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    match reasons.at(index).expect("result") {
+      ok(_) => try testing::assert(false, "case {index} rendered, want {want}"),
+      err(got) => try testing::assert(got == want, "case {index}: got {got}, want {want}"),
+    }
+    index =+ 1
+  }
+  testing::pass()
+}
+
+test fn drawn_diagrams_color_each_role() Void!Str {
+  let terminal = headless::new(20, 10)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(
+    app,
+    view(themes, "colors", "sequenceDiagram\nA->>B: hi", ui::text_style(), true),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let colors = themes.current()
+  let frame = terminal.frame()
+  let border = frame.cell(0, 0).expect("box corner").style.foreground.expect("border color")
+  let arrow = frame.cell(4, 5).expect("arrow").style.foreground.expect("arrow color")
+  let name = frame.cell(2, 1).expect("name")
+  try testing::assert(name.grapheme == "A", "participant name is drawn in its box")
+  try testing::assert(name.style.bold, "participant names are bold")
+  try testing::assert(
+    border.red == colors.border.red and border.green == colors.border.green and border.blue == colors.border.blue,
+    "boxes use the border color",
+  )
+  testing::assert(
+    arrow.red == colors.muted.red and arrow.green == colors.muted.green and arrow.blue == colors.muted.blue,
+    "arrows use the muted color",
+  )
+}

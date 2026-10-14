@@ -1,25 +1,73 @@
 # Mermaid diagrams
 
-Kit renders fenced `mermaid` Markdown blocks as terminal-native Unicode when they fit the automatic inline budget. The shared Markdown renderer applies this behavior consistently across transcripts, pending output, pager content, release notes, and confirmation dialogs.
+The terminal client draws fenced `mermaid` code blocks as diagrams made of
+box-drawing characters, in transcripts and anywhere else Markdown appears.
+Kit draws them with its own renderer
+([ADR 0046](../adrs/0046-draw-mermaid-diagrams-with-kits-own-renderer.md)),
+which supports a reviewed subset of Mermaid's syntax.
 
-## Inline rendering
+````markdown
+```mermaid
+sequenceDiagram
+  actor U as User
+  participant K as Kit
+  U->>K: ask
+  K-->>U: answer
+```
+````
 
-Inline diagrams use the dedicated ASCII preset from pinned `@mermanjs/web` in a bounded worker. Rendering is cancellable and guarded by source, graph-complexity, queue, timeout, and output-geometry limits. Incomplete streaming fences and failed, malformed, unsupported, or oversized output preserve the original source.
+A diagram keeps its shape: it never wraps, and one wider than the pane scrolls
+sideways. Its colors follow the active theme.
 
-Diagram output is never wrapped because wrapping breaks its geometry.
+## When a diagram isn't drawn
 
-## Visual fallback
+A diagram that uses unsupported syntax, is malformed, or is too large shows its
+source with the reason it wasn't drawn, such as `Diagram not drawn: flowcharts
+aren't drawn yet`. While a response is streaming, a diagram shows its source
+until its closing fence arrives.
 
-A complete diagram that exceeds the inline source or graph-complexity budget shows its source with an **Open diagram** action. The action opens a temporary workspace panel rather than silently increasing automatic rendering limits.
+## Supported syntax
 
-The visual preview is produced locally and without network access:
+A diagram may start with YAML frontmatter, of which only `title` is used, and
+`%%` comments and `%%{init: …}%%` directives, which are ignored.
 
-1. Merman's render-only WASM preset creates a bounded, `resvg-safe` SVG.
-2. `resvg-wasm` rasterizes the SVG to a bounded PNG using the active Kit theme and a bundled Inter font.
-3. OpenTUI's image component displays the PNG using its automatic Kitty, Sixel, or Unicode-block protocol selection.
+### Sequence diagrams
 
-The panel supports zooming, two-dimensional panning, and opening the inert PNG through the system's default application. It does not depend on Glimpse or a remote Mermaid service.
+| Syntax | Drawn as |
+|---|---|
+| `participant A`, `participant A as Label` | A box with a lifeline |
+| `actor A`, `actor A as Label` | A box with rounded corners |
+| `A->>B: text` | A solid arrow |
+| `A-->>B: text` | A dashed arrow |
+| `A->B`, `A-->B` | A solid or dashed line without a head |
+| `A-xB`, `A--xB` | A line ending in `×` |
+| `A-)B`, `A--)B` | A line ending in an open head |
+| `A<<->>B`, `A<<-->>B` | A line with heads at both ends |
+| `A->>A: text` | A loop back to the same lifeline |
+| `Note left of A: text`, `Note right of A: text` | A note beside a lifeline |
+| `Note over A: text`, `Note over A,B: text` | A note covering one or two lifelines |
+| `loop`, `opt`, `break` … `end` | A labeled frame |
+| `alt` … `else` … `end` | A frame divided by dashed lines |
+| `par` … `and` … `end` | A frame divided by dashed lines |
+| `critical` … `option` … `end` | A frame divided by dashed lines |
+| `autonumber`, `autonumber 10 5`, `autonumber off` | Message text numbered from a start by a step, 1 and 1 by default |
+| `title Text` | A bold title above the diagram |
 
-## Safety boundaries
+Participants appear in the order they are declared or first used. Their names
+can't contain `:`, `,`, `;`, `<`, `>`, or arrow pieces such as `->` and `-x`.
+Keywords match in any case. Message and note text is one line; `<br>` becomes
+a space, and text over 64 columns is cut short with an ellipsis.
 
-Automatic and user-initiated rendering remain isolated in workers with separate limits. Visual rendering rejects external image references and bounds source bytes, graph size, SVG bytes, image dimensions, pixel count, PNG bytes, and execution time. Generated external previews are private files under the operating system's temporary directory.
+`activate`, `deactivate`, the `+` and `-` activation shorthands, and `rect`
+highlights are accepted but not drawn. `box`, `create`, `destroy`, links,
+participant metadata, and every other statement show the source instead.
+
+### Limits
+
+A diagram is drawn when its source is at most 16 KiB, with at most 24
+participants and 200 statements, and the drawing fits within 480 columns and
+800 rows.
+
+### Other diagram types
+
+Flowcharts and other diagram types aren't drawn yet and show their source.
