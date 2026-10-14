@@ -919,21 +919,21 @@ test fn shapes_have_their_own_outlines() Void!Str {
       "╙─────┬────╜",
       "      │",
       "      ▼",
-      "╱───────────╲",
-      "│ Decision? │",
-      "╲───────────╱",
+      "┌───────────┐",
+      "< Decision? >",
+      "└───────────┘",
     ],
   )
 }
 
-test fn decisions_label_their_branches() Void!Str {
+test fn decisions_point_out_and_fork_at_a_diamond() Void!Str {
   expect_drawing(
     "flowchart TD\nA{{Tool call?}} -->|yes| B[Run tool]\nA -->|no| C[Reply]",
     [
-      "      ╱────────────╲",
-      "      │ Tool call? │",
-      "      ╲──────┬─────╱",
-      "      ┌──────┴─────┐",
+      "      ┌────────────┐",
+      "      < Tool call? >",
+      "      └──────┬─────┘",
+      "      ┌──────◆─────┐",
       "     yes          no",
       "      ▼            ▼",
       "┌──────────┐   ┌───────┐",
@@ -1016,10 +1016,10 @@ test fn labeled_branches_merge_again() Void!Str {
   expect_drawing(
     "flowchart TD\nA{{Valid?}} -- yes --> B[Save]\nA -- no --> C[Reject]\nB --> D[Done]\nC --> D",
     [
-      "     ╱────────╲",
-      "     │ Valid? │",
-      "     ╲────┬───╱",
-      "    ┌─────┴─────┐",
+      "     ┌────────┐",
+      "     < Valid? >",
+      "     └────┬───┘",
+      "    ┌─────◆─────┐",
       "   yes         no",
       "    ▼           ▼",
       "┌──────┐   ┌────────┐",
@@ -1038,10 +1038,10 @@ test fn labels_ride_on_an_edge_that_skips_a_layer() Void!Str {
   expect_drawing(
     "flowchart TD\nA{{ok?}} -->|yes| D[End]\nA -->|no| C[Fix]\nC --> D",
     [
-      "     ╱─────╲",
-      "     │ ok? │",
-      "     ╲──┬──╱",
-      "   ┌────┴────┐",
+      "     ┌─────┐",
+      "     < ok? >",
+      "     └──┬──┘",
+      "   ┌────◆────┐",
       "  no         │",
       "   ▼         │",
       "┌─────┐      │",
@@ -1089,10 +1089,10 @@ test fn a_retry_loop_climbs_its_own_column() Void!Str {
       "        └────┬───┘       │",
       "             │           │",
       "             ▼           │",
-      "      ╱────────────╲     │",
-      "      │ Tool call? │     │",
-      "      ╲──────┬─────╱     │",
-      "      ┌──────┴─────┐     │",
+      "      ┌────────────┐     │",
+      "      < Tool call? >     │",
+      "      └──────┬─────┘     │",
+      "      ┌──────◆─────┐     │",
       "     yes          no     │",
       "      ▼            ▼     │",
       "┌──────────┐   ┌───────┐ │",
@@ -1179,9 +1179,9 @@ test fn flowcharts_flow_right_with_labels_along_their_lines() Void!Str {
     [
       "                                 ┌─────────────┐",
       "                        ┌─ yes ─►│ Save record ├─┐",
-      "┌───────┐    ╱────────╲ │        └─────────────┘ │  ┌──────┐",
-      "│ Start ├───►│ Valid? ├─┤                        ├─►│ Done │",
-      "└───────┘    ╲────────╱ │        ┌────────┐      │  └──────┘",
+      "┌───────┐    ┌────────┐ │        └─────────────┘ │  ┌──────┐",
+      "│ Start ├───►< Valid? >─◆                        ├─►│ Done │",
+      "└───────┘    └────────┘ │        ┌────────┐      │  └──────┘",
       "                        └─ no ──►│ Reject ├──────┘",
       "                                 └────────┘",
     ],
@@ -1192,9 +1192,9 @@ test fn flowcharts_flow_left_and_up() Void!Str {
   try expect_drawing(
     "flowchart RL\nA[Start] --> B{{Valid?}}\nB -->|yes| C[Save]",
     [
-      "┌──────┐          ╱────────╲    ┌───────┐",
-      "│ Save │◄─ yes ───┤ Valid? │◄───┤ Start │",
-      "└──────┘          ╲────────╱    └───────┘",
+      "┌──────┐          ┌────────┐    ┌───────┐",
+      "│ Save │◄─ yes ───< Valid? >◄───┤ Start │",
+      "└──────┘          └────────┘    └───────┘",
     ],
   )
   expect_drawing(
@@ -1205,10 +1205,10 @@ test fn flowcharts_flow_left_and_up() Void!Str {
       "└──────┘   └────────┘",
       "    ▲           ▲",
       "   yes         no",
-      "    └─────┬─────┘",
-      "     ╱────┴───╲",
-      "     │ Valid? │",
-      "     ╲────────╱",
+      "    └─────◆─────┘",
+      "     ┌────┴───┐",
+      "     < Valid? >",
+      "     └────────┘",
       "          ▲",
       "          │",
       "      ┌───┴───┐",
@@ -1222,9 +1222,9 @@ test fn loops_run_beneath_a_flowchart_flowing_across() Void!Str {
   try expect_drawing(
     "flowchart LR\nA[Fetch] --> B[Parse]\nB --> C{{OK?}}\nC -->|retry| A\nC --> D[Store]",
     [
-      "    ┌───────┐    ┌───────┐    ╱─────╲    ┌───────┐",
-      " ┌─►│ Fetch ├───►│ Parse ├───►│ OK? ├─┬─►│ Store │",
-      " │  └───────┘    └───────┘    ╲─────╱ │  └───────┘",
+      "    ┌───────┐    ┌───────┐    ┌─────┐    ┌───────┐",
+      " ┌─►│ Fetch ├───►│ Parse ├───►< OK? >─◆─►│ Store │",
+      " │  └───────┘    └───────┘    └─────┘ │  └───────┘",
       " │                                    │",
       " └────────────── retry ───────────────┘",
     ],

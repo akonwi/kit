@@ -79,7 +79,7 @@ participants and 200 statements, and the drawing fits within 480 columns and
 | `A(text)`, `A((text))` | A box with rounded corners |
 | `A([text])` | A rounded box with `(` `)` sides |
 | `A[(text)]` | A box with `║` sides, for a database |
-| `A{text}` | A box with slanted corners, for a decision |
+| `A{text}` | A box with `<` `>` sides, for a decision, whose branches fork at a `◆` |
 | `A --> B`, `A ---> B` | An arrow into the target |
 | `A --- B` | A line joining the target |
 | `A -.-> B`, `A -.- B` | A dotted arrow or line |
