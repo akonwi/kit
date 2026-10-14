@@ -56,6 +56,35 @@ fn clean(value: Str) Str {
   }
 }
 
+// Link text as one line, without the quotes it may be written in.
+private fn label_text(value: Str) Str {
+  let text = strings::TrimSpace(value)
+  let quoted = text.size() >= 2 and strings::HasPrefix(text, "\"") and strings::HasSuffix(text, "\"")
+  match quoted {
+    true => clean(text.slice(start: 1, end: text.size() - 1).or("")),
+    false => clean(text),
+  }
+}
+
+// Fails with reason unless ok.
+private fn within(ok: Bool, reason: Str) Void!Str {
+  match ok {
+    true => Result::ok(()),
+    false => Result::err(reason),
+  }
+}
+
+// Whether edges already holds an edge just like edge.
+private fn has_edge(edges: [layers::Edge], edge: layers::Edge) Bool {
+  mut found = false
+  for other in edges {
+    if other.from == edge.from and other.to == edge.to and other.stroke == edge.stroke and other.head == edge.head and other.label == edge.label {
+      found = true
+    }
+  }
+  found
+}
+
 private fn char_at(line: Str, index: Int) Str {
   line.slice(start: index, end: index + 1).or("")
 }
@@ -200,6 +229,8 @@ private struct Parser {
   nodes: [layers::Node],
   indexes: [Str: Int],
   edges: [layers::Edge],
+  // Statements read so far, counting each one between `;`s.
+  statements: Int,
 }
 
 impl Parser {
@@ -360,6 +391,10 @@ impl Parser {
           if more {
             at = skip_space(line, at + 1)
           }
+          if self.nodes.size() > max_nodes {
+            failure = "more than {max_nodes} nodes"
+            more = false
+          }
         },
         err(reason) => {
           failure = reason
@@ -413,7 +448,7 @@ impl Parser {
             match classify(token) {
               ok(link) => {
                 let labeled = mut link
-                labeled.label = clean(label)
+                labeled.label = label_text(label)
                 Result::ok(
                   Scan{
                     next: close_end,
@@ -432,18 +467,21 @@ impl Parser {
         let token = line.slice(start: start, end: end).or("")
         match classify(token) {
           ok(link) => {
-            // `-->|text|`
-            match char_at(line, end) == "|" {
+            // `-->|text|`, or `--> |text|`
+            let bar = skip_space(line, end)
+            match char_at(line, bar) == "|" {
               true => {
-                let close = strings::Index(line.slice(start: end + 1).or(""), "|")
+                let close = strings::Index(line.slice(start: bar + 1).or(""), "|")
                 match close < 0 {
                   true => Result::err("unclosed `|` in `{line}`"),
                   false => {
                     let labeled = mut link
-                    labeled.label = clean(line.slice(start: end + 1, end: end + 1 + close).or(""))
+                    labeled.label = label_text(
+                      line.slice(start: bar + 1, end: bar + 1 + close).or(""),
+                    )
                     Result::ok(
                       Scan{
-                        next: end + 1 + close + 1,
+                        next: bar + 1 + close + 1,
                         nodes: [],
                         link: labeled.@,
                       },
@@ -470,6 +508,8 @@ impl Parser {
 
   // A statement: groups joined by links. Returns where it ended.
   fn mut statement(line: Str, start: Int) Int!Str {
+    self.statements =+ 1
+    try within(self.statements <= max_statements, "more than {max_statements} statements")
     let first = try self.group(line, start)
     mut previous = first.nodes
     mut at = skip_space(line, first.next)
@@ -486,22 +526,33 @@ impl Parser {
             ok(link) => {
               match self.group(line, link.next) {
                 ok(next) => {
-                  for from in previous {
-                    for to in next.nodes {
-                      self.edges.push(
-                        layers::Edge{
-                          from: from,
-                          to: to,
-                          stroke: link.link.stroke,
-                          head: link.link.head,
-                          label: link.link.label,
-                        },
-                      )
-                    }
+                  // Checked before adding, since `&` groups multiply edges.
+                  match self.edges.size() + previous.size() * next.nodes.size() > max_edges {
+                    true => {
+                      failure = "more than {max_edges} edges"
+                      going = false
+                    },
+                    false => {
+                      for from in previous {
+                        for to in next.nodes {
+                          let edge = layers::Edge{
+                            from: from,
+                            to: to,
+                            stroke: link.link.stroke,
+                            head: link.link.head,
+                            label: link.link.label,
+                          }
+                          // A repeated edge is drawn once.
+                          if not has_edge(self.edges, edge) {
+                            self.edges.push(edge)
+                          }
+                        }
+                      }
+                      previous = next.nodes
+                      at = skip_space(line, next.next)
+                      going = at < line.size() and char_at(line, at) != ";"
+                    },
                   }
-                  previous = next.nodes
-                  at = skip_space(line, next.next)
-                  going = at < line.size() and char_at(line, at) != ";"
                 },
                 err(reason) => {
                   failure = reason
@@ -525,17 +576,17 @@ impl Parser {
 
   fn mut line(line: Str) Void!Str {
     let space = strings::IndexAny(line, " \t")
-    let word = strings::ToLower(
-      match space >= 0 {
-        true => line.slice(end: space).or(line),
-        false => line,
-      },
-    )
+    // Keywords match exactly, as in Mermaid, so `End` or `Style` can name
+    // a node.
+    let word = match space >= 0 {
+      true => line.slice(end: space).or(line),
+      false => line,
+    }
     match {
       word == "subgraph" or word == "end" or word == "direction" => {
         Result::err("subgraphs aren't drawn yet")
       },
-      word == "classdef" or word == "class" or word == "style" or word == "linkstyle" or word == "click" => {
+      word == "classDef" or word == "class" or word == "style" or word == "linkStyle" or word == "click" => {
         Result::ok(())
       },
       _ => {
@@ -574,13 +625,14 @@ private fn flow(direction: Str) layers::Flow? {
 // Parses the statements after a flowchart header.
 fn parse(header: Str, lines: [Str]) Flowchart!Str {
   let fields = strings::Fields(header)
-  let direction = strings::ToUpper(fields.at(1).or("TD"))
+  // `graph TD;` ends its header with a `;`.
+  let direction = strings::ToUpper(strings::TrimSuffix(fields.at(1).or("TD"), ";"))
   let parser = mut Parser{
     nodes: [],
     indexes: [:],
     edges: [],
+    statements: 0,
   }
-  mut statements = 0
   mut failure = match {
     fields.size() > 2 => "unexpected text after `{fields.at(0).or("")} {direction}`",
     flow(direction).is_none() => "unknown direction `{direction}`",
@@ -589,7 +641,6 @@ fn parse(header: Str, lines: [Str]) Flowchart!Str {
   for raw in lines {
     let line = strings::TrimSpace(raw)
     if failure == "" and line != "" and (not strings::HasPrefix(line, "%%")) {
-      statements =+ 1
       match parser.line(line) {
         ok(_) => (),
         err(reason) => { failure = reason },
@@ -601,7 +652,6 @@ fn parse(header: Str, lines: [Str]) Flowchart!Str {
     parser.nodes.size() == 0 => Result::err("the flowchart has no nodes"),
     parser.nodes.size() > max_nodes => Result::err("more than {max_nodes} nodes"),
     parser.edges.size() > max_edges => Result::err("more than {max_edges} edges"),
-    statements > max_statements => Result::err("more than {max_statements} statements"),
     _ => {
       Result::ok(
         Flowchart{
@@ -1243,10 +1293,25 @@ test fn flowcharts_past_the_limits_are_rejected() Void!Str {
   let edges = mut ["flowchart TD"]
   index = 0
   while index <= max_edges {
-    edges.push("A --> B")
+    edges.push("N{index % 12} --> M{index / 12}")
     index =+ 1
   }
   try expect_rejected(strings::Join(edges, "\n"), "more than {max_edges} edges")
+  // `&` groups are checked before their edges are made.
+  let many = strings::Repeat("a&", 2000) + "a"
+  try expect_rejected("flowchart TD\n{many} --> {many}", "more than {max_edges} edges")
+  let names = mut List::new<Str>()
+  index = 0
+  while index <= max_nodes {
+    names.push("N{index}")
+    index =+ 1
+  }
+  try expect_rejected("flowchart TD\n{strings::Join(names, " & ")} --> A", "more than {max_nodes} nodes")
+  // Statements count between `;`s, not by line.
+  try expect_rejected(
+    "flowchart TD\n{strings::Repeat("A --> B;", max_statements + 1)}",
+    "more than {max_statements} statements",
+  )
   let wide = mut ["flowchart TD"]
   index = 0
   while index < 12 {
@@ -1254,4 +1319,28 @@ test fn flowcharts_past_the_limits_are_rejected() Void!Str {
     index =+ 1
   }
   expect_rejected(strings::Join(wide, "\n"), "the flowchart is wider than 480 columns")
+}
+
+// `graph TD;`, link text after a space or in quotes, capitalized keywords
+// as node names, and a repeated edge drawn once.
+test fn common_spellings_are_read_as_mermaid_reads_them() Void!Str {
+  expect_drawing(
+    "graph TD;\nA --> |yes| B\nA -->|\"no\"| End\nEnd --> Style\nA --> |yes| B",
+    [
+      "      ┌───┐",
+      "      │ A │",
+      "      └─┬─┘",
+      "   ┌────┴────┐",
+      "  yes       no",
+      "   ▼         ▼",
+      " ┌───┐    ┌─────┐",
+      " │ B │    │ End │",
+      " └───┘    └──┬──┘",
+      "             │",
+      "             ▼",
+      "         ┌───────┐",
+      "         │ Style │",
+      "         └───────┘",
+    ],
+  )
 }

@@ -90,7 +90,8 @@ participants and 200 statements, and the drawing fits within 480 columns and
 | `A & B --> C & D` | An edge from each node on the left to each on the right |
 | `A:::name` | The node; the class is ignored |
 
-Statements may be separated by `;`. Nodes appear in layers by their longest
+Statements may be separated by `;`, and a repeated edge is drawn once.
+Keywords match exactly, as in Mermaid, so `End` or `Style` can name a node. Nodes appear in layers by their longest
 path from a start node, and an edge that skips layers runs straight past them.
 Edges from one node branch from a shared line, and edges into one node merge
 into one arrow. An edge that loops back, including one from a node to itself,
