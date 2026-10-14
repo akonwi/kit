@@ -31,59 +31,86 @@ let right = 2
 let down = 4
 let left = 8
 
+// A cell's lines, styles, and role are packed into one number, since a
+// drawing can hold a few hundred thousand cells: the low four bits are the
+// directions its line connects, then a bit for each style, then its role.
+let mask_bits = 16
+let dashed_bit = 16
+let heavy_bit = 32
+let rounded_bit = 64
+let covered_bit = 128
+let bold_bit = 256
+let role_unit = 512
+
 struct Canvas {
   width: Int,
   height: Int,
-  // The text a cell shows. Line cells are empty and show their mask's glyph;
-  // a wide character's trailing cells are empty with no mask and are skipped.
+  // The text a cell shows, where empty is blank. Line cells show their
+  // mask's glyph, and a wide character's trailing cells are skipped.
   texts: [Str],
-  // The directions a line cell connects: up, right, down, and left bits.
-  masks: [Int],
-  // Whether a straight line cell is drawn dashed.
-  dashed: [Bool],
-  // Whether a straight line cell is drawn heavy.
-  heavy: [Bool],
-  // Whether a corner cell is drawn rounded.
-  rounded: [Bool],
-  // Whether a cell is the trailing half of a wide character.
-  covered: [Bool],
-  roles: [Role],
-  bold: [Bool],
+  // Each cell's line directions, styles, and role, packed.
+  cells: [Int],
 }
 
+// A blank canvas. Its cells start empty in a single allocation each.
 fn new(width: Int, height: Int) mut Canvas {
-  let texts = mut List::new<Str>()
-  let masks = mut List::new<Int>()
-  let roles = mut List::new<Role>()
-  mut index = 0
-  while index < width * height {
-    texts.push(" ")
-    masks.push(0)
-    roles.push(Role::frame)
-    index =+ 1
-  }
+  let size = maximum(width * height, 0)
   (mut Canvas{
     width: width,
     height: height,
-    texts: texts.@,
-    masks: masks.@,
-    dashed: unset(width * height),
-    heavy: unset(width * height),
-    rounded: unset(width * height),
-    covered: unset(width * height),
-    roles: roles.@,
-    bold: unset(width * height),
+    texts: List::new<Str>(size),
+    cells: List::new<Int>(size),
   })
 }
 
-private fn unset(size: Int) [Bool] {
-  let values = mut List::new<Bool>()
-  mut index = 0
-  while index < size {
-    values.push(false)
-    index =+ 1
+private fn maximum(a: Int, b: Int) Int {
+  match a > b {
+    true => a,
+    false => b,
   }
-  values.@
+}
+
+private fn role_code(role: Role) Int {
+  match role {
+    Role::frame => 0,
+    Role::arrow => 1,
+    Role::name => 2,
+    Role::label => 3,
+    Role::note => 4,
+    Role::keyword => 5,
+    Role::condition => 6,
+    Role::title => 7,
+  }
+}
+
+private fn role_of(code: Int) Role {
+  match code {
+    1 => Role::arrow,
+    2 => Role::name,
+    3 => Role::label,
+    4 => Role::note,
+    5 => Role::keyword,
+    6 => Role::condition,
+    7 => Role::title,
+    _ => Role::frame,
+  }
+}
+
+// Whether the style bit flag is set in cell.
+private fn flagged(cell: Int, flag: Int) Bool {
+  cell / flag % 2 == 1
+}
+
+// flag set in cell when on, else cleared.
+private fn flag(cell: Int, flag: Int, on: Bool) Int {
+  let cleared = match flagged(cell, flag) {
+    true => cell - flag,
+    false => cell,
+  }
+  match on {
+    true => cleared + flag,
+    false => cleared,
+  }
 }
 
 private fn has(mask: Int, bit: Int) Bool {
@@ -108,6 +135,15 @@ fn glyph(mask: Int, dashed: Bool, rounded: Bool, heavy: Bool) Str {
     dashed and horizontal => "┈",
     vertical => "│",
     horizontal => "─",
+    heavy and mask == right + down => "┏",
+    heavy and mask == left + down => "┓",
+    heavy and mask == up + right => "┗",
+    heavy and mask == up + left => "┛",
+    heavy and mask == up + right + down => "┣",
+    heavy and mask == up + left + down => "┫",
+    heavy and mask == left + right + down => "┳",
+    heavy and mask == up + left + right => "┻",
+    heavy and mask == up + right + down + left => "╋",
     mask == right + down => {
       match rounded {
         true => "╭",
@@ -164,19 +200,25 @@ impl Canvas {
   ) {
     if self.inside(x, y) {
       let index = y * self.width + x
-      let fresh = self.masks.at(index).or(0) == 0
-      if (not fresh) or self.texts.at(index).or(" ") == " " {
-        mut next = self.masks.at(index).or(0)
+      let cell = self.cells.at(index).or(0)
+      let lines = cell % mask_bits
+      let fresh = lines == 0
+      let text = self.texts.at(index).or("")
+      if (not fresh) or text == "" or text == " " {
+        mut next = lines
         for bit in [up, right, down, left] {
           if has(mask, bit) {
             next = with(next, bit)
           }
         }
-        self.masks.set(index, next)
-        self.dashed.set(index, dashed and (fresh or self.dashed.at(index).or(false)))
-        self.heavy.set(index, heavy and (fresh or self.heavy.at(index).or(false)))
-        self.rounded.set(index, rounded and (fresh or self.rounded.at(index).or(false)))
-        self.roles.set(index, role)
+        // Keep whether the cell is covered or bold; replace the rest.
+        mut packed = next + role_code(role) * role_unit
+        packed = flag(packed, covered_bit, flagged(cell, covered_bit))
+        packed = flag(packed, bold_bit, flagged(cell, bold_bit))
+        packed = flag(packed, dashed_bit, dashed and (fresh or flagged(cell, dashed_bit)))
+        packed = flag(packed, heavy_bit, heavy and (fresh or flagged(cell, heavy_bit)))
+        packed = flag(packed, rounded_bit, rounded and (fresh or flagged(cell, rounded_bit)))
+        self.cells.set(index, packed)
       }
     }
   }
@@ -237,7 +279,8 @@ impl Canvas {
       let x = corner.at(0).or(0)
       let y = corner.at(1).or(0)
       if self.inside(x, y) {
-        self.rounded.set(y * self.width + x, rounded)
+        let index = y * self.width + x
+        self.cells.set(index, flag(self.cells.at(index).or(0), rounded_bit, rounded))
       }
     }
   }
@@ -252,7 +295,8 @@ impl Canvas {
         mut covered = 1
         while covered < part.width {
           self.put(column + covered, y, "", role, bold)
-          self.covered.set(y * self.width + column + covered, true)
+          let index = y * self.width + column + covered
+          self.cells.set(index, flag(self.cells.at(index).or(0), covered_bit, true))
           covered =+ 1
         }
       }
@@ -264,45 +308,44 @@ impl Canvas {
     if self.inside(x, y) {
       let index = y * self.width + x
       // Replacing half of a wide character blanks its other half.
-      if self.covered.at(index).or(false) and x > 0 {
+      if flagged(self.cells.at(index).or(0), covered_bit) and x > 0 {
         self.texts.set(index - 1, " ")
       }
-      if x + 1 < self.width and self.covered.at(index + 1).or(false) {
+      if x + 1 < self.width and flagged(self.cells.at(index + 1).or(0), covered_bit) {
         self.texts.set(index + 1, " ")
-        self.covered.set(index + 1, false)
+        self.cells.set(index + 1, flag(self.cells.at(index + 1).or(0), covered_bit, false))
       }
       self.texts.set(index, value)
-      self.masks.set(index, 0)
-      self.covered.set(index, false)
-      self.roles.set(index, role)
-      self.bold.set(index, bold)
+      self.cells.set(index, flag(role_code(role) * role_unit, bold_bit, bold))
     }
   }
 
   // The character shown at a cell; empty for a wide character's trailing half.
   fn shown(x: Int, y: Int) Str {
     let index = y * self.width + x
-    let mask = self.masks.at(index).or(0)
+    let cell = self.cells.at(index).or(0)
+    let mask = cell % mask_bits
     match {
-      self.covered.at(index).or(false) => "",
+      flagged(cell, covered_bit) => "",
       mask > 0 => {
-        glyph(
-          mask,
-          self.dashed.at(index).or(false),
-          self.rounded.at(index).or(false),
-          self.heavy.at(index).or(false),
-        )
+        glyph(mask, flagged(cell, dashed_bit), flagged(cell, rounded_bit), flagged(cell, heavy_bit))
       },
-      _ => self.texts.at(index).or(" "),
+      _ => {
+        let text = self.texts.at(index).or("")
+        match text == "" {
+          true => " ",
+          false => text,
+        }
+      },
     }
   }
 
   fn role(x: Int, y: Int) Role {
-    self.roles.at(y * self.width + x).or(Role::frame)
+    role_of(self.cells.at(y * self.width + x).or(0) / role_unit)
   }
 
   fn is_bold(x: Int, y: Int) Bool {
-    self.bold.at(y * self.width + x).or(false)
+    flagged(self.cells.at(y * self.width + x).or(0), bold_bit)
   }
 
   // Whether a cell shows nothing, so a run of them needs no style.
@@ -377,12 +420,14 @@ test fn writing_over_half_a_wide_character_blanks_the_other_half() Void!Str {
   testing::assert(shown == " ab", "got {shown}|")
 }
 
-test fn heavy_lines_stay_heavy_only_when_straight() Void!Str {
+// Heavy lines meet in heavy corners; where a light line crosses, the
+// junction is light.
+test fn heavy_lines_join_heavily_only_with_heavy_lines() Void!Str {
   let canvas = new(5, 3)
   canvas.horizontal_styled(1, 0, 4, Role::arrow, false, true)
   canvas.vertical(2, 0, 2, Role::frame, false)
   canvas.vertical_styled(4, 0, 1, Role::arrow, false, true)
   let rows = canvas.lines()
   let shown = strings::Join(mut rows, "|")
-  testing::assert(shown == "  │ ┃|━━┼━┘|  │", "got {shown}")
+  testing::assert(shown == "  │ ┃|━━┼━┛|  │", "got {shown}")
 }

@@ -66,6 +66,19 @@ private fn label_text(value: Str) Str {
   }
 }
 
+// Whether a link starts anywhere in line.
+private fn has_link(line: Str) Bool {
+  mut found = false
+  mut index = 0
+  while index < line.size() {
+    if link_starts(line, index) {
+      found = true
+    }
+    index =+ 1
+  }
+  found
+}
+
 // Fails with reason unless ok.
 private fn within(ok: Bool, reason: Str) Void!Str {
   match ok {
@@ -583,11 +596,16 @@ impl Parser {
       false => line,
     }
     match {
+      // Styling is accepted without being drawn, but a link means the line
+      // isn't styling.
       word == "subgraph" or word == "end" or word == "direction" => {
         Result::err("subgraphs aren't drawn yet")
       },
       word == "classDef" or word == "class" or word == "style" or word == "linkStyle" or word == "click" => {
-        Result::ok(())
+        match has_link(line) {
+          true => Result::err("unsupported line `{line}`"),
+          false => Result::ok(()),
+        }
       },
       _ => {
         mut at = 0
@@ -774,8 +792,8 @@ test fn an_edge_skipping_a_layer_runs_beside_it() Void!Str {
       "┌───┐  │",
       "│ B │  │",
       "└─┬─┘  │",
-      "  └──┬─┘",
-      "     ▼",
+      "  └─┐ ┌┘",
+      "    ▼ ▼",
       "   ┌───┐",
       "   │ C │",
       "   └───┘",
@@ -1025,8 +1043,8 @@ test fn labels_ride_on_an_edge_that_skips_a_layer() Void!Str {
       "┌─────┐      │",
       "│ Fix │     yes",
       "└──┬──┘      │",
-      "   └────┬────┘",
-      "        ▼",
+      "   └───┐ ┌───┘",
+      "       ▼ ▼",
       "     ┌─────┐",
       "     │ End │",
       "     └─────┘",
@@ -1046,8 +1064,9 @@ test fn labeled_edges_between_shared_ends_skip_a_layer() Void!Str {
       "┌───┐   ┌───┐       ┌───┐   ┌───┐      │",
       "│ B │   │ C │       │ E │   │ F │     go",
       "└───┘   └───┘       └─┬─┘   └─┬─┘      │",
-      "                      └───────┼────────┘",
-      "                              ▼",
+      "                      │       │┌───────┘",
+      "                      └──────┬┘│",
+      "                             ▼ ▼",
       "                            ┌───┐",
       "                            │ D │",
       "                            └───┘",
@@ -1111,8 +1130,9 @@ test fn shorter_loops_nest_inside_longer_ones() Void!Str {
       "┌───┐   │",
       "│ B │   │",
       "└─┬─┘   │",
-      "  ├───┐ │",
-      "  ▼   │ │",
+      "  │┌──┐ │",
+      " ┌┘│  │ │",
+      " ▼ ▼  │ │",
       "┌───┐ │ │",
       "│ C │ │ │",
       "└─┬─┘ │ │",
@@ -1227,11 +1247,11 @@ test fn labels_flowing_across_sit_on_their_lines() Void!Str {
       "└───┘ ┌┼─►│   │",
       "      ││  └───┘",
       "┌───┐ ││",
-      "│ B ├─┤│                 ┌───┐",
-      "└───┘ ││              ┌─►│ D │",
-      "      │└─── approve ──┤  └───┘",
-      "      │               │",
-      "      └───────────────┘",
+      "│ B ├─┤│                  ┌───┐",
+      "└───┘ ││               ┌─►│   │",
+      "      │└─── approve ───┘  │ D │",
+      "      │               ┌──►│   │",
+      "      └───────────────┘   └───┘",
     ],
   )
   expect_drawing(
@@ -1333,6 +1353,56 @@ test fn edges_share_lines_only_when_each_is_drawn_truly() Void!Str {
   )
 }
 
+// A loop takes its column once vertices stop moving, so nothing moved aside
+// lands on it.
+test fn loops_run_outside_vertices_moved_aside() Void!Str {
+  expect_drawing(
+    "flowchart LR\nA --o E\nB -->|go| D\nC --> E\nB ==> D\nE ==>|again| E",
+    [
+      "┌───┐",
+      "│ A ├───┐  ┌───┐",
+      "└───┘   └─○│   │",
+      "           │   │",
+      "┌───┐   ┌─►│ E ├━━━━┓",
+      "│ C ├───┘  │   │    ┃",
+      "└───┘  ┏━━►│   │    ┃",
+      "       ┃   └───┘    ┃",
+      "       ┃            ┃",
+      "┌───┐  ┃            ┃  ┌───┐",
+      "│   ├──┼┐         ┌─┼─►│   │",
+      "│ B │  ┃│         │ ┃  │ D │",
+      "│   ├━┓┃│         │┏╋━►│   │",
+      "└───┘ ┃┃└─── go ──┘┃┃  └───┘",
+      "      ┃┃           ┃┃",
+      "      ┗╋━━━━━━━━━━━┛┃",
+      "       ┃            ┃",
+      "       ┗━━ again ━━━┛",
+    ],
+  )
+}
+
+test fn edges_skipping_layers_keep_their_stroke() Void!Str {
+  expect_drawing(
+    "flowchart TD\nA --> B --> C\nA -.-> C\nA ==> D --> E\nA ==> E",
+    [
+      "       ┌─────┐",
+      "       │  A  │",
+      "       └┬─┬─┬┘",
+      "  ┌─────┘ ┊ ┗━━┳━━━━┓",
+      "  ▼       ┊    ▼    ┃",
+      "┌───┐     ┊  ┌───┐  ┃",
+      "│ B │     ┊  │ D │  ┃",
+      "└─┬─┘     ┊  └─┬─┘  ┃",
+      "  │       ┊    │┏━━━┛",
+      "  └─┐ ┌┈┈┈┘   ┌┘┃",
+      "    ▼ ▼       ▼ ▼",
+      "   ┌───┐     ┌───┐",
+      "   │ C │     │ E │",
+      "   └───┘     └───┘",
+    ],
+  )
+}
+
 test fn unsupported_flowchart_syntax_is_rejected() Void!Str {
   try expect_rejected("flowchart XY\nA --> B", "unknown direction `XY`")
   try expect_rejected("flowchart TD\nA{{{{hex}}}} --> B", "`{{{{` nodes aren't drawn yet")
@@ -1342,6 +1412,7 @@ test fn unsupported_flowchart_syntax_is_rejected() Void!Str {
   try expect_rejected("flowchart TD\nA -- open B", "unsupported link in `A -- open B`")
   try expect_rejected("flowchart TD\nsubgraph one\nA --> B\nend", "subgraphs aren't drawn yet")
   try expect_rejected("flowchart TD\nA -->\nB", "unsupported line `A -->`")
+  try expect_rejected("flowchart TD\nA --> B\nstyle --> C", "unsupported line `style --> C`")
   try expect_rejected("flowchart TD\nA[open --> B", "unclosed `[` in `A[open --> B`")
   expect_rejected("flowchart TD\n%% nothing", "the flowchart has no nodes")
 }

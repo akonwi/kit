@@ -55,11 +55,14 @@ other graph-shaped diagrams can share:
   edges, and each marked edge leaves its source through the channel below,
   climbs its own column past the right edge, and drops into its target
   through the channel above, adding a channel at either end when needed.
-  Shorter loops take the inner columns. A loop's text sits beside its climb
-  on the row nearest the middle that no other line crosses.
-- **Layers.** A node's layer is one past its deepest predecessor; a start node
-  moves down to sit just above its nearest successor. An edge that skips
-  layers passes through a placeholder in each layer between.
+  Shorter loops take the inner columns, chosen once routing has stopped
+  moving vertices so no vertex lands on one. A loop's text sits beside its
+  climb on the row nearest the middle that no other line crosses.
+- **Layers.** A node's layer is one past its deepest predecessor, or two past
+  it along a labeled edge whose source and target both have other edges; a
+  start node moves down to sit just above its nearest successor. An edge
+  that skips layers passes through a placeholder in each layer between,
+  drawn in the edge's stroke.
 - **Order.** Layers are reordered by the mean position of each node's
   neighbors in alternating downward and upward sweeps, keeping the order with
   the fewest crossings.
@@ -73,9 +76,11 @@ other graph-shaped diagrams can share:
   of its edges is. Lines joined through shared ports must not suggest edges
   that don't exist, so a set of joined lines is kept only when each of its
   stem ports leads to each of its drop ports; otherwise each of its edges
-  gets its own drop port, or its own stem port when that takes fewer. A
-  node's ports sit two cells apart in the order of their other ends, and its
-  box grows to fit them.
+  gets its own drop port, or its own stem port when that takes fewer. An
+  edge that skips layers, or a loop, joins lines in two channels, so it
+  shares a port at one end only: when both are shared, its last drop gets
+  its own. A node's ports sit two cells apart in the order of their other
+  ends, and its box grows to fit them.
 - **Routing.** Between two layers runs a channel of tracks. An edge leaves its
   stem port, runs sideways on a track, and drops into its drop port. Edges
   sharing a port share a track so they branch or merge. Taken from the left,
