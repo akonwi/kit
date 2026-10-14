@@ -191,7 +191,7 @@ internal protocol APIProtocol: Sendable {
 extension APIProtocol {
     /// - Remark: HTTP `GET /v1/health`.
     /// - Remark: Generated from `#/paths//v1/health/get(getHealth)`.
-    internal func getHealth(headers: Operations.GetHealth.Input.Headers) async throws -> Operations.GetHealth.Output {
+    internal func getHealth(headers: Operations.GetHealth.Input.Headers = .init()) async throws -> Operations.GetHealth.Output {
         try await getHealth(Operations.GetHealth.Input(headers: headers))
     }
     /// - Remark: HTTP `GET /v1/models`.

@@ -27,5 +27,7 @@ const (
 	// boundaries and the turn-scoped plugin.message.added live event. Prompt
 	// command invocations add the promptCommand transcript content kind and the
 	// claude_project prompt command source (ADRs 0041 and 0042).
-	SessionProtocolVersion = 45
+	// 46: Health reports the server's stable identity, Kit-scoped machine
+	// identifier, and user home directory (ADR 0045).
+	SessionProtocolVersion = 46
 )

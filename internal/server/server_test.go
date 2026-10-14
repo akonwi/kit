@@ -2,13 +2,17 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +20,9 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/daemonctl"
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/localdiscovery"
+	"github.com/akonwi/kit/internal/serveridentity"
 )
 
 func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
@@ -140,9 +146,10 @@ func TestRunServesHealthAndStopsGracefully(t *testing.T) {
 	probeContext, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer probeCancel()
 	var registry localdiscovery.Registry
+	var health daemonctl.Health
 	for {
 		var err error
-		registry, _, err = client.Probe(probeContext)
+		registry, health, err = client.Probe(probeContext)
 		if err == nil {
 			break
 		}
@@ -155,12 +162,59 @@ func TestRunServesHealthAndStopsGracefully(t *testing.T) {
 	if registry.PID != os.Getpid() {
 		t.Errorf("PID = %d, want in-process test PID %d", registry.PID, os.Getpid())
 	}
+	serverID, err := serveridentity.ServerID(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	machineID, err := serveridentity.MachineID(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.ServerID != serverID || health.MachineID != machineID || health.Home != filepath.Clean(userHome) {
+		t.Errorf("health identity = (%q, %q, %q), want persisted server %q, machine %q, home %q",
+			health.ServerID, health.MachineID, health.Home, serverID, machineID, filepath.Clean(userHome))
+	}
 	info, err := os.Stat(paths.ServerToken)
 	if err != nil {
 		t.Fatalf("stat token: %v", err)
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Errorf("token mode = %o, want 600", info.Mode().Perm())
+	}
+
+	token, err := os.ReadFile(paths.ServerToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthWithInstance := func(instance *string) (int, httpapi.Health) {
+		t.Helper()
+		request, err := http.NewRequest(http.MethodGet, registry.URL+"/v1/health", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
+		if instance != nil {
+			request.Header.Set(httpapi.InstanceHeader, *instance)
+		}
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		var health httpapi.Health
+		_ = json.NewDecoder(response.Body).Decode(&health)
+		return response.StatusCode, health
+	}
+	if status, learned := healthWithInstance(nil); status != http.StatusOK || learned.InstanceID != registry.InstanceID {
+		t.Errorf("health without an instance header = %d %q, want 200 with instance %q", status, learned.InstanceID, registry.InstanceID)
+	}
+	stale := "instance_stale"
+	if status, _ := healthWithInstance(&stale); status != http.StatusConflict {
+		t.Errorf("health with a stale instance header = %d, want %d", status, http.StatusConflict)
 	}
 
 	response, err := http.Get(registry.URL + "/v1/health")
@@ -190,5 +244,66 @@ func TestRunServesHealthAndStopsGracefully(t *testing.T) {
 	}
 	if _, err := os.Stat(paths.ServerToken); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("token still exists after shutdown: %v", err)
+	}
+}
+
+func TestRunListensOnTheRequestedAddress(t *testing.T) {
+	t.Parallel()
+	reserved, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := reserved.Addr().(*net.TCPAddr).Port
+	_ = reserved.Close()
+
+	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- Run(ctx, RunOptions{
+			Paths: paths, Listen: fmt.Sprintf("127.0.0.1:%d", port),
+			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		})
+	}()
+
+	client := daemonctl.NewClient(paths)
+	probeContext, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer probeCancel()
+	var registry localdiscovery.Registry
+	for {
+		registry, _, err = client.Probe(probeContext)
+		if err == nil {
+			break
+		}
+		select {
+		case <-probeContext.Done():
+			t.Fatalf("daemon did not become ready: %v", err)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if want := fmt.Sprintf("http://127.0.0.1:%d", port); registry.URL != want {
+		t.Fatalf("published URL = %q, want %q", registry.URL, want)
+	}
+
+	cancel()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("daemon did not stop")
+	}
+}
+
+func TestRunRejectsAnUnreachableListenOverride(t *testing.T) {
+	t.Parallel()
+	err := Run(context.Background(), RunOptions{
+		Paths: apphome.FromHome(filepath.Join(t.TempDir(), "kit")), Listen: "192.168.1.10:7777",
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err == nil || !strings.Contains(err.Error(), "loopback address or 0.0.0.0/::") {
+		t.Fatalf("Run() error = %v, want the listen address rule", err)
 	}
 }

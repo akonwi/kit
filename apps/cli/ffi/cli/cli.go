@@ -25,6 +25,7 @@ import (
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/localdiscovery"
 	kitserver "github.com/akonwi/kit/internal/server"
+	"github.com/akonwi/kit/internal/serverlisten"
 	"github.com/akonwi/kit/internal/version"
 )
 
@@ -72,6 +73,8 @@ type interactiveOptions struct {
 	Name         string
 	Model        string
 	Thinking     string
+	// Server is the server to attach to; the zero value is this home's own.
+	Server attachTarget
 }
 
 func resolveCWD(requested string) (string, error) {
@@ -396,6 +399,7 @@ func runInternalServer(ctx context.Context, args []string, stderr io.Writer) int
 	flags := flag.NewFlagSet("__server", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	home := flags.String("home", "", "Kit home directory")
+	listen := flags.String("listen", "", "listen address overriding server.listen")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -409,7 +413,7 @@ func runInternalServer(ctx context.Context, args []string, stderr io.Writer) int
 		return 1
 	}
 	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	if err := kitserver.Run(ctx, kitserver.RunOptions{Paths: paths, Logger: logger}); err != nil {
+	if err := kitserver.Run(ctx, kitserver.RunOptions{Paths: paths, Logger: logger, Listen: *listen}); err != nil {
 		if errors.Is(err, kitserver.ErrAlreadyRunning) {
 			fmt.Fprintln(stderr, "kit: local daemon is already running")
 			return 2
@@ -430,7 +434,17 @@ func runServerCommand(ctx context.Context, args []string, stdout, stderr io.Writ
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
 	}
-	manager := daemonctl.NewManager(paths)
+	var options []daemonctl.Option
+	if (args[0] == "start" || args[0] == "restart") && len(args) == 3 && args[1] == "--listen" {
+		address, err := serverlisten.Parse(args[2])
+		if err != nil {
+			fmt.Fprintf(stderr, "kit: %v\n", err)
+			return 2
+		}
+		options = append(options, daemonctl.WithListen(address))
+		args = args[:1]
+	}
+	manager := daemonctl.NewManager(paths, options...)
 
 	switch args[0] {
 	case "start":
@@ -510,6 +524,6 @@ func writeServerStatus(output io.Writer, registry localdiscovery.Registry, healt
 }
 
 func serverUsage(output io.Writer) int {
-	fmt.Fprintln(output, "usage: kit server <start|status|stop|restart>")
+	fmt.Fprintln(output, "usage: kit server <start|status|stop|restart> [--listen host:port]")
 	return 2
 }

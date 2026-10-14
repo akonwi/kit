@@ -652,7 +652,7 @@ func (c *Client) UploadAttachment(ctx context.Context, sessionID, filename strin
 	}
 	ctx, cleanup := c.operationContext(ctx)
 	defer cleanup()
-	connection, err := c.connection()
+	connection, err := c.connection(ctx)
 	if err != nil {
 		return protocol.AttachmentInfo{}, err
 	}
@@ -691,6 +691,9 @@ func (c *Client) UploadAttachment(ctx context.Context, sessionID, filename strin
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(response.Body)
+		if rejectedInstance(response.StatusCode, body) {
+			c.instanceRejected(connection)
+		}
 		return protocol.AttachmentInfo{}, DecodeAPIError(response.StatusCode, body)
 	}
 	var output protocol.AttachmentInfo
@@ -770,7 +773,7 @@ func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID str
 			cleanup()
 		}
 	}()
-	connection, err := c.connection()
+	connection, err := c.connection(ctx)
 	if err != nil {
 		return protocol.AttachmentInfo{}, nil, err
 	}
@@ -792,6 +795,9 @@ func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID str
 	if response.StatusCode != http.StatusOK {
 		defer response.Body.Close()
 		body, _ := io.ReadAll(response.Body)
+		if rejectedInstance(response.StatusCode, body) {
+			c.instanceRejected(connection)
+		}
 		return protocol.AttachmentInfo{}, nil, DecodeAPIError(response.StatusCode, body)
 	}
 	disposition, parameters, dispositionErr := mime.ParseMediaType(response.Header.Get("Content-Disposition"))
@@ -1055,7 +1061,7 @@ func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID st
 			cleanup()
 		}
 	}()
-	connection, err := c.connection()
+	connection, err := c.connection(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1083,6 +1089,9 @@ func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID st
 	if response.StatusCode != http.StatusOK {
 		defer response.Body.Close()
 		body, _ := io.ReadAll(response.Body)
+		if rejectedInstance(response.StatusCode, body) {
+			c.instanceRejected(connection)
+		}
 		return nil, &APIError{StatusCode: response.StatusCode, Message: strings.TrimSpace(string(body))}
 	}
 	if mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type")); err != nil || mediaType != "text/event-stream" {
@@ -1093,36 +1102,81 @@ func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID st
 	return &lifetimeReadCloser{ReadCloser: response.Body, operation: "read session event stream", cleanup: cleanup}, nil
 }
 
-// DoSessionRequest performs an authenticated, compatibility-checked session request.
+// DoSessionRequest performs an authenticated, compatibility-checked session
+// request. A request rejected because the server instance changed had no
+// effect; it is sent once more to the newly resolved instance when its body
+// can be replayed.
 func (c *Client) DoSessionRequest(ctx context.Context, method, path string, body io.Reader, hasJSONBody bool) (*http.Response, error) {
 	ctx, cleanup := c.operationContext(ctx)
-	connection, err := c.connection()
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	if err := CheckCompatibility(connection.ProtocolVersion, connection.KitVersion); err != nil {
-		cleanup()
-		return nil, err
-	}
-	request, err := http.NewRequestWithContext(ctx, method, connection.URL+path, body)
+	request, err := http.NewRequestWithContext(ctx, method, path, body)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("create daemon session request: %w", err)
 	}
+	for attempt := 0; ; attempt++ {
+		connection, err := c.connection(ctx)
+		if err != nil {
+			cleanup()
+			return nil, err
+		}
+		if err := CheckCompatibility(connection.ProtocolVersion, connection.KitVersion); err != nil {
+			cleanup()
+			return nil, err
+		}
+		attemptRequest, err := sessionRequestAttempt(ctx, request, connection, attempt)
+		if err != nil {
+			cleanup()
+			return nil, err
+		}
+		if hasJSONBody {
+			attemptRequest.Header.Set("Content-Type", "application/json")
+		}
+		response, err := c.sessionHTTP.Do(attemptRequest)
+		if err != nil {
+			cleanup()
+			return nil, transportError("call session API", err)
+		}
+		if response.StatusCode == http.StatusConflict {
+			rejected, err := io.ReadAll(io.LimitReader(response.Body, 64<<10))
+			_ = response.Body.Close()
+			if err != nil {
+				cleanup()
+				return nil, transportError("read session response", err)
+			}
+			if rejectedInstance(response.StatusCode, rejected) {
+				c.instanceRejected(connection)
+				if attempt == 0 && (request.Body == nil || request.GetBody != nil) {
+					continue
+				}
+			}
+			response.Body = io.NopCloser(bytes.NewReader(rejected))
+		}
+		response.Body = &lifetimeReadCloser{ReadCloser: response.Body, operation: "read session response", cleanup: cleanup}
+		return response, nil
+	}
+}
+
+// sessionRequestAttempt addresses template to connection, replaying its body
+// for a retry.
+func sessionRequestAttempt(ctx context.Context, template *http.Request, connection Connection, attempt int) (*http.Request, error) {
+	body := template.Body
+	if attempt > 0 && template.GetBody != nil {
+		replayed, err := template.GetBody()
+		if err != nil {
+			return nil, fmt.Errorf("replay daemon session request: %w", err)
+		}
+		body = replayed
+	}
+	request, err := http.NewRequestWithContext(ctx, template.Method, connection.URL+template.URL.String(), body)
+	if err != nil {
+		return nil, fmt.Errorf("create daemon session request: %w", err)
+	}
+	request.GetBody = template.GetBody
+	request.ContentLength = template.ContentLength
 	request.Header.Set("Authorization", "Bearer "+connection.Token)
 	request.Header.Set(instanceHeader, connection.InstanceID)
 	request.Header.Set(protocolHeader, strconv.Itoa(version.SessionProtocolVersion))
-	if hasJSONBody {
-		request.Header.Set("Content-Type", "application/json")
-	}
-	response, err := c.sessionHTTP.Do(request)
-	if err != nil {
-		cleanup()
-		return nil, transportError("call session API", err)
-	}
-	response.Body = &lifetimeReadCloser{ReadCloser: response.Body, operation: "read session response", cleanup: cleanup}
-	return response, nil
+	return request, nil
 }
 
 func (c *Client) sessionJSON(ctx context.Context, method, path string, input any, expectedStatus int, output any) error {

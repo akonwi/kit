@@ -18,6 +18,7 @@ import (
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/localdiscovery"
 	kitscratchpad "github.com/akonwi/kit/internal/scratchpad"
+	"github.com/akonwi/kit/internal/serveraccess"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -162,7 +163,7 @@ func TestPreRoutingErrorResponsesConformToContract(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			next := newHandler(localHandlerOptions{
-				baseURL: "http://example.com", expectedHost: "example.com", token: "test",
+				access: serveraccess.NewPolicy([]string{"example.com"}, nil), token: "test",
 				registry: localdiscovery.Registry{InstanceID: "instance_test"}, sessions: scratchpadWireTestService{},
 			})
 			var contractErr error
@@ -185,6 +186,42 @@ func TestPreRoutingErrorResponsesConformToContract(t *testing.T) {
 			}
 			if test.status == http.StatusUnauthorized && response.Header().Get("WWW-Authenticate") != "Bearer" {
 				t.Fatalf("WWW-Authenticate = %q", response.Header().Get("WWW-Authenticate"))
+			}
+		})
+	}
+}
+
+func TestHandlerAcceptsLoopbackOnAnyPortAndAllowedHostsAndOrigins(t *testing.T) {
+	record := protocol.Scratchpad{OwnerSessionID: "session_0123456789abcdef0123456789abcdef", Content: "shared", Revision: 1, UpdatedAt: "2026-03-23T12:34:56Z"}
+	next := newHandler(localHandlerOptions{
+		access: serveraccess.NewPolicy([]string{"studio.tail3f2a.ts.net"}, []string{"https://app.example.com"}), token: "test",
+		registry: localdiscovery.Registry{InstanceID: "instance_test"}, sessions: scratchpadWireTestService{record: record},
+	})
+	tests := []struct {
+		name, host, origin string
+		status             int
+	}{
+		{name: "loopback", host: "127.0.0.1:51234", status: http.StatusOK},
+		{name: "forwarded loopback port", host: "127.0.0.1:7001", status: http.StatusOK},
+		{name: "ipv6 loopback", host: "[::1]:7001", status: http.StatusOK},
+		{name: "allowed host", host: "studio.tail3f2a.ts.net", status: http.StatusOK},
+		{name: "allowed host with own origin", host: "studio.tail3f2a.ts.net", origin: "https://studio.tail3f2a.ts.net", status: http.StatusOK},
+		{name: "allowed origin", host: "studio.tail3f2a.ts.net", origin: "https://app.example.com", status: http.StatusOK},
+		{name: "unlisted host", host: "evil.example", status: http.StatusMisdirectedRequest},
+		{name: "unlisted origin", host: "studio.tail3f2a.ts.net", origin: "https://evil.example", status: http.StatusForbidden},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://example.com/v1/sessions/session_test/scratchpad", nil)
+			addContractRequestHeaders(request)
+			request.Host = test.host
+			if test.origin != "" {
+				request.Header.Set("Origin", test.origin)
+			}
+			response := httptest.NewRecorder()
+			next.ServeHTTP(response, request)
+			if response.Code != test.status {
+				t.Fatalf("status = %d, want %d; body = %s", response.Code, test.status, response.Body.String())
 			}
 		})
 	}

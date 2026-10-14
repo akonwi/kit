@@ -849,13 +849,15 @@ impl Controller {
     }
   }
 
-  // The footer's default content: the working directory with its Git
-  // status, once the status describes the current directory.
+  // The footer's default content: the attached server, then the working
+  // directory with its Git status, once the status describes the current
+  // directory.
   fn footer_location() footer::Location {
-    match self.vcs.CWD != "" and self.vcs.CWD == self.cwd() {
+    let location = match self.vcs.CWD != "" and self.vcs.CWD == self.cwd() {
       true => footer::VCSLocation(self.location, self.vcs.Status),
       false => footer::VCSLocation(self.location, self.no_vcs().Status),
     }
+    footer::WithServer(location, self.options.Server)
   }
 
   private fn no_vcs() protocol::SessionVCSStatus {
@@ -5878,6 +5880,25 @@ test fn git_status_applies_only_to_the_current_session_and_directory() Void!Str 
   testing::assert(
     subject.footer_location().Text == "~/next (feature)" and subject.footer_location().Base == "~/next",
     subject.footer_location().Text,
+  )
+}
+
+test fn the_footer_location_names_an_attached_server() Void!Str {
+  let effects = mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = controller(cli::TUIOptions{Server: "vps"}, test_host(effects), 1, "~/repo")
+  subject.active = true
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1", CWD: "/repo"}},
+  )
+  subject.apply_vcs(branch_status("/repo", "main", true))
+  let location = subject.footer_location()
+  testing::assert(
+    location.Server == "vps" and location.Text == "~/repo (main*)",
+    "{location.Server} {location.Text}",
   )
 }
 

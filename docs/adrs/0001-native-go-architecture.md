@@ -100,8 +100,7 @@ kit                  local client bootstrap + native TUI
 kit -p               print client
 kit --rpc             stdio protocol bridge/client
 kit web               embedded browser client gateway
-kit attach <server>   native TUI attached to a remote server
-kit serve             explicitly exposed remote server
+kit attach <server>   native TUI attached to another Kit server
 kit server ...        local daemon lifecycle commands
 kit __server          internal detached daemon role
 ```
@@ -345,12 +344,13 @@ be treated as trusted code.
 Kit is always single-user. It will not add accounts, organizations, tenant
 routing, or a cloud control plane.
 
-The private daemon listener remains loopback-only. Explicit remote serving uses
-a separate listener and token authentication. CLI clients use bearer
-credentials; a browser may exchange a token for a secure HTTP-only cookie.
-Non-loopback deployments require TLS from a trusted tunnel or reverse proxy
-unless the user makes an explicit insecure development choice. Host and Origin
-validation remain active.
+The daemon serves local and remote clients on one listener with token
+authentication. Its address defaults to loopback, and remote serving is an
+explicit configuration. Non-loopback deployments require TLS from a trusted
+tunnel or reverse proxy unless the user makes an explicit insecure development
+choice. Host and Origin validation remain active.
+[ADR 0045](./0045-connect-clients-to-local-ssh-and-network-servers.md)
+specifies the listener, credentials, pairing, and client connectors.
 
 ### Delivery
 

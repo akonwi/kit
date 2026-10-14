@@ -9,10 +9,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"unicode/utf8"
 
+	"github.com/akonwi/kit/internal/serveraccess"
+	"github.com/akonwi/kit/internal/serverlisten"
 	"github.com/akonwi/kit/internal/theme"
 	"golang.org/x/sys/unix"
 )
@@ -30,6 +33,15 @@ type Settings struct {
 	// ReadClaudeConfigs enables discovery of Claude Code configuration, which is
 	// a project's .claude/commands directory. It defaults to true.
 	ReadClaudeConfigs bool
+	// ServerListen is the daemon listen address from server.listen, or empty
+	// for the default loopback address on an ephemeral port.
+	ServerListen string
+	// ServerAllowedHosts are canonical hosts from server.allowedHosts that the
+	// daemon accepts in Host headers in addition to loopback addresses.
+	ServerAllowedHosts []string
+	// ServerAllowedOrigins are canonical origins from server.allowedOrigins
+	// that the daemon accepts in Origin headers in addition to its own host.
+	ServerAllowedOrigins []string
 
 	fields map[string]json.RawMessage
 }
@@ -250,6 +262,28 @@ func (s *Store) load() (Settings, []Warning, error) {
 			result.ReadClaudeConfigs = true
 		}
 	}
+	if raw, ok := fields["server"]; ok {
+		var server map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &server); err != nil || server == nil {
+			warnings = append(warnings, Warning{Field: "server", Err: errors.New("must be an object; ignoring")})
+		} else {
+			if encoded, ok := server["listen"]; ok {
+				var listen string
+				if err := json.Unmarshal(encoded, &listen); err != nil {
+					warnings = append(warnings, Warning{Field: "server.listen", Err: errors.New("must be a string; using " + serverlisten.Default)})
+				} else if address, err := serverlisten.Parse(listen); err != nil {
+					warnings = append(warnings, Warning{Field: "server.listen", Err: fmt.Errorf("%w; using %s", err, serverlisten.Default)})
+				} else {
+					result.ServerListen = address.String()
+				}
+			}
+			var listWarnings []Warning
+			result.ServerAllowedHosts, listWarnings = loadStringList(server, "allowedHosts", serveraccess.ParseHost)
+			warnings = append(warnings, listWarnings...)
+			result.ServerAllowedOrigins, listWarnings = loadStringList(server, "allowedOrigins", serveraccess.ParseOrigin)
+			warnings = append(warnings, listWarnings...)
+		}
+	}
 	if raw, ok := fields["modelOverrides"]; ok {
 		var overrides map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &overrides); err != nil {
@@ -307,13 +341,44 @@ func (s *Store) write(fields map[string]json.RawMessage) error {
 	return nil
 }
 
+// loadStringList decodes server.<name> as a list of strings, canonicalizing
+// each with parse. Invalid entries are dropped with a warning; duplicates are
+// removed.
+func loadStringList(server map[string]json.RawMessage, name string, parse func(string) (string, error)) ([]string, []Warning) {
+	encoded, ok := server[name]
+	if !ok {
+		return nil, nil
+	}
+	field := "server." + name
+	var values []string
+	if err := json.Unmarshal(encoded, &values); err != nil {
+		return nil, []Warning{{Field: field, Err: errors.New("must be a list of strings; ignoring")}}
+	}
+	var result []string
+	var warnings []Warning
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		canonical, err := parse(value)
+		if err != nil {
+			warnings = append(warnings, Warning{Field: field, Err: fmt.Errorf("%w; ignoring", err)})
+			continue
+		}
+		if !seen[canonical] {
+			seen[canonical] = true
+			result = append(result, canonical)
+		}
+	}
+	return result, warnings
+}
+
 func defaultSettings() Settings {
 	return Settings{Theme: theme.SystemName, PromptCacheRetention: PromptCacheShort, ReadClaudeConfigs: true, fields: make(map[string]json.RawMessage)}
 }
 
 func cloneSettings(source Settings) Settings {
 	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, CompactionModel: source.CompactionModel, DiffWrapLines: source.DiffWrapLines,
-		PromptCacheRetention: source.PromptCacheRetention, ReadClaudeConfigs: source.ReadClaudeConfigs, fields: make(map[string]json.RawMessage, len(source.fields))}
+		PromptCacheRetention: source.PromptCacheRetention, ReadClaudeConfigs: source.ReadClaudeConfigs, ServerListen: source.ServerListen,
+		ServerAllowedHosts: slices.Clone(source.ServerAllowedHosts), ServerAllowedOrigins: slices.Clone(source.ServerAllowedOrigins), fields: make(map[string]json.RawMessage, len(source.fields))}
 	if source.ModelOverrides != nil {
 		result.ModelOverrides = make(map[string]ModelOverride, len(source.ModelOverrides))
 		for selector, override := range source.ModelOverrides {

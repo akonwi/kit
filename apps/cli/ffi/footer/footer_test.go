@@ -222,3 +222,31 @@ func TestABranchWithoutPullRequestStaysWhole(t *testing.T) {
 		}
 	}
 }
+
+func TestTheServerLeadsTheLocation(t *testing.T) {
+	location := WithServer(VCSLocation("~/projects/kit", &protocol.VCSStatus{
+		Head: protocol.VCSHead{Kind: protocol.VCSHeadBranch, Name: "main"}, Dirty: true,
+	}), "vps")
+	for _, test := range []struct {
+		name   string
+		footer protocol.PluginFooter
+		width  int
+		want   string
+	}{
+		{name: "wide", width: 80, want: "vps · ~/projects/kit (main*)"},
+		{name: "directory shortens first", width: 20, want: "vps · …s/kit (main*)"},
+		{name: "git status outlasts the directory", width: 14, want: "vps · (main*)"},
+		{name: "only the server fits", width: 6, want: "vps"},
+		{name: "server shortened last", width: 2, want: "…s"},
+		{name: "beside items", footer: items("plugin"), width: 40, want: "vps · ~/projects/kit (main*) · plugin"},
+		{name: "plugin hides the location", footer: protocol.PluginFooter{LocationHidden: true}, width: 40, want: "vps"},
+		{name: "plugin hides the location beside items", footer: protocol.PluginFooter{LocationHidden: true, Items: items("plugin").Items}, width: 40, want: "vps · plugin"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, _ := shown(Spans(test.footer, location, test.width))
+			if got != test.want {
+				t.Fatalf("Spans(width %d) = %q, want %q", test.width, got, test.want)
+			}
+		})
+	}
+}

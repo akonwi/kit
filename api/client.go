@@ -11,6 +11,7 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/localdiscovery"
+	"github.com/akonwi/kit/internal/serveridentity"
 )
 
 // ErrClientClosed indicates an operation attempted after Client.Close.
@@ -22,14 +23,18 @@ var ErrIncompatibleServer = clienttransport.ErrIncompatibleServer
 // CompatibilityError describes an authenticated server incompatibility.
 type CompatibilityError = clienttransport.CompatibilityError
 
+// ErrServerChanged indicates that a different Kit server now answers at an
+// explicitly addressed endpoint than the one the client first connected to.
+var ErrServerChanged = clienttransport.ErrServerChanged
+
 // Credential is an opaque server access credential.
 type Credential struct {
-	token, instanceID string
+	token string
 }
 
 // AccessToken creates credentials for an explicitly addressed Kit server.
-func AccessToken(token, instanceID string) Credential {
-	return Credential{token: token, instanceID: instanceID}
+func AccessToken(token string) Credential {
+	return Credential{token: token}
 }
 
 type targetKind uint8
@@ -37,6 +42,7 @@ type targetKind uint8
 const (
 	targetInvalid targetKind = iota
 	targetLocal
+	targetHome
 	targetEndpoint
 )
 
@@ -50,7 +56,14 @@ type Target struct {
 // Local discovers the registered daemon under the effective Kit home.
 func Local() Target { return Target{kind: targetLocal} }
 
-// Endpoint addresses one explicit Kit server.
+// Home discovers the daemon registered under another Kit home, such as an
+// isolated development home. Like every target, it never starts, replaces,
+// or stops that daemon, and it follows the daemon across restarts.
+func Home(path string) Target { return Target{kind: targetHome, address: path} }
+
+// Endpoint addresses one explicit Kit server. The client learns the running
+// server instance, follows it across restarts, and fails with
+// ErrServerChanged if a different server answers at the address.
 func Endpoint(address string, credential Credential) Target {
 	return Target{kind: targetEndpoint, address: address, credential: credential}
 }
@@ -85,6 +98,8 @@ type Client struct {
 	cancel         context.CancelFunc
 	closed         bool
 	closeTransport func()
+	// localMachineID derives this client's machine identifier. Tests replace it.
+	localMachineID func() (string, error)
 }
 
 // Connect authenticates and verifies a compatible server without managing its lifecycle.
@@ -112,15 +127,26 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 		transport = clienttransport.New(func() (clienttransport.Connection, error) {
 			return localdiscovery.Resolve(paths)
 		})
+	case targetHome:
+		if strings.TrimSpace(target.address) == "" {
+			return nil, errors.New("Kit home path is required")
+		}
+		paths, err := apphome.Resolve(target.address)
+		if err != nil {
+			return nil, fmt.Errorf("resolve Kit home: %w", err)
+		}
+		transport = clienttransport.New(func() (clienttransport.Connection, error) {
+			return localdiscovery.Resolve(paths)
+		})
 	case targetEndpoint:
 		address, err := validateEndpoint(target.address)
 		if err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(target.credential.token) == "" || strings.TrimSpace(target.credential.instanceID) == "" {
-			return nil, errors.New("endpoint token and instance id are required")
+		if strings.TrimSpace(target.credential.token) == "" {
+			return nil, errors.New("endpoint token is required")
 		}
-		transport = clienttransport.NewEndpoint(address, target.credential.token, target.credential.instanceID)
+		transport = clienttransport.NewEndpoint(address, target.credential.token)
 	default:
 		return nil, errors.New("Kit server target is invalid")
 	}
@@ -137,7 +163,7 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 
 func newClient(transport operationTransport, closeTransport func()) *Client {
 	lifetime, cancel := context.WithCancel(context.Background())
-	return &Client{transport: transport, lifetime: lifetime, cancel: cancel, closeTransport: closeTransport}
+	return &Client{transport: transport, lifetime: lifetime, cancel: cancel, closeTransport: closeTransport, localMachineID: localMachineID}
 }
 
 func validateEndpoint(address string) (string, error) {
@@ -287,6 +313,57 @@ func (c *Client) ProbeCompatibility(ctx context.Context) error {
 	}
 	_, err = c.compatibility.ProbeCompatible(operation)
 	return projectError(err)
+}
+
+// ServerInfo describes the server a Client is connected to.
+type ServerInfo struct {
+	// ID identifies the server's Kit home across server restarts.
+	ID string
+	// KitVersion is the server's Kit release label.
+	KitVersion string
+	// ProtocolVersion is the server's session protocol version.
+	ProtocolVersion int
+	// Home is the server user's home directory, for presenting server paths.
+	Home string
+	// SameMachine reports whether the server runs on this client's machine.
+	// It is false when this client's machine identifier is unavailable.
+	SameMachine bool
+}
+
+// Server verifies that the connected server remains ready and compatible and
+// returns its identity.
+func (c *Client) Server(ctx context.Context) (ServerInfo, error) {
+	operation, cancel, err := c.operationContext(ctx)
+	if err != nil {
+		return ServerInfo{}, err
+	}
+	defer cancel()
+	if c.compatibility == nil {
+		return ServerInfo{}, errors.New("compatibility transport is unavailable")
+	}
+	connection, err := c.compatibility.ProbeCompatible(operation)
+	if err != nil {
+		return ServerInfo{}, projectError(err)
+	}
+	return ServerInfo{
+		ID: connection.ServerID, KitVersion: connection.KitVersion, ProtocolVersion: connection.ProtocolVersion,
+		Home: connection.Home, SameMachine: c.isLocalMachine(connection.MachineID),
+	}, nil
+}
+
+func (c *Client) isLocalMachine(serverMachineID string) bool {
+	local, err := c.localMachineID()
+	return err == nil && local != "" && local == serverMachineID
+}
+
+// localMachineID derives this client's machine identifier from the effective
+// Kit home, matching how a server on this machine derives its own.
+func localMachineID() (string, error) {
+	paths, err := apphome.Resolve("")
+	if err != nil {
+		return "", err
+	}
+	return serveridentity.MachineID(paths)
 }
 
 // Models returns the server's model catalog.

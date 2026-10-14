@@ -30,6 +30,9 @@ import (
 	"github.com/akonwi/kit/internal/mcpruntime"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
+	"github.com/akonwi/kit/internal/serveraccess"
+	"github.com/akonwi/kit/internal/serveridentity"
+	"github.com/akonwi/kit/internal/serverlisten"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/sessiontool"
 	"github.com/akonwi/kit/internal/settings"
@@ -58,6 +61,9 @@ type RunOptions struct {
 	Providers         droids.Providers
 	CredentialSources map[string]localdiscovery.CredentialSource
 	SystemPrompt      string
+	// Listen overrides the server.listen setting for this process. Empty uses
+	// the setting, or loopback on an ephemeral port when it is unset.
+	Listen string
 }
 
 // Run serves the authenticated local daemon until cancellation or shutdown.
@@ -311,11 +317,26 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err := sessionManager.StartPeerQueries(ctx); err != nil {
 		return fmt.Errorf("start peer query delivery: %w", err)
 	}
-	listener, err = net.Listen("tcp4", "127.0.0.1:0")
+	address, err := listenAddress(options.Listen, settingsStore, logger)
 	if err != nil {
-		return fmt.Errorf("listen on loopback: %w", err)
+		return err
+	}
+	listener, err = address.Listen()
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", address, err)
+	}
+	baseURL, err := address.LoopbackURL(listener.Addr())
+	if err != nil {
+		return err
+	}
+	if address.Exposed() {
+		logger.Warn("daemon listens beyond loopback", "address", address.String())
 	}
 
+	identity, err := loadServerIdentity(paths)
+	if err != nil {
+		return err
+	}
 	token, err := newToken()
 	if err != nil {
 		return err
@@ -325,7 +346,6 @@ func Run(ctx context.Context, options RunOptions) error {
 		return err
 	}
 	startedAt := time.Now().UTC()
-	baseURL := "http://" + listener.Addr().String()
 	registry := localdiscovery.Registry{
 		RegistryVersion:   version.LocalRegistryVersion,
 		ProtocolVersion:   version.SessionProtocolVersion,
@@ -347,10 +367,10 @@ func Run(ctx context.Context, options RunOptions) error {
 	streamShutdown, endStreams := context.WithCancel(context.Background())
 	defer endStreams()
 	handler := newHandler(localHandlerOptions{
-		baseURL:        baseURL,
 		streamShutdown: streamShutdown,
-		expectedHost:   listener.Addr().String(),
+		access:         accessPolicy(settingsStore, logger),
 		registry:       registry,
+		identity:       identity,
 		token:          token,
 		store:          store,
 		logger:         logger,
@@ -418,15 +438,16 @@ func Run(ctx context.Context, options RunOptions) error {
 }
 
 type localHandlerOptions struct {
-	baseURL      string
-	expectedHost string
-	registry     localdiscovery.Registry
-	token        string
-	store        *storage.Store
-	sessions     sessionService
-	attachments  attachmentService
-	providers    func(context.Context) []string
-	requestStop  func()
+	// access decides which Host and Origin headers name this daemon.
+	access      serveraccess.Policy
+	registry    localdiscovery.Registry
+	identity    serverIdentity
+	token       string
+	store       *storage.Store
+	sessions    sessionService
+	attachments attachmentService
+	providers   func(context.Context) []string
+	requestStop func()
 	// streamShutdown ends open event streams when it is done.
 	streamShutdown context.Context
 	// logger receives causes of failed requests; nil disables reporting.
@@ -449,6 +470,7 @@ func newHandler(options localHandlerOptions) http.Handler {
 			InstanceID: options.registry.InstanceID, PID: options.registry.PID,
 			KitVersion: options.registry.KitVersion, ProtocolVersion: options.registry.ProtocolVersion,
 			DatabaseReady: options.store.Ready(ctx) == nil, Providers: options.providers(ctx),
+			ServerID: options.identity.serverID, MachineID: options.identity.machineID, Home: options.identity.home,
 		}, nil
 	})
 	httpapi.Handle(mux, lifecycleOptions, httpapi.Shutdown, func(context.Context, httpapi.ServerPath, httpapi.NoBody) (httpapi.ShutdownResult, error) {
@@ -463,11 +485,11 @@ func newHandler(options localHandlerOptions) http.Handler {
 	}
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Host != options.expectedHost {
+		if !options.access.HostAllowed(request.Host) {
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusMisdirectedRequest, httpapi.ErrorInvalidHost, "invalid host", nil))
 			return
 		}
-		if origin := request.Header.Get("Origin"); origin != "" && origin != options.baseURL {
+		if !options.access.OriginAllowed(request.Header.Get("Origin"), request.Host) {
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusForbidden, httpapi.ErrorForbidden, "forbidden", nil))
 			return
 		}
@@ -479,7 +501,11 @@ func newHandler(options localHandlerOptions) http.Handler {
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusUnauthorized, httpapi.ErrorUnauthorized, "unauthorized", nil))
 			return
 		}
-		if subtle.ConstantTimeCompare(
+		// Health without an instance header is how an explicitly addressed
+		// client learns the running instance; every other request is bound to it.
+		learningInstance := httpapi.GetHealth.OptionalInstance && request.Method == httpapi.GetHealth.Method &&
+			request.URL.Path == httpapi.GetHealth.Path && len(request.Header.Values(instanceHeader)) == 0
+		if !learningInstance && subtle.ConstantTimeCompare(
 			[]byte(request.Header.Get(instanceHeader)),
 			[]byte(options.registry.InstanceID),
 		) != 1 {
@@ -662,6 +688,70 @@ func writeJSON(writer http.ResponseWriter, status int, value any) {
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.WriteHeader(status)
 	_ = json.NewEncoder(writer).Encode(value)
+}
+
+// listenAddress selects the explicit override, then the server.listen
+// setting, then the default loopback address. An invalid override fails
+// startup; an invalid setting falls back to the default with a warning.
+func listenAddress(override string, store *settings.Store, logger *slog.Logger) (serverlisten.Address, error) {
+	if override != "" {
+		address, err := serverlisten.Parse(override)
+		if err != nil {
+			return serverlisten.Address{}, err
+		}
+		return address, nil
+	}
+	current, warnings, err := store.Load()
+	if err != nil {
+		logger.Warn("settings unavailable; listening on the default address", "error", err)
+		return serverlisten.MustParse(serverlisten.Default), nil
+	}
+	for _, warning := range warnings {
+		if warning.Field == "server" || warning.Field == "server.listen" {
+			logger.Warn("ignoring invalid listen setting", "error", warning)
+		}
+	}
+	if current.ServerListen == "" {
+		return serverlisten.MustParse(serverlisten.Default), nil
+	}
+	return serverlisten.MustParse(current.ServerListen), nil
+}
+
+// accessPolicy reads the allowed hosts and origins from settings. Settings
+// that cannot be read leave only loopback hosts and same-host origins.
+func accessPolicy(store *settings.Store, logger *slog.Logger) serveraccess.Policy {
+	current, warnings, err := store.Load()
+	if err != nil {
+		logger.Warn("settings unavailable; accepting only loopback hosts", "error", err)
+		return serveraccess.Policy{}
+	}
+	for _, warning := range warnings {
+		if warning.Field == "server.allowedHosts" || warning.Field == "server.allowedOrigins" {
+			logger.Warn("ignoring invalid access setting", "error", warning)
+		}
+	}
+	return serveraccess.NewPolicy(current.ServerAllowedHosts, current.ServerAllowedOrigins)
+}
+
+// serverIdentity is the stable identity reported through health.
+type serverIdentity struct {
+	serverID, machineID, home string
+}
+
+func loadServerIdentity(paths apphome.Paths) (serverIdentity, error) {
+	serverID, err := serveridentity.ServerID(paths)
+	if err != nil {
+		return serverIdentity{}, fmt.Errorf("load server id: %w", err)
+	}
+	machineID, err := serveridentity.MachineID(paths)
+	if err != nil {
+		return serverIdentity{}, fmt.Errorf("load machine id: %w", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return serverIdentity{}, fmt.Errorf("resolve server user home: %w", err)
+	}
+	return serverIdentity{serverID: serverID, machineID: machineID, home: filepath.Clean(home)}, nil
 }
 
 func newToken() (string, error) {

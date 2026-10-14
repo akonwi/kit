@@ -25,6 +25,10 @@ type commandDependencies struct {
 	internalServer  func(context.Context, []string, io.Writer) int
 	auth            func(context.Context, []string, io.Writer, io.Writer) int
 	server          func(context.Context, []string, io.Writer, io.Writer) int
+	servers         func(context.Context, []string, io.Writer, io.Writer) int
+	// attach runs the terminal client for the named server, or picks one when
+	// the name is empty.
+	attach func(context.Context, interactiveOptions, string, io.Writer, io.Writer) int
 }
 
 func defaultCommandDependencies() commandDependencies {
@@ -35,6 +39,7 @@ func defaultCommandDependencies() commandDependencies {
 		internalServer:  runInternalServer,
 		auth:            runAuthCommand,
 		server:          runServerCommand,
+		servers:         runServersCommand,
 	}
 }
 
@@ -145,6 +150,8 @@ func newRootCommand(deps commandDependencies) *cobra.Command {
 		newPrintCommand(deps),
 		newAuthCommand(deps),
 		newServerCommand(deps),
+		newServersCommand(deps),
+		newAttachCommand(deps),
 		newVersionCommand(),
 		newInternalServerCommand(deps),
 	)
@@ -349,20 +356,82 @@ func newServerCommand(deps commandDependencies) *cobra.Command {
 	}
 	for _, action := range []struct {
 		name, description string
+		listen            bool
 	}{
-		{name: "start", description: "Start or discover the server"},
+		{name: "start", description: "Start or discover the server", listen: true},
 		{name: "status", description: "Inspect server status"},
 		{name: "stop", description: "Stop the server"},
-		{name: "restart", description: "Restart the server"},
+		{name: "restart", description: "Restart the server", listen: true},
 	} {
 		action := action
-		command.AddCommand(&cobra.Command{
+		var listen string
+		subcommand := &cobra.Command{
 			Use: action.name, Short: action.description, Args: cobra.NoArgs,
 			RunE: func(command *cobra.Command, _ []string) error {
-				return resultForCode(deps.server(command.Context(), []string{action.name}, command.OutOrStdout(), command.ErrOrStderr()))
+				arguments := []string{action.name}
+				if listen != "" {
+					arguments = append(arguments, "--listen", listen)
+				}
+				return resultForCode(deps.server(command.Context(), arguments, command.OutOrStdout(), command.ErrOrStderr()))
 			},
-		})
+		}
+		if action.listen {
+			subcommand.Flags().StringVar(&listen, "listen", "", "listen on host:port instead of the server.listen setting")
+		}
+		command.AddCommand(subcommand)
 	}
+	return command
+}
+
+func newServersCommand(deps commandDependencies) *cobra.Command {
+	run := func(command *cobra.Command, arguments []string) error {
+		return resultForCode(deps.servers(command.Context(), arguments, command.OutOrStdout(), command.ErrOrStderr()))
+	}
+	command := &cobra.Command{
+		Use: "servers", Short: "Manage the servers kit attach connects to", Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error { return run(command, []string{"list"}) },
+	}
+	command.AddCommand(
+		&cobra.Command{
+			Use: "list", Aliases: []string{"ls"}, Short: "List saved servers and their status", Args: cobra.NoArgs,
+			RunE: func(command *cobra.Command, _ []string) error { return run(command, []string{"list"}) },
+		},
+		&cobra.Command{
+			Use: "add NAME HOME", Short: "Save a Kit home's server under a name", Args: cobra.ExactArgs(2),
+			RunE: func(command *cobra.Command, arguments []string) error {
+				return run(command, append([]string{"add"}, arguments...))
+			},
+		},
+		&cobra.Command{
+			Use: "remove NAME", Aliases: []string{"rm"}, Short: "Forget a saved server", Args: cobra.ExactArgs(1),
+			RunE: func(command *cobra.Command, arguments []string) error {
+				return run(command, append([]string{"remove"}, arguments...))
+			},
+		},
+	)
+	return command
+}
+
+func newAttachCommand(deps commandDependencies) *cobra.Command {
+	var options interactiveOptions
+	command := &cobra.Command{
+		Use:   "attach [SERVER]",
+		Short: "Launch the TUI for another Kit server",
+		Long: "Launch the TUI for a saved server, \"local\" for this home's server, or a Kit home path.\n" +
+			"Without SERVER, pick from the saved servers. Attaching never starts or stops a server.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if err := validateInteractiveOptions(options, false); err != nil {
+				return err
+			}
+			server := ""
+			if len(arguments) == 1 {
+				server = arguments[0]
+			}
+			return resultForCode(deps.attach(command.Context(), options, server, command.OutOrStdout(), command.ErrOrStderr()))
+		},
+	}
+	bindInteractiveFlags(command, &options)
 	return command
 }
 

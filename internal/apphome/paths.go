@@ -26,6 +26,10 @@ type Paths struct {
 	MCPAuth   string
 	Settings  string
 	MCPConfig string
+	ServerID  string
+	MachineID string
+	// SavedServers lists the servers this home's clients can attach to.
+	SavedServers string
 
 	Agents            string
 	Attachments       string
@@ -83,6 +87,10 @@ func FromHome(home string) Paths {
 		MCPAuth:   filepath.Join(home, "mcp-auth.json"),
 		Settings:  filepath.Join(home, "settings.json"),
 		MCPConfig: filepath.Join(home, "mcp.json"),
+		ServerID:  filepath.Join(home, "server-id"),
+		MachineID: filepath.Join(home, "machine-id"),
+
+		SavedServers: filepath.Join(home, "servers.json"),
 
 		Agents:            filepath.Join(home, "agents"),
 		Attachments:       filepath.Join(home, "attachments"),

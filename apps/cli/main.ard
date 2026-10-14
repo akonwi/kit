@@ -75,10 +75,36 @@ fn main() {
   os::Exit(exit_code)
 }
 
-// Runs an interactive command: `kit sessions` first picks a session in an
-// inline picker, then the terminal client attaches to it. Go prepares the
-// session and reports failures; the terminal apps run here.
+// Runs an interactive command: `kit attach` without a server first picks one,
+// and `kit sessions` first picks a session, each in an inline picker; then the
+// terminal client attaches to the choice. Go prepares the session and reports
+// failures; the terminal apps run here.
 fn interactive(ctx: context::Context, invocation: cli::Invocation) Int {
+  match invocation.Kind == cli::InvocationServers {
+    true => {
+      match tui::pick_server(invocation.Servers(), cli::PickerTheme()) {
+        ok(name) => {
+          match {
+            name != "" => {
+              let attached = cli::Attach(invocation, name, os::Stderr)
+              match attached.Kind == cli::InvocationExit {
+                true => attached.ExitCode,
+                false => interactive(ctx, attached),
+              }
+            },
+            contextbridge::Done(ctx) => 130,
+            _ => 0,
+          }
+        },
+        err(failure) => cli::PickerFailure(ctx, failure.error(), os::Stderr),
+      }
+    },
+    false => attach(ctx, invocation),
+  }
+}
+
+// Runs an interactive command for its server.
+fn attach(ctx: context::Context, invocation: cli::Invocation) Int {
   let environment = cli::OpenEnvironment(ctx, invocation, os::Stderr)
   defer environment.Close()
   match {

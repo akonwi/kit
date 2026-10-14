@@ -81,11 +81,13 @@ Usage:
   kit [command]
 
 Available Commands:
+  attach      Launch the TUI for another Kit server
   auth        Manage provider credentials
   help        Help about any command
   new         Create a persisted session and launch the TUI
   print       Run one headless turn
   server      Manage the local Kit server
+  servers     Manage the servers kit attach connects to
   sessions    Manage and open saved sessions
   version     Print version information
 
@@ -330,6 +332,39 @@ func TestServerCommandsDispatchLifecycleActions(t *testing.T) {
 				t.Fatalf("server %s: exit = %d, dispatched = %q, stderr = %q", action, code, got, stderr.String())
 			}
 		})
+	}
+}
+
+func TestServerStartAndRestartForwardListen(t *testing.T) {
+	t.Parallel()
+	for _, action := range []string{"start", "restart"} {
+		var got []string
+		deps := commandDependencies{server: func(_ context.Context, args []string, _, _ io.Writer) int {
+			got = args
+			return 0
+		}}
+		var stdout, stderr bytes.Buffer
+		code := executeCommand(context.Background(), []string{"server", action, "--listen", "127.0.0.1:7777"}, &stdout, &stderr, deps)
+		want := []string{action, "--listen", "127.0.0.1:7777"}
+		if code != 0 || strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Fatalf("server %s --listen: exit = %d, dispatched = %q, want %q, stderr = %q", action, code, got, want, stderr.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	deps := commandDependencies{server: func(context.Context, []string, io.Writer, io.Writer) int { return 0 }}
+	if code := executeCommand(context.Background(), []string{"server", "stop", "--listen", "127.0.0.1:7777"}, &stdout, &stderr, deps); code == 0 {
+		t.Fatal("server stop accepted --listen")
+	}
+}
+
+func TestServerCommandRejectsUnreachableListenAddress(t *testing.T) {
+	t.Setenv("KIT_HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	if code := runServerCommand(context.Background(), []string{"start", "--listen", "192.168.1.10:7777"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("exit = %d, want 2; stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "loopback address or 0.0.0.0/::") {
+		t.Fatalf("stderr = %q, want the listen address rule", stderr.String())
 	}
 }
 

@@ -463,3 +463,71 @@ func TestLoadMissingSettingsReadsClaudeConfigs(t *testing.T) {
 		t.Fatalf("Load() readClaudeConfigs = %v, %v; want true", settings.ReadClaudeConfigs, err)
 	}
 }
+
+func TestLoadServerListen(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		document string
+		listen   string
+		warning  string
+	}{
+		{document: `{}`},
+		{document: `{"server":{"listen":"127.0.0.1:7777"}}`, listen: "127.0.0.1:7777"},
+		{document: `{"server":{"listen":"0.0.0.0:7777"}}`, listen: "0.0.0.0:7777"},
+		{document: `{"server":{"listen":"192.168.1.10:7777"}}`, warning: "server.listen"},
+		{document: `{"server":{"listen":7777}}`, warning: "server.listen"},
+		{document: `{"server":"127.0.0.1:7777"}`, warning: "server"},
+	}
+	for _, test := range cases {
+		path := filepath.Join(t.TempDir(), "settings.json")
+		if err := os.WriteFile(path, []byte(test.document), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		loaded, warnings, err := newTestStore(t, path).Load()
+		if err != nil {
+			t.Fatalf("%s: Load() error = %v", test.document, err)
+		}
+		if loaded.ServerListen != test.listen {
+			t.Errorf("%s: ServerListen = %q, want %q", test.document, loaded.ServerListen, test.listen)
+		}
+		if test.warning == "" && len(warnings) != 0 || test.warning != "" && (len(warnings) != 1 || warnings[0].Field != test.warning) {
+			t.Errorf("%s: warnings = %+v, want field %q", test.document, warnings, test.warning)
+		}
+	}
+}
+
+func TestLoadServerAllowedHostsAndOrigins(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	document := `{"server":{
+		"allowedHosts":["Studio.Tail3f2a.TS.net","studio.tail3f2a.ts.net","bad_host","192.168.1.10"],
+		"allowedOrigins":["https://Studio.Tail3f2a.ts.net","https://studio.tail3f2a.ts.net/path"]
+	}}`
+	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, warnings, err := newTestStore(t, path).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(loaded.ServerAllowedHosts, ","); got != "studio.tail3f2a.ts.net,192.168.1.10" {
+		t.Errorf("ServerAllowedHosts = %q", got)
+	}
+	if got := strings.Join(loaded.ServerAllowedOrigins, ","); got != "https://studio.tail3f2a.ts.net" {
+		t.Errorf("ServerAllowedOrigins = %q", got)
+	}
+	if len(warnings) != 2 || warnings[0].Field != "server.allowedHosts" || warnings[1].Field != "server.allowedOrigins" {
+		t.Errorf("warnings = %+v, want one each for the invalid host and origin", warnings)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"server":{"allowedHosts":"studio.ts.net"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, warnings, err = newTestStore(t, path).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ServerAllowedHosts != nil || len(warnings) != 1 || warnings[0].Field != "server.allowedHosts" {
+		t.Errorf("non-list allowedHosts: hosts = %q, warnings = %+v", loaded.ServerAllowedHosts, warnings)
+	}
+}

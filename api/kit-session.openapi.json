@@ -1621,10 +1621,16 @@
           "databaseReady": {
             "type": "boolean"
           },
+          "home": {
+            "type": "string"
+          },
           "instanceId": {
             "type": "string"
           },
           "kitVersion": {
+            "type": "string"
+          },
+          "machineId": {
             "type": "string"
           },
           "pid": {
@@ -1638,6 +1644,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "serverId": {
+            "type": "string"
           }
         },
         "required": [
@@ -1646,7 +1655,10 @@
           "kitVersion",
           "protocolVersion",
           "databaseReady",
-          "providers"
+          "providers",
+          "serverId",
+          "machineId",
+          "home"
         ],
         "type": "object"
       },
@@ -5123,7 +5135,7 @@
   },
   "info": {
     "title": "Kit Session API",
-    "version": "45"
+    "version": "46"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5134,7 +5146,7 @@
           {
             "in": "header",
             "name": "X-Kit-Instance-ID",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -5354,7 +5366,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -5574,7 +5586,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -5794,7 +5806,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -6078,7 +6090,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -6399,7 +6411,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -6709,7 +6721,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -7022,7 +7034,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -7380,7 +7392,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -7719,7 +7731,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -8055,7 +8067,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -8433,7 +8445,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -8813,7 +8825,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -9138,7 +9150,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -9463,7 +9475,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -9806,7 +9818,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -10135,7 +10147,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -10462,7 +10474,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -10789,7 +10801,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -11124,7 +11136,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -11511,7 +11523,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -11898,7 +11910,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -12256,7 +12268,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -12700,7 +12712,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -13144,7 +13156,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -13580,7 +13592,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -14024,7 +14036,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -14332,7 +14344,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -14725,7 +14737,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -15134,7 +15146,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -15580,7 +15592,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -15938,7 +15950,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -16333,7 +16345,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -16737,7 +16749,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -17092,7 +17104,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -17447,7 +17459,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -17766,7 +17778,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -18087,7 +18099,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -18465,7 +18477,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -18833,7 +18845,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -19228,7 +19240,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -19600,7 +19612,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -19968,7 +19980,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -20353,7 +20365,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -20730,7 +20742,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -21107,7 +21119,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -21494,7 +21506,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -21881,7 +21893,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -22268,7 +22280,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -22655,7 +22667,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -23042,7 +23054,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -23427,7 +23439,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -23812,7 +23824,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -24131,7 +24143,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -24486,7 +24498,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -24924,7 +24936,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }
@@ -25372,7 +25384,7 @@
             "required": true,
             "schema": {
               "enum": [
-                45
+                46
               ],
               "type": "integer"
             }

@@ -383,7 +383,7 @@ func readBoundVCS(ctx context.Context, body io.Reader, sessionID string, receive
 }
 
 func classifyStreamWatchError(err error) error {
-	if errors.Is(err, clienttransport.ErrIncompatibleServer) {
+	if errors.Is(err, clienttransport.ErrIncompatibleServer) || errors.Is(err, clienttransport.ErrServerChanged) {
 		return &StreamWatchTerminalError{Err: projectError(err)}
 	}
 	var frame *clienttransport.StreamError
@@ -1422,7 +1422,7 @@ func (r *Turn) Wait(ctx context.Context) (protocol.PromptOutcome, error) {
 }
 
 func retryablePollingError(err error) bool {
-	if err == nil || errors.Is(err, clienttransport.ErrIncompatibleServer) {
+	if err == nil || errors.Is(err, clienttransport.ErrIncompatibleServer) || errors.Is(err, clienttransport.ErrServerChanged) {
 		return false
 	}
 	var apiError *clienttransport.APIError

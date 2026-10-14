@@ -27,6 +27,9 @@ const (
 	// InvocationSessions picks a saved session, then runs the terminal client
 	// attached to it.
 	InvocationSessions = "sessions"
+	// InvocationServers picks a saved server, then runs the terminal client
+	// attached to it.
+	InvocationServers = "servers"
 )
 
 // Invocation is a parsed command line. Headless commands run during Parse;
@@ -35,7 +38,11 @@ type Invocation struct {
 	Kind     string
 	ExitCode int
 	options  interactiveOptions
+	servers  []ServerChoice
 }
+
+// Servers lists the servers an InvocationServers picks from.
+func (i Invocation) Servers() []ServerChoice { return i.servers }
 
 // Parse runs Kit's command tree. Help, usage errors, and headless commands
 // (print, auth, server, version) run here and report their exit code; the
@@ -49,6 +56,28 @@ func Parse(ctx context.Context, args []string, stdout, stderr io.Writer) Invocat
 	}
 	deps.sessions = func(_ context.Context, options interactiveOptions, _, _ io.Writer) int {
 		invocation = Invocation{Kind: InvocationSessions, options: options}
+		return 0
+	}
+	deps.attach = func(ctx context.Context, options interactiveOptions, server string, _, stderr io.Writer) int {
+		if server == "" {
+			choices, err := serverChoices(ctx)
+			if err != nil {
+				fmt.Fprintf(stderr, "kit: %v\n", err)
+				return 1
+			}
+			if len(choices) == 0 {
+				fmt.Fprintln(stderr, "kit: no saved servers; add one with `kit servers add NAME HOME`")
+				return 2
+			}
+			invocation = Invocation{Kind: InvocationServers, options: options, servers: choices}
+			return 0
+		}
+		target, err := resolveAttachTarget(server)
+		if err != nil {
+			return reportAttachError(stderr, err)
+		}
+		options.Server = target
+		invocation = Invocation{Kind: InvocationInteractive, options: options}
 		return 0
 	}
 	code := executeCommand(ctx, args, stdout, stderr, deps)
@@ -66,6 +95,29 @@ func Open(invocation Invocation, sessionID string) Invocation {
 	return invocation
 }
 
+// Attach returns the invocation as an interactive one attached to the server
+// named server, as chosen from the server picker. A server that cannot be
+// resolved is reported to stderr and yields an InvocationExit.
+func Attach(invocation Invocation, server string, stderr io.Writer) Invocation {
+	target, err := resolveAttachTarget(server)
+	if err != nil {
+		return Invocation{Kind: InvocationExit, ExitCode: reportAttachError(stderr, err)}
+	}
+	invocation.Kind = InvocationInteractive
+	invocation.options.Server = target
+	invocation.servers = nil
+	return invocation
+}
+
+func reportAttachError(stderr io.Writer, err error) int {
+	fmt.Fprintf(stderr, "kit: %v\n", err)
+	var usage usageError
+	if errors.As(err, &usage) {
+		return 2
+	}
+	return 1
+}
+
 // Environment is the local server connection and the user's settings that an
 // interactive invocation runs with. A failed Open reports to stderr and sets
 // ExitCode; Close releases the connection either way.
@@ -74,15 +126,22 @@ type Environment struct {
 	Client          *kit.Client
 	ThemeDefinition kittheme.Definition
 
-	paths     apphome.Paths
+	// paths is this client's home, for settings and themes.
+	paths apphome.Paths
+	// serverPaths is the attached server's home, for its providers and
+	// credentials.
+	serverPaths apphome.Paths
+	// server labels an attached server other than this home's own.
+	server    string
 	cwd       string
 	settings  *settings.Store
 	themeName string
 	diffWrap  bool
 }
 
-// OpenEnvironment validates the working directory, starts or connects to the
-// local server, and loads the user's settings and theme.
+// OpenEnvironment validates the working directory, connects to the server,
+// and loads the user's settings and theme. This home's own server is started
+// when needed; another server is only attached to.
 func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Writer) Environment {
 	failed := func(code int) Environment { return Environment{ExitCode: interrupted(ctx, code)} }
 	paths, err := apphome.Resolve("")
@@ -98,7 +157,17 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 			return failed(1)
 		}
 	}
-	client, err := bootstrapLocalClient(ctx, paths)
+	// A server attached by Kit home runs on this machine, so the shell's
+	// working directory is meaningful to it.
+	target := invocation.options.Server
+	serverPaths := paths
+	var client *kit.Client
+	if target.Home == "" {
+		client, err = bootstrapLocalClient(ctx, paths)
+	} else {
+		serverPaths = apphome.FromHome(target.Home)
+		client, err = connectAttachTarget(ctx, target)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return failed(1)
@@ -135,6 +204,8 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 		Client:          client,
 		ThemeDefinition: themeDefinition,
 		paths:           paths,
+		serverPaths:     serverPaths,
+		server:          target.Name,
 		cwd:             cwd,
 		settings:        settingsStore,
 		themeName:       loadedSettings.Theme,
@@ -186,7 +257,7 @@ func (e Environment) Prepare(ctx context.Context, invocation Invocation, stderr 
 	}
 
 	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
-	_, health, err := daemonctl.NewClient(e.paths).Probe(probeContext)
+	_, health, err := daemonctl.NewClient(e.serverPaths).Probe(probeContext)
 	probeCancel()
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", err)
@@ -203,8 +274,8 @@ func (e Environment) Prepare(ctx context.Context, invocation Invocation, stderr 
 			authenticated = false
 		}
 	}
-	manager := daemonctl.NewManager(e.paths)
-	credentialStore := auth.NewStore(e.paths.Auth)
+	manager := daemonctl.NewManager(e.serverPaths)
+	credentialStore := auth.NewStore(e.serverPaths.Auth)
 	login, err := auth.NewOpenAICodexDeviceLogin(auth.OpenAICodexDeviceLoginOptions{
 		Store: credentialStore,
 		AcquireSave: func(ctx context.Context) (func() error, error) {
@@ -236,6 +307,7 @@ func (e Environment) Prepare(ctx context.Context, invocation Invocation, stderr 
 		Options: TUIOptions{
 			Context:               ctx,
 			Client:                e.Client,
+			Server:                e.server,
 			CWD:                   cwd,
 			Location:              interactiveLocation(ctx, cwd),
 			ResolveLocation:       interactiveLocation,
@@ -291,13 +363,13 @@ func (p Prepared) Finish(ctx context.Context, failure string, stderr io.Writer) 
 	return 0
 }
 
-// PickerFailure reports a session picker that could not run and returns the
-// exit code.
+// PickerFailure reports a session or server picker that could not run and
+// returns the exit code.
 func PickerFailure(ctx context.Context, failure string, stderr io.Writer) int {
 	if ctx.Err() != nil {
 		return 130
 	}
-	fmt.Fprintf(stderr, "kit: session picker: %s\n", failure)
+	fmt.Fprintf(stderr, "kit: picker: %s\n", failure)
 	return 1
 }
 
