@@ -65,6 +65,9 @@ type Connection struct {
 	// ServerID, MachineID, and Home are learned from a compatible server's
 	// health; they are empty until ProbeCompatible succeeds.
 	ServerID, MachineID, Home string
+	// Providers are the providers the server has credentials for, as of the
+	// latest compatibility probe.
+	Providers []string
 }
 
 // Resolver returns the current authenticated server connection.
@@ -383,6 +386,7 @@ func (c *Client) ProbeCompatible(ctx context.Context) (Connection, error) {
 	connection.ServerID = health.ServerID
 	connection.MachineID = health.MachineID
 	connection.Home = health.Home
+	connection.Providers = append([]string(nil), health.Providers...)
 	return connection, nil
 }
 

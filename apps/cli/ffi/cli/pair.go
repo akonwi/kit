@@ -49,7 +49,10 @@ func validServedURL(value string) (string, error) {
 	return parsed.Scheme + "://" + parsed.Host, nil
 }
 
-func runServerPair(ctx context.Context, extraURLs []string, stdout, stderr io.Writer, terminal bool) int {
+// runPair prints pairing links for server: this home's server when it is
+// empty or LocalName, otherwise a saved name, URL, or Kit home path. Links use
+// every URL known to reach the server, and the extra URLs.
+func runPair(ctx context.Context, server string, extraURLs []string, stdout, stderr io.Writer, terminal bool) int {
 	served := make([]string, 0, len(extraURLs))
 	for _, value := range extraURLs {
 		origin, err := validServedURL(value)
@@ -59,7 +62,29 @@ func runServerPair(ctx context.Context, extraURLs []string, stdout, stderr io.Wr
 		}
 		served = append(served, origin)
 	}
-	client, paths, err := connectOwnServer(ctx)
+	if isPairingLink(server) {
+		fmt.Fprintln(stderr, "kit: kit pair takes a server, not a pairing link; attach with `kit attach LINK`")
+		return 2
+	}
+	target := attachTarget{}
+	if server != "" {
+		var err error
+		if target, err = resolveAttachTarget(ctx, server); err != nil {
+			return reportAttachError(stderr, err)
+		}
+	}
+	var client *kit.Client
+	var err error
+	var paths apphome.Paths
+	switch {
+	case target.own():
+		client, paths, err = connectOwnServer(ctx)
+	case target.Home != "":
+		paths = apphome.FromHome(target.Home)
+		client, err = connectAttachTarget(ctx, target)
+	default:
+		client, err = connectAttachTarget(ctx, target)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
@@ -70,6 +95,19 @@ func runServerPair(ctx context.Context, extraURLs []string, stdout, stderr io.Wr
 		fmt.Fprintf(stderr, "kit: create pairing code: %v\n", err)
 		return 1
 	}
+	var urls []string
+	if target.URL != "" {
+		urls = pairing.ServedURLs(nil, nil, "", append([]string{target.URL}, served...)...)
+	} else {
+		urls = homeServedURLs(paths, served)
+	}
+	printPairing(stdout, code, urls, terminal)
+	return 0
+}
+
+// homeServedURLs lists the URLs that reach the server of a Kit home on this
+// machine, from its settings and discovery registry.
+func homeServedURLs(paths apphome.Paths, extra []string) []string {
 	var hosts, origins []string
 	if store, err := settings.NewStore(paths.Settings); err == nil {
 		if loaded, _, err := store.Load(); err == nil {
@@ -80,12 +118,16 @@ func runServerPair(ctx context.Context, extraURLs []string, stdout, stderr io.Wr
 	if registry, err := localdiscovery.Load(paths); err == nil {
 		loopback = registry.URL
 	}
-	urls := pairing.ServedURLs(hosts, origins, loopback, served...)
+	return pairing.ServedURLs(hosts, origins, loopback, extra...)
+}
+
+// printPairing prints a link per URL, with notes and a QR code of the first.
+func printPairing(stdout io.Writer, code kit.Pairing, urls []string, terminal bool) {
 	fmt.Fprintf(stdout, "Pair a device with one of these links. They share one code, which works once, until %s.\n\n", code.ExpiresAt.Local().Format("15:04"))
 	for _, served := range urls {
 		fmt.Fprintf(stdout, "  %s\n", code.Link(served))
 	}
-	if len(urls) == 1 && urls[0] == loopback {
+	if len(urls) == 1 && isLoopbackURL(urls[0]) {
 		fmt.Fprintln(stdout, "\nOnly this machine can reach the server. Add server.allowedHosts or pass --url URL\nfor links that other devices can reach.")
 	}
 	for _, served := range urls {
@@ -98,7 +140,18 @@ func runServerPair(ctx context.Context, extraURLs []string, stdout, stderr io.Wr
 			fmt.Fprintf(stdout, "\n%s", rendered)
 		}
 	}
-	return 0
+}
+
+func isLoopbackURL(served string) bool {
+	parsed, err := url.Parse(served)
+	if err != nil {
+		return false
+	}
+	if parsed.Hostname() == "localhost" {
+		return true
+	}
+	address, err := netip.ParseAddr(parsed.Hostname())
+	return err == nil && address.IsLoopback()
 }
 
 // securePairingURL reports whether a link to served keeps its code and token
@@ -108,15 +161,7 @@ func securePairingURL(served string) bool {
 	if err != nil {
 		return false
 	}
-	if parsed.Scheme == "https" {
-		return true
-	}
-	host := parsed.Hostname()
-	if host == "localhost" {
-		return true
-	}
-	address, err := netip.ParseAddr(host)
-	return err == nil && address.IsLoopback()
+	return parsed.Scheme == "https" || isLoopbackURL(served)
 }
 
 // renderQR draws text as a QR code for a terminal, two modules per character

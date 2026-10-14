@@ -26,8 +26,9 @@ type commandDependencies struct {
 	auth            func(context.Context, []string, io.Writer, io.Writer) int
 	server          func(context.Context, []string, io.Writer, io.Writer) int
 	servers         func(context.Context, []string, io.Writer, io.Writer) int
-	// pair prints pairing links for the given extra server URLs.
-	pair    func(context.Context, []string, io.Writer, io.Writer) int
+	// pair prints pairing links for a server, "" for this home's, with the
+	// given extra server URLs.
+	pair    func(context.Context, string, []string, io.Writer, io.Writer) int
 	devices func(context.Context, []string, io.Writer, io.Writer) int
 	// attach runs the terminal client for the named server, or picks one when
 	// the name is empty.
@@ -43,8 +44,8 @@ func defaultCommandDependencies() commandDependencies {
 		auth:            runAuthCommand,
 		server:          runServerCommand,
 		servers:         runServersCommand,
-		pair: func(ctx context.Context, urls []string, stdout, stderr io.Writer) int {
-			return runServerPair(ctx, urls, stdout, stderr, stdoutIsTerminal())
+		pair: func(ctx context.Context, server string, urls []string, stdout, stderr io.Writer) int {
+			return runPair(ctx, server, urls, stdout, stderr, stdoutIsTerminal())
 		},
 		devices: runServerDevices,
 	}
@@ -159,6 +160,7 @@ func newRootCommand(deps commandDependencies) *cobra.Command {
 		newServerCommand(deps),
 		newServersCommand(deps),
 		newAttachCommand(deps),
+		newPairCommand(deps),
 		newVersionCommand(),
 		newInternalServerCommand(deps),
 	)
@@ -396,7 +398,7 @@ func newServerCommand(deps commandDependencies) *cobra.Command {
 			"5 minutes. Redeeming it gives the other device a token for this server.",
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			return resultForCode(deps.pair(command.Context(), urls, command.OutOrStdout(), command.ErrOrStderr()))
+			return resultForCode(deps.pair(command.Context(), "", urls, command.OutOrStdout(), command.ErrOrStderr()))
 		},
 	}
 	pair.Flags().StringArrayVar(&urls, "url", nil, "also print a link for this server URL, such as a reverse proxy's")
@@ -438,7 +440,7 @@ func newServersCommand(deps commandDependencies) *cobra.Command {
 			RunE: func(command *cobra.Command, _ []string) error { return run(command, []string{"list"}) },
 		},
 		&cobra.Command{
-			Use: "add NAME HOME", Short: "Save a Kit home's server under a name", Args: cobra.ExactArgs(2),
+			Use: "add NAME HOME-OR-LINK", Short: "Save a Kit home's server, or pair with a link and save its server", Args: cobra.ExactArgs(2),
 			RunE: func(command *cobra.Command, arguments []string) error {
 				return run(command, append([]string{"add"}, arguments...))
 			},
@@ -453,13 +455,34 @@ func newServersCommand(deps commandDependencies) *cobra.Command {
 	return command
 }
 
+func newPairCommand(deps commandDependencies) *cobra.Command {
+	var urls []string
+	command := &cobra.Command{
+		Use:   "pair [SERVER]",
+		Short: "Print a pairing link for another device",
+		Long: "Print a single-use pairing link that pairs another device with SERVER: a saved server,\n" +
+			"a URL or Kit home path, or this home's server by default. The code expires after 5 minutes.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			server := ""
+			if len(arguments) == 1 {
+				server = arguments[0]
+			}
+			return resultForCode(deps.pair(command.Context(), server, urls, command.OutOrStdout(), command.ErrOrStderr()))
+		},
+	}
+	command.Flags().StringArrayVar(&urls, "url", nil, "also print a link for this server URL, such as a reverse proxy's")
+	return command
+}
+
 func newAttachCommand(deps commandDependencies) *cobra.Command {
 	var options interactiveOptions
 	command := &cobra.Command{
 		Use:   "attach [SERVER]",
 		Short: "Launch the TUI for another Kit server",
-		Long: "Launch the TUI for a saved server, \"local\" for this home's server, or a Kit home path.\n" +
-			"Without SERVER, pick from the saved servers. Attaching never starts or stops a server.",
+		Long: "Launch the TUI for a saved server, \"local\" for this home's server, a pairing link or URL\n" +
+			"of a saved server, or a Kit home path. A pairing link re-pairs this device first. Without\n" +
+			"SERVER, pick from the saved servers. Attaching never starts or stops a server.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if err := validateInteractiveOptions(options, false); err != nil {

@@ -1,5 +1,6 @@
 // Package savedservers owns the named Kit servers a client can attach to. The
-// list lives in one JSON file in the client's Kit home and holds no secrets.
+// list lives in one JSON file in the client's Kit home and holds no secrets;
+// device tokens for URL servers live in a separate private file.
 package savedservers
 
 import (
@@ -7,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -31,12 +33,45 @@ var (
 	ErrNotFound = errors.New("server name is not saved")
 )
 
-// Server is one saved server: a Kit home on this machine.
+// Kind is how a saved server is reached.
+type Kind string
+
+const (
+	// KindHome is the server of a Kit home on this machine.
+	KindHome Kind = "home"
+	// KindURL is a server served at an HTTP(S) URL, reached with a device
+	// token.
+	KindURL Kind = "url"
+)
+
+// Server is one saved server.
 type Server struct {
 	// Name is how commands and pickers refer to the server.
 	Name string `json:"name"`
-	// Home is the absolute path of the server's Kit home.
-	Home string `json:"home"`
+	Kind Kind   `json:"kind"`
+	// Home is the absolute path of the server's Kit home, for KindHome.
+	Home string `json:"home,omitempty"`
+	// URL is the server's HTTP(S) origin, for KindURL.
+	URL string `json:"url,omitempty"`
+}
+
+// Location is the server's home or URL, for display.
+func (s Server) Location() string {
+	if s.Kind == KindURL {
+		return s.URL
+	}
+	return s.Home
+}
+
+// CanonicalURL validates an HTTP(S) server URL and returns its origin,
+// `scheme://host[:port]`, lowercased and without a path.
+func CanonicalURL(value string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
+		parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("server URL %q must be an HTTP(S) origin such as https://kit.example.com", value)
+	}
+	return strings.ToLower(parsed.Scheme + "://" + parsed.Host), nil
 }
 
 type document struct {
@@ -84,8 +119,17 @@ func (s Server) validate() error {
 	if err := ValidateName(s.Name); err != nil {
 		return err
 	}
-	if s.Home == "" || !filepath.IsAbs(s.Home) || filepath.Clean(s.Home) != s.Home {
-		return fmt.Errorf("server %q home must be a clean absolute path: %q", s.Name, s.Home)
+	switch s.Kind {
+	case KindHome:
+		if s.URL != "" || s.Home == "" || !filepath.IsAbs(s.Home) || filepath.Clean(s.Home) != s.Home {
+			return fmt.Errorf("server %q home must be a clean absolute path: %q", s.Name, s.Home)
+		}
+	case KindURL:
+		if canonical, err := CanonicalURL(s.URL); err != nil || canonical != s.URL || s.Home != "" {
+			return fmt.Errorf("server %q URL must be a canonical HTTP(S) origin: %q", s.Name, s.URL)
+		}
+	default:
+		return fmt.Errorf("server %q kind %q is not home or url", s.Name, s.Kind)
 	}
 	return nil
 }
@@ -111,6 +155,20 @@ func (s *Store) Find(name string) (Server, error) {
 		}
 	}
 	return Server{}, fmt.Errorf("%w: %q", ErrNotFound, name)
+}
+
+// FindURL returns the server saved with url, an origin from CanonicalURL.
+func (s *Store) FindURL(url string) (Server, error) {
+	servers, err := s.read()
+	if err != nil {
+		return Server{}, err
+	}
+	for _, server := range servers {
+		if server.Kind == KindURL && server.URL == url {
+			return server, nil
+		}
+	}
+	return Server{}, fmt.Errorf("%w: %q", ErrNotFound, url)
 }
 
 // Add saves server under a new name.
@@ -141,15 +199,11 @@ func (s *Store) Remove(name string) error {
 }
 
 func (s *Store) mutate(change func([]Server) ([]Server, error)) error {
-	directory := filepath.Dir(s.path)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create saved servers directory %q: %w", directory, err)
+	unlock, err := lockFile(s.path)
+	if err != nil {
+		return err
 	}
-	lock := flock.New(s.path + ".lock")
-	if err := lock.Lock(); err != nil {
-		return fmt.Errorf("lock saved servers %q: %w", s.path, err)
-	}
-	defer func() { _ = lock.Unlock() }()
+	defer unlock()
 	servers, err := s.read()
 	if err != nil {
 		return err
@@ -159,6 +213,20 @@ func (s *Store) mutate(change func([]Server) ([]Server, error)) error {
 		return err
 	}
 	return s.write(servers)
+}
+
+// lockFile creates path's directory and holds the lock beside path, which
+// serializes changes from independent processes.
+func lockFile(path string) (func(), error) {
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return nil, fmt.Errorf("create directory %q: %w", directory, err)
+	}
+	lock := flock.New(path + ".lock")
+	if err := lock.Lock(); err != nil {
+		return nil, fmt.Errorf("lock %q: %w", path, err)
+	}
+	return func() { _ = lock.Unlock() }, nil
 }
 
 func (s *Store) read() ([]Server, error) {
@@ -182,7 +250,12 @@ func (s *Store) read() ([]Server, error) {
 		return nil, fmt.Errorf("decode saved servers %q: %w", s.path, err)
 	}
 	seen := make(map[string]bool, len(decoded.Servers))
-	for _, server := range decoded.Servers {
+	for index, server := range decoded.Servers {
+		// Entries saved before servers had kinds are Kit homes.
+		if server.Kind == "" && server.Home != "" {
+			server.Kind = KindHome
+			decoded.Servers[index] = server
+		}
 		if err := server.validate(); err != nil {
 			return nil, fmt.Errorf("saved servers %q: %w", s.path, err)
 		}
@@ -205,25 +278,30 @@ func (s *Store) write(servers []Server) error {
 		return fmt.Errorf("encode saved servers: %w", err)
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(filepath.Dir(s.path), ".servers-*.json")
+	return replaceFile(s.path, data)
+}
+
+// replaceFile atomically replaces path with data, readable only by its owner.
+func replaceFile(path string, data []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
 	if err != nil {
-		return fmt.Errorf("write saved servers %q: %w", s.path, err)
+		return fmt.Errorf("write %q: %w", path, err)
 	}
 	name := temporary.Name()
 	defer func() { _ = os.Remove(name) }()
 	if _, err := temporary.Write(data); err != nil {
 		_ = temporary.Close()
-		return fmt.Errorf("write saved servers %q: %w", s.path, err)
+		return fmt.Errorf("write %q: %w", path, err)
 	}
 	if err := temporary.Sync(); err != nil {
 		_ = temporary.Close()
-		return fmt.Errorf("sync saved servers %q: %w", s.path, err)
+		return fmt.Errorf("sync %q: %w", path, err)
 	}
 	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close saved servers %q: %w", s.path, err)
+		return fmt.Errorf("close %q: %w", path, err)
 	}
-	if err := os.Rename(name, s.path); err != nil {
-		return fmt.Errorf("replace saved servers %q: %w", s.path, err)
+	if err := os.Rename(name, path); err != nil {
+		return fmt.Errorf("replace %q: %w", path, err)
 	}
 	return nil
 }

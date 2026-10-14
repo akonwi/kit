@@ -33,7 +33,7 @@ func TestServersAddListAndRemove(t *testing.T) {
 	isolatedHome(t)
 	serverHome := t.TempDir()
 
-	if code, stdout, _ := runServers(t); code != 0 || stdout != "No saved servers. Add one with `kit servers add NAME HOME`.\n" {
+	if code, stdout, _ := runServers(t); code != 0 || stdout != "No saved servers. Add one with `kit servers add NAME HOME-OR-LINK`.\n" {
 		t.Fatalf("empty list: exit = %d, stdout = %q", code, stdout)
 	}
 	code, stdout, stderr := runServers(t, "add", "dev", serverHome)
@@ -45,7 +45,7 @@ func TestServersAddListAndRemove(t *testing.T) {
 	if code != 0 || len(lines) != 3 {
 		t.Fatalf("list: exit = %d, stdout = %q, stderr = %q", code, stdout, stderr)
 	}
-	if fields := strings.Fields(lines[0]); strings.Join(fields, " ") != "NAME HOME STATUS" {
+	if fields := strings.Fields(lines[0]); strings.Join(fields, " ") != "NAME LOCATION STATUS" {
 		t.Fatalf("header = %q", lines[0])
 	}
 	if fields := strings.Fields(lines[1]); fields[0] != "local" || strings.Join(fields[2:], " ") != "not running" {
@@ -96,7 +96,7 @@ func TestAttachResolvesServers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Add(savedservers.Server{Name: "dev", Home: serverHome}); err != nil {
+	if err := store.Add(savedservers.Server{Name: "dev", Kind: savedservers.KindHome, Home: serverHome}); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
@@ -122,7 +122,7 @@ func TestAttachResolvesServers(t *testing.T) {
 	if local, dev := picking.Servers()[0], picking.Servers()[1]; local.Name != "local" || local.Status != "not running" || dev.Name != "dev" || dev.Status != "not running" {
 		t.Fatalf("choices = %+v", picking.Servers())
 	}
-	picked := Attach(picking, "dev", &stderr)
+	picked := Attach(context.Background(), picking, "dev", &stderr)
 	if picked.Kind != InvocationInteractive || !picked.options.Temporary || picked.options.Server != (attachTarget{Name: "dev", Home: serverHome}) {
 		t.Fatalf("picked = %+v", picked)
 	}

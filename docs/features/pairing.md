@@ -97,5 +97,6 @@ Go clients use `kit.Pair(ctx, link, name)`, then
 `kit.Connect(ctx, kit.Endpoint(paired.ServerURL, kit.AccessToken(paired.Token)))`,
 and `Client.CreatePairing`, `Client.Devices`, and `Client.RevokeDevice`.
 
-Attaching the TUI to a paired server by URL is tracked in
-[#177](https://github.com/akonwi/kit/issues/177).
+To pair the Kit CLI on another machine and attach to this server, see
+[Attaching to other servers](attach.md#servers-at-a-url). A paired machine can
+print links for further devices with `kit pair NAME`.
