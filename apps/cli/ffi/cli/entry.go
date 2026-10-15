@@ -18,14 +18,14 @@ type TUIOptions struct {
 	PairingURLs []string
 	// ServerHome is the server user's home directory, for abbreviating
 	// server paths, or empty when unknown.
-	ServerHome            string
-	CWD                   string
-	Location              string
-	ResolveLocation       func(context.Context, string) string
-	DefaultModel          string
-	DefaultThinking       string
-	ResumeModelFilter     string
-	ResumeThinkingFilter  string
+	ServerHome      string
+	CWD             string
+	Location        string
+	ResolveLocation func(context.Context, string) string
+	// Model and Thinking are what the command line named: they select which
+	// session resumes and start a new one. Empty lets the server choose.
+	Model                 string
+	Thinking              string
 	AvailableProviders    map[string]bool
 	Authenticated         bool
 	SessionID             string
@@ -38,7 +38,6 @@ type TUIOptions struct {
 	ThemeName             string
 	ThemeDefinition       kittheme.Definition
 	ThemeService          ThemeService
-	ModelOverrideService  ModelOverrideService
 	DiffWrapLines         bool
 	DiffPreferenceService DiffPreferenceService
 }
@@ -65,11 +64,6 @@ type ThemeService interface {
 	Discover() ([]string, error)
 	Load(string) (kittheme.Definition, []kittheme.Diagnostic, error)
 	Save(string) error
-}
-
-// ModelOverrideService persists per-model context-window overrides.
-type ModelOverrideService interface {
-	SetContextWindow(selector string, contextWindow int) error
 }
 
 // DiffPreferenceService persists working-tree diff presentation preferences.

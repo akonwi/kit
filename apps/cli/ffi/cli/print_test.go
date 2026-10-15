@@ -66,10 +66,11 @@ func TestExecutePrintRejectsUnavailableProviderBeforeCreation(t *testing.T) {
 	}
 }
 
-func TestExecutePrintCreatesSessionFromAvailableCatalogWithoutDefault(t *testing.T) {
+// Without --model, the server chooses the new session's model and thinking
+// level, so the request names neither.
+func TestExecutePrintLeavesTheModelToTheServer(t *testing.T) {
 	t.Parallel()
 	client := &fakeSessionClient{
-		models:  protocol.ModelCatalog{Models: []protocol.ModelCapability{{ID: "test/echo", Provider: "test", Available: true}}},
 		created: protocol.SessionInfo{ID: "session-new", Model: "test/echo", ThinkingLevel: "off"},
 		outcome: protocol.PromptOutcome{SessionID: "session-new", Status: protocol.TurnStatusCompleted},
 	}
@@ -77,24 +78,7 @@ func TestExecutePrintCreatesSessionFromAvailableCatalogWithoutDefault(t *testing
 	code := executePrintWith(context.Background(), client.operations(), printOptions{
 		CWD: "/workspace", NewSession: true, AvailableProviders: map[string]bool{"test": true}, Prompt: "go",
 	}, &stdout, &stderr)
-	if code != 0 || client.createInput.Model != "test/echo" || client.createInput.ThinkingLevel != "" {
-		t.Fatalf("exit = %d create = %+v stderr = %q", code, client.createInput, stderr.String())
-	}
-}
-
-func TestExecutePrintReplacesStaleImplicitDefaultFromSameProvider(t *testing.T) {
-	t.Parallel()
-	client := &fakeSessionClient{
-		models:  protocol.ModelCatalog{Models: []protocol.ModelCapability{{ID: "test/current", Provider: "test", Available: true}}},
-		created: protocol.SessionInfo{ID: "session-new", Model: "test/current", ThinkingLevel: "off"},
-		outcome: protocol.PromptOutcome{SessionID: "session-new", Status: protocol.TurnStatusCompleted},
-	}
-	var stdout, stderr bytes.Buffer
-	code := executePrintWith(context.Background(), client.operations(), printOptions{
-		CWD: "/workspace", DefaultModel: "test/deprecated", NewSession: true,
-		AvailableProviders: map[string]bool{"test": true}, Prompt: "go",
-	}, &stdout, &stderr)
-	if code != 0 || client.createInput.Model != "test/current" {
+	if code != 0 || client.createInput.Model != "" || client.createInput.ThinkingLevel != "" || client.runSessionID != "session-new" {
 		t.Fatalf("exit = %d create = %+v stderr = %q", code, client.createInput, stderr.String())
 	}
 }

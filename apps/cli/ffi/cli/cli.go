@@ -118,21 +118,13 @@ func ignoreMissingSession(err error) error {
 	return err
 }
 
-func interactiveProviders(providerIDs []string) (map[string]bool, string) {
+// providerSet indexes the providers a server has credentials for.
+func providerSet(providerIDs []string) map[string]bool {
 	providers := make(map[string]bool, len(providerIDs))
 	for _, providerID := range providerIDs {
 		providers[providerID] = true
 	}
-	switch {
-	case providers[deviceLoginProvider]:
-		return providers, "openai-codex/gpt-5.6-sol"
-	case providers["openai"]:
-		return providers, "openai/gpt-5.6-sol"
-	case providers["anthropic"]:
-		return providers, "anthropic/claude-sonnet-4-6"
-	default:
-		return providers, ""
-	}
+	return providers
 }
 
 // interactiveLocation abbreviates a path on this machine relative to the
@@ -190,7 +182,7 @@ func runPrintOptions(ctx context.Context, options printOptions, stdout, stderr i
 		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", probeErr)
 		return 1
 	}
-	options.AvailableProviders, options.DefaultModel = interactiveProviders(health.Providers)
+	options.AvailableProviders = providerSet(health.Providers)
 	return executePrint(ctx, client, options, stdout, stderr)
 }
 
@@ -202,32 +194,18 @@ type printOptions struct {
 	SessionID          string
 	NewSession         bool
 	Temporary          bool
-	DefaultModel       string
 	AvailableProviders map[string]bool
 	Prompt             string
 }
 
-func resolveAvailableModel(catalog protocol.ModelCatalog, preferred string, explicit bool) (string, error) {
+// availableModel checks that the catalog has selector and can use it.
+func availableModel(catalog protocol.ModelCatalog, selector string) error {
 	for _, model := range catalog.Models {
-		if model.ID == preferred && model.Available {
-			return model.ID, nil
+		if model.ID == selector && model.Available {
+			return nil
 		}
 	}
-	if explicit {
-		return "", fmt.Errorf("model %q is not available", preferred)
-	}
-	provider, _, _ := strings.Cut(preferred, "/")
-	for _, model := range catalog.Models {
-		if model.Provider == provider && model.Available {
-			return model.ID, nil
-		}
-	}
-	for _, model := range catalog.Models {
-		if model.Available {
-			return model.ID, nil
-		}
-	}
-	return "", errors.New("no authenticated model is available")
+	return fmt.Errorf("model %q is not available", selector)
 }
 
 func printModelAvailable(providers map[string]bool, selector string) bool {
@@ -314,27 +292,23 @@ func executePrintWith(
 			}
 		}
 		if sessionID == "" {
+			// Without --model, the server chooses the model and thinking
+			// level from its settings.
 			model := options.Model
-			if model == "" {
-				model = options.DefaultModel
-			}
-			if model != "" && !printModelAvailable(options.AvailableProviders, model) {
-				fmt.Fprintf(stderr, "kit: model provider for %q is not authenticated\n", model)
-				return 1
-			}
-			catalog, modelErr := client.models(ctx)
-			if modelErr != nil {
-				fmt.Fprintf(stderr, "kit: list models: %v\n", modelErr)
-				return 1
-			}
-			model, modelErr = resolveAvailableModel(catalog, model, options.Model != "")
-			if modelErr != nil {
-				fmt.Fprintf(stderr, "kit: %v\n", modelErr)
-				return 1
-			}
-			if !printModelAvailable(options.AvailableProviders, model) {
-				fmt.Fprintf(stderr, "kit: model provider for %q is not authenticated\n", model)
-				return 1
+			if model != "" {
+				if !printModelAvailable(options.AvailableProviders, model) {
+					fmt.Fprintf(stderr, "kit: model provider for %q is not authenticated\n", model)
+					return 1
+				}
+				catalog, modelErr := client.models(ctx)
+				if modelErr != nil {
+					fmt.Fprintf(stderr, "kit: list models: %v\n", modelErr)
+					return 1
+				}
+				if modelErr = availableModel(catalog, model); modelErr != nil {
+					fmt.Fprintf(stderr, "kit: %v\n", modelErr)
+					return 1
+				}
 			}
 			thinking := options.ThinkingLevel
 			requestedID := ""

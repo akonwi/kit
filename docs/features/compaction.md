@@ -1,8 +1,10 @@
 # Compaction model
 
 By default, Kit uses each session's active model to summarize context during
-compaction. To use a dedicated model instead, set `compactionModel` in
-`$KIT_HOME/settings.json` to an exact `provider/model-id` selector:
+compaction. To use a dedicated model instead, set `compactionModel` in the
+server's `$KIT_HOME/settings.json`, or through the
+[server settings API](server-settings.md), to an exact `provider/model-id`
+selector:
 
 ```json
 {

@@ -37,7 +37,8 @@ Anthropic's API:
 
 ### Retention
 
-Set `promptCacheRetention` in `$KIT_HOME/settings.json`. OpenAI maps the same
+Set `promptCacheRetention` in the server's `$KIT_HOME/settings.json`, or
+through the [server settings API](server-settings.md). OpenAI maps the same
 setting only for the earlier models listed below; GPT-5.6 and later always use
 a 30-minute `ttl`.
 

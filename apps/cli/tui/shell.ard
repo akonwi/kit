@@ -858,7 +858,6 @@ impl Shell {
         lifetime: self.lifetime.expect("mounted model picker"),
         bound: self.attached.session.expect("attached model picker"),
         session: self.attached.info.or(protocol::SessionInfo{}),
-        override_service: self.props.options.ModelOverrideService,
         dismiss: keymap::simple_command("subagent.model.dismiss", "Close", fn() Bool {
           self.dismiss_modal()
         }),
@@ -1733,7 +1732,6 @@ impl Shell {
         lifetime: self.lifetime.expect("mounted model picker"),
         bound: self.attached.session.expect("attached model picker"),
         session: self.attached.info.or(protocol::SessionInfo{}),
-        override_service: self.props.options.ModelOverrideService,
         dismiss: dismiss,
         applied: fn(applied: protocol::ConfigureSessionResult) {
           attached.request_info(applied.Session)
