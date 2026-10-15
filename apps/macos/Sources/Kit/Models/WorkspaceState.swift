@@ -262,7 +262,10 @@ final class WorkspaceState {
                 guard depth < TileArrangement.maximumDepth else { return nil }
                 let first = build(split.first, depth: depth + 1)
                 let second = build(split.second, depth: depth + 1)
-                guard let first, let second else { return first ?? second }
+                // Unwrap each side on its own: older compilers flag the
+                // autoclosure in `first ?? second` as a data race.
+                guard let first else { return second }
+                guard let second else { return first }
                 let ratio = split.ratio.isFinite ? split.ratio : 0.5
                 return .split(.init(id: UUID(), axis: split.axis == .horizontal ? .horizontal : .vertical,
                                     ratio: min(max(ratio, TileTree.ratioRange.lowerBound), TileTree.ratioRange.upperBound),
