@@ -9,10 +9,14 @@ import (
 
 // CreateSessionInput requests a new persisted or temporary session.
 type CreateSessionInput struct {
-	ID            string `json:"id,omitempty"`
-	CWD           string `json:"cwd"`
-	Name          string `json:"name,omitempty"`
-	Model         string `json:"model"`
+	ID   string `json:"id,omitempty"`
+	CWD  string `json:"cwd"`
+	Name string `json:"name,omitempty"`
+	// Model is an exact provider/model id. When it is empty the server
+	// chooses, starting with its default model setting.
+	Model string `json:"model,omitempty"`
+	// ThinkingLevel, when empty, is the server's default thinking level
+	// setting if the model supports it, otherwise the model's default.
 	ThinkingLevel string `json:"thinkingLevel,omitempty"`
 	Temporary     bool   `json:"temporary,omitempty"`
 }

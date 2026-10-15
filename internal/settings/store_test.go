@@ -320,24 +320,21 @@ func TestLoadModelOverrides(t *testing.T) {
 	}
 }
 
-func TestStoreUpdatesAndClearsModelContextWindow(t *testing.T) {
+func TestUpdateSetsAndClearsModelContextWindows(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "settings.json")
 	if err := os.WriteFile(path, []byte(`{"theme":"system","future":{"kept":true}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated, err := store.UpdateModelContextWindow("openai-codex/gpt-5.6-sol", 1_000_000)
+	store := newTestStore(t, path)
+	updated, err := store.Update(Patch{ContextWindows: map[string]int{"openai-codex/gpt-5.6-sol": 1_000_000}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.ModelOverrides["openai-codex/gpt-5.6-sol"].ContextWindow != 1_000_000 {
 		t.Fatalf("updated settings = %+v", updated)
 	}
-	if _, err := store.UpdateModelContextWindow("openai-codex/gpt-5.6-sol", 0); err != nil {
+	if _, err := store.Update(Patch{ContextWindows: map[string]int{"openai-codex/gpt-5.6-sol": 0}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(path)
@@ -345,6 +342,136 @@ func TestStoreUpdatesAndClearsModelContextWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(raw) != "{\n  \"future\": {\n    \"kept\": true\n  },\n  \"theme\": \"system\"\n}\n" {
+		t.Fatalf("settings document = %s", raw)
+	}
+	// A null object of overrides is edited as an empty one.
+	if err := os.WriteFile(path, []byte(`{"modelOverrides":null}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if updated, err := store.Update(Patch{ContextWindows: map[string]int{"openai/gpt-5.6-sol": 400_000}}); err != nil ||
+		updated.ModelOverrides["openai/gpt-5.6-sol"].ContextWindow != 400_000 {
+		t.Fatalf("Update(null overrides) = %+v, %v", updated, err)
+	}
+}
+
+func TestUpdateAppliesAPatchAndKeepsWhatItDoesNotTouch(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	original := `{
+  "theme": "cozy",
+  "defaultModel": "openai/gpt-5.6-sol",
+  "compactionModel": "anthropic/claude-sonnet-4-6",
+  "modelOverrides": {
+    "openai/gpt-5.6-sol": {"contextWindow": 400000, "future": 1},
+    "not-a-selector": {"contextWindow": 5},
+    "anthropic/claude-sonnet-4-6": {"contextWindow": 200000}
+  },
+  "server": {"listen": "127.0.0.1:7777"}
+}`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	empty, long, off := "", PromptCacheLong, false
+	updated, err := newTestStore(t, path).Update(Patch{
+		DefaultModel: &empty, PromptCacheRetention: &long, ReadClaudeConfigs: &off,
+		ContextWindows: map[string]int{"openai/gpt-5.6-sol": 0, "anthropic/claude-sonnet-4-6": 1_000_000, "openai-codex/gpt-5.6-sol": 272_000},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.DefaultModel != "" || updated.CompactionModel != "anthropic/claude-sonnet-4-6" ||
+		updated.PromptCacheRetention != PromptCacheLong || updated.ReadClaudeConfigs || updated.Theme != "cozy" || updated.ServerListen != "127.0.0.1:7777" {
+		t.Fatalf("updated = %+v", updated)
+	}
+	want := map[string]ModelOverride{"anthropic/claude-sonnet-4-6": {ContextWindow: 1_000_000}, "openai-codex/gpt-5.6-sol": {ContextWindow: 272_000}}
+	if len(updated.ModelOverrides) != len(want) || updated.ModelOverrides["anthropic/claude-sonnet-4-6"] != want["anthropic/claude-sonnet-4-6"] ||
+		updated.ModelOverrides["openai-codex/gpt-5.6-sol"] != want["openai-codex/gpt-5.6-sol"] {
+		t.Fatalf("overrides = %+v", updated.ModelOverrides)
+	}
+	var document struct {
+		ModelOverrides map[string]map[string]int `json:"modelOverrides"`
+	}
+	raw, _ := os.ReadFile(path)
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	// The removed override keeps its unrecognized key, which loads without a
+	// warning, and the invalid selector the patch did not name is left alone.
+	if document.ModelOverrides["openai/gpt-5.6-sol"]["future"] != 1 || document.ModelOverrides["openai/gpt-5.6-sol"]["contextWindow"] != 0 ||
+		document.ModelOverrides["not-a-selector"]["contextWindow"] != 5 {
+		t.Fatalf("stored overrides = %v", document.ModelOverrides)
+	}
+}
+
+func TestUpdateKeepsASymlinkedSettingsFile(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	target := filepath.Join(directory, "dotfiles", "kit-settings.json")
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte(`{"theme":"cozy"}`), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(directory, "settings.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	model := "openai/gpt-5.6-sol"
+	if _, err := newTestStore(t, link).Update(Patch{DefaultModel: &model}); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("settings path is no longer a symlink: %v, %v", info, err)
+	}
+	info, err := os.Stat(target)
+	if err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("target = %v, %v; want mode 0640", info, err)
+	}
+	if raw, _ := os.ReadFile(target); string(raw) != "{\n  \"defaultModel\": \"openai/gpt-5.6-sol\",\n  \"theme\": \"cozy\"\n}\n" {
+		t.Fatalf("target document = %s", raw)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(target)); len(entries) != 1 {
+		t.Fatalf("temporary files left behind: %v", entries)
+	}
+}
+
+func TestAnEmptyPatchLeavesTheFileAlone(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	original := `{ "theme" : "cozy" }`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if updated, err := newTestStore(t, path).Update(Patch{}); err != nil || updated.Theme != "cozy" {
+		t.Fatalf("Update() = %+v, %v", updated, err)
+	}
+	if raw, _ := os.ReadFile(path); string(raw) != original {
+		t.Fatalf("settings document = %s", raw)
+	}
+}
+
+func TestUpdateRejectsAnInvalidPatchWithoutWriting(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"modelOverrides":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newTestStore(t, path)
+	selector, retention := "no-slash", "forever"
+	for _, patch := range []Patch{
+		{DefaultModel: &selector},
+		{CompactionModel: &selector},
+		{PromptCacheRetention: &retention},
+		{ContextWindows: map[string]int{"openai/gpt-5.6-sol": -1}},
+		// The stored overrides are not an object, so they cannot be edited.
+		{ContextWindows: map[string]int{"openai/gpt-5.6-sol": 1}},
+	} {
+		if _, err := store.Update(patch); err == nil {
+			t.Errorf("Update(%+v) succeeded", patch)
+		}
+	}
+	if raw, _ := os.ReadFile(path); string(raw) != `{"modelOverrides":[]}` {
 		t.Fatalf("settings document = %s", raw)
 	}
 }

@@ -63,6 +63,18 @@ func (w Warning) Error() string {
 
 const maxFileSize = 1 << 20
 
+// ErrMalformed marks a settings file that cannot be read or updated as it
+// stands until the user fixes it.
+var ErrMalformed = errors.New("settings file is malformed")
+
+type malformedError struct{ error }
+
+func (malformedError) Is(target error) bool { return target == ErrMalformed }
+
+func (e malformedError) Unwrap() error { return e.error }
+
+func malformed(err error) error { return malformedError{err} }
+
 // Prompt cache retention values. Providers map them to their own lifetimes.
 // Anthropic retains short entries for five minutes and long entries for one
 // hour. Public OpenAI Responses maps long to 24h, and short to in_memory, only
@@ -99,15 +111,43 @@ func (s *Store) Load() (Settings, []Warning, error) {
 	return s.load()
 }
 
-// UpdateTheme validates and persists the selected theme after re-reading the
-// latest settings. The returned settings can be applied immediately by callers.
-// UpdateModelContextWindow sets or clears one exact model context-window override.
-func (s *Store) UpdateModelContextWindow(selector string, contextWindow int) (Settings, error) {
+// Patch changes the settings that govern the server's behavior. Nil fields
+// are left unchanged, and an empty string clears a model.
+type Patch struct {
+	DefaultModel    *string
+	CompactionModel *string
+	// PromptCacheRetention is PromptCacheShort or PromptCacheLong.
+	PromptCacheRetention *string
+	ReadClaudeConfigs    *bool
+	// ContextWindows sets each model selector's context-window override; zero
+	// removes it.
+	ContextWindows map[string]int
+}
+
+func (patch Patch) empty() bool {
+	return patch.DefaultModel == nil && patch.CompactionModel == nil &&
+		patch.PromptCacheRetention == nil && patch.ReadClaudeConfigs == nil && len(patch.ContextWindows) == 0
+}
+
+// Update applies patch after re-reading the latest settings and writes them
+// once. Override entries it does not touch, including ones Load ignores as
+// invalid, are kept. A value it cannot apply fails the whole patch.
+func (s *Store) Update(patch Patch) (Settings, error) {
 	if s == nil {
-		return Settings{}, errors.New("update model context window: store is nil")
+		return Settings{}, errors.New("update settings: store is nil")
 	}
-	if !validModelSelector(selector) || contextWindow < 0 {
-		return Settings{}, fmt.Errorf("update model context window: invalid override %q=%d", selector, contextWindow)
+	for name, selector := range map[string]*string{"defaultModel": patch.DefaultModel, "compactionModel": patch.CompactionModel} {
+		if selector != nil && *selector != "" && !validModelSelector(*selector) {
+			return Settings{}, fmt.Errorf("update settings: %s %q is not an exact provider/model selector", name, *selector)
+		}
+	}
+	if retention := patch.PromptCacheRetention; retention != nil && *retention != PromptCacheShort && *retention != PromptCacheLong {
+		return Settings{}, fmt.Errorf("update settings: prompt cache retention must be %q or %q", PromptCacheShort, PromptCacheLong)
+	}
+	for selector, contextWindow := range patch.ContextWindows {
+		if !validModelSelector(selector) || contextWindow < 0 {
+			return Settings{}, fmt.Errorf("update settings: invalid context-window override %q=%d", selector, contextWindow)
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -115,28 +155,65 @@ func (s *Store) UpdateModelContextWindow(selector string, contextWindow int) (Se
 	if err != nil {
 		return Settings{}, err
 	}
-	if current.ModelOverrides == nil {
-		current.ModelOverrides = make(map[string]ModelOverride)
+	if patch.empty() {
+		return cloneSettings(current), nil
 	}
-	if contextWindow == 0 {
-		delete(current.ModelOverrides, selector)
-	} else {
-		current.ModelOverrides[selector] = ModelOverride{ContextWindow: contextWindow}
-	}
-	if len(current.ModelOverrides) == 0 {
-		delete(current.fields, "modelOverrides")
-		current.ModelOverrides = nil
-	} else {
-		encoded, marshalErr := json.Marshal(current.ModelOverrides)
-		if marshalErr != nil {
-			return Settings{}, marshalErr
+	setString := func(name string, value *string) {
+		switch {
+		case value == nil:
+		case *value == "":
+			delete(current.fields, name)
+		default:
+			current.fields[name], _ = json.Marshal(*value)
 		}
-		current.fields["modelOverrides"] = encoded
+	}
+	setString("defaultModel", patch.DefaultModel)
+	setString("compactionModel", patch.CompactionModel)
+	setString("promptCacheRetention", patch.PromptCacheRetention)
+	if patch.ReadClaudeConfigs != nil {
+		current.fields["readClaudeConfigs"], _ = json.Marshal(*patch.ReadClaudeConfigs)
+	}
+	if len(patch.ContextWindows) > 0 {
+		overrides := map[string]json.RawMessage{}
+		if raw, ok := current.fields["modelOverrides"]; ok {
+			if err := json.Unmarshal(raw, &overrides); err != nil {
+				return Settings{}, malformed(fmt.Errorf("update settings: settings field %q is not an object", "modelOverrides"))
+			}
+			if overrides == nil {
+				overrides = map[string]json.RawMessage{}
+			}
+		}
+		for selector, contextWindow := range patch.ContextWindows {
+			// Keep an override's other keys; replace one that is not an object.
+			entry := map[string]json.RawMessage{}
+			if raw, ok := overrides[selector]; ok && (json.Unmarshal(raw, &entry) != nil || entry == nil) {
+				entry = map[string]json.RawMessage{}
+			}
+			if contextWindow == 0 {
+				delete(entry, "contextWindow")
+			} else {
+				entry["contextWindow"], _ = json.Marshal(contextWindow)
+			}
+			if len(entry) == 0 {
+				delete(overrides, selector)
+			} else {
+				overrides[selector], _ = json.Marshal(entry)
+			}
+		}
+		if len(overrides) == 0 {
+			delete(current.fields, "modelOverrides")
+		} else {
+			current.fields["modelOverrides"], _ = json.Marshal(overrides)
+		}
 	}
 	if err := s.write(current.fields); err != nil {
 		return Settings{}, err
 	}
-	return cloneSettings(current), nil
+	updated, _, err := s.load()
+	if err != nil {
+		return Settings{}, err
+	}
+	return cloneSettings(updated), nil
 }
 
 // UpdateDiffWrapLines persists the working-tree diff wrapping preference.
@@ -274,6 +351,8 @@ func (s *Store) UpdateServerAccess(change ServerAccessChange) (Settings, error) 
 	return cloneSettings(updated), nil
 }
 
+// UpdateTheme validates and persists the selected theme after re-reading the
+// latest settings. The returned settings can be applied immediately by callers.
 func (s *Store) UpdateTheme(name string) (Settings, error) {
 	if s == nil {
 		return Settings{}, errors.New("update settings theme: store is nil")
@@ -313,21 +392,21 @@ func (s *Store) load() (Settings, []Warning, error) {
 		return Settings{}, nil, fmt.Errorf("inspect settings %q: %w", s.path, err)
 	}
 	if !info.Mode().IsRegular() {
-		return Settings{}, nil, fmt.Errorf("read settings %q: not a regular file", s.path)
+		return Settings{}, nil, malformed(fmt.Errorf("read settings %q: not a regular file", s.path))
 	}
 	data, err := io.ReadAll(io.LimitReader(file, maxFileSize+1))
 	if err != nil {
 		return Settings{}, nil, fmt.Errorf("read settings %q: %w", s.path, err)
 	}
 	if len(data) > maxFileSize {
-		return Settings{}, nil, fmt.Errorf("read settings %q: file exceeds %d bytes", s.path, maxFileSize)
+		return Settings{}, nil, malformed(fmt.Errorf("read settings %q: file exceeds %d bytes", s.path, maxFileSize))
 	}
 	if !utf8.Valid(data) {
-		return Settings{}, nil, fmt.Errorf("decode settings %q: invalid UTF-8", s.path)
+		return Settings{}, nil, malformed(fmt.Errorf("decode settings %q: invalid UTF-8", s.path))
 	}
 	fields, err := decodeObject(data)
 	if err != nil {
-		return Settings{}, nil, fmt.Errorf("decode settings %q: %w", s.path, err)
+		return Settings{}, nil, malformed(fmt.Errorf("decode settings %q: %w", s.path, err))
 	}
 	result := Settings{Theme: theme.SystemName, PromptCacheRetention: PromptCacheShort, ReadClaudeConfigs: true, fields: fields}
 	var warnings []Warning
@@ -406,6 +485,14 @@ func (s *Store) load() (Settings, []Warning, error) {
 		} else {
 			result.ModelOverrides = make(map[string]ModelOverride, len(overrides))
 			for selector, encoded := range overrides {
+				// An entry with only keys this version does not know overrides
+				// nothing it uses.
+				var keys map[string]json.RawMessage
+				if json.Unmarshal(encoded, &keys) == nil && keys != nil {
+					if _, ok := keys["contextWindow"]; !ok && validModelSelector(selector) {
+						continue
+					}
+				}
 				var override ModelOverride
 				err := json.Unmarshal(encoded, &override)
 				if err != nil || !validModelSelector(selector) || override.ContextWindow <= 0 {
@@ -419,6 +506,9 @@ func (s *Store) load() (Settings, []Warning, error) {
 	return cloneSettings(result), warnings, nil
 }
 
+// write replaces the settings file atomically, so readers in this or another
+// process never see it half-written. A symlinked settings file stays a
+// symlink: the file it names is replaced. An existing file keeps its mode.
 func (s *Store) write(fields map[string]json.RawMessage) error {
 	data, err := json.MarshalIndent(fields, "", "  ")
 	if err != nil {
@@ -429,30 +519,47 @@ func (s *Store) write(fields map[string]json.RawMessage) error {
 	if err := os.MkdirAll(directory, 0o777); err != nil {
 		return fmt.Errorf("create settings directory %q: %w", directory, err)
 	}
-	file, err := os.OpenFile(s.path, os.O_WRONLY|os.O_CREATE|unix.O_NONBLOCK, 0o666)
+	target, mode := s.path, os.FileMode(0o644)
+	if resolved, err := filepath.EvalSymlinks(s.path); err == nil {
+		target = resolved
+		info, err := os.Stat(target)
+		if err != nil {
+			return fmt.Errorf("inspect settings %q: %w", s.path, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("write settings %q: not a regular file", s.path)
+		}
+		mode = info.Mode().Perm()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("resolve settings %q: %w", s.path, err)
+	} else if info, lstatErr := os.Lstat(s.path); lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("write settings %q: the symlink's target does not exist", s.path)
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(target), ".settings-*.json")
 	if err != nil {
 		return fmt.Errorf("write settings %q: %w", s.path, err)
 	}
-	info, statErr := file.Stat()
-	if statErr != nil {
-		_ = file.Close()
-		return fmt.Errorf("inspect settings %q: %w", s.path, statErr)
-	}
-	if !info.Mode().IsRegular() {
-		_ = file.Close()
-		return fmt.Errorf("write settings %q: not a regular file", s.path)
-	}
-	if err := file.Truncate(0); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("truncate settings %q: %w", s.path, err)
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(temporary.Name())
+		}
+	}()
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
 		return fmt.Errorf("write settings %q: %w", s.path, err)
 	}
-	if err := file.Close(); err != nil {
+	if err := temporary.Chmod(mode); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("write settings %q: %w", s.path, err)
+	}
+	if err := temporary.Close(); err != nil {
 		return fmt.Errorf("close settings %q: %w", s.path, err)
 	}
+	if err := os.Rename(temporary.Name(), target); err != nil {
+		return fmt.Errorf("replace settings %q: %w", s.path, err)
+	}
+	committed = true
 	return nil
 }
 

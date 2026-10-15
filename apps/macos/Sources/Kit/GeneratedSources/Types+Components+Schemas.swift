@@ -2027,7 +2027,7 @@ extension Components {
             /// - Remark: Generated from `#/components/schemas/CreateSessionInput/id`.
             internal var id: Swift.String?
             /// - Remark: Generated from `#/components/schemas/CreateSessionInput/model`.
-            internal var model: Swift.String
+            internal var model: Swift.String?
             /// - Remark: Generated from `#/components/schemas/CreateSessionInput/name`.
             internal var name: Swift.String?
             /// - Remark: Generated from `#/components/schemas/CreateSessionInput/temporary`.
@@ -2046,7 +2046,7 @@ extension Components {
             internal init(
                 cwd: Swift.String,
                 id: Swift.String? = nil,
-                model: Swift.String,
+                model: Swift.String? = nil,
                 name: Swift.String? = nil,
                 temporary: Swift.Bool? = nil,
                 thinkingLevel: Swift.String? = nil
@@ -2076,7 +2076,7 @@ extension Components {
                     Swift.String.self,
                     forKey: .id
                 )
-                self.model = try container.decode(
+                self.model = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .model
                 )
@@ -5806,6 +5806,44 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ModelOverride`.
+        internal struct ModelOverride: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ModelOverride/contextWindow`.
+            internal var contextWindow: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/ModelOverride/model`.
+            internal var model: Swift.String
+            /// Creates a new `ModelOverride`.
+            ///
+            /// - Parameters:
+            ///   - contextWindow:
+            ///   - model:
+            internal init(
+                contextWindow: Swift.Int,
+                model: Swift.String
+            ) {
+                self.contextWindow = contextWindow
+                self.model = model
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case contextWindow
+                case model
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.contextWindow = try container.decode(
+                    Swift.Int.self,
+                    forKey: .contextWindow
+                )
+                self.model = try container.decode(
+                    Swift.String.self,
+                    forKey: .model
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "contextWindow",
+                    "model"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/NotFoundError`.
         internal struct NotFoundError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/NotFoundError/code`.
@@ -8595,6 +8633,104 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ServerSettings`.
+        internal struct ServerSettings: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ServerSettings/compactionModel`.
+            internal var compactionModel: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ServerSettings/defaultModel`.
+            internal var defaultModel: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ServerSettings/modelOverrides`.
+            internal var modelOverrides: [Components.Schemas.ModelOverride]
+            /// - Remark: Generated from `#/components/schemas/ServerSettings/newSessionModel`.
+            internal var newSessionModel: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ServerSettings/newSessionThinkingLevel`.
+            internal var newSessionThinkingLevel: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ServerSettings/promptCacheRetention`.
+            internal enum PromptCacheRetentionPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case short = "short"
+                case long = "long"
+            }
+            /// - Remark: Generated from `#/components/schemas/ServerSettings/promptCacheRetention`.
+            internal var promptCacheRetention: Components.Schemas.ServerSettings.PromptCacheRetentionPayload
+            /// - Remark: Generated from `#/components/schemas/ServerSettings/readClaudeConfigs`.
+            internal var readClaudeConfigs: Swift.Bool
+            /// Creates a new `ServerSettings`.
+            ///
+            /// - Parameters:
+            ///   - compactionModel:
+            ///   - defaultModel:
+            ///   - modelOverrides:
+            ///   - newSessionModel:
+            ///   - newSessionThinkingLevel:
+            ///   - promptCacheRetention:
+            ///   - readClaudeConfigs:
+            internal init(
+                compactionModel: Swift.String? = nil,
+                defaultModel: Swift.String? = nil,
+                modelOverrides: [Components.Schemas.ModelOverride],
+                newSessionModel: Swift.String? = nil,
+                newSessionThinkingLevel: Swift.String? = nil,
+                promptCacheRetention: Components.Schemas.ServerSettings.PromptCacheRetentionPayload,
+                readClaudeConfigs: Swift.Bool
+            ) {
+                self.compactionModel = compactionModel
+                self.defaultModel = defaultModel
+                self.modelOverrides = modelOverrides
+                self.newSessionModel = newSessionModel
+                self.newSessionThinkingLevel = newSessionThinkingLevel
+                self.promptCacheRetention = promptCacheRetention
+                self.readClaudeConfigs = readClaudeConfigs
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case compactionModel
+                case defaultModel
+                case modelOverrides
+                case newSessionModel
+                case newSessionThinkingLevel
+                case promptCacheRetention
+                case readClaudeConfigs
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.compactionModel = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .compactionModel
+                )
+                self.defaultModel = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .defaultModel
+                )
+                self.modelOverrides = try container.decode(
+                    [Components.Schemas.ModelOverride].self,
+                    forKey: .modelOverrides
+                )
+                self.newSessionModel = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .newSessionModel
+                )
+                self.newSessionThinkingLevel = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .newSessionThinkingLevel
+                )
+                self.promptCacheRetention = try container.decode(
+                    Components.Schemas.ServerSettings.PromptCacheRetentionPayload.self,
+                    forKey: .promptCacheRetention
+                )
+                self.readClaudeConfigs = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .readClaudeConfigs
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "compactionModel",
+                    "defaultModel",
+                    "modelOverrides",
+                    "newSessionModel",
+                    "newSessionThinkingLevel",
+                    "promptCacheRetention",
+                    "readClaudeConfigs"
                 ])
             }
         }
@@ -12501,6 +12637,82 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "content",
                     "expectedRevision"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UpdateServerSettingsInput`.
+        internal struct UpdateServerSettingsInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdateServerSettingsInput/compactionModel`.
+            internal var compactionModel: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateServerSettingsInput/defaultModel`.
+            internal var defaultModel: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateServerSettingsInput/modelOverrides`.
+            internal var modelOverrides: [Components.Schemas.ModelOverride]?
+            /// - Remark: Generated from `#/components/schemas/UpdateServerSettingsInput/promptCacheRetention`.
+            internal enum PromptCacheRetentionPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case short = "short"
+                case long = "long"
+            }
+            /// - Remark: Generated from `#/components/schemas/UpdateServerSettingsInput/promptCacheRetention`.
+            internal var promptCacheRetention: Components.Schemas.UpdateServerSettingsInput.PromptCacheRetentionPayload?
+            /// - Remark: Generated from `#/components/schemas/UpdateServerSettingsInput/readClaudeConfigs`.
+            internal var readClaudeConfigs: Swift.Bool?
+            /// Creates a new `UpdateServerSettingsInput`.
+            ///
+            /// - Parameters:
+            ///   - compactionModel:
+            ///   - defaultModel:
+            ///   - modelOverrides:
+            ///   - promptCacheRetention:
+            ///   - readClaudeConfigs:
+            internal init(
+                compactionModel: Swift.String? = nil,
+                defaultModel: Swift.String? = nil,
+                modelOverrides: [Components.Schemas.ModelOverride]? = nil,
+                promptCacheRetention: Components.Schemas.UpdateServerSettingsInput.PromptCacheRetentionPayload? = nil,
+                readClaudeConfigs: Swift.Bool? = nil
+            ) {
+                self.compactionModel = compactionModel
+                self.defaultModel = defaultModel
+                self.modelOverrides = modelOverrides
+                self.promptCacheRetention = promptCacheRetention
+                self.readClaudeConfigs = readClaudeConfigs
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case compactionModel
+                case defaultModel
+                case modelOverrides
+                case promptCacheRetention
+                case readClaudeConfigs
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.compactionModel = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .compactionModel
+                )
+                self.defaultModel = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .defaultModel
+                )
+                self.modelOverrides = try container.decodeIfPresent(
+                    [Components.Schemas.ModelOverride].self,
+                    forKey: .modelOverrides
+                )
+                self.promptCacheRetention = try container.decodeIfPresent(
+                    Components.Schemas.UpdateServerSettingsInput.PromptCacheRetentionPayload.self,
+                    forKey: .promptCacheRetention
+                )
+                self.readClaudeConfigs = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .readClaudeConfigs
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "compactionModel",
+                    "defaultModel",
+                    "modelOverrides",
+                    "promptCacheRetention",
+                    "readClaudeConfigs"
                 ])
             }
         }

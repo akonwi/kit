@@ -8,6 +8,7 @@ import (
 	"github.com/akonwi/kit/droids"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/sessiontool"
+	"github.com/akonwi/kit/internal/settings"
 )
 
 type fakeModelSessionManager struct {
@@ -37,11 +38,7 @@ func (m *fakeModelSessionManager) Delete(_ context.Context, sessionID string) er
 func TestModelSessionServiceUsesConfiguredDefaultAndStartsPrompt(t *testing.T) {
 	providers := defaultProviders{}
 	manager := &fakeModelSessionManager{owner: kitsession.SessionRecord{ID: "session_owner", Persistent: true}}
-	service := modelSessionService{
-		manager: manager, providers: providers,
-		availableProviders: func(context.Context) []string { return []string{"test"} },
-		configuredDefault:  func() (string, error) { return "test/default", nil },
-	}
+	service := modelSessionService{manager: manager, defaults: testDefaults(providers)}
 	created, err := service.CreateModelSession(t.Context(), sessiontool.CreateInput{
 		OwnerSessionID: "session_owner", CWD: "/repo", Name: "New work", Prompt: "begin",
 	})
@@ -56,7 +53,7 @@ func TestModelSessionServiceUsesConfiguredDefaultAndStartsPrompt(t *testing.T) {
 func TestModelSessionServiceReportsPromptFailureAfterCreation(t *testing.T) {
 	providers := defaultProviders{}
 	manager := &fakeModelSessionManager{owner: kitsession.SessionRecord{ID: "session_owner", Persistent: true}, promptErr: errors.New("busy")}
-	service := modelSessionService{manager: manager, providers: providers, availableProviders: func(context.Context) []string { return []string{"test"} }, configuredDefault: func() (string, error) { return "test/default", nil }}
+	service := modelSessionService{manager: manager, defaults: testDefaults(providers)}
 	created, err := service.CreateModelSession(t.Context(), sessiontool.CreateInput{OwnerSessionID: "session_owner", CWD: "/repo", Name: "New work", Prompt: "begin"})
 	if err == nil || created.ID != "" || manager.deleted != "session_new" {
 		t.Fatalf("result = %+v, error = %v, deleted = %q", created, err, manager.deleted)
@@ -65,9 +62,21 @@ func TestModelSessionServiceReportsPromptFailureAfterCreation(t *testing.T) {
 
 func TestModelSessionServiceRejectsTemporaryOwner(t *testing.T) {
 	manager := &fakeModelSessionManager{owner: kitsession.SessionRecord{ID: "session_owner", Persistent: false}}
-	service := modelSessionService{manager: manager, providers: rejectingProviders{}}
+	service := modelSessionService{manager: manager, defaults: sessionDefaults{providers: rejectingProviders{}}}
 	if _, err := service.CreateModelSession(t.Context(), sessiontool.CreateInput{OwnerSessionID: "session_owner", CWD: "/repo", Name: "New work"}); err == nil {
 		t.Fatal("temporary owner creation succeeded")
+	}
+}
+
+// testDefaults resolves defaults among providers' models, with the "test"
+// provider available and "test/default" as the default model.
+func testDefaults(providers droids.Providers) sessionDefaults {
+	return sessionDefaults{
+		providers:          providers,
+		availableProviders: func(context.Context) []string { return []string{"test"} },
+		settings: func() (settings.Settings, error) {
+			return settings.Settings{DefaultModel: "test/default"}, nil
+		},
 	}
 }
 
