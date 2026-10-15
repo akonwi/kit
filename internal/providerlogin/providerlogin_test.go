@@ -87,6 +87,26 @@ func TestADeviceLoginReportsInstructionsThenSucceeds(t *testing.T) {
 	waitFor(t, registry, started.ID, StateSucceeded)
 }
 
+// A login that finishes as soon as it reports its instructions still starts
+// with them, so the caller can show what was approved.
+func TestStartReturnsTheInstructionsOfALoginThatAlreadyFinished(t *testing.T) {
+	registry := NewRegistry(Flows{Device: func(_ context.Context, _ string, notify func(DeviceInstructions)) error {
+		notify(DeviceInstructions{VerificationURI: "https://auth.example.com/device", UserCode: "ABCD-1234"})
+		return nil
+	}}, nil)
+	defer registry.Close()
+	started, err := registry.Start(t.Context(), "openai-codex", MethodDevice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.State != StatePending || started.Device == nil || started.Device.UserCode != "ABCD-1234" {
+		t.Fatalf("started = %+v", started)
+	}
+	if finished := waitFor(t, registry, started.ID, StateSucceeded); finished.Device != nil {
+		t.Fatalf("finished = %+v", finished)
+	}
+}
+
 func TestAFailedLoginExplainsWhy(t *testing.T) {
 	fake := newFakeFlows()
 	fake.startErr = errors.New("start device authorization: 503\nService\tUnavailable")

@@ -164,7 +164,10 @@ type login struct {
 	snapshot Snapshot
 	finished time.Time
 	// ready closes once instructions are known or the login finished.
-	ready     chan struct{}
+	ready chan struct{}
+	// started is the login as it stood when its instructions became known,
+	// which Start returns even if the login has finished since.
+	started   *Snapshot
 	readyOnce sync.Once
 	// done closes when the login finishes.
 	done          chan struct{}
@@ -200,9 +203,10 @@ func (r *Registry) Close() {
 	r.flowsRunning.Wait()
 }
 
-// Start begins a login and returns it once its instructions are known, or
-// once it has already finished, for example because the provider could not
-// be reached.
+// Start begins a login and returns it once its instructions are known, as it
+// stood then, so the caller can show them even if the login has finished
+// since. A login that finishes before reporting instructions, for example
+// because the provider could not be reached, is returned finished.
 func (r *Registry) Start(ctx context.Context, providerID string, method Method) (Snapshot, error) {
 	provider, ok := Find(providerID)
 	if !ok {
@@ -263,7 +267,12 @@ func (r *Registry) Start(ctx context.Context, providerID string, method Method) 
 		r.mu.Unlock()
 		return Snapshot{}, ctx.Err()
 	}
-	return r.Get(id)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if entry.started != nil {
+		return *entry.started, nil
+	}
+	return entry.copySnapshot(), nil
 }
 
 func (r *Registry) run(ctx context.Context, entry *login) {
@@ -274,6 +283,8 @@ func (r *Registry) run(ctx context.Context, entry *login) {
 			r.mu.Lock()
 			if entry.snapshot.State == StatePending {
 				entry.snapshot.Device = &instructions
+				started := entry.copySnapshot()
+				entry.started = &started
 			}
 			r.mu.Unlock()
 			entry.readyOnce.Do(func() { close(entry.ready) })
@@ -283,6 +294,8 @@ func (r *Registry) run(ctx context.Context, entry *login) {
 			r.mu.Lock()
 			if entry.snapshot.State == StatePending {
 				entry.snapshot.Browser = &instructions
+				started := entry.copySnapshot()
+				entry.started = &started
 			}
 			r.mu.Unlock()
 			entry.readyOnce.Do(func() { close(entry.ready) })
