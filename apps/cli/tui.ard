@@ -7,6 +7,7 @@ use cooper
 use cooper/cui
 use cooper/event
 use cooper/keymap
+use cooper/program_status
 use cooper/screen
 use cooper/terminal_progress
 use cooper/ui
@@ -49,6 +50,12 @@ fn run(options: cli::TUIOptions) Void!Error {
       },
       notify: fn(message: Str, title: Str) Bool {
         application.context.notify(message, title: title)
+      },
+      program_status: fn(report: program_status::Report) Bool {
+        application.context.program_status(report)
+      },
+      program_status_supported: fn() Bool {
+        application.context.program_status_supported()
       },
       focused: fn() Bool {
         match application.context.terminal_focus() {

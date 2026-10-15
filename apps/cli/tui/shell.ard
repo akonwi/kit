@@ -1538,7 +1538,9 @@ impl cui::Component for Shell {
 
 impl Shell {
   // terminal_status reports the attached session's name, directory, and
-  // whether a turn or manual compaction is running or waiting for an answer.
+  // whether a turn or manual compaction is running or waiting for an answer,
+  // and, through the Program Status Protocol, whether Kit waits to connect a
+  // provider and how the last turn finished.
   fn terminal_status() cui::View {
     let info = self.attached.info.or(protocol::SessionInfo{})
     let cwd = match info.CWD == "" {
@@ -1556,6 +1558,21 @@ impl Shell {
           false => self.attached.bash_id,
         },
         feedback: self.attached.feedback_pending(),
+        program: terminal_status::Program{
+          auth: self.phase == Phase::auth or self.auth_open(),
+          request: match self.attached.feedback_pending() {
+            true => {
+              match self.attached.interaction() {
+                interaction => Maybe::new(terminal_status::request(interaction)),
+                _ => Maybe::new<terminal_status::Request>(),
+              }
+            },
+            false => Maybe::new<terminal_status::Request>(),
+          },
+          working: self.attached.busy(),
+          finished_turn: self.attached.finished_turn,
+          finished_status: self.attached.finished_status,
+        },
         frame_duration: Maybe::new<time::Duration>(),
       },
     )

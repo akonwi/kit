@@ -135,6 +135,10 @@ struct Controller {
   reload_pending: Bool,
   compact_pending: Bool,
   compact_operation_id: Str,
+  // The last turn seen to finish and its status, recorded once per turn as
+  // it settles, never from a snapshot of earlier turns.
+  finished_turn: Str,
+  finished_status: Str,
   abort_pending: Bool,
   abort_after_start: Bool,
   // Direct shell work, one run at a time: `bash_starting` while the server
@@ -331,6 +335,8 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     reload_pending: false,
     compact_pending: false,
     compact_operation_id: "",
+    finished_turn: "",
+    finished_status: "",
     abort_pending: false,
     abort_after_start: false,
     bash_starting: false,
@@ -1793,15 +1799,19 @@ impl Controller {
     not known
   }
 
-  // Alerts once when a turn finishes, unless it was aborted: whoever aborted
-  // it is already present.
+  // Records a turn the first time it is seen to finish, and alerts unless it
+  // was aborted: whoever aborted it is already present.
   private fn mut alert_turn(turn_id: Str, status: Str) {
-    if turn_id != "" and status != "aborted" and self.remember_alert("turn:{turn_id}") {
-      let message = match status == "failed" or status == "interrupted" {
-        true => "Agent turn failed",
-        false => "Agent turn complete",
+    if turn_id != "" and self.remember_alert("turn:{turn_id}") {
+      self.finished_turn = turn_id
+      self.finished_status = status
+      if status != "aborted" {
+        let message = match status == "failed" or status == "interrupted" {
+          true => "Agent turn failed",
+          false => "Agent turn complete",
+        }
+        (self.host.alert)("Kit", message)
       }
-      (self.host.alert)("Kit", message)
     }
   }
 
@@ -5752,13 +5762,19 @@ test fn each_finished_turn_alerts_once_unless_it_was_aborted() Void!Str {
   let subject = active_controller(effects)
   subject.apply_events(
     [
-      // A turn stream and the watch can both deliver the same completion.
+      // A turn stream and the watch can both deliver the same completion,
+      // and a late duplicate does not replace the turn that finished last.
       finished("turn-1", "completed", Int64::from(1)),
       finished("turn-1", "completed", Int64::from(2)),
       finished("turn-2", "failed", Int64::from(3)),
       finished("turn-3", "interrupted", Int64::from(4)),
       finished("turn-4", "aborted", Int64::from(5)),
+      finished("turn-2", "failed", Int64::from(6)),
     ],
+  )
+  try testing::assert(
+    subject.finished_turn == "turn-4" and subject.finished_status == "aborted",
+    "last finished: {subject.finished_turn} {subject.finished_status}",
   )
   testing::assert(
     alert_log(effects) == "Kit: Agent turn complete | Kit: Agent turn failed | Kit: Agent turn failed",
