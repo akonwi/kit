@@ -389,7 +389,10 @@ boundaries. Closing an attachment cancels its polling, not server execution.
 ## Subagents and cross-session activity
 
 Subagent panes show the subagent's activity card and queued task count but no
-composer. Direct user-to-subagent messaging stays disabled: a subagent's result
+composer. A 36 pt header row under the tab holds the subagent's own split
+model and thinking chip, the composer's chip with its popovers opening below.
+While the subagent has active or queued work, its model picker is locked with
+a note, and thinking can still change. Direct user-to-subagent messaging stays disabled: a subagent's result
 is delivered to the parent agent rather than back to the user who messaged it.
 Dismissal is supported. Interaction requests carry no conversation identity, so
 every interaction docks in the Agent pane. Roster status drives tab activity,

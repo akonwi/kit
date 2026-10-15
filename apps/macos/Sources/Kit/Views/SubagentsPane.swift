@@ -42,7 +42,7 @@ struct AgentPane: View {
                     Text(agent.status.capitalized)
                         .foregroundStyle(agent.status == "failed" ? theme.danger : theme.muted)
                 }
-            }.font(.kit(size: 12)).padding(16)
+            }.font(.kit(size: 12)).padding(.horizontal, 16).frame(height: 36)
             Rule()
             if let conversationID = agent?.conversationID {
                 SubagentConfigurationFeedback(operation: state.subagentConfiguration(conversationID))
@@ -118,76 +118,98 @@ struct AgentPane: View {
     }
 }
 
-/// Pane-owned model and thinking controls for one durable child conversation.
-/// They never read or change the attached session's configuration.
+/// Pane-owned model and thinking controls for one durable child conversation:
+/// the composer's split chip, opening its popovers below. They never read or
+/// change the attached session's configuration.
 struct SubagentConfigurationControls: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
     let agent: SubagentRoster.Item
     let operation: SubagentConfigurationOperation
-    @State private var modelPickerPresented = false
+    @State private var popover = AnchoredPopover()
+    @State private var openMenu: ComposerChipMenu?
+    @State private var lastClosedMenu: ComposerChipMenu?
+    @State private var modelAnchor = ComposerPickerAnchor()
+    @State private var thinkingAnchor = ComposerPickerAnchor()
 
     private var models: [WireModelCapability] { state.configuration.models }
-    private var modelLabel: String { ComposerView.activeModelLabel(id: agent.model, models: models) }
     private var thinkingLevels: [String] {
-        models.first(where: { $0.id == agent.model })?.thinkingLevels?.map(\.rawValue)
-            ?? (agent.thinkingLevel.map { [$0] } ?? [])
+        let levels = ComposerView.thinkingLevels(model: agent.model, models: models)
+        return levels.isEmpty ? (agent.thinkingLevel.map { [$0] } ?? []) : levels
     }
-    var modelEnabled: Bool { state.canConfigureSubagent && !operation.pending && !agent.hasOutstandingWork }
-    var thinkingEnabled: Bool { state.canConfigureSubagent && !operation.pending }
-    static func thinkingLabel(_ level: String?) -> String {
-        guard let level, !level.isEmpty else { return "Thinking" }
-        return level == "off" ? "Thinking off" : level.capitalized + " thinking"
-    }
-    static func modelHelp(agent: SubagentRoster.Item, models: [WireModelCapability]) -> String {
-        if agent.hasOutstandingWork { return "\(agent.name)'s model can change once its active and queued work finishes" }
-        return models.first(where: { $0.id == agent.model }).map(ComposerView.modelLabel) ?? agent.model
-    }
+    var enabled: Bool { state.canConfigureSubagent && !operation.pending }
+    /// The model can't change while the subagent has active or queued work.
+    var modelEnabled: Bool { enabled && !agent.hasOutstandingWork }
+    static func lockedNote(_ name: String) -> String { "Model can change once \(name)'s work finishes" }
 
     var body: some View {
         HStack(spacing: 8) {
-            Button { modelPickerPresented = true } label: {
-                HStack(spacing: 4) {
-                    Text(modelLabel).lineLimit(1)
-                    IconView(.caretUpDown, size: 10)
-                }
-            }
-            .buttonStyle(.borderless).tint(theme.text).fixedSize()
-            .help(Self.modelHelp(agent: agent, models: models))
-            .accessibilityLabel("Model for \(agent.name): \(modelLabel)")
-            .popover(isPresented: $modelPickerPresented, arrowEdge: .bottom) {
-                ComposerModelPicker(models: models, selectedID: agent.model,
-                    select: { id in
-                        modelPickerPresented = false
-                        Task { await state.configureSubagent(agent.name, model: id) }
-                    }, reload: {
-                        Task { await state.loadComposer() }
-                    }, dismiss: { modelPickerPresented = false },
-                    title: "Model for \(agent.name)")
-                    .environment(\.mica, theme)
-                    .preferredColorScheme(theme.dark ? .dark : .light)
-            }
-            .disabled(!modelEnabled)
-            Rectangle().fill(theme.border).frame(width: 1, height: 14)
-            Menu {
-                Section("Thinking for \(agent.name)") {
-                    ForEach(thinkingLevels, id: \.self) { value in
-                        Button { Task { await state.configureSubagent(agent.name, thinking: value) } } label: {
-                            if value == agent.thinkingLevel { Label { Text(value.capitalized) } icon: { Image(.check) } }
-                            else { Text(value.capitalized) }
-                        }
-                    }
-                }
-            } label: { Text(Self.thinkingLabel(agent.thinkingLevel)) }
-                .menuStyle(.borderlessButton).tint(theme.text).fixedSize()
-                .disabled(!thinkingEnabled || thinkingLevels.isEmpty)
-                .accessibilityLabel("Thinking for \(agent.name): \(Self.thinkingLabel(agent.thinkingLevel))")
+            ComposerConfigurationChip(
+                model: ComposerView.activeModelLabel(id: agent.model, models: models),
+                modelHelp: models.first(where: { $0.id == agent.model }).map(ComposerView.modelLabel) ?? agent.model,
+                thinking: agent.thinkingLevel.flatMap { $0.isEmpty ? nil : $0 },
+                open: openMenu, modelAnchor: modelAnchor, thinkingAnchor: thinkingAnchor,
+                toggle: toggle, subject: agent.name)
+                .disabled(!enabled)
             if operation.pending { KitSpinner().accessibilityLabel("Applying \(agent.name) configuration") }
         }
-        .onChange(of: modelEnabled) { _, enabled in if !enabled { modelPickerPresented = false } }
+        .onChange(of: enabled) { _, enabled in if !enabled { popover.dismiss() } }
+        .onDisappear { popover.dismiss() }
         .task(id: state.selectedID) {
             if models.isEmpty { await state.loadComposer() }
         }
+    }
+
+    private func toggle(_ menu: ComposerChipMenu) {
+        if popover.isOpen {
+            let same = openMenu == menu
+            popover.dismiss()
+            if same { return }
+        } else if lastClosedMenu == menu, let closedAt = popover.closedAt,
+                  Date().timeIntervalSince(closedAt) < 0.3 {
+            // The click that reached this half already closed its popover.
+            return
+        }
+        let anchor = menu == .model ? modelAnchor : thinkingAnchor
+        guard let frame = anchor.screenFrame, let window = anchor.view?.window else { return }
+        let popover = popover, theme = theme, name = agent.name
+        let content: AnyView = switch menu {
+        case .model:
+            AnyView(SubagentModelMenu(state: state, name: name) { popover.dismiss() }.popoverCard(theme))
+        case .thinking:
+            AnyView(ComposerThinkingMenu(theme: theme, levels: thinkingLevels,
+                selected: agent.thinkingLevel ?? "",
+                select: { [state] level in Task { await state.configureSubagent(name, thinking: level) } },
+                dismiss: { popover.dismiss() }))
+        }
+        openMenu = menu
+        popover.show(anchor: frame, parent: window, edge: .below, content: content) {
+            lastClosedMenu = menu
+            if openMenu == menu { openMenu = nil }
+        }
+    }
+}
+
+/// The model half's popover for a subagent. It reads the roster live, so the
+/// list locks when the subagent picks up work while the popover is open.
+private struct SubagentModelMenu: View {
+    @Bindable var state: SessionStore
+    let name: String
+    let dismiss: () -> Void
+
+    private var agent: SubagentRoster.Item? { state.selected?.subagents?.items.first { $0.name == name } }
+
+    var body: some View {
+        ComposerModelPicker(models: state.configuration.models, selectedID: agent?.model ?? "",
+            select: { id in
+                dismiss()
+                Task { await state.configureSubagent(name, model: id) }
+            }, reload: {
+                Task { await state.loadComposer() }
+            }, dismiss: dismiss,
+            title: "Model for \(name)",
+            lockedNote: agent?.hasOutstandingWork == false ? nil : SubagentConfigurationControls.lockedNote(name))
+            .accessibilityLabel("Model for \(name)")
     }
 }
 

@@ -368,19 +368,23 @@ struct ComposerConfigurationChip: View {
     let modelAnchor: ComposerPickerAnchor
     let thinkingAnchor: ComposerPickerAnchor
     let toggle: (ComposerChipMenu) -> Void
+    /// Names the configured target when it is not the attached session.
+    var subject: String? = nil
     @State private var hovered: ComposerChipMenu?
+
+    private var target: String { subject.map { " for \($0)" } ?? "" }
 
     var body: some View {
         let lit = enabled && (open != nil || hovered != nil)
         HStack(spacing: 0) {
             half(model, menu: .model, anchor: modelAnchor)
                 .help(modelHelp)
-                .accessibilityLabel("Model: \(model)")
+                .accessibilityLabel("Model\(target): \(model)")
             if let thinking {
                 Rectangle().fill(theme.border).frame(width: 1)
                 half(thinking, menu: .thinking, anchor: thinkingAnchor)
                     .help("Thinking level")
-                    .accessibilityLabel("Thinking: \(thinking)")
+                    .accessibilityLabel("Thinking\(target): \(thinking)")
             }
         }
         .frame(height: 24)
