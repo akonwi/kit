@@ -21,7 +21,7 @@ Kit reads only the top level of `<session-cwd>/.claude/commands/`. It does not r
 - `` !`command` `` and `@path` are sent to the model as literal text. Kit never runs the command or reads the file.
 - Kit parses arguments as described below, so quotes are removed and `$ARGUMENTS` is the parsed arguments joined by spaces. Claude Code substitutes the raw argument text.
 
-Set `readClaudeConfigs` to `false` in `$KIT_HOME/settings.json` to stop Kit reading Claude Code configuration:
+Set `readClaudeConfigs` to `false` in the server's `$KIT_HOME/settings.json`, or through the [server settings API](server-settings.md), to stop Kit reading Claude Code configuration:
 
 ```json
 { "readClaudeConfigs": false }

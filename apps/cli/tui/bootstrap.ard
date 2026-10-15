@@ -45,9 +45,11 @@ fn attach(ctx: context::Context, options: cli::TUIOptions) Attached!Str {
     }
   }
   if selected.ID == "" {
-    let catalog = try client.Models(ctx) -> err { failure("list models", err) }
-    let model = try resolve_model(catalog, options.DefaultModel, options.ResumeModelFilter != "") -> err {
-      Result::err(err)
+    // Without a requested model, the server chooses the model and thinking
+    // level from its settings.
+    if options.Model != "" {
+      let catalog = try client.Models(ctx) -> err { failure("list models", err) }
+      try available_model(catalog, options.Model) -> err { Result::err(err) }
     }
     selected = try client.CreateSession(
       ctx,
@@ -55,8 +57,8 @@ fn attach(ctx: context::Context, options: cli::TUIOptions) Attached!Str {
         ID: options.NewSessionID,
         CWD: options.CWD,
         Name: options.NewSessionName,
-        Model: model,
-        ThinkingLevel: options.DefaultThinking,
+        Model: options.Model,
+        ThinkingLevel: options.Thinking,
         Temporary: options.TemporarySession,
       },
     ) -> err {
@@ -84,7 +86,7 @@ fn attach(ctx: context::Context, options: cli::TUIOptions) Attached!Str {
 fn resumable(options: cli::TUIOptions, candidate: protocol::SessionInfo) Bool {
   let providers = options.AvailableProviders
   let available = providers.size() == 0 or providers.get(provider_of(candidate.Model)).or(false)
-  available and (options.ResumeModelFilter == "" or candidate.Model == options.ResumeModelFilter) and (options.ResumeThinkingFilter == "" or candidate.ThinkingLevel == options.ResumeThinkingFilter)
+  available and (options.Model == "" or candidate.Model == options.Model) and (options.Thinking == "" or candidate.ThinkingLevel == options.Thinking)
 }
 
 // Returns the provider segment of a `provider/model` selector, or an empty
@@ -101,30 +103,17 @@ private fn failure(action: Str, err: Error) Attached!Str {
   Result::err("{action}: {err.error()}")
 }
 
-private fn resolve_model(catalog: protocol::ModelCatalog, preferred: Str, explicit: Bool) Str!Str {
-  mut selected = ""
+// Checks that a requested model is in the catalog and can be used.
+private fn available_model(catalog: protocol::ModelCatalog, selector: Str) Void!Str {
+  mut found = false
   for model in catalog.Models {
-    if selected == "" and model.ID == preferred and model.Available {
-      selected = model.ID
+    if model.ID == selector and model.Available {
+      found = true
     }
   }
-  if selected == "" and not explicit {
-    let provider = provider_of(preferred)
-    for model in catalog.Models {
-      if selected == "" and model.Provider == provider and model.Available {
-        selected = model.ID
-      }
-    }
-    for model in catalog.Models {
-      if selected == "" and model.Available {
-        selected = model.ID
-      }
-    }
-  }
-  match {
-    selected != "" => Result::ok(selected),
-    explicit => Result::err("model {preferred} is not available"),
-    _ => Result::err("no authenticated model is available"),
+  match found {
+    true => Result::ok(()),
+    false => Result::err("model {selector} is not available"),
   }
 }
 

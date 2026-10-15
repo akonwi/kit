@@ -101,6 +101,7 @@ type (
 	ModelCapability                   = contract.ModelCapability
 	ModelCatalog                      = contract.ModelCatalog
 	ModelInputKind                    = contract.ModelInputKind
+	ModelOverride                     = contract.ModelOverride
 	ObserveDiffInput                  = contract.ObserveDiffInput
 	ObserveWorkingTreeInput           = contract.ObserveWorkingTreeInput
 	PairingCode                       = contract.PairingCode
@@ -119,6 +120,7 @@ type (
 	PluginToast                       = contract.PluginToast
 	PluginToastVariant                = contract.PluginToastVariant
 	PromoteFollowUpsResult            = contract.PromoteFollowUpsResult
+	PromptCacheRetention              = contract.PromptCacheRetention
 	PromptCommand                     = contract.PromptCommand
 	PromptCommandContent              = contract.PromptCommandContent
 	PromptCommandInput                = contract.PromptCommandInput
@@ -148,6 +150,7 @@ type (
 	ScratchpadErrorCode               = contract.ScratchpadErrorCode
 	ScratchpadErrorDetails            = contract.ScratchpadErrorDetails
 	ScratchpadRevision                = contract.ScratchpadRevision
+	ServerSettings                    = contract.ServerSettings
 	SessionCWDChangedEvent            = contract.SessionCWDChangedEvent
 	SessionEvent                      = contract.SessionEvent
 	SessionEventBatch                 = contract.SessionEventBatch
@@ -210,6 +213,7 @@ type (
 	UnionVariant                      = contract.UnionVariant
 	UpdateAnnotationInput             = contract.UpdateAnnotationInput
 	UpdateScratchpadInput             = contract.UpdateScratchpadInput
+	UpdateServerSettingsInput         = contract.UpdateServerSettingsInput
 	UsageChangedEvent                 = contract.UsageChangedEvent
 	UserMessageAddedEvent             = contract.UserMessageAddedEvent
 	VCSHead                           = contract.VCSHead
@@ -310,6 +314,7 @@ const (
 	MaxAttachmentsPerPrompt               = contract.MaxAttachmentsPerPrompt
 	MaxBashHistoryCommandBytes            = contract.MaxBashHistoryCommandBytes
 	MaxBashHistoryPageSize                = contract.MaxBashHistoryPageSize
+	MaxContextWindow                      = contract.MaxContextWindow
 	MaxDevices                            = contract.MaxDevices
 	MaxDiffCandidates                     = contract.MaxDiffCandidates
 	MaxDiffCursorBytes                    = contract.MaxDiffCursorBytes
@@ -339,6 +344,7 @@ const (
 	MaxInteractionOptions                 = contract.MaxInteractionOptions
 	MaxInteractionTitleBytes              = contract.MaxInteractionTitleBytes
 	MaxLiveAnnotationsPerSession          = contract.MaxLiveAnnotationsPerSession
+	MaxModelOverrides                     = contract.MaxModelOverrides
 	MaxPendingInteractions                = contract.MaxPendingInteractions
 	MaxPromptAnnotationBytes              = contract.MaxPromptAnnotationBytes
 	MaxPromptAttachmentBytes              = contract.MaxPromptAttachmentBytes
@@ -360,6 +366,8 @@ const (
 	PluginToastError                      = contract.PluginToastError
 	PluginToastInfo                       = contract.PluginToastInfo
 	PluginToastWarning                    = contract.PluginToastWarning
+	PromptCacheLong                       = contract.PromptCacheLong
+	PromptCacheShort                      = contract.PromptCacheShort
 	PromptCommandSourceClaudeProject      = contract.PromptCommandSourceClaudeProject
 	PromptCommandSourceProject            = contract.PromptCommandSourceProject
 	PromptCommandSourceUser               = contract.PromptCommandSourceUser

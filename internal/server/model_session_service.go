@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/akonwi/kit/droids"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/sessiontool"
 )
@@ -20,14 +19,12 @@ type modelSessionManager interface {
 }
 
 type modelSessionService struct {
-	manager            modelSessionManager
-	providers          droids.Providers
-	availableProviders func(context.Context) []string
-	configuredDefault  func() (string, error)
+	manager  modelSessionManager
+	defaults sessionDefaults
 }
 
 func (s modelSessionService) CreateModelSession(ctx context.Context, input sessiontool.CreateInput) (sessiontool.Session, error) {
-	if s.manager == nil || s.providers == nil {
+	if s.manager == nil || s.defaults.providers == nil {
 		return sessiontool.Session{}, errors.New("session creation service is unavailable")
 	}
 	owner, err := s.manager.Get(ctx, input.OwnerSessionID)
@@ -40,7 +37,7 @@ func (s modelSessionService) CreateModelSession(ctx context.Context, input sessi
 	if input.Name == "" {
 		return sessiontool.Session{}, errors.New("session name is required")
 	}
-	model, err := s.defaultModel(ctx)
+	model, err := s.defaults.model(ctx)
 	if err != nil {
 		return sessiontool.Session{}, err
 	}
@@ -68,43 +65,6 @@ func (s modelSessionService) CreateModelSession(ctx context.Context, input sessi
 		result.RunID = reservation.RunID
 	}
 	return result, nil
-}
-
-func (s modelSessionService) defaultModel(ctx context.Context) (string, error) {
-	available := make(map[string]bool)
-	if s.availableProviders == nil {
-		for _, model := range s.providers.Models() {
-			available[model.Provider] = true
-		}
-	} else {
-		for _, provider := range s.availableProviders(ctx) {
-			available[provider] = true
-		}
-	}
-	models := s.providers.Models()
-	preferredModels := []string{}
-	if s.configuredDefault != nil {
-		configured, err := s.configuredDefault()
-		if err != nil {
-			return "", err
-		}
-		if configured != "" {
-			preferredModels = append(preferredModels, configured)
-		}
-	}
-	preferredModels = append(preferredModels, "openai-codex/gpt-5.6-sol", "anthropic/claude-sonnet-4-6")
-	for _, preferred := range preferredModels {
-		model, ok := s.providers.Model(preferred)
-		if ok && available[model.Provider] {
-			return model.Provider + "/" + model.ID, nil
-		}
-	}
-	for _, model := range models {
-		if available[model.Provider] {
-			return model.Provider + "/" + model.ID, nil
-		}
-	}
-	return "", fmt.Errorf("no available model provider")
 }
 
 var _ sessiontool.Service = modelSessionService{}

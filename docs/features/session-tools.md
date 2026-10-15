@@ -21,7 +21,8 @@ current client. If `prompt` is supplied, Kit admits it asynchronously and
 returns the run ID. The session can then be discovered or contacted with
 `peer_session`.
 
-Kit always uses `defaultModel` from settings when it is available, followed by
-Kit's default available model. Thinking uses the selected model's default. The
-model cannot override either setting through this tool or create a temporary
-session.
+The new session's model and thinking level follow the server's
+[new-session defaults](server-settings.md#new-sessions): `defaultModel` when
+usable, otherwise Kit's default model, at the model's default thinking level.
+The model cannot
+choose either through this tool or create a temporary session.

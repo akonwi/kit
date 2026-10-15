@@ -156,9 +156,12 @@ type sessionService interface {
 }
 
 type runtimeSessionService struct {
-	manager             *kitsession.Manager
-	availableProviders  func(context.Context) []string
-	modelContextWindow  func(string) int
+	manager            *kitsession.Manager
+	availableProviders func(context.Context) []string
+	modelContextWindow func(string) int
+	// defaults chooses the model and thinking level of a new session whose
+	// request names none.
+	defaults            sessionDefaults
 	fileIndexes         *sessionFileIndexCache
 	workspaces          *kitworkspace.Service
 	diffs               *kitworkingdiff.Service
@@ -173,6 +176,13 @@ func (s runtimeSessionService) Create(
 	ctx context.Context,
 	input protocol.CreateSessionInput,
 ) (protocol.SessionInfo, error) {
+	if input.Model == "" {
+		model, err := s.defaults.model(ctx)
+		if err != nil {
+			return protocol.SessionInfo{}, err
+		}
+		input.Model = model
+	}
 	record, err := s.manager.Create(ctx, kitsession.CreateInput{
 		ID: input.ID, CWD: input.CWD, Name: input.Name, Model: input.Model,
 		ThinkingLevel: input.ThinkingLevel, Temporary: input.Temporary,

@@ -5,7 +5,6 @@ use go:api/contract as protocol
 use cooper/cui
 use cooper/keymap
 use cooper/ui
-use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use kit/tui/format
 use kit/tui/modal
@@ -23,7 +22,6 @@ struct Props {
   lifetime: contextbridge::Cancellation,
   bound: mut api::Session,
   session: protocol::SessionInfo,
-  override_service: cli::ModelOverrideService,
   dismiss: keymap::SimpleCommand,
   applied: fn(protocol::ConfigureSessionResult),
   // Chooses a subagent conversation's model instead of the session's.
@@ -149,40 +147,55 @@ impl Picker {
 
   private fn mut save_context_edit() {
     let value = strings::TrimSpace(self.edit_value)
-    match value == "" {
-      true => {
-        match self.props.override_service.SetContextWindow(self.edit_model, 0) {
-          ok(_) => {
-            self.editing_context = false
-            match self.context {
-              context => self.load(context),
-              _ => (),
-            }
-          },
-          err(failure) => { self.error = failure.error() },
-        }
-      },
-      false => {
-        match strconv::Atoi(value) {
-          ok(parsed) => {
-            if parsed <= 0 {
-              self.error = "Enter a positive integer, or leave blank to clear"
-            } else {
-              match self.props.override_service.SetContextWindow(self.edit_model, parsed) {
+    mut window = 0
+    if value != "" {
+      window = match strconv::Atoi(value) {
+        ok(parsed) => parsed,
+        err(_) => -1,
+      }
+    }
+    if window < 0 or value != "" and window == 0 {
+      self.error = "Enter a positive integer, or leave blank to clear"
+    } else if not self.pending {
+      self.save_context_window(window)
+    }
+  }
+
+  // Saves the override on the server, which applies it from the next
+  // request; zero removes it. The catalog is reloaded to show it.
+  private fn mut save_context_window(window: Int) {
+    match self.context {
+      context => {
+        self.pending = true
+        self.error = ""
+        self.generation =+ 1
+        let generation = self.generation
+        let client = self.props.client
+        let lifetime = self.props.lifetime
+        let model = self.edit_model
+        let dispatch = context.dispatch
+        async::start(fn() {
+          let result = client.SetModelContextWindow(lifetime.Context, model, window)
+          let _ = dispatch(fn() {
+            if self.generation == generation {
+              self.pending = false
+              match result {
+                // The editor shows the failure, reopened if it was left,
+                // with the entered value to retry.
                 ok(_) => {
                   self.editing_context = false
-                  match self.context {
-                    context => self.load(context),
-                    _ => (),
-                  }
+                  self.load(context)
                 },
-                err(failure) => { self.error = failure.error() },
+                err(failure) => {
+                  self.editing_context = true
+                  self.error = failure.error()
+                },
               }
             }
-          },
-          err(_) => { self.error = "Enter a positive integer, or leave blank to clear" },
-        }
+          })
+        })
       },
+      _ => (),
     }
   }
 
@@ -247,6 +260,11 @@ impl Picker {
   }
 
   private fn mut context_editor() cui::View {
+    let colors = self.props.themes.current()
+    let status = match self.pending {
+      true => cui::text("Saving…", text_style: ui::text_style(foreground: colors.muted)),
+      false => cui::text(self.error, text_style: ui::text_style(foreground: colors.danger_text)),
+    }
     let dismiss = keymap::simple_command("model.override.back", "Back", fn() Bool {
       self.editing_context = false
       self.error = ""
@@ -274,10 +292,7 @@ impl Picker {
                 self.save_context_edit()
               },
             ),
-            cui::text(
-              self.error,
-              text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
-            ),
+            status,
           ],
           styles: ui::style(
             flex_direction: ui::FlexDirection::column,

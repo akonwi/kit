@@ -301,16 +301,11 @@ func Run(ctx context.Context, options RunOptions) error {
 	}
 	annotationService.SetObserver(sessionManager)
 	peerTools.Service = sessionManager
-	sessionTools.Service = modelSessionService{
-		manager: sessionManager, providers: providers, availableProviders: providerAvailability,
-		configuredDefault: func() (string, error) {
-			current, _, loadErr := settingsStore.Load()
-			if loadErr != nil {
-				return "", fmt.Errorf("load default model: %w", loadErr)
-			}
-			return current.DefaultModel, nil
-		},
-	}
+	defaults := sessionDefaults{providers: providers, availableProviders: providerAvailability, logger: logger, settings: func() (settings.Settings, error) {
+		current, _, loadErr := settingsStore.Load()
+		return current, loadErr
+	}}
+	sessionTools.Service = modelSessionService{manager: sessionManager, defaults: defaults}
 	if err := subagents.SetEventSink(sessionManager); err != nil {
 		return fmt.Errorf("connect subagent event sink: %w", err)
 	}
@@ -403,6 +398,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	defer endStreams()
 	handler := newHandler(localHandlerOptions{
 		providerAccess: &providerAccess{logins: logins, store: credentialStore, sources: credentialSources, configured: providerAvailability},
+		settingsAccess: &settingsAccess{store: settingsStore, models: providers, defaults: defaults},
 		streamShutdown: streamShutdown,
 		access:         allowed.policy(),
 		registry:       registry,
@@ -413,7 +409,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		store:          store,
 		logger:         logger,
 		sessions: runtimeSessionService{
-			manager: sessionManager, availableProviders: providerAvailability, modelContextWindow: modelContextWindow, fileIndexes: newSessionFileIndexCache(),
+			manager: sessionManager, defaults: defaults, availableProviders: providerAvailability, modelContextWindow: modelContextWindow, fileIndexes: newSessionFileIndexCache(),
 			workspaces: workspaceService, diffs: diffService, annotations: annotationService, annotationCursorKey: []byte(token), subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
 		},
 		attachments: runtimeAttachmentService{manager: sessionManager, store: attachmentStore},
@@ -496,6 +492,8 @@ type localHandlerOptions struct {
 	providers   func(context.Context) []string
 	// providerAccess serves provider credentials and logins; nil omits them.
 	providerAccess *providerAccess
+	// settingsAccess serves the server's settings; nil omits them.
+	settingsAccess *settingsAccess
 	requestStop    func()
 	// streamShutdown ends open event streams when it is done.
 	streamShutdown context.Context
@@ -538,6 +536,9 @@ func newHandler(options localHandlerOptions) http.Handler {
 	credentials := newAccess(options.token, options.devices, options.pairing)
 	if options.devices != nil {
 		registerDeviceRoutes(mux, credentials, options.logger)
+	}
+	if options.settingsAccess != nil {
+		registerSettingsRoutes(mux, *options.settingsAccess, options.logger)
 	}
 	if options.providerAccess != nil {
 		registerProviderRoutes(mux, *options.providerAccess, options.logger)

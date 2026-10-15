@@ -420,17 +420,6 @@ func TestRunNewHelpAndArgumentValidation(t *testing.T) {
 	}
 }
 
-func TestInteractiveProvidersPreferCodexCredentials(t *testing.T) {
-	t.Parallel()
-	providers, model := interactiveProviders([]string{"anthropic", "openai", "openai-codex"})
-	if !providers["openai-codex"] || !providers["openai"] || !providers["anthropic"] {
-		t.Fatalf("providers = %#v", providers)
-	}
-	if model != "openai-codex/gpt-5.6-sol" {
-		t.Fatalf("default model = %q", model)
-	}
-}
-
 func TestInteractiveLocationLeavesGitPresentationToSessionStatus(t *testing.T) {
 	directory := t.TempDir()
 	location := interactiveLocation(context.Background(), directory)

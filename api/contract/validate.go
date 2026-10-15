@@ -26,9 +26,11 @@ func (input CreateSessionInput) Validate() error {
 	if name != "" && !ValidSessionName(name) {
 		return fmt.Errorf("session name must be renderer-safe UTF-8 and at most 256 bytes")
 	}
-	provider, model, ok := strings.Cut(input.Model, "/")
-	if !ok || !validRendererText(provider, 128) || !validRendererText(model, 256) {
-		return fmt.Errorf("session model must use an exact provider/model id")
+	if input.Model != "" {
+		provider, model, ok := strings.Cut(input.Model, "/")
+		if !ok || !validRendererText(provider, 128) || !validRendererText(model, 256) {
+			return fmt.Errorf("session model must use an exact provider/model id")
+		}
 	}
 	if input.ThinkingLevel != "" {
 		if err := ThinkingLevel(input.ThinkingLevel).Validate(); err != nil {

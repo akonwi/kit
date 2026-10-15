@@ -295,21 +295,20 @@ func (e Environment) Prepare(ctx context.Context, invocation Invocation, stderr 
 		fmt.Fprintf(stderr, "kit: inspect server providers: %v\n", err)
 		return failed(1)
 	}
-	providers, defaultModel := interactiveProviders(info.Providers)
+	providers := providerSet(info.Providers)
 	authenticated := len(providers) > 0
 	if options.Model != "" {
-		defaultModel = options.Model
 		provider, _, _ := strings.Cut(options.Model, "/")
 		authenticated = authenticated && providers[provider]
 	}
 	// Logins run on the server, which stores their credentials.
-	return e.prepared(ctx, options, cwd, defaultModel, providers, authenticated,
+	return e.prepared(ctx, options, cwd, providers, authenticated,
 		serverDeviceLogin{client: e.Client}, serverBrowserLogin{client: e.Client}, serverAPIKeyLogin{client: e.Client})
 }
 
 // prepared assembles the terminal client's options.
 func (e Environment) prepared(
-	ctx context.Context, options interactiveOptions, cwd, defaultModel string,
+	ctx context.Context, options interactiveOptions, cwd string,
 	providers map[string]bool, authenticated bool,
 	login DeviceLogin, browserLogin BrowserLogin, apiKeyLogin APIKeyLogin,
 ) Prepared {
@@ -323,10 +322,8 @@ func (e Environment) prepared(
 			ServerHome:            e.ServerHome,
 			Location:              homeRelative(e.ServerHome, cwd),
 			ResolveLocation:       func(_ context.Context, cwd string) string { return homeRelative(e.ServerHome, cwd) },
-			DefaultModel:          defaultModel,
-			DefaultThinking:       options.Thinking,
-			ResumeModelFilter:     options.Model,
-			ResumeThinkingFilter:  options.Thinking,
+			Model:                 options.Model,
+			Thinking:              options.Thinking,
 			AvailableProviders:    providers,
 			Authenticated:         authenticated,
 			SessionID:             options.SessionID,
@@ -339,7 +336,6 @@ func (e Environment) prepared(
 			ThemeName:             e.themeName,
 			ThemeDefinition:       e.ThemeDefinition,
 			ThemeService:          interactiveThemeService{directory: e.paths.Themes, settings: e.settings},
-			ModelOverrideService:  interactiveModelOverrideService{settings: e.settings},
 			DiffWrapLines:         e.diffWrap,
 			DiffPreferenceService: interactiveDiffPreferenceService{settings: e.settings},
 		},

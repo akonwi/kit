@@ -69,6 +69,12 @@ use, the terminal client offers the providers' logins, which run on the
 attached server and store credentials there. See
 [Provider login](provider-login.md).
 
+### Server settings
+
+New sessions start with the server's default model, and
+context-window overrides edited in the `/model` picker change the attached
+server's settings. See [Server settings](server-settings.md).
+
 ## Saved servers
 
 `kit servers` lists this home's server and the saved servers with their status:

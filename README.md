@@ -94,7 +94,8 @@ foreground command exits. Logins run on the server, which stores the
 credentials ([provider login](docs/features/provider-login.md)). Claude
 subscription login relays the browser's localhost redirect to the server; if
 that redirect cannot be received, the login dialog accepts the authorization
-code instead.
+code instead. New sessions started without `--model` use the server's default
+model ([server settings](docs/features/server-settings.md)).
 
 Print mode creates and resumes droids sessions through the local session-client
 boundary, writes only final assistant prose to stdout, and keeps diagnostics on

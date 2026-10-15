@@ -14,6 +14,7 @@ func Catalog() []Descriptor {
 		RedeemPairing.Describe(), CreatePairing.Describe(), ListDevices.Describe(), RevokeDevice.Describe(),
 		ListProviders.Describe(), StartProviderLogin.Describe(), GetProviderLogin.Describe(), SubmitProviderLoginAuthorization.Describe(),
 		CancelProviderLogin.Describe(), SetProviderAPIKey.Describe(), DeleteProviderCredentials.Describe(),
+		GetServerSettings.Describe(), UpdateServerSettings.Describe(),
 		GetWorkspace.Describe(), ListWorkspaceDirectory.Describe(), ReadWorkspaceFile.Describe(), GetSessionFileIndex.Describe(),
 		GetSessionVCS.Describe(), StreamSessionVCS.Describe(),
 		ExecutePluginCommand.Describe(), StreamPluginToasts.Describe(),

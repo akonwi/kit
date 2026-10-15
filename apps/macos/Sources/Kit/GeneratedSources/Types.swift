@@ -215,6 +215,12 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/workspace/files/read`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/files/read/post(readWorkspaceFile)`.
     func readWorkspaceFile(_ input: Operations.ReadWorkspaceFile.Input) async throws -> Operations.ReadWorkspaceFile.Output
+    /// - Remark: HTTP `GET /v1/settings`.
+    /// - Remark: Generated from `#/paths//v1/settings/get(getServerSettings)`.
+    func getServerSettings(_ input: Operations.GetServerSettings.Input) async throws -> Operations.GetServerSettings.Output
+    /// - Remark: HTTP `PATCH /v1/settings`.
+    /// - Remark: Generated from `#/paths//v1/settings/patch(updateServerSettings)`.
+    func updateServerSettings(_ input: Operations.UpdateServerSettings.Input) async throws -> Operations.UpdateServerSettings.Output
     /// - Remark: HTTP `POST /v1/shutdown`.
     /// - Remark: Generated from `#/paths//v1/shutdown/post(shutdown)`.
     func shutdown(_ input: Operations.Shutdown.Input) async throws -> Operations.Shutdown.Output
@@ -1008,6 +1014,22 @@ extension APIProtocol {
     ) async throws -> Operations.ReadWorkspaceFile.Output {
         try await readWorkspaceFile(Operations.ReadWorkspaceFile.Input(
             path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/settings`.
+    /// - Remark: Generated from `#/paths//v1/settings/get(getServerSettings)`.
+    internal func getServerSettings(headers: Operations.GetServerSettings.Input.Headers) async throws -> Operations.GetServerSettings.Output {
+        try await getServerSettings(Operations.GetServerSettings.Input(headers: headers))
+    }
+    /// - Remark: HTTP `PATCH /v1/settings`.
+    /// - Remark: Generated from `#/paths//v1/settings/patch(updateServerSettings)`.
+    internal func updateServerSettings(
+        headers: Operations.UpdateServerSettings.Input.Headers,
+        body: Operations.UpdateServerSettings.Input.Body
+    ) async throws -> Operations.UpdateServerSettings.Output {
+        try await updateServerSettings(Operations.UpdateServerSettings.Input(
             headers: headers,
             body: body
         ))
