@@ -29,5 +29,9 @@ const (
 	// claude_project prompt command source (ADRs 0041 and 0042).
 	// 46: Health reports the server's stable identity, Kit-scoped machine
 	// identifier, and user home directory (ADR 0045).
-	SessionProtocolVersion = 46
+	// 47: Requests authenticate with device tokens as well as the local token,
+	// so every operation's error union adds credential_expired (401) and
+	// rate_limited (429). Adds pairing, device, and provider login operations
+	// (ADR 0045).
+	SessionProtocolVersion = 47
 )
