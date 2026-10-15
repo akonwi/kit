@@ -1,7 +1,10 @@
 use ard/async
 use ard/testing
+use ard/unsafe
 
+use go:api/contract as protocol
 use cooper/cui
+use cooper/program_status
 use cooper/terminal_progress
 use cooper/ui
 use kit/tui/spinner
@@ -12,9 +15,13 @@ use go:time
 use go:unicode
 
 // Reports Kit's status to the hosting terminal: the window or tab title and,
-// where the terminal supports it, its progress indicator. A running turn
-// animates a spinner ahead of the title, a turn waiting for an answer shows
-// `?` with paused progress, and idle sessions have no marker.
+// where the terminal supports them, its progress indicator and the Program
+// Status Protocol (OSC 7501). A running turn animates a spinner ahead of the
+// title, a turn waiting for an answer shows `?` with paused progress, and idle
+// sessions have no marker. The protocol's root record, with `app=kit`, is
+// `working` while a turn or compaction runs, `blocked` while Kit waits for the
+// user, and reports how the last turn finished: `done` when it completed,
+// `error` when it failed or was interrupted, and `idle` when it was aborted.
 
 // Every other spinner frame keeps the title readable while it animates.
 let running_frames = [
@@ -38,6 +45,11 @@ struct Terminal {
   bell: fn() Bool,
   // Sends a desktop notification: a message under a title.
   notify: fn(Str, Str) Bool,
+  // Reports the root record through the Program Status Protocol.
+  program_status: fn(program_status::Report) Bool,
+  // Whether the terminal answered the Program Status Protocol's feature
+  // query, so it notifies about the records Kit reports.
+  program_status_supported: fn() Bool,
   // Whether the terminal reported that it has focus. A terminal that has not
   // reported focus is treated as unfocused.
   focused: fn() Bool,
@@ -58,6 +70,12 @@ fn detached() Terminal {
     notify: fn(message: Str, title: Str) Bool {
       false
     },
+    program_status: fn(report: program_status::Report) Bool {
+      false
+    },
+    program_status_supported: fn() Bool {
+      false
+    },
     focused: fn() Bool {
       false
     },
@@ -65,11 +83,137 @@ fn detached() Terminal {
 }
 
 // alert draws the user back to Kit: it rings the bell and, unless the user
-// is already looking at the terminal, sends a desktop notification.
+// is already looking at the terminal, sends a desktop notification. A
+// terminal that supports the Program Status Protocol notifies about the
+// records Kit reports instead, so Kit sends none of its own.
 fn alert(terminal: Terminal, title: Str, message: Str) {
   let _ = (terminal.bell)()
-  if not (terminal.focused)() {
+  if not (terminal.focused)() or (terminal.program_status_supported)() {
     let _ = (terminal.notify)(message, title)
+  }
+}
+
+// A request waiting for the user's answer.
+struct Request {
+  // Identifies the request; a different request is reported anew.
+  id: Str,
+  kind: program_status::Kind,
+  // One line describing what the request asks.
+  message: Str,
+}
+
+// The request that interaction makes of the user: a model's confirmation asks
+// for permission, and every other model or plugin request asks a question.
+fn request(interaction: protocol::InteractionRequest) Request {
+  let permission = interaction.Kind == protocol::InteractionConfirm and unsafe::is_nil(interaction.Plugin)
+  let title = strings::TrimSpace(interaction.Title)
+  Request{
+    id: interaction.ID,
+    kind: match permission {
+      true => program_status::Kind::permission,
+      false => program_status::Kind::question,
+    },
+    message: match title == "" {
+      true => "A request is waiting for your answer",
+      false => title,
+    },
+  }
+}
+
+// Kit's state as the Program Status Protocol reports it on the root record.
+struct Program {
+  // Whether Kit is signed out or connecting a provider.
+  auth: Bool,
+  // The oldest request waiting for the user's answer.
+  request: Request?,
+  // Whether a turn or compaction runs.
+  working: Bool,
+  // The last turn seen to finish, and its status: completed, failed,
+  // interrupted, or aborted. Empty before any.
+  finished_turn: Str,
+  finished_status: Str,
+}
+
+// Nothing to report but an idle session.
+fn idle_program() Program {
+  Program{
+    auth: false,
+    request: Maybe::new<Request>(),
+    working: false,
+    finished_turn: "",
+    finished_status: "",
+  }
+}
+
+// A report for the root record. `key` identifies it: the terminal treats each
+// report as a new event, so one is sent only when its key changes. `busy`
+// reports that Kit is working or waiting for the user, which supersedes the
+// outcome of the turn that finished before.
+struct Planned {
+  key: Str,
+  busy: Bool,
+  report: program_status::Report,
+}
+
+private fn kit_report(state: program_status::State, message: Str) program_status::Report {
+  program_status::Report{
+    state: state,
+    app: "kit",
+    message: message,
+  }
+}
+
+private fn blocked(key: Str, kind: program_status::Kind, message: Str) Planned {
+  Planned{
+    key: key,
+    busy: true,
+    report: kit_report(program_status::Blocked{kind: kind}, message),
+  }
+}
+
+// What to report for program. superseded names a finished turn whose outcome
+// later work has replaced: it reports idle rather than repeat the outcome.
+fn plan(program: Program, superseded: Str) Planned {
+  let idle = Planned{
+    key: "idle",
+    busy: false,
+    report: kit_report(program_status::Idle{}, ""),
+  }
+  let turn = program.finished_turn
+  match program.auth {
+    true => blocked("auth", program_status::Kind::auth, "Connect an AI provider"),
+    false => {
+      match program.request {
+        waiting => blocked("request:{waiting.id}", waiting.kind, waiting.message),
+        _ => {
+          match {
+            program.working => {
+              Planned{
+                key: "working",
+                busy: true,
+                report: kit_report(program_status::Working{}, ""),
+              }
+            },
+            turn == "" or turn == superseded => idle,
+            program.finished_status == "completed" => {
+              Planned{
+                key: "done:{turn}",
+                busy: false,
+                report: kit_report(program_status::Done{}, "Agent turn complete"),
+              }
+            },
+            program.finished_status == "aborted" => idle,
+            _ => {
+              Planned{
+                key: "error:{turn}",
+                busy: false,
+                report: kit_report(program_status::Failed{}, "Agent turn failed"),
+              }
+            },
+          }
+        },
+      }
+    },
   }
 }
 
@@ -83,6 +227,8 @@ struct Props {
   work_id: Str,
   // Whether the running work is waiting for an answer from the user.
   feedback: Bool,
+  // What the Program Status Protocol reports.
+  program: Program,
   // Overrides the animation cadence derived from the environment.
   frame_duration: time::Duration?,
 }
@@ -103,6 +249,10 @@ struct Reporter {
   // Stops the current animation worker; absent while idle.
   ticker: Chan<Void>?,
   progress: terminal_progress::State?,
+  // The key of the last program status report; empty before the first.
+  program_key: Str,
+  // The finished turn whose outcome later work superseded.
+  superseded: Str,
 }
 
 // reporter publishes status while mounted and renders nothing.
@@ -120,6 +270,8 @@ private fn new(props: mut Props) mut Reporter {
     work_id: "",
     ticker: Maybe::new<Chan<Void>>(),
     progress: Maybe::new<terminal_progress::State>(),
+    program_key: "",
+    superseded: "",
   })
 }
 
@@ -184,6 +336,23 @@ impl Reporter {
       // each frame does not retry it.
       let _ = (self.props.terminal.progress)(progress)
       self.progress = Maybe::new(progress)
+    }
+    self.publish_program()
+  }
+
+  // Reports the root record when it changes. Cooper clears or idles the
+  // record when the application is destroyed.
+  private fn mut publish_program() {
+    let program = self.props.program
+    let planned = plan(program, self.superseded)
+    if planned.busy {
+      self.superseded = program.finished_turn
+    }
+    if planned.key != self.program_key {
+      // A terminal that rejects the report is not asked again until the
+      // state changes.
+      self.program_key = planned.key
+      let _ = (self.props.terminal.program_status)(planned.report)
     }
   }
 
@@ -323,6 +492,7 @@ test fn multiplexers_slow_the_running_animation() Void!Str {
 
 private struct Alerts {
   focused: Bool,
+  program_status: Bool,
   log: [Str],
 }
 
@@ -342,6 +512,12 @@ private fn alert_terminal(alerts: mut Alerts) Terminal {
       alerts.log.push("{title}: {message}")
       true
     },
+    program_status: fn(report: program_status::Report) Bool {
+      true
+    },
+    program_status_supported: fn() Bool {
+      alerts.program_status
+    },
     focused: fn() Bool {
       alerts.focused
     },
@@ -349,7 +525,11 @@ private fn alert_terminal(alerts: mut Alerts) Terminal {
 }
 
 test fn an_alert_rings_and_notifies_only_while_the_terminal_is_unfocused() Void!Str {
-  let alerts = mut Alerts{focused: false, log: []}
+  let alerts = mut Alerts{
+    focused: false,
+    program_status: false,
+    log: [],
+  }
   alert(alert_terminal(alerts), "Kit", "Agent turn complete")
   try testing::assert(
     alerts.log.size() == 2 and alerts.log.at(0).or("") == "bell" and alerts.log.at(1).or("") == "Kit: Agent turn complete",
@@ -361,4 +541,86 @@ test fn an_alert_rings_and_notifies_only_while_the_terminal_is_unfocused() Void!
     alerts.log.size() == 3 and alerts.log.at(2).or("") == "bell",
     "a focused terminal only rings",
   )
+}
+
+test fn a_terminal_with_program_status_notifies_in_place_of_kit() Void!Str {
+  let alerts = mut Alerts{
+    focused: false,
+    program_status: true,
+    log: [],
+  }
+  alert(alert_terminal(alerts), "Kit", "Agent turn complete")
+  testing::assert(
+    alerts.log.size() == 1 and alerts.log.at(0).or("") == "bell",
+    "only the bell rings: {strings::Join(mut alerts.log, " | ")}",
+  )
+}
+
+test fn a_models_confirmation_asks_permission_and_other_requests_ask_questions() Void!Str {
+  let confirmation = request(
+    protocol::InteractionRequest{
+      ID: "r1",
+      Kind: protocol::InteractionConfirm,
+      Title: " Run rm -rf build? ",
+    },
+  )
+  try testing::assert(
+    confirmation.kind == program_status::Kind::permission and confirmation.message == "Run rm -rf build?",
+    "a model's confirmation",
+  )
+  let plugin = request(
+    protocol::InteractionRequest{
+      ID: "r2",
+      Kind: protocol::InteractionConfirm,
+      Title: "Deploy?",
+      Plugin: mut protocol::PluginInteractionOwner{PluginID: "deploy", Instance: "owner:1"},
+    },
+  )
+  try testing::assert(plugin.kind == program_status::Kind::question, "a plugin's confirmation")
+  let input = request(
+    protocol::InteractionRequest{
+      ID: "r3",
+      Kind: protocol::InteractionInput,
+      Title: "",
+    },
+  )
+  testing::assert(
+    input.kind == program_status::Kind::question and input.message == "A request is waiting for your answer",
+    "an untitled input",
+  )
+}
+
+private fn planned_key(program: Program, superseded: Str) Str {
+  plan(program, superseded).key
+}
+
+test fn the_root_record_puts_auth_ahead_of_requests_and_work() Void!Str {
+  let waiting = Request{
+    id: "r1",
+    kind: program_status::Kind::permission,
+    message: "Run tests?",
+  }
+  let program = mut idle_program()
+  try testing::assert(planned_key(program.@, "") == "idle", "nothing happened yet")
+  program.working = true
+  try testing::assert(planned_key(program.@, "") == "working", "a turn runs")
+  program.request = Maybe::new(waiting)
+  try testing::assert(planned_key(program.@, "") == "request:r1", "a request waits")
+  program.auth = true
+  testing::assert(planned_key(program.@, "") == "auth", "signed out")
+}
+
+test fn the_root_record_reports_how_the_last_turn_finished() Void!Str {
+  let program = mut idle_program()
+  program.finished_turn = "turn-1"
+  program.finished_status = "completed"
+  try testing::assert(planned_key(program.@, "") == "done:turn-1", "completed")
+  program.finished_status = "failed"
+  try testing::assert(planned_key(program.@, "") == "error:turn-1", "failed")
+  program.finished_status = "interrupted"
+  try testing::assert(planned_key(program.@, "") == "error:turn-1", "interrupted")
+  program.finished_status = "aborted"
+  try testing::assert(planned_key(program.@, "") == "idle", "aborted")
+  program.finished_status = "completed"
+  testing::assert(planned_key(program.@, "turn-1") == "idle", "superseded by later work")
 }

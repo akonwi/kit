@@ -3,6 +3,7 @@ use ard/testing
 use cooper
 use cooper/cui
 use cooper/event
+use cooper/program_status
 use cooper/terminal_progress
 use cooper/testing as headless
 use kit/tui/terminal_status
@@ -14,6 +15,7 @@ struct Status {
   running: Bool,
   work_id: Str,
   feedback: Bool,
+  program: terminal_status::Program,
 }
 
 struct HostProps {
@@ -40,6 +42,7 @@ impl cui::Component for Host {
         running: self.props.status.running,
         work_id: self.props.status.work_id,
         feedback: self.props.status.feedback,
+        program: self.props.status.program,
         frame_duration: Maybe::new(self.props.frame_duration),
       },
     )
@@ -59,6 +62,12 @@ fn host_terminal(terminal: headless::TestApp) terminal_status::Terminal {
     },
     notify: fn(message: Str, title: Str) Bool {
       terminal.context.notify(message, title: title)
+    },
+    program_status: fn(report: program_status::Report) Bool {
+      terminal.context.program_status(report)
+    },
+    program_status_supported: fn() Bool {
+      terminal.context.program_status_supported()
     },
     focused: fn() Bool {
       match terminal.context.terminal_focus() {
@@ -119,6 +128,7 @@ test fn the_title_and_progress_follow_running_work() Void!Str {
     running: false,
     work_id: "",
     feedback: false,
+    program: terminal_status::idle_program(),
   }
   // The animation never advances, so every published title is deterministic.
   let renderer = mount(terminal, status, time::Hour)
@@ -179,6 +189,7 @@ test fn the_running_marker_animates_and_restarts_for_new_work() Void!Str {
     running: true,
     work_id: "turn-1",
     feedback: false,
+    program: terminal_status::idle_program(),
   }
   let renderer = mount(terminal, status, 40 * time::Millisecond)
   defer renderer.destroy()
@@ -219,6 +230,7 @@ test fn unmounting_leaves_an_idle_title_without_progress() Void!Str {
     running: true,
     work_id: "turn-1",
     feedback: false,
+    program: terminal_status::idle_program(),
   }
   let renderer = mount(terminal, status, time::Hour)
   terminal.flush()
@@ -238,6 +250,7 @@ test fn waiting_for_an_answer_marks_the_title_and_pauses_progress() Void!Str {
     running: true,
     work_id: "turn-1",
     feedback: false,
+    program: terminal_status::idle_program(),
   }
   let renderer = mount(terminal, status, time::Hour)
   defer renderer.destroy()
@@ -257,6 +270,147 @@ test fn waiting_for_an_answer_marks_the_title_and_pauses_progress() Void!Str {
       terminal_progress::State::indeterminate,
       terminal_progress::State::paused,
       terminal_progress::State::indeterminate,
+    ],
+  )
+}
+
+// Each update as `state kind: message`, or `clear`.
+fn program_log(terminal: headless::TestApp) Str {
+  let shown = mut List::new<Str>()
+  for update in terminal.program_status_updates() {
+    shown.push(
+      match update {
+        program_status::Report(report) => {
+          let state = match report.state {
+            program_status::Idle => "idle",
+            program_status::Working => "working",
+            program_status::Blocked(blocked) => {
+              match blocked.kind {
+                kind => {
+                  match kind {
+                    program_status::Kind::permission => "blocked permission",
+                    program_status::Kind::question => "blocked question",
+                    program_status::Kind::auth => "blocked auth",
+                  }
+                },
+                _ => "blocked",
+              }
+            },
+            program_status::Done => "done",
+            program_status::Failed => "error",
+          }
+          let app = report.app.or("")
+          match report.message {
+            message => "{app} {state}: {message}",
+            _ => "{app} {state}",
+          }
+        },
+        program_status::Clear => "clear",
+      },
+    )
+  }
+  strings::Join(shown, " | ")
+}
+
+fn expect_program(terminal: headless::TestApp, expected: [Str]) Void!Str {
+  let shown = program_log(terminal)
+  let wanted = strings::Join(mut expected, " | ")
+  testing::assert(shown == wanted, "program status:\n  got  {shown}\n  want {wanted}")
+}
+
+test fn the_root_record_follows_turns_requests_and_sign_in() Void!Str {
+  let terminal = headless::new(10, 1)
+  defer terminal.destroy()
+  let status = mut Status{
+    session_name: "Status",
+    running: false,
+    work_id: "",
+    feedback: false,
+    program: terminal_status::idle_program(),
+  }
+  let renderer = mount(terminal, status, time::Hour)
+  defer renderer.destroy()
+  terminal.flush()
+  // A turn runs, asks permission, and completes.
+  renderer.update(fn() {
+    status.program.working = true
+  })
+  terminal.flush()
+  renderer.update(fn() {
+    status.program.request = Maybe::new(
+      terminal_status::Request{
+        id: "r1",
+        kind: program_status::Kind::permission,
+        message: "Run tests?",
+      },
+    )
+  })
+  terminal.flush()
+  renderer.update(fn() {
+    status.program.request = Maybe::new<terminal_status::Request>()
+  })
+  terminal.flush()
+  renderer.update(fn() {
+    status.program.working = false
+    status.program.finished_turn = "turn-1"
+    status.program.finished_status = "completed"
+  })
+  terminal.flush()
+  // Repainting reports nothing new.
+  renderer.update(fn() {
+    status.session_name = "Renamed"
+  })
+  terminal.flush()
+  // Compaction supersedes the finished turn, then leaves Kit idle.
+  renderer.update(fn() {
+    status.program.working = true
+  })
+  terminal.flush()
+  renderer.update(fn() {
+    status.program.working = false
+  })
+  terminal.flush()
+  // The next turn fails, and the one after it is aborted.
+  renderer.update(fn() {
+    status.program.working = true
+  })
+  terminal.flush()
+  renderer.update(fn() {
+    status.program.working = false
+    status.program.finished_turn = "turn-2"
+    status.program.finished_status = "interrupted"
+  })
+  terminal.flush()
+  renderer.update(fn() {
+    status.program.working = true
+  })
+  terminal.flush()
+  renderer.update(fn() {
+    status.program.working = false
+    status.program.finished_turn = "turn-3"
+    status.program.finished_status = "aborted"
+  })
+  terminal.flush()
+  // Connecting a provider waits for sign-in.
+  renderer.update(fn() {
+    status.program.auth = true
+  })
+  terminal.flush()
+  expect_program(
+    terminal,
+    [
+      "kit idle",
+      "kit working",
+      "kit blocked permission: Run tests?",
+      "kit working",
+      "kit done: Agent turn complete",
+      "kit working",
+      "kit idle",
+      "kit working",
+      "kit error: Agent turn failed",
+      "kit working",
+      "kit idle",
+      "kit blocked auth: Connect an AI provider",
     ],
   )
 }

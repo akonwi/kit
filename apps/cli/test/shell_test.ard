@@ -4,6 +4,7 @@ use go:context
 use cooper
 use cooper/cui
 use cooper/event
+use cooper/program_status
 use cooper/terminal_progress
 use cooper/testing as headless
 use go:kit/ffi/cli
@@ -91,6 +92,12 @@ fn mount(terminal: headless::TestApp, quits: mut Quits, authenticated: Bool, att
       },
       notify: fn(message: Str, title: Str) Bool {
         terminal.context.notify(message, title: title)
+      },
+      program_status: fn(report: program_status::Report) Bool {
+        terminal.context.program_status(report)
+      },
+      program_status_supported: fn() Bool {
+        terminal.context.program_status_supported()
       },
       focused: fn() Bool {
         match terminal.context.terminal_focus() {
