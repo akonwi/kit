@@ -25,6 +25,7 @@ extension TextView {
 
     override public func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        drawBackground?(dirtyRect)
         if isSelectable {
             selectionManager.drawSelections(in: dirtyRect)
         }

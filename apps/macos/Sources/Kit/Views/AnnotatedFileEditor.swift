@@ -94,6 +94,12 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
             parent.splitAlignment?.register(self)
             controller.textView.layoutManager.didLayoutBlocks = { [weak self] in self?.place() }
             controller.view.addSubview(gutter)
+            controller.textView.drawBackground = { [weak self, weak textView = controller.textView] rect in
+                MainActor.assumeIsolated {
+                    guard let self, let textView else { return }
+                    self.gutter.drawRowTints(in: rect, width: textView.bounds.width)
+                }
+            }
             gutter.track(controller.scrollView.contentView)
             gutter.onSelect = { [weak self] lines in
                 guard let self else { return }
@@ -215,6 +221,7 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
             gutter.removedNumber = NSColor(parent.theme.danger.opacity(0.8))
             gutter.addedSign = NSColor(parent.theme.success)
             gutter.removedSign = NSColor(parent.theme.danger)
+            controller.textView.needsDisplay = true
             // Saved notes mark their lines in the rail; the range being
             // written, or a note just revealed, tints its whole lines.
             gutter.ranges = current.filter { $0.id != flashing }.compactMap { parent.document.range($0.anchor) }
@@ -434,6 +441,26 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
         if newWindow == nil { cancelDrag(); hovered = nil }
         super.viewWillMove(toWindow: newWindow)
     }
+    private func tint(for row: DiffDisplayRow) -> NSColor? {
+        switch row.kind {
+        case "addition": added
+        case "deletion": removed
+        case "hunk": muted.withAlphaComponent(0.06)
+        default: nil
+        }
+    }
+
+    /// Fills each added, removed or hunk row across `width`, in the text
+    /// view's coordinates. The text view calls this beneath its lines.
+    func drawRowTints(in dirtyRect: NSRect, width: CGFloat) {
+        guard let manager, let diffRows else { return }
+        for line in manager.linesStartingAt(max(0, dirtyRect.minY), until: dirtyRect.maxY) {
+            guard diffRows.indices.contains(line.index), let tint = tint(for: diffRows[line.index]) else { continue }
+            let height = line.height - (manager.blockHeights[line.index] ?? 0)
+            tint.setFill(); NSRect(x: 0, y: line.yPos, width: width, height: height).fill()
+        }
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let manager else { return }
         if diffRows != nil {
@@ -444,12 +471,12 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
             if let diffRows, diffRows.indices.contains(line.index) {
                 let row = diffRows[line.index]
                 surface.setFill(); NSRect(x: 0, y: line.yPos, width: railWidth, height: height).fill()
-                if row.kind == "addition" || row.kind == "deletion" {
-                    (row.kind == "addition" ? added : removed).setFill()
-                    NSRect(x: 0, y: line.yPos, width: bounds.width, height: height).fill()
-                } else if row.kind == "hunk" {
-                    muted.withAlphaComponent(0.06).setFill()
-                    NSRect(x: 0, y: line.yPos, width: bounds.width, height: height).fill()
+                // The overlay sits above the text, so it tints only the rail;
+                // the code area's tint is drawn beneath the text by
+                // `drawRowTints`, which keeps opaque theme colours from
+                // hiding it.
+                if let tint = tint(for: row) {
+                    tint.setFill(); NSRect(x: 0, y: line.yPos, width: railWidth, height: height).fill()
                 }
                 let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
                 let numberColor = row.kind == "addition" ? addedNumber : row.kind == "deletion" ? removedNumber : contextNumber

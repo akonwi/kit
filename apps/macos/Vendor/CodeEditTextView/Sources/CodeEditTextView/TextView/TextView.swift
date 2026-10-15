@@ -254,6 +254,10 @@ open class TextView: NSView, NSTextContent {
     /// Manages emphasized text ranges in the text view
     public var emphasisManager: EmphasisManager?
 
+    /// Kit: draws beneath the line fragments, in the text view's coordinates,
+    /// before selections. Kit uses it for diff row tints.
+    public var drawBackground: ((NSRect) -> Void)?
+
     // MARK: - Private Properties
 
     var isFirstResponder: Bool = false

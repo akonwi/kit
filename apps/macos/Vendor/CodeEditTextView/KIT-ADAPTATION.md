@@ -12,8 +12,10 @@ Kit owns hosted annotation views and gutter markers outside this package.
 When blocks exist, TextView uses normal AppKit subview hit testing so hosted
 inputs and buttons receive mouse clicks.
 Changing blockHeights updates only lines whose block height changed.
+TextView adds `drawBackground`, called from `draw(_:)` after `super.draw` and
+before selections, so Kit can paint diff row tints beneath the line fragments.
 Empty blockHeights preserves upstream behavior. Folding and editable documents
 are outside the scope of this read-only adapter.
 
 When updating, reapply the changes in TextLayoutManager.swift and
-TextLayoutManager+Layout.swift, and TextView.swift and run Kit's editor geometry/selection tests.
+TextLayoutManager+Layout.swift, TextView.swift, and TextView+Layout.swift and run Kit's editor geometry/selection tests.

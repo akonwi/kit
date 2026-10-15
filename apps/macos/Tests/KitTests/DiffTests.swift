@@ -362,6 +362,45 @@ extension InlineAnnotationEditorTests {
         }
     }
 
+    @Test func diffRowTintsSitBeneathTheCodeUnderOpaqueThemeColours() async throws {
+        // Regression: Flexoki's opaque diffAddedBg/diffRemovedBg once covered the code.
+        _ = NSApplication.shared
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let json = try String(contentsOf: root.appendingPathComponent("Fixtures/Themes/flexoki.json"), encoding: .utf8)
+        let theme = MicaTheme(dark: true, palette: "custom", customJSON: json)
+        let host = NSHostingView(rootView: DiffHarness(document: try DiffTestData.document(), annotations: AnnotationState())
+            .environment(\.mica, theme).environment(\.colorScheme, .dark))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 460), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(650))
+        let controller = try #require(InlineAnnotationEditorTests.controller(in: host))
+        let manager = controller.textView.layoutManager!
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+        func distance(_ a: NSColor, _ b: NSColor) -> CGFloat {
+            abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent) + abs(a.blueComponent - b.blueComponent)
+        }
+        for (row, token) in [(1, "diffRemovedBg"), (2, "diffAddedBg")] {
+            let line = try #require(manager.lineStorage.getLine(atIndex: row))
+            var point = controller.textView.convert(NSPoint(x: 0, y: line.yPos + line.height / 2), to: host)
+            if !host.isFlipped { point.y = host.bounds.height - point.y }
+            let y = Int(point.y * scale)
+            // The rail's empty left edge shows the row tint as rendered.
+            let tint = try #require(bitmap.colorAt(x: Int(4 * scale), y: y)?.usingColorSpace(.sRGB))
+            let surface = try #require(bitmap.colorAt(x: Int(4 * scale), y: Int(200 * scale))?.usingColorSpace(.sRGB))
+            #expect(distance(tint, surface) > 0.03, "\(token) tints the row")
+            let colors = (Int(80 * scale)..<Int(400 * scale)).compactMap { bitmap.colorAt(x: $0, y: y)?.usingColorSpace(.sRGB) }
+            // The row keeps its tint past the end of the code…
+            let end = try #require(bitmap.colorAt(x: Int(800 * scale), y: y)?.usingColorSpace(.sRGB))
+            #expect(distance(end, tint) < 0.02)
+            // …and the code's glyphs draw over it.
+            #expect(colors.contains { distance($0, tint) > 0.6 })
+        }
+    }
+
     @Test func diffPaneShowsServerFileAndTargetInBothAppearances() async throws {
         _ = NSApplication.shared
         for dark in [false, true] {

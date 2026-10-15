@@ -13,12 +13,12 @@ struct MicaTheme: Equatable {
     var frame: Color { raised.mix(with: hover, by: 0.7) }
     var frameHover: Color { hover.mix(with: border, by: 0.3) }
     var border: Color { token("borderDefault", fallback: neutral(0.89, 0.30)) }
-    var strongBorder: Color { token("borderDefault", fallback: neutral(0.74, 0.46)) }
+    var strongBorder: Color { token("borderFocused", fallback: neutral(0.74, 0.46)) }
     var text: Color { token("textPrimary", fallback: neutral(0.18, 0.96)) }
     var muted: Color { token("textMuted", fallback: neutral(0.44, 0.71)) }
     var accent: Color { token("borderAccent", fallback: token("borderFocused", fallback: Self.oklch(dark ? 0.70 : 0.55, 0.21, 263))) }
     var focusBorder: Color { token("borderFocused", fallback: accent) }
-    var success: Color { token("progressNormal", fallback: Self.oklch(dark ? 0.80 : 0.44, 0.162, 150)) }
+    var success: Color { token("toolText", fallback: Self.oklch(dark ? 0.80 : 0.44, 0.162, 150)) }
     var warning: Color { token("warningText", fallback: Self.oklch(dark ? 0.80 : 0.42, 0.162, 48)) }
     var danger: Color { token("errorText", fallback: Self.oklch(dark ? 0.80 : 0.44, 0.162, 25)) }
 
