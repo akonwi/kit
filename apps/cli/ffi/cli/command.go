@@ -334,7 +334,7 @@ func newAuthCommand(deps commandDependencies) *cobra.Command {
 	}
 	command.AddCommand(
 		&cobra.Command{
-			Use: "status", Short: "List credential metadata", Args: cobra.NoArgs,
+			Use: "status", Short: "List providers and whether the server is logged in", Args: cobra.NoArgs,
 			RunE: func(command *cobra.Command, _ []string) error {
 				return resultForCode(deps.auth(command.Context(), []string{"status"}, command.OutOrStdout(), command.ErrOrStderr()))
 			},
@@ -349,11 +349,8 @@ func newAuthCommand(deps commandDependencies) *cobra.Command {
 			},
 		},
 		&cobra.Command{
-			Use: "logout openai-codex", Short: "Remove saved OpenAI Codex credentials", Args: cobra.ExactArgs(1),
+			Use: "logout PROVIDER", Short: "Remove the server's saved credentials for a provider", Args: cobra.ExactArgs(1),
 			RunE: func(command *cobra.Command, arguments []string) error {
-				if arguments[0] != "openai-codex" {
-					return usagef("unsupported authentication provider %q", arguments[0])
-				}
 				return resultForCode(deps.auth(command.Context(), append([]string{"logout"}, arguments...), command.OutOrStdout(), command.ErrOrStderr()))
 			},
 		},

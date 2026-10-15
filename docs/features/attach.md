@@ -64,9 +64,10 @@ server's home.
 
 ### Provider credentials
 
-A URL server uses its own provider credentials. Log in on its machine with
-`kit`; provider login is not available while attached by URL. Attaching fails
-early when the server has no credentials for the requested model's provider.
+A server uses its own provider credentials. When it has none for the model in
+use, the terminal client offers the providers' logins, which run on the
+attached server and store credentials there. See
+[Provider login](provider-login.md).
 
 ## Saved servers
 
@@ -104,5 +105,5 @@ The footer names the attached server before the working directory, as
 `dev · ~/src/app (main*)`. The directory shortens first; the name is kept
 while anything else fits, including when a plugin hides the location.
 
-Provider login while attached by Kit home stores credentials in that home.
-Settings and themes always come from the client's own home.
+Provider logins store credentials on the attached server. Settings and themes
+always come from the client's own home.

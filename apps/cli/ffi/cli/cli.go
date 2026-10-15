@@ -19,7 +19,6 @@ import (
 	kit "github.com/akonwi/kit/api"
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/daemonctl"
 	"github.com/akonwi/kit/internal/identifier"
@@ -125,7 +124,7 @@ func interactiveProviders(providerIDs []string) (map[string]bool, string) {
 		providers[providerID] = true
 	}
 	switch {
-	case providers[auth.OpenAICodexProviderID]:
+	case providers[deviceLoginProvider]:
 		return providers, "openai-codex/gpt-5.6-sol"
 	case providers["openai"]:
 		return providers, "openai/gpt-5.6-sol"

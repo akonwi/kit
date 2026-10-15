@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,14 +11,12 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/auth"
-	"github.com/akonwi/kit/internal/daemonctl"
-	kitserver "github.com/akonwi/kit/internal/server"
+	"github.com/akonwi/kit/internal/providerlogin"
 )
 
 func TestExecuteOpenAICodexLoginPrintsInstructionsAndSuccess(t *testing.T) {
 	t.Parallel()
-	login := &fakeOpenAICodexLogin{instructions: auth.OpenAICodexDeviceInstructions{
+	login := &fakeDeviceLogin{instructions: DeviceLoginInstructions{
 		VerificationURI: "https://example.test/device", UserCode: "ABCD-EFGH",
 		ExpiresAt: time.Now().Add(time.Minute),
 	}}
@@ -28,28 +24,18 @@ func TestExecuteOpenAICodexLoginPrintsInstructionsAndSuccess(t *testing.T) {
 	if code := executeOpenAICodexLogin(context.Background(), login, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "https://example.test/device") ||
-		!strings.Contains(stdout.String(), "ABCD-EFGH") ||
-		!strings.Contains(stdout.String(), "Logged in") {
-		t.Fatalf("stdout = %q", stdout.String())
-	}
-	if login.calls != 1 {
-		t.Fatalf("login calls = %d", login.calls)
+	want := "Open https://example.test/device\nEnter code: ABCD-EFGH\nWaiting for authorization…\nLogged in to OpenAI Codex.\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
 }
 
 func TestExecuteOpenAICodexLoginStopsWhenInstructionsCannotBeWritten(t *testing.T) {
 	t.Parallel()
-	login := &fakeOpenAICodexLogin{instructions: auth.OpenAICodexDeviceInstructions{
-		VerificationURI: "https://example.test/device", UserCode: "CODE",
-		ExpiresAt: time.Now().Add(time.Minute),
-	}}
+	login := &fakeDeviceLogin{instructions: DeviceLoginInstructions{VerificationURI: "https://example.test/device", UserCode: "CODE"}}
 	var stderr bytes.Buffer
-	if code := executeOpenAICodexLogin(context.Background(), login, failingWriter{}, &stderr); code != 1 {
-		t.Fatalf("exit code = %d", code)
-	}
-	if !strings.Contains(stderr.String(), "write failed") {
-		t.Fatalf("stderr = %q", stderr.String())
+	if code := executeOpenAICodexLogin(context.Background(), login, failingWriter{}, &stderr); code != 1 || stderr.String() != "kit: complete OpenAI Codex login: write failed\n" {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
 }
 
@@ -57,108 +43,104 @@ func TestExecuteOpenAICodexLoginCancellation(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	login := &fakeOpenAICodexLogin{err: context.Canceled}
 	var stdout, stderr bytes.Buffer
-	if code := executeOpenAICodexLogin(ctx, login, &stdout, &stderr); code != 130 {
+	if code := executeOpenAICodexLogin(ctx, &fakeDeviceLogin{err: context.Canceled}, &stdout, &stderr); code != 130 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
 }
 
-func TestAuthStatusAndLogoutCommands(t *testing.T) {
+// codexCredential is a saved OpenAI Codex credential, as a login stores it.
+const codexCredential = `{"openai-codex": {"type": "oauth", "access": "secret-access", "accountId": "account", "revision": "v1:test"}}`
+
+// authHome runs a server for an isolated home whose device logins save a
+// Codex credential once approved.
+func authHome(t *testing.T) (string, chan<- error) {
+	t.Helper()
 	home := filepath.Join(t.TempDir(), "kit")
-	t.Setenv(apphome.EnvHome, home)
-	paths := apphome.FromHome(home)
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(paths.Auth, []byte(`{
-		"openai-codex": {
-			"type": "oauth",
-			"access": "secret-access",
-			"accountId": "account",
-			"revision": "v1:test"
+	t.Setenv(apphome.EnvHome, home)
+	approved := make(chan error, 1)
+	startDaemonWith(t, home, &providerlogin.Flows{
+		Device: func(ctx context.Context, _ string, notify func(providerlogin.DeviceInstructions)) error {
+			notify(providerlogin.DeviceInstructions{VerificationURI: "https://auth.openai.com/codex/device", UserCode: "ABCD-1234", ExpiresAt: time.Now().Add(15 * time.Minute)})
+			select {
+			case err := <-approved:
+				if err != nil {
+					return err
+				}
+				return os.WriteFile(apphome.FromHome(home).Auth, []byte(codexCredential), 0o600)
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	})
+	return home, approved
+}
+
+func TestAuthCommandsLogTheServerInAndOut(t *testing.T) {
+	_, approved := authHome(t)
+	status := func() string {
+		t.Helper()
+		code, stdout, stderr := runCLI("auth", "status")
+		if code != 0 {
+			t.Fatalf("status = %d, %q", code, stderr)
 		}
-	}`), 0o600); err != nil {
-		t.Fatal(err)
+		return stdout
+	}
+	if got := status(); got != "openai-codex  OpenAI Codex  not logged in\n"+
+		"anthropic     Anthropic     not logged in\n"+
+		"openai        OpenAI        not logged in\n"+
+		"opencode-go   OpenCode Go   not logged in\n" {
+		t.Fatalf("status before login =\n%s", got)
 	}
 
-	var stdout, stderr bytes.Buffer
-	if code := Parse(context.Background(), []string{"auth", "status"}, &stdout, &stderr).ExitCode; code != 0 {
-		t.Fatalf("status exit = %d, stderr = %q", code, stderr.String())
+	approved <- nil
+	code, stdout, stderr := runCLI("auth", "login", "openai-codex")
+	if code != 0 || stdout != "Open https://auth.openai.com/codex/device\nEnter code: ABCD-1234\nWaiting for authorization…\nLogged in to OpenAI Codex.\n" {
+		t.Fatalf("login = %d, %q, %q", code, stdout, stderr)
 	}
-	if got := stdout.String(); !strings.Contains(got, "openai-codex\toauth\tsaved") || strings.Contains(got, "secret-access") {
-		t.Fatalf("status output = %q", got)
+	if got := status(); !strings.HasPrefix(got, "openai-codex  OpenAI Codex  logged in\n") || strings.Contains(got, "secret-access") {
+		t.Fatalf("status after login =\n%s", got)
 	}
 
-	stdout.Reset()
-	stderr.Reset()
-	if code := Parse(context.Background(), []string{"auth", "logout", "openai-codex"}, &stdout, &stderr).ExitCode; code != 0 {
-		t.Fatalf("logout exit = %d, stderr = %q", code, stderr.String())
+	if code, stdout, stderr := runCLI("auth", "logout", "openai-codex"); code != 0 || stdout != "Logged out of openai-codex.\n" {
+		t.Fatalf("logout = %d, %q, %q", code, stdout, stderr)
 	}
-	record, err := auth.NewStore(paths.Auth).LoadOpenAICodexCredentials(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	if got := status(); !strings.HasPrefix(got, "openai-codex  OpenAI Codex  not logged in\n") {
+		t.Fatalf("status after logout =\n%s", got)
 	}
-	if record.Revision != "" || record.Credentials.AccessToken != "" {
-		t.Fatalf("record after logout = %#v", record)
+	if code, _, stderr := runCLI("auth", "logout", "nope"); code != 2 || stderr != "kit: unknown provider \"nope\"; list providers with `kit auth status`\n" {
+		t.Fatalf("logout unknown = %d, %q", code, stderr)
 	}
 }
 
-func TestLoginAndLogoutRejectEnvironmentBackedDaemon(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "kit")
-	t.Setenv(apphome.EnvHome, home)
+func TestAFailedLoginReportsTheServersReason(t *testing.T) {
+	_, approved := authHome(t)
+	approved <- errors.New("device authorization was denied")
+	code, _, stderr := runCLI("auth", "login", "openai-codex")
+	if code != 1 || stderr != "kit: complete OpenAI Codex login: device authorization was denied\n" {
+		t.Fatalf("login = %d, %q", code, stderr)
+	}
+}
+
+func TestEnvironmentCredentialsCannotBeChangedFromTheCLI(t *testing.T) {
 	t.Setenv("OPENAI_CODEX_ACCESS_TOKEN", "access")
 	t.Setenv("OPENAI_CODEX_ACCOUNT_ID", "account")
-	for _, name := range []string{
-		"OPENAI_CODEX_REFRESH_TOKEN", "OPENAI_CODEX_ID_TOKEN", "OPENAI_CODEX_FEDRAMP", "OPENAI_CODEX_EXPIRES_AT",
-	} {
+	for _, name := range []string{"OPENAI_CODEX_REFRESH_TOKEN", "OPENAI_CODEX_ID_TOKEN", "OPENAI_CODEX_FEDRAMP", "OPENAI_CODEX_EXPIRES_AT"} {
 		t.Setenv(name, "")
 	}
-	paths := apphome.FromHome(home)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	result := make(chan error, 1)
-	go func() {
-		result <- kitserver.Run(ctx, kitserver.RunOptions{
-			Paths: paths, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		})
-	}()
-	manager := daemonctl.NewManager(paths)
-	probeContext, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer probeCancel()
-	for {
-		if _, _, err := manager.Status(probeContext); err == nil {
-			break
-		}
-		select {
-		case <-probeContext.Done():
-			t.Fatal("daemon did not become ready")
-		case <-time.After(10 * time.Millisecond):
-		}
+	authHome(t)
+	if code, stdout, _ := runCLI("auth", "status"); code != 0 || !strings.HasPrefix(stdout, "openai-codex  OpenAI Codex  logged in from the server's environment\n") {
+		t.Fatalf("status = %d\n%s", code, stdout)
 	}
-
-	for _, args := range [][]string{{"auth", "login", "openai-codex"}, {"auth", "logout", "openai-codex"}} {
-		var stdout, stderr bytes.Buffer
-		if code := Parse(context.Background(), args, &stdout, &stderr).ExitCode; code != 1 {
-			t.Errorf("Parse(%q) exit = %d, stderr = %q", args, code, stderr.String())
-		}
-		if !strings.Contains(stderr.String(), "environment credentials") {
-			t.Errorf("Parse(%q) stderr = %q", args, stderr.String())
-		}
+	refusal := "the server's credentials for OpenAI Codex come from its environment; change them there\n"
+	if code, _, stderr := runCLI("auth", "login", "openai-codex"); code != 1 || stderr != "kit: complete OpenAI Codex login: "+refusal {
+		t.Errorf("login = %d, %q", code, stderr)
 	}
-
-	stopContext, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer stopCancel()
-	if err := manager.Stop(stopContext); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case err := <-result:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-stopContext.Done():
-		t.Fatal("daemon did not stop")
+	if code, _, stderr := runCLI("auth", "logout", "openai-codex"); code != 1 || stderr != "kit: log out of openai-codex: "+refusal {
+		t.Errorf("logout = %d, %q", code, stderr)
 	}
 }
 
@@ -174,37 +156,30 @@ func TestAuthCommandUsage(t *testing.T) {
 	}
 }
 
-func TestExecuteOpenAICodexLoginReportsFailure(t *testing.T) {
-	t.Parallel()
-	login := &fakeOpenAICodexLogin{err: errors.New("disk unavailable")}
-	var stdout, stderr bytes.Buffer
-	if code := executeOpenAICodexLogin(context.Background(), login, &stdout, &stderr); code != 1 {
-		t.Fatalf("exit code = %d", code)
-	}
-	if !strings.Contains(stderr.String(), "complete OpenAI Codex login") {
-		t.Fatalf("stderr = %q", stderr.String())
-	}
-}
-
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
-type fakeOpenAICodexLogin struct {
-	instructions auth.OpenAICodexDeviceInstructions
+type fakeDeviceLogin struct {
+	instructions DeviceLoginInstructions
 	err          error
-	calls        int
 }
 
-func (f *fakeOpenAICodexLogin) Login(
-	_ context.Context,
-	notify func(auth.OpenAICodexDeviceInstructions) error,
-) error {
-	f.calls++
+func (f *fakeDeviceLogin) Login(_ context.Context, notify func(DeviceLoginInstructions) error) error {
 	if f.instructions.VerificationURI != "" {
 		if err := notify(f.instructions); err != nil {
 			return err
 		}
 	}
 	return f.err
+}
+
+// Reading status never starts a server, which would replace one that is
+// serving sessions with an incompatible version.
+func TestAuthStatusNeedsARunningServer(t *testing.T) {
+	t.Setenv(apphome.EnvHome, filepath.Join(t.TempDir(), "kit"))
+	if code, stdout, stderr := runCLI("auth", "status"); code != 1 || stdout != "" ||
+		stderr != "kit: server is not running; start it with `kit server start`\n" {
+		t.Fatalf("status = %d, %q, %q", code, stdout, stderr)
+	}
 }
