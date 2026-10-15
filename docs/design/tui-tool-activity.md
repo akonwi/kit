@@ -6,7 +6,8 @@ Status: Implemented design guidance for native transcript activity.
 
 Native tool activity should be compact, chronological, and easy to scan. It
 should identify what Kit is doing without turning the transcript into a stack of
-cards or exposing verbose tool output inline.
+cards. Recorded tool output stays behind an explicit per-row disclosure and is
+bounded when shown.
 
 The macOS specimen remains a reference for grouping and information hierarchy,
 not for desktop card, pill, corner-radius, or icon styling.
@@ -54,7 +55,8 @@ column, human-readable action title, and surfaced argument-summary chip:
 The example communicates hierarchy rather than literal chip styling. The
 argument summary uses the standard semantic surface token and compact horizontal
 padding. The row itself keeps the transcript background and does not gain a
-hover background.
+hover background; only the selected row is filled (see
+[Recorded output](#recorded-output)).
 
 Only states that need immediate attention or communicate ongoing work receive a
 glyph:
@@ -63,12 +65,6 @@ glyph:
 - failed calls use the failure cross and danger treatment;
 - aborted and not-run calls use the muted circle-slash glyph; and
 - successful calls reserve alignment space but render no status glyph.
-
-Tool rows do not show disclosure arrows and do not expand to output details.
-Recorded result output, commands, diffs, file contents, and generic detail wells
-are intentionally omitted from this presentation. Keep the underlying typed
-presentation and enrichment path available for future tool-specific work, but do
-not expose it until an individual tool design is intentionally added.
 
 A tool row contains:
 
@@ -100,6 +96,53 @@ Current action and summary rules:
 Pending or running batches retain live status without causing completed rows to
 reorder. The collapsed batch keeps its failure count visible.
 
+## Recorded output
+
+Clicking a tool row selects it, filling the row with the pressed surface, and
+shows or hides its output in a well directly below it. Rows show no disclosure
+arrow. Several wells may be open at once; collapsing or switching the open batch
+closes its wells and clears the selection.
+
+The well sits on the surface fill, indented under the row, and is bounded:
+
+- It grows to fit its output up to 14 rows, then scrolls vertically.
+- Lines keep their shape and never wrap. Output wider than the well scrolls
+  sideways, and a horizontal scrollbar takes a row only while it is needed.
+- At the well's top or bottom edge, the wheel scrolls the transcript instead.
+- While the call is running, output streams in plain and the well follows its
+  end unless the reader has scrolled away from it.
+
+Output is presented per tool by `toolpresentation.ShowOutput`, so the renderer
+never interprets raw arguments itself:
+
+| Tool kind | Well content |
+| --- | --- |
+| `read` | recorded file contents, highlighted in the file's language |
+| `write` | written content, highlighted in the target's language |
+| `edit` | each edit's removed and added text on the diff fills, with `-`/`+` markers, separated per edit |
+| `bash` | the command after a muted `$` prompt, a blank row, then its output; a unified diff renders as a diff, and a command that only prints one file (`cat`, `head`, `tail`, `sed -n`) highlights it in that file's language |
+| other tools, or a failed `read`, `write`, or `edit` | the recorded result text as plain code |
+
+Empty output reads `Waiting for output…` while running and `No output` once
+finished.
+
+When the server did not keep everything, the well says so explicitly in a muted,
+right-aligned footer joined with ` · `:
+
+- `n lines` when the output overflows the well;
+- `output truncated` when the recorded result was truncated;
+- `details omitted` when the result's details were not kept; and
+- `content not available` when a `write` or `edit` call's arguments were
+  truncated, in which case the well shows the result text instead of the
+  content.
+
+The footer is absent when there is nothing to note.
+
+Live and restored activity render through the same transcript tool-call and
+result records, so a reconnect or reopened session shows the same rows, wells,
+and footers as the live run. Subagent conversations use the same rows and
+wells.
+
 ## Responsive behavior
 
 At narrow widths, the argument chip moves to a second indented line and
@@ -114,9 +157,10 @@ informative tail:
 ## Interaction and acceptance notes
 
 - Batch disclosure is available by mouse without adding a keyboard focus marker.
-- Tool rows have no output disclosure interaction.
+- A primary click on a tool row selects it and toggles its output well; output
+  disclosure adds no keyboard shortcut, palette action, or Tab stop.
 - File-path chips on `read`, `write`, and `edit` calls open or select the retained
-  File tab on a primary click. Only the hovered chip changes background; the
+  File tab on a primary click instead of toggling the row's output. Only the hovered chip changes background; the
   action title and surrounding row do not gain hover styling. Chips add no
   keyboard shortcut, palette action, picker, or Tab stop.
 - Navigation uses the complete path, not its truncated label. Recorded resolved
@@ -126,11 +170,11 @@ informative tail:
   reveal their known line/range; edits and writes do not invent line anchors.
 - Rendering or completing a tool call never opens a tab automatically. Repeated
   activation reuses the file's workspace/path identity without reordering tabs.
-- A subagent call may still open its retained conversation when that conversation
-  exists; this is navigation, not inline output expansion.
+- A subagent call's chip may open its retained conversation when that
+  conversation exists; this is navigation, separate from the row's output well.
 - Batch expansion survives ordinary repaint and responsive narrow/wide changes.
 - Unknown tools, malformed arguments, failures, cancellation, and reconnect
   snapshots retain a readable summary fallback.
 - Presentation tests cover collapsed and expanded batches, argument chips,
   successful glyph omission, narrow path truncation, Markdown thinking style,
-  and absence of inline output.
+  per-tool well content, bounded scrolling, and footer notes.
