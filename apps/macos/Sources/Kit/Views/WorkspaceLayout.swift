@@ -2,47 +2,108 @@
 import AppKit
 import SwiftUI
 
+/// Space between tiles.
+let tileGap: CGFloat = 6
+private let tabStripHeight: CGFloat = 34
+
+/// A session's workspace: its split tree of tiles.
 struct WorkspaceLayout: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
+    /// The tiles' coordinate space, shared by layout, tab drags, and drops.
+    static let space = "workspace-tiles"
+    @State private var tabFrames = TabFrames()
+
     var body: some View {
-        @Bindable var workspace = state.ui.workspace
-        VStack(spacing: 0) {
-            GeometryReader { geometry in
-                let split = workspace.groups.count == 2
-                let left = split ? ((geometry.size.width - 5) * workspace.splitFraction).rounded() : geometry.size.width
-                ZStack(alignment: .topLeading) {
-                    if split {
-                        WorkspaceSplitDivider(fraction: $workspace.splitFraction, color: theme.border)
-                    }
-                    ForEach(Array(workspace.groups.indices), id: \.self) { group in
-                        WorkspaceTabStrip(state: state, workspace: workspace, group: group,
-                            runningAgents: Set((state.selected?.subagents?.items ?? []).filter { $0.status == "running" }.map(\.name)))
-                            .frame(width: group == 0 ? left : geometry.size.width - left - 5)
-                            .offset(x: group == 0 ? 0 : left + 5)
-                    }
-                    // Pane identity is independent of its group. Moving or selecting
-                    // tabs changes geometry and visibility without remounting editors.
-                    ForEach(workspace.panes) { pane in
-                        let group = workspace.groups.firstIndex(where: { $0.contains(pane) }) ?? 0
-                        let visible = workspace.isVisible(pane)
-                        let stripHeight: CGFloat = workspace.panes.count > 1 ? 39 : 0
-                        paneBody(pane)
-                            .id(state.serverID + "|" + state.selectedID + "|" + pane.id)
-                            .frame(width: group == 0 ? left : geometry.size.width - left - 5,
-                                   height: max(0, geometry.size.height - stripHeight))
-                            .clipped()
-                            .offset(x: group == 0 ? 0 : left + 5, y: stripHeight)
-                            .opacity(visible ? 1 : 0)
-                            .allowsHitTesting(visible).disabled(!visible).accessibilityHidden(!visible)
-                            .simultaneousGesture(TapGesture().onEnded { workspace.focusedGroup = group; workspace.contentFocused = true })
+        let workspace = state.ui.workspace
+        GeometryReader { geometry in
+            let bounds = CGRect(origin: .zero, size: geometry.size)
+            let layout = workspace.root.layout(in: bounds, gap: tileGap)
+            // A zoomed tile fills the workspace; hidden tiles keep their
+            // frames so their panes don't resize while out of view.
+            let frames = layout.tiles.merging(workspace.zoomedTile.map { [$0: bounds] } ?? [:]) { $1 }
+            let running = Set((state.selected?.subagents?.items ?? []).filter { $0.status == "running" }.map(\.name))
+            let visible = workspace.visibleTiles
+            let resolve: (WorkspacePane, CGPoint) -> TileDropTarget? = { pane, point in
+                TileDropTarget.resolve(point, tiles: visible, frames: frames,
+                    tabs: { tile in (workspace.tiles[tile]?.panes ?? []).compactMap { tabFrames.frames[$0] } },
+                    stripHeight: tabStripHeight, gap: tileGap)
+                    .flatMap { workspace.canMove(pane, to: $0) ? $0 : nil }
+            }
+            ZStack(alignment: .topLeading) {
+                if workspace.zoomedTile == nil {
+                    ForEach(layout.splits, id: \.id) { split in
+                        divider(split, workspace: workspace)
                     }
                 }
+                ForEach(workspace.visibleTiles, id: \.self) { id in
+                    let frame = frames[id] ?? .zero
+                    TileChrome(state: state, workspace: workspace, id: id, running: running, resolve: resolve, tabFrames: tabFrames)
+                        .frame(width: frame.width, height: frame.height)
+                        .offset(x: frame.minX, y: frame.minY)
+                }
+                // Pane identity is independent of its tile. Moving, splitting,
+                // or zooming changes geometry and visibility without
+                // remounting editors.
+                ForEach(workspace.panes) { pane in
+                    let tile = workspace.tile(containing: pane)
+                    let content = Self.contentFrame(tile.flatMap { frames[$0] } ?? .zero)
+                    let visible = workspace.isVisible(pane)
+                    paneBody(pane)
+                        .id(state.serverID + "|" + state.selectedID + "|" + pane.id)
+                        .frame(width: content.width, height: content.height)
+                        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 3, bottomTrailingRadius: 3))
+                        .offset(x: content.minX, y: content.minY)
+                        .opacity(visible ? 1 : 0)
+                        .allowsHitTesting(visible).disabled(!visible).accessibilityHidden(!visible)
+                        .simultaneousGesture(TapGesture().onEnded { if let tile { workspace.focus(tile: tile) } })
+                }
+                // Borders sit above pane content so the focus ring stays whole.
+                ForEach(workspace.visibleTiles, id: \.self) { id in
+                    let frame = frames[id] ?? .zero
+                    let focused = workspace.focusedTile == id && workspace.root.tiles.count > 1
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(focused ? theme.focusBorder : theme.border)
+                        .frame(width: frame.width, height: frame.height)
+                        .offset(x: frame.minX, y: frame.minY)
+                        .allowsHitTesting(false)
+                }
+                TabDragOverlay(workspace: workspace, frames: frames, tabFrames: tabFrames)
             }
-            SessionComposerRegion(state: state)
-                .simultaneousGesture(TapGesture().onEnded { workspace.contentFocused = false })
-        }.background(theme.surface)
+            .coordinateSpace(.named(Self.space))
+            .background(WorkspaceFocusBridge(workspace: workspace,
+                frames: frames.filter { visible.contains($0.key) },
+                overlayOpen: { [ui = state.ui] in ui.palette || ui.filePicker }))
+            .onGeometryChange(for: CGSize.self) { $0.size } action: {
+                workspace.bounds = CGRect(origin: .zero, size: $0)
+            }
+        }
+        .background(SessionMonitors(state: state))
     }
+
+    /// The part of a tile below its tab strip, inside its border.
+    static func contentFrame(_ tile: CGRect) -> CGRect {
+        CGRect(x: tile.minX + 1, y: tile.minY + tabStripHeight,
+               width: max(0, tile.width - 2), height: max(0, tile.height - tabStripHeight - 1))
+    }
+
+    private func divider(_ split: TileTree.SplitFrame, workspace: WorkspaceState) -> some View {
+        let horizontal = split.axis == .horizontal
+        let offset = horizontal ? split.gap.minX - split.frame.minX : split.gap.minY - split.frame.minY
+        let length = (horizontal ? split.frame.width : split.frame.height) - tileGap
+        return TileDivider(axis: split.axis, offset: offset, color: theme.accent) { position in
+            guard length > 0 else { return }
+            // Keep both sides usable: at least 160 pt wide or 120 pt tall.
+            let minimum = min(horizontal ? 160 : 120, length / 2)
+            let first = min(max(position - tileGap / 2, minimum), length - minimum)
+            workspace.setRatio(Double(first / length), for: split.id)
+        } onDoubleClick: {
+            workspace.equalize(split: split.id)
+        }
+        .frame(width: split.gap.width, height: split.gap.height)
+        .offset(x: split.gap.minX, y: split.gap.minY)
+    }
+
     @ViewBuilder private func paneBody(_ pane: WorkspacePane) -> some View {
         switch pane {
         case .conversation: SessionView(state: state)
@@ -54,115 +115,288 @@ struct WorkspaceLayout: View {
     }
 }
 
-private struct WorkspaceTabStrip: View {
+/// A tile's surface and tab strip. Pane content is laid over it separately.
+private struct TileChrome: View {
     @Environment(\.mica) private var theme
     let state: SessionStore
-    @Bindable var workspace: WorkspaceState
-    let group: Int
-    let runningAgents: Set<String>
+    let workspace: WorkspaceState
+    let id: UUID
+    let running: Set<String>
+    let resolve: (WorkspacePane, CGPoint) -> TileDropTarget?
+    let tabFrames: TabFrames
+    @State private var hovering = false
+
     var body: some View {
-        if workspace.panes.count > 1, workspace.groups.indices.contains(group) {
-            ScrollView(.horizontal) {
-                HStack(spacing: 0) {
-                    ForEach(workspace.groups[group]) { pane in
-                        WorkspaceTab(state: state, workspace: workspace, pane: pane, group: group,
-                            running: { if case .agent(let name) = pane { return runningAgents.contains(name) }; return false }())
-                    }
+        let tile = workspace.tiles[id]
+        let focused = workspace.focusedTile == id
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 0) {
+                        ForEach(tile?.panes ?? []) { pane in
+                            WorkspaceTab(state: state, workspace: workspace, pane: pane,
+                                selected: tile?.selected == pane, focused: focused,
+                                running: { if case .agent(let name) = pane { return running.contains(name) }; return false }(),
+                                resolve: resolve)
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(WorkspaceLayout.space)) } action: {
+                                tabFrames.frames[pane] = $0
+                            }
+                        }
+                    }.frame(maxHeight: .infinity)
+                }.scrollIndicators(.hidden)
+                if let selected = tile?.selected, focused || hovering {
+                    HStack(spacing: 2) {
+                        TileIconButton(icon: .squareSplitHorizontal, help: "Split Right") { workspace.split(selected, .right) }
+                            .disabled(!workspace.canSplit(selected))
+                        TileIconButton(icon: .squareSplitVertical, help: "Split Down") { workspace.split(selected, .bottom) }
+                            .disabled(!workspace.canSplit(selected))
+                        TileIconButton(icon: workspace.zoomedTile == id ? .cornersIn : .cornersOut,
+                                       help: workspace.zoomedTile == id ? "Unzoom" : "Zoom") {
+                            workspace.focus(tile: id); workspace.toggleZoom()
+                        }.disabled(workspace.root.tiles.count < 2)
+                    }.padding(.leading, 8).padding(.trailing, 2)
                 }
-            }.scrollIndicators(.hidden)
-            .frame(height: 39)
-            .background(theme.surface)
+            }
+            .padding(.horizontal, 6)
+            .frame(height: tabStripHeight)
             .overlay(alignment: .bottom) { Rule() }
+            Spacer(minLength: 0)
         }
+        .background(theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .simultaneousGesture(TapGesture().onEnded { workspace.focus(tile: id) })
     }
 }
 
 private struct WorkspaceTab: View {
     @Environment(\.mica) private var theme
     let state: SessionStore
-    @Bindable var workspace: WorkspaceState
+    let workspace: WorkspaceState
     let pane: WorkspacePane
-    let group: Int
+    let selected: Bool
+    /// Whether this tab's tile is focused.
+    let focused: Bool
     let running: Bool
+    let resolve: (WorkspacePane, CGPoint) -> TileDropTarget?
     @State private var hovering = false
-    @FocusState private var focused: Bool
-    private var selected: Bool { workspace.selections.indices.contains(group) && workspace.selections[group] == pane }
+    @FocusState private var keyboardFocused: Bool
+
     var body: some View {
-        Button { workspace.select(pane) } label: {
-            HStack(spacing: 6) {
-                if case .agent = pane {
-                    Group {
-                        if running { KitSpinner().accessibilityLabel("Running") }
-                        else { RobotTabIcon() }
-                    }.frame(width: 15, height: 15)
+        // Hover or keyboard focus swaps the icon for the close button in the
+        // same slot, so the tab never changes width.
+        let showsClose = pane.closable && (hovering || keyboardFocused)
+        HStack(spacing: 8) {
+            if showsClose {
+                Button(action: close) {
+                    IconView(.x, size: 12)
+                        .foregroundStyle(theme.text)
+                        .frame(width: 14, height: 14).contentShape(Rectangle())
                 }
-                else if let icon { Image(systemName: icon).font(.kit(size: 12)) }
-                Text(pane.title).lineLimit(1).truncationMode(.middle)
-            }.font(.kit(size: 12))
-                .foregroundStyle(selected ? theme.text : theme.muted)
-                .padding(.horizontal, 12).frame(height: 38)
+                .buttonStyle(.plain)
+                .help("Close Tab")
+                .accessibilityLabel("Close \(pane.title)")
+            }
+            Button { workspace.select(pane) } label: {
+                HStack(spacing: 8) {
+                    if !showsClose { icon.frame(width: 14, height: 14) }
+                    Text(pane.title).lineLimit(1).truncationMode(.middle)
+                        .font(.kit(size: 12, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? theme.text : theme.muted)
+                }
+                .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
-        }.buttonStyle(.plain).focused($focused)
-            .overlay(alignment: .bottom) {
-                if selected { Rectangle().fill(workspace.contentFocused && workspace.focusedGroup == group ? theme.accent : theme.border).frame(height: 2) }
             }
-            .overlay(alignment: .trailing) {
-                if pane.closable && (hovering || focused) {
-                    Button { close() } label: {
-                        Image(systemName: "xmark").font(.kit(size: 9)).frame(width: 24, height: 28)
-                            .background(theme.surface)
-                    }.buttonStyle(.plain).padding(.trailing, 2).accessibilityLabel("Close \(pane.title)")
-                }
+            .buttonStyle(.plain)
+            .focused($keyboardFocused)
+        }
+        .padding(.horizontal, 10)
+        .frame(maxHeight: .infinity)
+        .overlay(alignment: .bottom) {
+            if selected { Rectangle().fill(focused ? theme.accent : theme.strongBorder).frame(height: 2) }
+        }
+        .contentShape(Rectangle())
+        .opacity(workspace.tabDrag?.pane == pane ? 0.4 : 1)
+        .onHover { hovering = $0 }
+        .simultaneousGesture(DragGesture(minimumDistance: 4, coordinateSpace: .named(WorkspaceLayout.space))
+            .onChanged { value in
+                guard !workspace.dragCancelled(pane) else { return }
+                workspace.tabDrag = .init(pane: pane, location: value.location, target: resolve(pane, value.location))
             }
-            .onHover { hovering = $0 }
-            .onChange(of: focused) { if focused { workspace.select(pane) } }
-            .contextMenu { WorkspaceTabActions(state: state, workspace: workspace, pane: pane) }
-            .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-    private var icon: String? {
-        switch pane {
-        case .file: "doc"
-        case .review: "chevron.left.forwardslash.chevron.right"
-        case .scratchpad: "note.text"
-        default: nil
+            .onEnded { value in
+                guard !workspace.dragCancelled(pane, ending: true) else { return }
+                // Resolve at release so the drop matches the pointer, not the last update.
+                if let target = resolve(pane, value.location) { workspace.move(pane, to: target) }
+                workspace.tabDrag = nil
+            })
+        .onChange(of: keyboardFocused) { if keyboardFocused { workspace.select(pane) } }
+        .contextMenu { WorkspaceTabActions(state: state, workspace: workspace, pane: pane) }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityActions {
+            if pane.closable { Button("Close \(pane.title)", action: close) }
         }
     }
-    private func close() {
-        if pane == .scratchpad, let client = state.scratchpadClient {
-            Task { await workspace.closeScratchpad(client: client, session: state.selectedID) }
-        } else { workspace.close(pane) }
+
+    /// Every tab shows its icon so activating one never shifts the strip; a
+    /// running subagent shows its spinner in the icon's place. Hover swaps
+    /// either for the close button.
+    @ViewBuilder private var icon: some View {
+        let tint = selected && focused ? theme.accent : theme.muted
+        if case .agent = pane, running {
+            KitSpinner().accessibilityLabel("Running")
+        } else {
+            switch pane {
+            case .agent: IconView(.robot).foregroundStyle(tint)
+            case .conversation: IconView(.chatCircle).foregroundStyle(tint)
+            case .review: IconView(.gitDiff).foregroundStyle(tint)
+            case .scratchpad: IconView(.note).foregroundStyle(tint)
+            case .file: IconView(.file).foregroundStyle(tint)
+            }
+        }
     }
+
+    private func close() { state.closePane(pane) }
+}
+
+/// The drop preview and a floating copy of the dragged tab, drawn above
+/// every tile. Reading the drag here keeps pointer updates from
+/// re-evaluating the whole workspace.
+private struct TabDragOverlay: View {
+    @Environment(\.mica) private var theme
+    let workspace: WorkspaceState
+    let frames: [UUID: CGRect]
+    let tabFrames: TabFrames
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+            if let drag = workspace.tabDrag {
+                if let target = drag.target, let index = target.index, let frame = frames[target.tile] {
+                    // An insertion marker in the strip, between tabs.
+                    let x = insertionX(index, in: target.tile, frame: frame)
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(theme.accent)
+                        .frame(width: 2, height: 20)
+                        .offset(x: x - 1, y: frame.minY + (tabStripHeight - 20) / 2)
+                } else if let target = drag.target, let frame = frames[target.tile] {
+                    let zone = target.preview(in: frame)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(theme.accent.opacity(0.14))
+                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.accent, lineWidth: 1.5))
+                        .frame(width: zone.width, height: zone.height)
+                        .offset(x: zone.minX, y: zone.minY)
+                        .animation(.easeOut(duration: 0.12), value: target)
+                }
+                Text(drag.pane.title)
+                    .font(.kit(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.text)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(theme.raised, in: RoundedRectangle(cornerRadius: 3))
+                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border))
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                    .fixedSize()
+                    .offset(x: drag.location.x + 10, y: drag.location.y + 10)
+            }
+        }
+        .allowsHitTesting(false)
+        .background(TabDragCancellation(workspace: workspace, active: workspace.tabDrag != nil))
+    }
+
+    /// The x position of the gap before tab `index`, or after the last tab.
+    private func insertionX(_ index: Int, in tile: UUID, frame: CGRect) -> CGFloat {
+        let tabs = (workspace.tiles[tile]?.panes ?? []).compactMap { tabFrames.frames[$0] }
+        let x = index < tabs.count ? tabs[index].minX : (tabs.last?.maxX ?? frame.minX + 6)
+        return min(max(x, frame.minX + 2), frame.maxX - 2)
+    }
+}
+
+/// Esc cancels a tab drag. The mouse is held during a drag, so the key goes
+/// to the window rather than any SwiftUI focus; a local monitor catches it
+/// only while a drag is in progress.
+private struct TabDragCancellation: View {
+    let workspace: WorkspaceState
+    let active: Bool
+    @State private var monitor: Any?
+
+    var body: some View {
+        Color.clear
+            .onChange(of: active, initial: true) {
+                if active, monitor == nil {
+                    monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [workspace] event in
+                        guard event.keyCode == 53, workspace.tabDrag != nil else { return event }
+                        workspace.cancelTabDrag()
+                        return nil
+                    }
+                } else if !active, let monitor {
+                    NSEvent.removeMonitor(monitor)
+                    self.monitor = nil
+                }
+            }
+            .onDisappear {
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                monitor = nil
+            }
+    }
+}
+
+/// Where each tab sits in the workspace's coordinate space, for strip
+/// drops. Not observed: geometry changes shouldn't re-render the workspace.
+final class TabFrames {
+    var frames: [WorkspacePane: CGRect] = [:]
 }
 
 private struct WorkspaceTabActions: View {
     let state: SessionStore
     let workspace: WorkspaceState
     let pane: WorkspacePane
+
     var body: some View {
-        Button(workspace.groups.count == 1 ? "Move to split right" : "Move to other group") { workspace.moveToOtherGroup(pane) }
-            .disabled(workspace.panes.count < 2)
-        if workspace.groups.count > 1 {
-            Button("Join all tabs") { workspace.joinGroups(selecting: pane) }
+        Button("Split Right") { workspace.split(pane, .right) }.disabled(!workspace.canSplit(pane))
+        Button("Split Down") { workspace.split(pane, .bottom) }.disabled(!workspace.canSplit(pane))
+        if workspace.root.tiles.count > 1 {
+            Button("Join All Tabs") { workspace.joinTiles(selecting: pane) }
+            Divider()
+            Button(workspace.zoomedTile == nil ? "Zoom Tile" : "Unzoom Tile") {
+                if let tile = workspace.tile(containing: pane) { workspace.focus(tile: tile) }
+                workspace.toggleZoom()
+            }
+            Button("Equalize Tiles") { workspace.equalize() }
         }
         if pane.closable {
             Divider()
-            Button("Close tab") {
-                if pane == .scratchpad, let client = state.scratchpadClient {
-                    Task { await workspace.closeScratchpad(client: client, session: state.selectedID) }
-                } else { workspace.close(pane) }
-            }
+            Button("Close Tab") { state.closePane(pane) }
         }
     }
 }
 
-/// Phosphor Robot (regular), rendered from the bundled vector asset.
-private struct RobotTabIcon: View {
+/// A 24 pt icon button for a tile's tab strip.
+private struct TileIconButton: View {
+    @Environment(\.mica) private var theme
+    @Environment(\.isEnabled) private var enabled
+    let icon: Icon
+    let help: String
+    let action: () -> Void
+    @State private var hovering = false
+
     var body: some View {
-        if let url = Bundle.module.url(forResource: "robot", withExtension: "svg"), let image = NSImage(contentsOf: url) {
-            Image(nsImage: image).renderingMode(.template).resizable().scaledToFit()
+        Button(action: action) {
+            IconView(icon)
+                .foregroundStyle(theme.muted)
+                .frame(width: 24, height: 24)
+                .background(hovering && enabled ? theme.hover : .clear, in: RoundedRectangle(cornerRadius: 3))
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .opacity(enabled ? 1 : 0.45)
+        .onHover { hovering = $0 }
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
+
 struct ScratchpadPane: View {
     @Environment(\.mica) private var theme
     let state: SessionStore
@@ -200,6 +434,7 @@ struct ScratchpadPane: View {
                 @Bindable var workspace = workspace
                 ScratchpadEditor(text: $workspace.scratchpad, documentVersion: pad.documentVersion,
                     editorState: $workspace.scratchpadPosition)
+                    .workspaceFocusTarget(.scratchpad)
             }
             if pad.status != .saved {
                 Rule()
@@ -269,7 +504,7 @@ struct FilePane: View {
                         .disabled(selectedLines == nil || loading || entry?.stale == true ||
                             state.annotationState.pending || state.annotationState.editor != nil)
                 }
-                Button { revision += 1 } label: { Image(systemName: "arrow.clockwise") }
+                Button { revision += 1 } label: { IconView(.arrowClockwise, size: 12) }
                     .buttonStyle(.plain).accessibilityLabel("Refresh file").help("Refresh file").disabled(loading)
             }.padding(.horizontal, 20).padding(.vertical, 10)
             Rule()
@@ -283,7 +518,7 @@ struct FilePane: View {
                     state.annotationState.inspected = note
                 } label: {
                     HStack {
-                        Label("File changed", systemImage: "exclamationmark.triangle")
+                        Label { Text("File changed") } icon: { IconView(.warning, size: 12) }
                         Text(note.body).lineLimit(1)
                         Spacer()
                         Text("View captured source")
@@ -308,20 +543,23 @@ struct FilePane: View {
                     Button("Cancel") { state.annotationState.cancelEditor() }
                 }.font(.kit(size: 11)).foregroundStyle(theme.muted).padding(12)
             }
-            if let preview {
-                if let client = state.catalogClient as? any AnnotationClient {
-                    AnnotatedFileEditor(file: preview, position: $position, annotations: state.annotationState,
-                        client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false)
-                        .id(preview.workspace.workspaceId + preview.revision).clipped()
+            Group {
+                if let preview {
+                    if let client = state.catalogClient as? any AnnotationClient {
+                        AnnotatedFileEditor(file: preview, position: $position, annotations: state.annotationState,
+                            client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false)
+                            .id(preview.workspace.workspaceId + preview.revision).clipped()
+                    } else {
+                        ReadOnlyFileEditor(path: path, source: preview.content, position: $position)
+                    }
+                } else if let file = workspace.fixture.files.first(where: { $0.path == path }) {
+                    ReadOnlyFileEditor(path: path, source: file.content)
                 } else {
-                    ReadOnlyFileEditor(path: path, source: preview.content, position: $position)
+                    Text(loading ? "Loading file…" : error == nil ? "File preview unavailable" : "Refresh to try again")
+                        .foregroundStyle(theme.muted).frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            } else if let file = workspace.fixture.files.first(where: { $0.path == path }) {
-                ReadOnlyFileEditor(path: path, source: file.content)
-            } else {
-                Text(loading ? "Loading file…" : error == nil ? "File preview unavailable" : "Refresh to try again")
-                    .foregroundStyle(theme.muted).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .workspaceFocusTarget(.file(path))
             Text((entry?.stale == true && preview != nil ? "Read-only · Preview may be out of date" : "Read-only") + (preview?.truncated == true ? " · Preview truncated" : ""))
                 .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
         }.onChange(of: state.annotationState.evidenceConflict) {

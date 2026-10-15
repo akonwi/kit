@@ -6,12 +6,18 @@ import ImageIO
 struct ComposerView: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
+    /// Square top corners where the queued tray sits on the composer.
+    var joinedTop = false
     @State private var mentions = ComposerMentionState()
     @State private var history = ComposerHistoryState()
     @State private var pickerAnchor = ComposerPickerAnchor()
     @State private var focused = false
     @State private var attachmentDropTargeted = false
-    @State private var modelPickerPresented = false
+    @State private var popover = AnchoredPopover()
+    @State private var openMenu: ComposerChipMenu?
+    @State private var lastClosedMenu: ComposerChipMenu?
+    @State private var modelAnchor = ComposerPickerAnchor()
+    @State private var thinkingAnchor = ComposerPickerAnchor()
 
     static func modelLabel(_ model: WireModelCapability) -> String {
         "\(model.name) · \(model.provider)"
@@ -20,6 +26,11 @@ struct ComposerView: View {
     static func activeModelLabel(id: String, models: [WireModelCapability]) -> String {
         models.first(where: { $0.id == id })?.name
             ?? String(id.split(separator: "/", maxSplits: 1).last ?? "")
+    }
+
+    /// The thinking levels the model offers, or none when it has none or is unknown.
+    static func thinkingLevels(model: String, models: [WireModelCapability]) -> [String] {
+        models.first(where: { $0.id == model })?.thinkingLevels?.map(\.rawValue) ?? []
     }
 
     var body: some View {
@@ -40,7 +51,7 @@ struct ComposerView: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         if !state.ui.workspace.notes.isEmpty {
-                            attachmentChip("Review · \(state.ui.workspace.notes.count) notes", icon: "text.bubble") {
+                            attachmentChip("Review · \(state.ui.workspace.notes.count) notes", icon: .chatCenteredText) {
                                 state.ui.workspace.notes = [:]
                             } content: {
                                 Button("Review · \(state.ui.workspace.notes.count) notes") { state.ui.workspace.open(.review) }
@@ -70,7 +81,9 @@ struct ComposerView: View {
                                   focusAtEndRequest: state.ui.composerFocusAtEndRequest,
                                   foreground: theme.text, placeholderColor: theme.muted,
                                   attachmentDrop: acceptAttachments, attachmentDropTargeted: { attachmentDropTargeted = $0 },
-                                  submit: { state.send() }, exitShell: exitShell,
+                                  submit: { state.send() },
+                                  // A hidden Agent pane takes a focus request once it's shown.
+                                  focusEnabled: state.ui.workspace.isVisible(.conversation), exitShell: exitShell,
                                   openPalette: { state.ui.palette = true }, mentions: mentions,
                                   history: history, historySession: state.selectedID, historyClient: state.composerHistoryClient,
                                   recallQueued: {
@@ -80,52 +93,26 @@ struct ComposerView: View {
                                   mentionIdentity: state.serverID + "/" + state.selectedID,
                                   mentionLoader: mentionLoader, pickerAnchor: pickerAnchor, theme: theme)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(16)
+                .workspaceFocusTarget(.conversation)
+                .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)
             HStack(spacing: 12) {
                 if let shell = state.shellMode {
                     HStack(spacing: 8) {
-                        Image(systemName: "terminal")
+                        IconView(.terminalWindow, size: 12)
                         Text("Shell")
                         Button(shell.excluded ? "Excluded from context" : "Include in context") {
                             ui.draft = (shell.excluded ? "!" : "!!") + String(ui.draft.dropFirst(shell.excluded ? 2 : 1))
                         }.buttonStyle(.plain).foregroundStyle(theme.accent)
                     }.font(.kit(size: 12)).foregroundStyle(theme.muted)
                 } else {
-                    Button { chooseAttachment() } label: { Image(systemName: "plus") }
-                        .buttonStyle(.plain).accessibilityLabel("Add attachment").disabled(state.unavailable)
-                    Button { modelPickerPresented = true } label: {
-                        HStack(spacing: 4) {
-                            Text(Self.activeModelLabel(id: state.model, models: state.configuration.models))
-                            Image(systemName: "chevron.up.chevron.down").font(.system(size: 9))
-                        }
-                    }
-                    .buttonStyle(.borderless).tint(theme.text).fixedSize()
-                    .help(state.configuration.models.first(where: { $0.id == state.model }).map(Self.modelLabel) ?? state.model)
-                    .accessibilityLabel("Model: \(state.configuration.models.first(where: { $0.id == state.model }).map(Self.modelLabel) ?? state.model)")
-                    .popover(isPresented: $modelPickerPresented, arrowEdge: .bottom) {
-                        ComposerModelPicker(models: state.configuration.models, selectedID: state.model,
-                            select: { id in
-                                modelPickerPresented = false
-                                Task { await state.configure(model: id) }
-                            }, reload: {
-                                modelPickerPresented = false
-                                Task { await state.loadComposer() }
-                            }, dismiss: { modelPickerPresented = false })
-                            .environment(\.mica, theme)
-                            .preferredColorScheme(theme.dark ? .dark : .light)
-                    }
-                    .disabled(state.unavailable || state.configuration.changing || state.running)
-                    Rectangle().fill(theme.border).frame(width: 1, height: 14)
-                    Menu {
-                        ForEach(state.thinkingLevels, id: \.self) { value in
-                            Button(value.capitalized) { Task { await state.configure(thinking: value) } }
-                        }
-                    } label: { Text(state.thinking.capitalized) }
-                        .menuStyle(.borderlessButton).tint(theme.text).fixedSize()
-                        .disabled(state.unavailable || state.configuration.changing)
-                    if let context = SessionContext(tokens: state.selected?.contextTokens, capacity: state.selected?.contextWindow) {
-                        ContextUsageView(context: context)
-                    }
+                    let levels = Self.thinkingLevels(model: state.model, models: state.configuration.models)
+                    ComposerConfigurationChip(
+                        model: Self.activeModelLabel(id: state.model, models: state.configuration.models),
+                        modelHelp: state.configuration.models.first(where: { $0.id == state.model }).map(Self.modelLabel) ?? state.model,
+                        thinking: levels.isEmpty || state.thinking.isEmpty ? nil : state.thinking,
+                        open: openMenu, modelAnchor: modelAnchor, thinkingAnchor: thinkingAnchor,
+                        toggle: toggle)
+                        .disabled(state.unavailable)
                 }
                 Spacer(minLength: 8)
                 Button {
@@ -134,26 +121,27 @@ struct ComposerView: View {
                     else if state.replaying { state.stop() }
                     else { state.send() }
                 } label: {
-                    Image(systemName: state.activeBashID != nil || state.running || state.replaying ? "stop.fill" : "arrow.up")
-                        .frame(width: 28, height: 28)
+                    IconView(state.activeBashID != nil || state.running || state.replaying ? .stop : .arrowUp, size: 12)
+                        .frame(width: 26, height: 26)
                         .foregroundStyle(theme.surface)
-                        .background(theme.text, in: RoundedRectangle(cornerRadius: 6))
+                        .background(theme.text, in: RoundedRectangle(cornerRadius: 3))
                 }.buttonStyle(.plain)
                     .accessibilityLabel(state.activeBashID != nil ? "Stop shell command" : state.running ? "Stop run" : state.replaying ? "Stop" : "Send")
                     .help(state.activeBashID != nil ? "Stop shell command" : state.running || state.replaying ? "Stop response" : "Send message")
                     .disabled(primaryActionDisabled)
-            }.font(.kit(size: 11)).padding(.horizontal, 16).padding(.bottom, 12)
+            }.font(.kit(size: 11)).padding(.horizontal, 12).padding(.bottom, 10)
         }
         .background(ComposerPickerAnchorView(anchor: pickerAnchor))
-        .background(theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder((focused || attachmentDropTargeted) ? theme.focusBorder : theme.strongBorder, lineWidth: 1))
+        .background(theme.raised)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder((focused || attachmentDropTargeted) ? theme.focusBorder : theme.border, lineWidth: 1))
         .onDrop(of: [UTType.fileURL.identifier, UTType.image.identifier], isTargeted: $attachmentDropTargeted,
                 perform: acceptAttachments)
-        .padding(.horizontal, 28)
         .task(id: state.selectedID) { await state.loadComposer() }
         .onChange(of: state.selected?.cwd) { mentions.reset() }
-        .onChange(of: state.selectedID) { modelPickerPresented = false }
+        .onChange(of: state.selectedID) { popover.dismiss() }
+        .onChange(of: state.unavailable) { if state.unavailable { popover.dismiss() } }
+        .onDisappear { popover.dismiss() }
         .onChange(of: state.ui.draft) {
             if !state.ui.draft.isEmpty { state.operations.clearAcknowledgement() }
         }
@@ -188,12 +176,16 @@ struct ComposerView: View {
             state.annotationState.records.isEmpty && state.ui.workspace.notes.isEmpty && state.ui.attachments.isEmpty && state.ui.serverAttachmentIDs.isEmpty && state.ui.uploads.items.isEmpty
     }
 
+    private var shape: UnevenRoundedRectangle {
+        let top: CGFloat = joinedTop ? 0 : 4
+        return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: 4,
+                                      bottomTrailingRadius: 4, topTrailingRadius: top)
+    }
+
+    /// Input the composer can't send, or a queue error with no tray to show it.
     private var showOperationDetails: Bool {
-        switch state.operations.submission {
-        case .failed: return true
-        default:
-            return (state.operations.queue?.count ?? 0) > 0 || state.operations.queueError != nil || state.operations.abortError != nil
-        }
+        if case .rejected = state.operations.submission { return true }
+        return state.operations.queueError != nil && (state.operations.queue?.count ?? 0) == 0
     }
 
     private func acceptAttachments(_ providers: [NSItemProvider]) -> Bool {
@@ -289,7 +281,7 @@ struct ComposerView: View {
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.border, lineWidth: 1))
         .overlay(alignment: .topTrailing) {
             Button { removeAttachment(name) } label: {
-                Image(systemName: "xmark").font(.kit(size: 9, weight: .medium))
+                IconView(.x, size: 10)
                     .frame(width: 20, height: 20)
                     .background(theme.surface, in: Circle())
             }.buttonStyle(.plain).padding(3).accessibilityLabel("Remove \(name)")
@@ -297,13 +289,13 @@ struct ComposerView: View {
         .help(name)
     }
 
-    private func attachmentChip<Content: View>(_ name: String, icon: String,
+    private func attachmentChip<Content: View>(_ name: String, icon: Icon,
         remove: @escaping () -> Void, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: icon).foregroundStyle(theme.muted)
+            IconView(icon, size: 12).foregroundStyle(theme.muted)
             content()
             Button(action: remove) {
-                Image(systemName: "xmark").font(.kit(size: 9, weight: .medium))
+                IconView(.x, size: 10)
                     .frame(width: 18, height: 18).contentShape(Rectangle())
             }.buttonStyle(.plain).foregroundStyle(theme.muted)
                 .accessibilityLabel("Remove \(name)")
@@ -315,12 +307,10 @@ struct ComposerView: View {
         .help(name)
     }
 
-    private func attachmentIcon(_ name: String) -> String {
+    private func attachmentIcon(_ name: String) -> Icon {
         switch (name as NSString).pathExtension.lowercased() {
-        case "png", "jpg", "jpeg", "gif", "webp", "heic": "photo"
-        case "pdf": "doc.richtext"
-        case "swift", "go", "js", "ts", "tsx", "py", "json", "sh": "doc.text"
-        default: "doc"
+        case "png", "jpg", "jpeg", "gif", "webp", "heic": .image
+        default: .file
         }
     }
 
@@ -329,25 +319,92 @@ struct ComposerView: View {
         { [state] in state.selectedID == session ? state.imageRejectingModel : nil }
     }
 
-    private func chooseAttachment() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
-        panel.prompt = "Attach"
-        let uploads = state.ui.uploads, session = state.selectedID, client = state.composerClient
-        let rejecting = imageRejectingModel(for: session)
-        panel.begin { response in
-            guard response == .OK else { return }
-            if let client {
-                for url in panel.urls { uploads.add(url: url, client: client, session: session, imageRejectingModel: rejecting) }
-                return
-            }
-            for url in panel.urls where !state.ui.attachments.contains(url.lastPathComponent) {
-                let access = url.startAccessingSecurityScopedResource()
-                let source = CGImageSourceCreateWithURL(url as CFURL, nil)
-                addAttachment(url.lastPathComponent, preview: source.flatMap(Self.thumbnail))
-                if access { url.stopAccessingSecurityScopedResource() }
+    private func toggle(_ menu: ComposerChipMenu) {
+        if popover.isOpen {
+            let same = openMenu == menu
+            popover.dismiss()
+            if same { return }
+        } else if lastClosedMenu == menu, let closedAt = popover.closedAt,
+                  Date().timeIntervalSince(closedAt) < 0.3 {
+            // The click that reached this half already closed its popover.
+            return
+        }
+        let anchor = menu == .model ? modelAnchor : thinkingAnchor
+        guard let frame = anchor.screenFrame, let window = anchor.view?.window else { return }
+        let popover = popover, theme = theme
+        let content: AnyView = switch menu {
+        case .model:
+            AnyView(ComposerModelMenu(state: state, theme: theme) { popover.dismiss() })
+        case .thinking:
+            AnyView(ComposerThinkingMenu(theme: theme,
+                levels: Self.thinkingLevels(model: state.model, models: state.configuration.models),
+                selected: state.thinking,
+                select: { [state] level in
+                    guard !state.configuration.changing else { return }
+                    Task { await state.configure(thinking: level) }
+                }, dismiss: { popover.dismiss() }))
+        }
+        openMenu = menu
+        popover.show(anchor: frame, parent: window, content: content) {
+            lastClosedMenu = menu
+            if openMenu == menu { openMenu = nil }
+        }
+    }
+}
+
+/// Which half of the configuration chip opened its popover.
+enum ComposerChipMenu: Equatable { case model, thinking }
+
+/// One bordered chip split by a hairline: the model, then the thinking level.
+/// Each half opens its own popover and lights while hovered or open. A model
+/// without thinking levels shows only the model half.
+struct ComposerConfigurationChip: View {
+    @Environment(\.mica) private var theme
+    @Environment(\.isEnabled) private var enabled
+    let model: String
+    let modelHelp: String
+    let thinking: String?
+    let open: ComposerChipMenu?
+    let modelAnchor: ComposerPickerAnchor
+    let thinkingAnchor: ComposerPickerAnchor
+    let toggle: (ComposerChipMenu) -> Void
+    /// Names the configured target when it is not the attached session.
+    var subject: String? = nil
+    @State private var hovered: ComposerChipMenu?
+
+    private var target: String { subject.map { " for \($0)" } ?? "" }
+
+    var body: some View {
+        let lit = enabled && (open != nil || hovered != nil)
+        HStack(spacing: 0) {
+            half(model, menu: .model, anchor: modelAnchor)
+                .help(modelHelp)
+                .accessibilityLabel("Model\(target): \(model)")
+            if let thinking {
+                Rectangle().fill(theme.border).frame(width: 1)
+                half(thinking, menu: .thinking, anchor: thinkingAnchor)
+                    .help("Thinking level")
+                    .accessibilityLabel("Thinking\(target): \(thinking)")
             }
         }
+        .frame(height: 24)
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(lit ? theme.strongBorder : theme.border))
+        .opacity(enabled ? 1 : 0.5)
+        .fixedSize()
+    }
+
+    private func half(_ label: String, menu: ComposerChipMenu, anchor: ComposerPickerAnchor) -> some View {
+        let lit = enabled && (open == menu || hovered == menu)
+        return Button { toggle(menu) } label: {
+            Text(label).font(.kit(size: 12)).lineLimit(1)
+                .foregroundStyle(lit ? theme.text : theme.muted)
+                .padding(.horizontal, 8).frame(maxHeight: .infinity)
+                .background(lit ? theme.frameHover : .clear)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(ComposerPickerAnchorView(anchor: anchor))
+        .onHover { hovered = $0 ? menu : (hovered == menu ? nil : hovered) }
     }
 }

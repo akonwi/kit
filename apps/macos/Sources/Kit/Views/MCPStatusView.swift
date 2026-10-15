@@ -6,19 +6,10 @@ struct MCPStatusView: View {
     @Environment(\.mica) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("MCP servers").font(.kit(size: 16, weight: .medium))
-                    Text("Connections available to this session").font(.kit(size: 12)).foregroundStyle(theme.muted)
-                }
-                Spacer()
-                Button { state.ui.palette = false } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.plain).keyboardShortcut(.cancelAction).accessibilityLabel("Close MCP servers")
-            }.padding(20)
-            Rule()
+        PaletteSheet(title: "MCP servers", detail: servers.isEmpty ? nil : "\(servers.count) configured",
+                     height: PaletteMetrics.height) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
                     if servers.isEmpty {
                         Text("No MCP servers are configured.")
                             .foregroundStyle(theme.muted).frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 72)
@@ -29,20 +20,18 @@ struct MCPStatusView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             MetaLabel(text: "WARNINGS")
                             ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in
-                                Label(warning, systemImage: "exclamationmark.triangle")
+                                Label(warning, icon: .warning)
                                     .font(.kit(size: 12)).foregroundStyle(theme.warning)
                                     .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                             }
                         }.padding(.top, 8)
                     }
-                }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
             }
-            Rule()
-            HStack { Button("Back", action: back); Spacer(); Button("Done") { state.ui.palette = false } }
-                .padding(14)
+        } actions: {
+            Button("Back", action: back).buttonStyle(MicaButtonStyle(compact: true))
+            Spacer()
         }
-        .font(.kit(size: 13)).frame(width: 560, height: 520)
-        .foregroundStyle(theme.text).background(theme.surface)
         .onExitCommand { state.ui.palette = false }
         .task(id: "\(state.serverID)/\(state.selectedID)") { await state.monitorMCPStatus() }
     }
@@ -75,17 +64,17 @@ struct MCPStatusView: View {
                 }.font(.kit(size: 11))
             }
             if !server.lastError.isEmpty {
-                Label(server.lastError, systemImage: "exclamationmark.circle")
+                Label(server.lastError, icon: .warningCircle)
                     .font(.kit(size: 12)).foregroundStyle(theme.danger)
             }
         }
-        .padding(14).background(theme.raised).clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.border))
+        .padding(12).background(theme.raised).clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border))
     }
 
     @ViewBuilder private func statusIndicator(_ server: MCPServerStatus) -> some View {
         if server.state == "connecting" || server.state == "authorizing" {
-            ProgressView().controlSize(.small).frame(width: 14, height: 14)
+            KitSpinner().foregroundStyle(statusColor(server.state)).frame(width: 14)
         } else {
             Text(symbol(server.state)).font(.kit(size: 14, weight: .medium, design: .monospaced))
                 .foregroundStyle(statusColor(server.state)).frame(width: 14)
@@ -94,7 +83,7 @@ struct MCPStatusView: View {
 
     private func chip(_ text: String) -> some View {
         Text(text).font(.kit(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(theme.muted)
-            .padding(.horizontal, 7).padding(.vertical, 3).background(theme.hover).clipShape(RoundedRectangle(cornerRadius: 4))
+            .padding(.horizontal, 6).padding(.vertical, 2).background(theme.hover).clipShape(RoundedRectangle(cornerRadius: 2))
     }
 
     private func symbol(_ state: String) -> String {

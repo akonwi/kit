@@ -15,16 +15,20 @@ struct DiffDocument: Sendable {
     let side: String?
     private let oldRows: [Int: Int]
     private let newRows: [Int: Int]
-    var identity: String { observation.target.id + observation.revision + file.path + (file.fileRevision ?? "") + String(rows.count) + (side ?? "unified") }
+    /// What the editor shows. A new target revision that leaves the file
+    /// unchanged keeps the same identity, so its editor isn't rebuilt.
+    var identity: String { observation.target.id + file.path + (file.fileRevision ?? "") + String(rows.count) + (side ?? "unified") }
     var content: String { rows.map(\.text).joined(separator: "\n") + "\n" }
+    /// The row between two hunks.
+    static let gap = "⋯"
 
     init(observation: WireDiffObservation, file: WireDiffFileSummary, hunks: [WireDiffHunk]) {
         self.observation = observation; self.file = file; side = nil
         var displayed: [DiffDisplayRow] = []
+        // Hunks are split by a ⋯ row, as in the TUI; the first needs none.
         for hunk in hunks {
-            if !hunk.continuedBefore || displayed.isEmpty {
-                displayed.append(DiffDisplayRow(text: "@@ −\(hunk.oldStart),\(hunk.oldCount) +\(hunk.newStart),\(hunk.newCount) @@" + (hunk.continuedBefore ? " (continued)" : ""),
-                    kind: "hunk", oldLine: nil, newLine: nil))
+            if !hunk.continuedBefore && !displayed.isEmpty {
+                displayed.append(DiffDisplayRow(text: Self.gap, kind: "hunk", oldLine: nil, newLine: nil))
             }
             for line in hunk.lines ?? [] {
                 displayed.append(DiffDisplayRow(text: line.content, kind: line.kind, oldLine: line.oldLine, newLine: line.newLine))

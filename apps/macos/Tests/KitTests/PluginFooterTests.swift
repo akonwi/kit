@@ -21,7 +21,7 @@ import Testing
         #expect(String(content.characters) == "Ready")
         #expect(content.runs.first?.foregroundColor == theme.success)
         #expect(content.runs.first?.underlineStyle == .single)
-        #expect(content.runs.first?.font == Font.kit(size: 12, weight: .bold))
+        #expect(content.runs.first?.font == Font.kit(size: 11, weight: .bold, design: .monospaced))
     }
     @Test func footerUsesTheEntireOfferedSlotInsteadOfCappingAt340Points() async throws {
         _ = NSApplication.shared

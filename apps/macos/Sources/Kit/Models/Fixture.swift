@@ -116,6 +116,17 @@ struct ToolActivity: Decodable, Identifiable, Sendable, Equatable {
     var thinking: String? = nil
     var attachments: [TranscriptAttachment]? = nil
     var contentTruncated: Bool? = nil
+    /// The result's structured details as JSON, such as an exit code or a match count.
+    var details: String? = nil
+    /// When the app saw the call start and finish. Only calls the app watched
+    /// live carry times; the server does not record them (#187).
+    var startedAt: Date? = nil
+    var finishedAt: Date? = nil
+    /// True when the turn ended before the call ran.
+    var notRun: Bool? = nil
+
+    /// A call that is planned or executing.
+    var running: Bool { status == "Running…" || status == "Planned" }
 }
 
 struct TranscriptAttachment: Decodable, Sendable, Equatable, Hashable {

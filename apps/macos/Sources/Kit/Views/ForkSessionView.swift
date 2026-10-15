@@ -1,7 +1,11 @@
 import SwiftUI
 
+/// Forks the session. With a message typed after `fork`, it submits as soon
+/// as it opens; the fields stay editable so a failure can be retried.
 struct ForkSessionView: View {
     @Bindable var state: SessionStore
+    var initialMessage = ""
+    var submitImmediately = false
     let back: () -> Void
     let open: (String) -> Void
     @Environment(\.mica) private var theme
@@ -12,48 +16,57 @@ struct ForkSessionView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Fork session").font(.kit(size: 16, weight: .medium))
-            Text("Continue from this session’s current history in a separate session. A first message starts the fork’s first turn.").foregroundStyle(theme.muted)
-                .fixedSize(horizontal: false, vertical: true)
-            TextField("Name (optional)", text: $name)
-                .textFieldStyle(.roundedBorder).focused($focused).accessibilityLabel("Fork name")
-                .onSubmit(submit).onExitCommand(perform: dismiss)
-                .disabled(operation.pending)
-            TextField("First message (optional)", text: $message, axis: .vertical)
-                .lineLimit(3...8)
-                .textFieldStyle(.roundedBorder).accessibilityLabel("First message")
-                .onSubmit(submit).onExitCommand(perform: dismiss)
-                .disabled(operation.pending)
-            if let error = operation.error { Text(error).foregroundStyle(theme.danger).fixedSize(horizontal: false, vertical: true) }
-            HStack {
-                Button("Back", action: back).disabled(operation.pending)
-                Spacer()
-                if operation.pending { KitSpinner() }
-                Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
-                Button("Fork", action: submit)
-                    .disabled(operation.pending || state.forkUnavailableReason != nil)
-            }
-        }.font(.kit(size: 13)).padding(20).frame(width: 520)
-            .foregroundStyle(theme.text).background(theme.surface)
-            .task {
-                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-                focused = true
-            }
-            .onExitCommand(perform: dismiss)
-            .onDisappear { dismissed = true }
+        PaletteSheet(title: "Fork session", detail: state.selected?.title) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Continue from this session’s current history in a separate session. A first message starts the fork’s first turn.")
+                    .font(.kit(size: 12)).foregroundStyle(theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                PaletteTextInput(prompt: "Name (optional)", text: $name)
+                    .focused($focused).onSubmit(submit)
+                    .disabled(operation.pending)
+                PaletteTextInput(prompt: "First message (optional)", text: $message, axis: .vertical)
+                    .lineLimit(3...8).onSubmit(submit)
+                    .disabled(operation.pending)
+                if let error = operation.error {
+                    Text(error).font(.kit(size: 12)).foregroundStyle(theme.danger).fixedSize(horizontal: false, vertical: true)
+                }
+            }.padding(16)
+        } actions: {
+            Button("Back", action: back).disabled(operation.pending)
+            Spacer()
+            if operation.pending { KitSpinner() }
+            Button("Cancel", action: dismiss)
+            Button(operation.error == nil ? "Fork" : "Retry", action: submit)
+                .buttonStyle(MicaButtonStyle(primary: true, compact: true))
+                .disabled(operation.pending || state.forkUnavailableReason != nil)
+        }
+        .buttonStyle(MicaButtonStyle(compact: true))
+        .task {
+            message = initialMessage
+            if submitImmediately { submit() }
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            focused = true
+        }
+        .onExitCommand(perform: dismiss)
+        .onDisappear { dismissed = true }
     }
 
     private func dismiss() { dismissed = true; state.ui.palette = false }
     private func submit() {
-        guard let client = state.forkClient, !operation.pending else { return }
+        guard let client = state.forkClient, !operation.pending, state.forkUnavailableReason == nil else { return }
         let source = state.selectedID
+        let message = message
         Task { @MainActor in
-            if let forked = await operation.submit(client: client, source: source, name: name, message: message), !dismissed {
-                if let error = forked.firstTurnError {
-                    ForkFirstTurnFailures.shared.record(.init(message: message.trimmingCharacters(in: .whitespacesAndNewlines), error: error),
-                                                        for: SessionIdentity(server: state.serverID, session: forked.session.id))
-                }
+            guard let forked = await operation.submit(client: client, source: source, name: name, message: message) else { return }
+            if let error = forked.firstTurnError {
+                ForkFirstTurnFailures.shared.record(.init(message: message.trimmingCharacters(in: .whitespacesAndNewlines), error: error),
+                                                    for: SessionIdentity(server: state.serverID, session: forked.session.id))
+            }
+            if dismissed {
+                // The palette closed while the fork ran; the fork still exists.
+                state.feedback.show(title: "Session forked", detail: forked.session.title,
+                                    actionTitle: "Open", action: { open(forked.session.id) })
+            } else {
                 state.ui.palette = false
                 open(forked.session.id)
             }

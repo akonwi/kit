@@ -21,15 +21,17 @@ struct AnnotationInput: View {
             if annotations.draft.utf8.count > 16 * 1024 {
                 Text("Comments can contain up to 16 KiB.").font(.kit(size: 11)).foregroundStyle(theme.muted)
             }
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 if annotations.pending { KitSpinner() }
                 Spacer()
-                Button("Cancel", action: cancel)
-                Button("Save", action: save)
+                Button("Cancel", action: cancel).buttonStyle(SmallButtonStyle(bordered: true))
+                Button(annotations.editor?.editing == nil ? "Comment" : "Save", action: save)
+                    .buttonStyle(SmallButtonStyle(prominent: true))
                     .disabled(!FileAnnotation.validBody(annotations.draft) || annotations.uncertain)
-            }.font(.kit(size: 11)).buttonStyle(.plain)
-        }.padding(12).background(theme.raised, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(theme.accent.opacity(focused ? 0.5 : 0), lineWidth: 1))
+            }
+        }.padding(.horizontal, 12).padding(.vertical, 10)
+            .background(theme.raised, in: RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(focused ? theme.accent.opacity(0.6) : theme.strongBorder, lineWidth: 1))
             .disabled(annotations.pending)
             .onAppear { focusRequest += 1 }
             .onChange(of: annotations.draft) { sizeChanged() }

@@ -6,15 +6,8 @@ struct SessionDetailsView: View {
     @Environment(\.mica) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Session details").font(.kit(size: 16, weight: .medium))
-                Spacer()
-                Button { state.ui.palette = false } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.plain).keyboardShortcut(.cancelAction).accessibilityLabel("Close session details")
-            }
+        PaletteSheet(title: "Session details", detail: state.selected?.title, height: PaletteMetrics.height) {
             if let session = state.selected {
-                Text(session.title).foregroundStyle(theme.muted).textSelection(.enabled)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         section("Configuration", rows: configuration(session))
@@ -23,19 +16,19 @@ struct SessionDetailsView: View {
                         } else {
                             Text("Usage unavailable").foregroundStyle(theme.muted)
                         }
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
                 }
             }
-            HStack { Button("Back", action: back); Spacer() }
+        } actions: {
+            Button("Back", action: back).buttonStyle(MicaButtonStyle(compact: true))
+            Spacer()
         }
-        .font(.kit(size: 13)).padding(20).frame(width: 520, height: 510)
-        .foregroundStyle(theme.text).background(theme.surface)
         .onExitCommand { state.ui.palette = false }
     }
 
     private func section(_ title: String, rows: [(String, String)]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.kit(size: 13, weight: .medium))
+            MetaLabel(text: title.uppercased())
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 10) {
                 ForEach(rows, id: \.0) { label, value in
                     GridRow(alignment: .top) {

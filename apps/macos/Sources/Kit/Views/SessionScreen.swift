@@ -1,21 +1,24 @@
 import SwiftUI
 
+/// Requests that open sessions as tabs of the current window.
+struct SessionNavigation {
+    var openSession: (String) -> Void = { _ in }
+    var openLauncher: () -> Void = {}
+}
+
+extension EnvironmentValues {
+    @Entry var sessionNavigation = SessionNavigation()
+}
+
+/// One session tab's content. The tab owns the store and its stream; this
+/// view only presents it.
 struct SessionScreen: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("themeConfiguration") private var themeConfiguration = ""
     @Environment(\.installedThemes) private var installedThemes
-    @Environment(\.openWindow) private var openWindow
-    let windows: SessionWindowRegistry
+    @Environment(\.sessionNavigation) private var navigation
+    @Bindable var state: SessionStore
     var onSelection: (String) -> Void = { _ in }
-    @State private var state: SessionStore
-
-    init(fixture: Fixture, sessionID: String? = nil, windows: SessionWindowRegistry, client: (any SessionClient)? = nil, onSelection: @escaping (String) -> Void = { _ in }) {
-        self.windows = windows
-        self.onSelection = onSelection
-        // SwiftUI can construct this value repeatedly without retaining its State.
-        // Selecting here must not start a stream; attachment belongs to onAppear.
-        _state = State(initialValue: SessionStore(fixture: fixture, client: client, sessionID: sessionID))
-    }
 
     var body: some View {
         @Bindable var ui = state.ui
@@ -23,7 +26,10 @@ struct SessionScreen: View {
         let isDark = windowScheme == .dark
         let theme = ThemeConfiguration.decode(themeConfiguration).theme(dark: isDark, installed: installedThemes)
         let serverID = state.serverID
-        let content = VStack(spacing: 0) {
+        // An open session's tiles sit on the window frame; anything else
+        // fills the window's single tile.
+        let tiled = state.selected != nil
+        let content = VStack(spacing: tiled ? tileGap : 0) {
             if state.unavailable {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
@@ -37,11 +43,11 @@ struct SessionScreen: View {
                     Spacer()
                     Button(state.connectionState == .loading ? "Retrying…" : "Retry") { state.attach() }
                         .disabled(state.connectionState == .loading)
-                    Button("Open another session") {
-                        windows.showLauncher { openWindow(id: "session", value: $0) }
-                    }
+                    Button("Open another session") { navigation.openLauncher() }
                 }.font(.kit(size: 12)).padding(16).background(theme.raised)
-                Rule()
+                .clipShape(RoundedRectangle(cornerRadius: tiled ? 4 : 0))
+                .overlay { if tiled { RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border) } }
+                if !tiled { Rule() }
             }
             Group {
                 if state.selected == nil {
@@ -63,27 +69,24 @@ struct SessionScreen: View {
         return content
         .background(SelectionActions(theme: theme, enabled: !state.ui.palette && !state.ui.filePicker) { text in
             state.ui.draft = MessageText.quote(text, draft: state.ui.draft)
+            state.ui.workspace.select(.conversation)
             state.ui.composerFocus += 1
             state.ui.composerFocusAtEndRequest = state.ui.composerFocus
         })
         .onReceive(NotificationCenter.default.publisher(for: .kitSessionDeleted)) { notification in
             if let identity = notification.object as? SessionIdentity { state.sessionDeleted(identity) }
         }
-        .onAppear { state.attach(); onSelection(state.selectedID) }
         .onChange(of: state.selectedID) { onSelection(state.selectedID) }
         .onChange(of: ForkFirstTurnFailures.shared.revision) { state.applyForkFirstTurnFailure() }
-        .onDisappear { state.detach() }
-        .navigationTitle(state.selected?.title ?? "Kit")
-        .navigationSubtitle((state.isTemporary ? "Temporary · " : "") + (state.selected?.workspace ?? ""))
-        .toolbarBackground(theme.raised, for: .windowToolbar)
-        .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
         .font(.kit(size: 13))
         .foregroundStyle(theme.text)
-        .background(theme.surface)
+        .background(tiled ? .clear : theme.surface)
         .environment(\.mica, theme)
         .environment(\.transcriptSessionLink, TranscriptSessionLink(serverID: serverID) { id in
-            windows.openSession(id, serverID: serverID) { openWindow(id: "session", value: $0) }
+            navigation.openSession(id)
         })
+        .environment(\.transcriptToolContext, TranscriptToolContext(
+            cwd: state.selected?.cwd, servers: (state.selected?.mcpServers ?? []).map(\.name)))
         .font(.kit(size: 13))
         .tint(theme.accent)
         .preferredColorScheme(windowScheme)
@@ -93,48 +96,36 @@ struct SessionScreen: View {
                 SessionFeedbackView(feedback: state.feedback)
                     .environment(\.mica, theme)
                     .id(state.serverID + "|" + state.selectedID)
-                    .padding(.top, 16).padding(.trailing, 16)
+                    .padding(.top, 12).padding(.trailing, 12)
             }
         }
         .disabled(state.ui.palette || state.ui.filePicker)
         .accessibilityHidden(state.ui.palette || state.ui.filePicker)
         .overlay {
             if state.ui.palette || state.ui.filePicker {
-                GeometryReader { _ in
+                GeometryReader { proxy in
                     ZStack {
                         Color.clear.contentShape(Rectangle()).onTapGesture {
-                            state.ui.palette = false; state.ui.filePicker = false; state.ui.composerFocus += 1
+                            state.ui.palette = false; state.ui.filePicker = false
                         }
-                        SessionPickerOverlayLayout(palette: state.ui.palette) {
+                        SessionPickerOverlayLayout(palette: state.ui.palette, frame: proxy.frame(in: .global)) {
                             Group {
                                 if state.ui.palette { CommandPalette(state: state) { id in
-                                    windows.openSession(id, serverID: state.serverID) { openWindow(id: "session", value: $0) }
+                                    navigation.openSession(id)
                                 } }
                                 else { FileMentionPicker(state: state) }
                             }
                             .environment(\.mica, theme)
                             .font(.kit(size: 13))
                             .preferredColorScheme(windowScheme)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.border, lineWidth: 1))
-                            .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border, lineWidth: 1))
+                            .shadow(color: .black.opacity(theme.dark ? 0.5 : 0.18), radius: 24, y: 18)
                         }
                     }
                 }
             }
         }
-        .background {
-            Button("Open command palette") { state.ui.palette = true }
-                .keyboardShortcut("p", modifiers: .command).hidden()
-        }
-        .background {
-            SessionWindowBridge(registry: windows, serverID: state.serverID, sessionID: state.selectedID,
-                                sessions: state.sessions, colorScheme: windowScheme,
-                                tabStatus: state.tabStatus, sessionTitle: state.selected?.title ?? "Kit") {
-                openWindow(id: "session", value: $0)
-            }.frame(width: 0, height: 0)
-        }
-        .onDisappear { state.stop() }
     }
 }
 
@@ -142,6 +133,13 @@ struct SessionScreen: View {
 // to a taller nested screen at the minimum window height.
 struct SessionPickerOverlayLayout: Layout {
     let palette: Bool
+    /// The overlay's frame in window coordinates. The palette is placed
+    /// against the window, not the tiles it covers.
+    var frame: CGRect = .zero
+
+    /// The palette's distance from the top of the window: a quarter of its
+    /// height, like the TUI's picker placement.
+    static func paletteTop(windowHeight: CGFloat) -> CGFloat { windowHeight * 0.25 }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
@@ -150,15 +148,28 @@ struct SessionPickerOverlayLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let child = subviews.first else { return }
         let size = child.sizeThatFits(.unspecified)
-        let top = Self.topOffset(availableHeight: bounds.height, pickerHeight: size.height, palette: palette)
-        child.place(at: CGPoint(x: bounds.minX + max(0, (bounds.width - size.width) / 2), y: bounds.minY + top),
-                    proposal: ProposedViewSize(size))
+        let x = palette
+            ? Self.leadingOffset(availableWidth: bounds.width, pickerWidth: size.width, originX: frame.minX,
+                                 // The window's trailing tile gap lies outside the overlay.
+                                 windowWidth: frame.maxX + tileGap)
+            : max(0, (bounds.width - size.width) / 2)
+        // The window's bottom tile gap lies outside the overlay.
+        let top = Self.topOffset(availableHeight: bounds.height, pickerHeight: size.height, palette: palette,
+                                 originY: frame.minY, windowHeight: frame.maxY + tileGap)
+        child.place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + top), proposal: ProposedViewSize(size))
     }
 
-    static func topOffset(availableHeight: CGFloat, pickerHeight: CGFloat, palette: Bool) -> CGFloat {
+    static func topOffset(availableHeight: CGFloat, pickerHeight: CGFloat, palette: Bool,
+                          originY: CGFloat = 0, windowHeight: CGFloat? = nil) -> CGFloat {
         if !palette { return min(100, availableHeight * 0.14) }
-        let preferred = availableHeight * 0.30
+        let window = windowHeight ?? originY + availableHeight
         // Leave room for the panel's downward shadow as well as its content.
-        return min(preferred, max(0, availableHeight - pickerHeight - 32))
+        return max(0, min(paletteTop(windowHeight: window) - originY, availableHeight - pickerHeight - 32))
+    }
+
+    /// Centres the palette on the window while keeping it inside the overlay.
+    static func leadingOffset(availableWidth: CGFloat, pickerWidth: CGFloat, originX: CGFloat, windowWidth: CGFloat) -> CGFloat {
+        let centred = windowWidth / 2 - originX - pickerWidth / 2
+        return min(max(0, centred), max(0, availableWidth - pickerWidth))
     }
 }

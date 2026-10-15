@@ -157,14 +157,11 @@ private actor ConfigurationStub: SubagentConfigurationClient {
         let operation = store.subagentConfiguration(conversationID)
         var controls = SubagentConfigurationControls(state: store, agent: agent, operation: operation)
         #expect(controls.modelEnabled == false)
-        #expect(controls.thinkingEnabled)
-        #expect(SubagentConfigurationControls.modelHelp(agent: agent, models: [])
-            == "reviewer's model can change once its active and queued work finishes")
+        #expect(controls.enabled)
+        #expect(SubagentConfigurationControls.lockedNote(agent.name) == "Model can change once reviewer's work finishes")
         agent = try #require(try session().subagents?.items.first)
         controls = SubagentConfigurationControls(state: store, agent: agent, operation: operation)
         #expect(controls.modelEnabled)
-        #expect(SubagentConfigurationControls.thinkingLabel("off") == "Thinking off")
-        #expect(SubagentConfigurationControls.thinkingLabel("xhigh") == "Xhigh thinking")
     }
 
     @Test func modelPickerTitleIdentifiesTarget() throws {

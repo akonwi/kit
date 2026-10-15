@@ -43,7 +43,7 @@ struct PeerSessionDetail: View {
 
     @ViewBuilder private func openButton(_ id: String) -> some View {
         if PeerSessionPresentation.validSessionID(id), let sessionLink {
-            Button("Open session", systemImage: "arrow.up.right") { sessionLink.open(id) }
+            Button("Open session", icon: .arrowUpRight) { sessionLink.open(id) }
                 .buttonStyle(MicaButtonStyle(compact: true))
         }
     }

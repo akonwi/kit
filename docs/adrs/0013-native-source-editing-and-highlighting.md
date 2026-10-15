@@ -45,5 +45,5 @@ integration prerequisites above. The selected direction is not a
 claim of production readiness or full grammar/theme parity.
 
 The [client implementation reference](../design/macos-client.md) records editor
-integration constraints. The [macOS design reference](../design/macos-design-language.md)
-governs presentation.
+integration constraints. The [Paper "Kit App" file](https://app.paper.design/file/01M4MCMMAEY5AWN7E5J0PK6X1K) governs
+presentation.

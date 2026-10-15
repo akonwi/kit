@@ -9,10 +9,13 @@ struct InteractionTextInput: NSViewRepresentable {
     let submit: () -> Void
     let previous: () -> Void
     let cancel: () -> Void
+    /// Whether the field takes focus when it appears.
+    var autofocus = true
 
     func makeNSView(context: Context) -> InteractionInputBox {
         let box = InteractionInputBox()
         box.field.delegate = context.coordinator
+        guard autofocus else { return box }
         DispatchQueue.main.async { [weak box] in
             guard let box else { return }
             box.window?.makeFirstResponder(box.field)
@@ -27,6 +30,8 @@ struct InteractionTextInput: NSViewRepresentable {
         field.font = Typography.shared.font(size: 13)
         field.textColor = NSColor(theme.text)
         field.isEnabled = context.environment.isEnabled
+        field.placeholderAttributedString = NSAttributedString(string: prompt, attributes: [
+            .font: Typography.shared.font(size: 13), .foregroundColor: NSColor(theme.muted)])
         field.setAccessibilityLabel(prompt)
     }
 
@@ -65,8 +70,8 @@ final class InteractionInputBox: NSView {
         field.translatesAutoresizingMaskIntoConstraints = false
         addSubview(field)
         NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             field.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
     }

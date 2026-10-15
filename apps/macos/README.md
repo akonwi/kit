@@ -13,7 +13,9 @@ apps/macos/script/build_and_run.sh --verify
 The script builds and packages `apps/macos/dist/Kit.app`, then launches it.
 `--build` packages without launching. Xcode is required for the editor dependency's
 resource generation. The development bundle is ad-hoc signed and must not be
-published. The separately signed macOS app release procedure is documented below;
+published. It is named Kit Dev with the bundle identifier `com.akonwi.kit.dev`,
+so its preferences and window restoration stay separate from an installed
+Kit.app, and relaunching it never stops the installed app. The separately signed macOS app release procedure is documented below;
 bundled-daemon work is tracked by [#143](https://github.com/akonwi/kit/issues/143).
 
 Start a compatible Kit daemon separately. The app discovers it through
@@ -71,19 +73,39 @@ that these gates have passed.
 
 ## Navigation
 
-Saved native session windows and tab groups restore on launch. Without a saved
-layout, Kit shows the session launcher rather than selecting a session itself.
-Cmd+T opens the launcher in a native tab. Search matches session names and paths;
+Each window holds session tabs, grouped by project in a sidebar or shown in a
+strip along the top; the toggle beside the tabs, or Session > Session Tabs,
+switches between them. Open windows, their tabs, and each tab's tile layout restore on launch. Without a
+saved layout, Kit shows the session launcher rather than selecting a session
+itself. Cmd+T opens the launcher in a new tab, Cmd+W closes the tab, Cmd+1–9
+select tabs, and Cmd+Shift+[ and ] move between them. Opening a session that
+another window already shows brings that window forward. Search matches session names and paths;
 arrow keys navigate and Return opens. New session accepts a working directory,
 optional name, model, and thinking level.
 
-Within a session, Agent, files, and subagents occupy retained workspace tabs.
-Use a tab's context menu to split, move, join, or close panes.
-The shared composer always addresses the parent session. Enter submits;
-Cmd+Enter inserts a newline. Cmd+P opens commands; Cmd+, opens settings.
-Session workspace controls (Diff, Scratchpad, Subagents, Open file, and Commands)
-are centered in the footer, with status on the left and cwd/Git information on the
-right. They remain available when an interaction replaces the composer.
+Within a session, the workspace is a split tree of tiles, and each tile holds tabs
+for Agent, files, Diff, Scratchpad, and subagents. New panes open in the focused
+tile. Drag a tab along a tab strip to reorder it or onto another tile's strip or
+middle to move it there, or near
+a tile's edge (or into the gap beside it) to split that tile; a preview shows where
+it will land. A tile's split buttons or a tab's context menu also move a tab into a
+new tile on the right or below. Drag the gap between tiles to resize them; double-click it to
+even them out. Zoom fills the workspace with one tile. Closing a tile's last tab
+removes the tile. Each open session tab keeps its arrangement across relaunch; closing the tab forgets it.
+Focusing a tile moves the keyboard to its composer or editor, and clicking into a
+tile's composer, editor, or transcript focuses that tile.
+The Agent pane has its own composer, activity card, queued messages, and interaction
+dock, all addressing the parent session, and Diff comments go to it. A subagent pane
+shows that subagent's activity card and queued task count; it has no composer. Enter submits; Cmd+Enter inserts a newline. Cmd+P, or `/` in an
+empty composer, opens the command palette. It lists the TUI's commands, prompt and
+plugin commands, and the tile commands; Tab completes the selected command so its
+arguments can be typed after it, as in `cd ~/src` or `review auth module`.
+Cmd+, opens settings. The Tile menu splits, zooms, equalizes, focuses, and resizes
+tiles and moves tabs between them; `docs/design/macos-client.md` lists the shortcuts.
+Diff, Scratchpad, files, and subagents open from the Tile and Session menus and the
+command palette. There is no footer: compaction, provider retry, and notices appear
+in the Agent pane's activity card. The session bar above the workspace shows the
+cwd, Git branch, pull request, and plugin footer items.
 
 File views read from the session server and support highlighted, selectable
 content. The Diff toolbar opens working-tree, branch, and commit comparisons with
@@ -96,12 +118,13 @@ While Kit is inactive, a completed or failed turn or a new input request briefly
 bounces its Dock icon. Closely timed events share one bounce; initial snapshots
 and reconnects do not replay attention feedback. No notification permission is needed.
 
-Session feedback appears above the composer. Confirmations fade after five seconds;
-hovering or keyboard focus keeps them visible. Persistent warnings remain available in the footer’s notice list. Dismissing a
-card or its list entry removes the notice from both surfaces. Notices are local
-to each session and do not send system notifications. Compaction outcomes, shell
+Session toasts float at the top right of the workspace. Confirmations expire after
+ten seconds; hovering or keyboard focus keeps them visible, and warnings and
+errors that need acknowledgement stay until dismissed. Every toast can be
+dismissed with ×. Toasts are local to each session and do not send system
+notifications. Compaction outcomes, shell
 operation errors, run failures, and subagent-definition diagnostics use this surface;
-compaction progress stays in the footer, while reload progress appears in the command
+compaction progress appears in the Agent pane's activity card, while reload progress appears in the command
 palette until hidden or complete. Hiding the palette does not stop the reload.
 Input-specific errors remain at their source.
 
@@ -152,7 +175,7 @@ inputs used by `ThemeTests`, not app resources.
 - [Session API and SDK development](../../docs/api-development.md)
 - [Client architecture](../../docs/adrs/0013-native-macos-client.md)
 - [Source editing and highlighting decision](../../docs/adrs/0013-native-source-editing-and-highlighting.md)
-- [Native design language](../../docs/design/macos-design-language.md)
+- [Paper "Kit App" design](https://app.paper.design/file/01M4MCMMAEY5AWN7E5J0PK6X1K)
 - [Client implementation reference](../../docs/design/macos-client.md)
 - [Outstanding work](https://github.com/akonwi/kit/issues?q=is%3Aopen+label%3Amacos)
 

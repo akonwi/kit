@@ -10,7 +10,6 @@ import SwiftUI
 private struct ComposerPickerHost: View {
     @Bindable var theme: ComposerPickerTheme
     let content: AnyView
-    let footer: String
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,10 +18,8 @@ private struct ComposerPickerHost: View {
             }
             .scrollIndicators(.hidden)
             .frame(maxHeight: .infinity)
-            Text(footer).font(.kit(size: 10)).foregroundStyle(theme.value.muted)
-                .padding(.horizontal, 10).frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 26).padding(.bottom, 4)
         }
+        .padding(.bottom, 4)
         // The picker frame is taller than its history content while loading and
         // shorter once it has enough rows to scroll. Keep the rounded surface
         // on the fixed viewport, not on the scrolling content: otherwise the
@@ -62,8 +59,8 @@ private struct ComposerPickerHost: View {
     func show(editor: ComposerTextView, state: ComposerMentionState, theme: MicaTheme,
               select: @escaping (String) -> Void, retry: @escaping () -> Void) {
         present(editor: editor, open: state.isOpen,
-                height: CGFloat(max(1, state.visibleMatches.count) * 30 + 34 + (state.error == nil ? 0 : 34) + (state.indexNotice == nil ? 0 : 26)),
-                label: "File mentions", theme: theme, footer: "↑↓ move · enter insert · esc close",
+                height: CGFloat(max(1, state.visibleMatches.count) * 30 + 8 + (state.error == nil ? 0 : 34) + (state.indexNotice == nil ? 0 : 26)),
+                label: "File mentions", theme: theme,
                 close: { [weak state] in state?.close() },
                 content: AnyView(ComposerMentionList(state: state, select: select, retry: retry)))
     }
@@ -74,7 +71,6 @@ private struct ComposerPickerHost: View {
         present(editor: editor, open: state.isOpen,
                 height: Self.historyHeight(rows: state.visibleMatches.count, hasError: state.error != nil),
                 label: state.mode == .bash ? "Shell history" : "Message history", theme: theme,
-                footer: "↑↓ move · enter insert · esc close",
                 close: { [weak state] in state?.close() },
                 content: AnyView(ComposerHistoryList(state: state, select: select, retry: retry,
                     geometryChanged: { [weak self, weak editor] in
@@ -84,8 +80,8 @@ private struct ComposerPickerHost: View {
     }
 
     static func historyHeight(rows: Int, hasError: Bool) -> CGFloat {
-        // Header 30 + rows/empty state 42 each + top inset 4 + fixed footer 30.
-        CGFloat(min(6, max(1, rows)) * 42 + 64 + (hasError ? 30 : 0))
+        // Header 30 + rows/empty state 42 each + top and bottom insets 4 each.
+        CGFloat(min(6, max(1, rows)) * 42 + 38 + (hasError ? 30 : 0))
     }
 
     private func scheduleHistoryGeometryUpdate(editor: ComposerTextView?) {
@@ -104,7 +100,7 @@ private struct ComposerPickerHost: View {
     }
 
     private func present(editor: ComposerTextView, open: Bool, height: CGFloat,
-                         label: String, theme: MicaTheme, footer: String,
+                         label: String, theme: MicaTheme,
                          close: @escaping @MainActor @Sendable () -> Void, content: AnyView) {
         guard open, editor.isEditable, let window = editor.window, window.isKeyWindow,
               window.firstResponder === editor else { dismiss(); return }
@@ -133,7 +129,7 @@ private struct ComposerPickerHost: View {
         if created {
             let themeHolder = ComposerPickerTheme(theme)
             self.themeHolder = themeHolder
-            let hosting = NSHostingView(rootView: ComposerPickerHost(theme: themeHolder, content: content, footer: footer))
+            let hosting = NSHostingView(rootView: ComposerPickerHost(theme: themeHolder, content: content))
             // The panel owns the fixed picker geometry. Do not let the hosting
             // view negotiate intrinsic size back into AppKit while SwiftUI is
             // laying out scrollable history content.
@@ -180,7 +176,7 @@ private struct ComposerMentionList: View {
             ForEach(state.visibleMatches, id: \.self) { path in
                 Button { select(path) } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: path.hasSuffix("/") ? "folder" : "doc")
+                        IconView(path.hasSuffix("/") ? .folder : .file, size: 12)
                         Text(path).lineLimit(1).truncationMode(.middle)
                         Spacer(minLength: 0)
                         if path.hasSuffix("/") { Text("directory").foregroundStyle(theme.muted) }
@@ -207,7 +203,7 @@ private struct ComposerHistoryList: View {
         let selectedID = state.selected?.id
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
+                IconView(.magnifyingGlass, size: 12)
                 Text(state.query.isEmpty ? (state.mode == .bash ? "Shell history" : "Message history") : state.query)
                     .lineLimit(1)
                 Spacer(minLength: 0)

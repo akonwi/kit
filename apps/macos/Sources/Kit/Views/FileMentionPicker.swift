@@ -43,16 +43,16 @@ struct FileMentionPicker: View {
         let matches = files
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: "doc.text.magnifyingglass").foregroundStyle(theme.muted)
+                IconView(.fileMagnifyingGlass, size: 16).foregroundStyle(theme.muted)
                 TextField(state.ui.filePickerIntent == "open" ? "Find a workspace file…" : "Mention a file…", text: $query)
                     .textFieldStyle(.plain).font(.kit(size: 15)).focused($focused).onSubmit { choose() }
-                Button { dismiss() } label: { Image(systemName: "xmark") }.buttonStyle(.plain).accessibilityLabel("Close file picker")
+                Button { dismiss() } label: { IconView(.x, size: 12) }.buttonStyle(.plain).accessibilityLabel("Close file picker")
             }.padding(20)
             Rule()
             HStack {
                 Text("Workspace files").foregroundStyle(theme.muted)
                 Spacer()
-                Button { revision += 1 } label: { Image(systemName: "arrow.clockwise") }
+                Button { revision += 1 } label: { IconView(.arrowClockwise, size: 12) }
                     .buttonStyle(.plain).help("Refresh files (⌘R)").accessibilityLabel("Refresh files")
                     .keyboardShortcut("r", modifiers: .command).disabled(loading)
             }.padding(16)
@@ -63,10 +63,9 @@ struct FileMentionPicker: View {
                     ForEach(Array(matches.enumerated()), id: \.element) { index, file in
                         Button { selection = index; choose() } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: "doc")
+                                IconView(.file, size: 12)
                                 Text(file).font(.kit(size: 12, design: .monospaced)).lineLimit(2).multilineTextAlignment(.leading)
                                 Spacer()
-                                if selection == index { Image(systemName: "return") }
                             }.padding(12).background(selection == index ? theme.hover : Color.clear).contentShape(Rectangle())
                         }.buttonStyle(.plain).padding(.horizontal, 8).id(file)
                     }
@@ -82,9 +81,6 @@ struct FileMentionPicker: View {
                 if let first = matches.first { proxy.scrollTo(first, anchor: .top) }
             }
             }
-            Rule()
-            HStack { Text("↑ ↓ navigate   ↵ \(state.ui.filePickerIntent == "open" ? "open" : "insert mention")"); Spacer(); Text("Esc cancel") }
-                .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(14)
         }.foregroundStyle(theme.text).background(theme.surface).frame(width: 600, height: 360)
             .task(id: state.serverID + "|" + state.selectedID + "|" + (state.selected?.cwd ?? "") + "|" + String(revision)) {
                 try? await Task.sleep(for: .milliseconds(100))
@@ -98,7 +94,7 @@ struct FileMentionPicker: View {
             .onExitCommand { dismiss() }
     }
 
-    private func dismiss() { state.ui.filePicker = false; state.ui.composerFocus += 1 }
+    private func dismiss() { state.ui.filePicker = false }
     private func choose() {
         guard files.indices.contains(selection) else { return }
         state.chooseFile(files[selection])

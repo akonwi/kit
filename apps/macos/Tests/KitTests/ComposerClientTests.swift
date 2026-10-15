@@ -83,8 +83,8 @@ private actor ComposerMock: ComposerClient {
                 .init(id: "question_b", prompt: "More?", detail: nil, kind: try #require(WireInteractionQuestionKind(rawValue: "text")), required: false, options: nil)],
             createdAt: "2026-09-13T00:00:00Z")
         let flow = try InteractionFlow(request: request)
-        #expect(flow.submitStep(option: "option_b") == false)
-        #expect(flow.advance(skip: true))
+        #expect(flow.choose(1) == false)
+        #expect(flow.skip())
         let response = try #require(flow.response(cancelled: false))
         #expect(response.requestId == "interaction_test")
         #expect(response.answers?["question_a"]?.optionIds == ["option_b"])
@@ -163,6 +163,37 @@ private actor ComposerMock: ComposerClient {
         #expect(ComposerView.activeModelLabel(id: "second/echo", models: models) == "Echo")
         #expect(ComposerView.activeModelLabel(id: "third/echo", models: models) == "echo")
     }
+    @Test func thinkingLevelsComeFromTheSelectedModel() throws {
+        let models = try JSONDecoder().decode([WireModelCapability].self, from: Data(#"""
+        [{"id":"anthropic/opus","name":"Opus 4.6","provider":"anthropic","api":"test","contextWindow":1000000,"available":true,
+          "thinkingLevels":["off","low","medium","high"]},
+         {"id":"moonshot/kimi","name":"Kimi K2","provider":"moonshot","api":"test","contextWindow":256000,"available":true}]
+        """#.utf8))
+        #expect(ComposerView.thinkingLevels(model: "anthropic/opus", models: models) == ["off", "low", "medium", "high"])
+        #expect(ComposerView.thinkingLevels(model: "moonshot/kimi", models: models) == [])
+    }
+    @Test func modelPopoverSitsAboveTheChipOnScreen() {
+        let chip = NSRect(x: 100, y: 40, width: 110, height: 24)
+        #expect(AnchoredPopover.frame(anchor: chip, size: CGSize(width: 320, height: 200),
+                                           screen: NSRect(x: 0, y: 0, width: 1440, height: 900))
+            == NSRect(x: 100, y: 70, width: 320, height: 200))
+        // Near the screen's right edge the card shifts left; near the top it is cut to fit.
+        #expect(AnchoredPopover.frame(anchor: NSRect(x: 1300, y: 760, width: 110, height: 24),
+                                           size: CGSize(width: 320, height: 200),
+                                           screen: NSRect(x: 0, y: 0, width: 1440, height: 900))
+            == NSRect(x: 1120, y: 790, width: 320, height: 110))
+    }
+    @Test func diffPopoversHangBelowTheirControl() {
+        let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let target = NSRect(x: 200, y: 700, width: 100, height: 22)
+        #expect(AnchoredPopover.frame(anchor: target, size: CGSize(width: 320, height: 200), screen: screen, edge: .below)
+            == NSRect(x: 200, y: 494, width: 320, height: 200))
+        // The view menu lines up with the ⋯ button's right edge; near the
+        // bottom of the screen the card is cut to fit.
+        #expect(AnchoredPopover.frame(anchor: NSRect(x: 1000, y: 120, width: 22, height: 22), size: CGSize(width: 188, height: 200),
+                                      screen: screen, edge: .below, alignment: .trailing)
+            == NSRect(x: 834, y: 0, width: 188, height: 114))
+    }
     @Test func composerModelPickerFormatsContextLikeTUI() {
         #expect(ComposerModelPicker.contextLabel(0) == nil)
         #expect(ComposerModelPicker.contextLabel(999) == "999")
@@ -173,8 +204,8 @@ private actor ComposerMock: ComposerClient {
         #expect(ComposerModelPicker.contextLabel(1_048_576) == "1.0M")
     }
     @Test func composerModelPickerCapsVisibleHeight() throws {
-        #expect(ComposerModelPicker.listHeight(count: 0) == 38)
-        #expect(ComposerModelPicker.listHeight(count: 3) == 98)
+        #expect(ComposerModelPicker.listHeight(count: 0) == 36)
+        #expect(ComposerModelPicker.listHeight(count: 3) == 92)
         #expect(ComposerModelPicker.listHeight(count: 100) == 300)
         let data = "[" + (0..<100).map { index in
             "{\"id\":\"provider/model\(index)\",\"name\":\"Model \(index)\",\"provider\":\"provider\",\"api\":\"test\",\"contextWindow\":10000,\"available\":true}"

@@ -24,19 +24,30 @@ private actor LifecycleClient: SessionClient {
         })
     }
 
-    @Test func constructingSessionViewsDoesNotOpenStreams() async throws {
+    @Test func sessionTabsOwnOneStreamUntilClosed() async throws {
         let client = LifecycleClient()
-        let registry = SessionWindowRegistry(restoration: WindowRestorationStore(
-            url: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
-        // The non-first selection exercised the old initializer's select/attach path.
-        for _ in 0..<200 {
-            _ = SessionScreen(fixture: fixture, sessionID: "b", windows: registry, client: client)
-        }
+        let model = SessionWindowModel(id: UUID(), sessions: [SessionIdentity(server: "lifecycle", session: "b")])
+        let tab = model.selectedTab
         try await Task.sleep(for: .milliseconds(50))
         #expect(await client.started == 0)
-        let state = SessionStore(fixture: fixture, client: client, sessionID: "b")
-        #expect(state.selectedID == "b")
-        #expect(state.selected?.title == "b")
+        let store = try #require(model.store(for: tab, client: client))
+        #expect(model.store(for: tab, client: client) === store)
+        #expect(store.selectedID == "b")
+        for _ in 0..<100 {
+            if await client.started == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        // Switching tabs keeps the stream; only closing the tab releases it.
+        model.openLauncher()
+        #expect(await client.started == 1)
+        #expect(await client.stopped == 0)
+        model.close(tab)
+        #expect(tab.store == nil)
+        for _ in 0..<100 {
+            if await client.stopped == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await client.stopped == 1)
     }
 
     @Test func releasingSessionStopsItsStream() async throws {

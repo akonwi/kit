@@ -38,14 +38,11 @@ struct AgentPane: View {
                 }
                 Spacer()
                 if conversation.loading || agent?.status == "running" { KitSpinner() }
-                if let count = agent?.queuedTasks, count > 0 {
-                    Text("\(count) queued").foregroundStyle(theme.muted)
-                }
                 if let agent, ["failed", "aborted", "interrupted"].contains(agent.status) {
                     Text(agent.status.capitalized)
                         .foregroundStyle(agent.status == "failed" ? theme.danger : theme.muted)
                 }
-            }.font(.kit(size: 12)).padding(16)
+            }.font(.kit(size: 12)).padding(.horizontal, 16).frame(height: 36)
             Rule()
             if let conversationID = agent?.conversationID {
                 SubagentConfigurationFeedback(operation: state.subagentConfiguration(conversationID))
@@ -66,7 +63,7 @@ struct AgentPane: View {
                     latestOutOfView: $latestOutOfView, loadHistory: {}, theme: theme, attachmentClient: state.attachmentClient, attachmentSession: state.selectedID, reading: reading)
                     .overlay(alignment: .bottomTrailing) {
                         if latestOutOfView {
-                            Button("Latest", systemImage: "arrow.down") { resumeRequest += 1 }
+                            Button("Latest", icon: .arrowDown) { resumeRequest += 1 }
                                 .buttonStyle(MicaButtonStyle(compact: true)).padding(16)
                         }
                     }
@@ -74,22 +71,32 @@ struct AgentPane: View {
                 Text(emptyMessage).font(.kit(size: 13)).foregroundStyle(theme.muted)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            if conversation.activity != nil {
-                PendingActivityView(activity: conversation.activity).padding(.horizontal, 16).padding(.vertical, 8)
-            }
-            if SessionStore.subagentMessagingEnabled {
-                Rule()
-                if state.isTemporary {
-                    Text("Subagents require a persistent session.")
-                        .font(.kit(size: 12)).foregroundStyle(theme.muted).padding(16)
-                } else {
-                    SubagentComposer(operation: state.subagentSend(name), isNew: conversationID == nil,
-                        enabled: state.canSendSubagent && agent != nil, active: active,
-                        focused: $focused, focusRequest: focusRequest) {
-                            Task { await state.sendToSubagent(name, conversation: conversationID) }
-                        }.padding(16)
+            // This pane's activity card, queued tray, and composer address the
+            // subagent's own conversation. Interactions belong to the parent
+            // session and appear in the Agent pane.
+            VStack(alignment: .leading, spacing: 8) {
+                PendingActivityView(activity: conversation.activity)
+                if let count = agent?.queuedTasks, count > 0 {
+                    Text("\(count) queued \(count == 1 ? "task" : "tasks")")
+                        .font(.kit(size: 12)).foregroundStyle(theme.muted)
+                        .padding(.horizontal, 4)
+                        .accessibilityLabel("\(count) queued \(count == 1 ? "task" : "tasks") for \(name)")
+                }
+                if SessionStore.subagentMessagingEnabled {
+                    if state.isTemporary {
+                        Text("Subagents require a persistent session.")
+                            .font(.kit(size: 12)).foregroundStyle(theme.muted)
+                    } else {
+                        SubagentComposer(operation: state.subagentSend(name), pane: .agent(name), isNew: conversationID == nil,
+                            enabled: state.canSendSubagent && agent != nil, active: active,
+                            focused: $focused, focusRequest: focusRequest) {
+                                Task { await state.sendToSubagent(name, conversation: conversationID) }
+                            }
+                    }
                 }
             }
+            .padding([.horizontal, .bottom], 14)
+            .padding(.top, 8)
         }
         .onChange(of: active, initial: true) { _, active in
             if active && SessionStore.subagentMessagingEnabled { focusRequest += 1 }
@@ -111,76 +118,98 @@ struct AgentPane: View {
     }
 }
 
-/// Pane-owned model and thinking controls for one durable child conversation.
-/// They never read or change the attached session's configuration.
+/// Pane-owned model and thinking controls for one durable child conversation:
+/// the composer's split chip, opening its popovers below. They never read or
+/// change the attached session's configuration.
 struct SubagentConfigurationControls: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
     let agent: SubagentRoster.Item
     let operation: SubagentConfigurationOperation
-    @State private var modelPickerPresented = false
+    @State private var popover = AnchoredPopover()
+    @State private var openMenu: ComposerChipMenu?
+    @State private var lastClosedMenu: ComposerChipMenu?
+    @State private var modelAnchor = ComposerPickerAnchor()
+    @State private var thinkingAnchor = ComposerPickerAnchor()
 
     private var models: [WireModelCapability] { state.configuration.models }
-    private var modelLabel: String { ComposerView.activeModelLabel(id: agent.model, models: models) }
     private var thinkingLevels: [String] {
-        models.first(where: { $0.id == agent.model })?.thinkingLevels?.map(\.rawValue)
-            ?? (agent.thinkingLevel.map { [$0] } ?? [])
+        let levels = ComposerView.thinkingLevels(model: agent.model, models: models)
+        return levels.isEmpty ? (agent.thinkingLevel.map { [$0] } ?? []) : levels
     }
-    var modelEnabled: Bool { state.canConfigureSubagent && !operation.pending && !agent.hasOutstandingWork }
-    var thinkingEnabled: Bool { state.canConfigureSubagent && !operation.pending }
-    static func thinkingLabel(_ level: String?) -> String {
-        guard let level, !level.isEmpty else { return "Thinking" }
-        return level == "off" ? "Thinking off" : level.capitalized + " thinking"
-    }
-    static func modelHelp(agent: SubagentRoster.Item, models: [WireModelCapability]) -> String {
-        if agent.hasOutstandingWork { return "\(agent.name)'s model can change once its active and queued work finishes" }
-        return models.first(where: { $0.id == agent.model }).map(ComposerView.modelLabel) ?? agent.model
-    }
+    var enabled: Bool { state.canConfigureSubagent && !operation.pending }
+    /// The model can't change while the subagent has active or queued work.
+    var modelEnabled: Bool { enabled && !agent.hasOutstandingWork }
+    static func lockedNote(_ name: String) -> String { "Model can change once \(name)'s work finishes" }
 
     var body: some View {
         HStack(spacing: 8) {
-            Button { modelPickerPresented = true } label: {
-                HStack(spacing: 4) {
-                    Text(modelLabel).lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9))
-                }
-            }
-            .buttonStyle(.borderless).tint(theme.text).fixedSize()
-            .help(Self.modelHelp(agent: agent, models: models))
-            .accessibilityLabel("Model for \(agent.name): \(modelLabel)")
-            .popover(isPresented: $modelPickerPresented, arrowEdge: .bottom) {
-                ComposerModelPicker(models: models, selectedID: agent.model,
-                    select: { id in
-                        modelPickerPresented = false
-                        Task { await state.configureSubagent(agent.name, model: id) }
-                    }, reload: {
-                        Task { await state.loadComposer() }
-                    }, dismiss: { modelPickerPresented = false },
-                    title: "Model for \(agent.name)")
-                    .environment(\.mica, theme)
-                    .preferredColorScheme(theme.dark ? .dark : .light)
-            }
-            .disabled(!modelEnabled)
-            Rectangle().fill(theme.border).frame(width: 1, height: 14)
-            Menu {
-                Section("Thinking for \(agent.name)") {
-                    ForEach(thinkingLevels, id: \.self) { value in
-                        Button { Task { await state.configureSubagent(agent.name, thinking: value) } } label: {
-                            if value == agent.thinkingLevel { Label(value.capitalized, systemImage: "checkmark") }
-                            else { Text(value.capitalized) }
-                        }
-                    }
-                }
-            } label: { Text(Self.thinkingLabel(agent.thinkingLevel)) }
-                .menuStyle(.borderlessButton).tint(theme.text).fixedSize()
-                .disabled(!thinkingEnabled || thinkingLevels.isEmpty)
-                .accessibilityLabel("Thinking for \(agent.name): \(Self.thinkingLabel(agent.thinkingLevel))")
+            ComposerConfigurationChip(
+                model: ComposerView.activeModelLabel(id: agent.model, models: models),
+                modelHelp: models.first(where: { $0.id == agent.model }).map(ComposerView.modelLabel) ?? agent.model,
+                thinking: agent.thinkingLevel.flatMap { $0.isEmpty ? nil : $0 },
+                open: openMenu, modelAnchor: modelAnchor, thinkingAnchor: thinkingAnchor,
+                toggle: toggle, subject: agent.name)
+                .disabled(!enabled)
             if operation.pending { KitSpinner().accessibilityLabel("Applying \(agent.name) configuration") }
         }
-        .onChange(of: modelEnabled) { _, enabled in if !enabled { modelPickerPresented = false } }
+        .onChange(of: enabled) { _, enabled in if !enabled { popover.dismiss() } }
+        .onDisappear { popover.dismiss() }
         .task(id: state.selectedID) {
             if models.isEmpty { await state.loadComposer() }
         }
+    }
+
+    private func toggle(_ menu: ComposerChipMenu) {
+        if popover.isOpen {
+            let same = openMenu == menu
+            popover.dismiss()
+            if same { return }
+        } else if lastClosedMenu == menu, let closedAt = popover.closedAt,
+                  Date().timeIntervalSince(closedAt) < 0.3 {
+            // The click that reached this half already closed its popover.
+            return
+        }
+        let anchor = menu == .model ? modelAnchor : thinkingAnchor
+        guard let frame = anchor.screenFrame, let window = anchor.view?.window else { return }
+        let popover = popover, theme = theme, name = agent.name
+        let content: AnyView = switch menu {
+        case .model:
+            AnyView(SubagentModelMenu(state: state, name: name) { popover.dismiss() }.popoverCard(theme))
+        case .thinking:
+            AnyView(ComposerThinkingMenu(theme: theme, levels: thinkingLevels,
+                selected: agent.thinkingLevel ?? "",
+                select: { [state] level in Task { await state.configureSubagent(name, thinking: level) } },
+                dismiss: { popover.dismiss() }))
+        }
+        openMenu = menu
+        popover.show(anchor: frame, parent: window, edge: .below, content: content) {
+            lastClosedMenu = menu
+            if openMenu == menu { openMenu = nil }
+        }
+    }
+}
+
+/// The model half's popover for a subagent. It reads the roster live, so the
+/// list locks when the subagent picks up work while the popover is open.
+private struct SubagentModelMenu: View {
+    @Bindable var state: SessionStore
+    let name: String
+    let dismiss: () -> Void
+
+    private var agent: SubagentRoster.Item? { state.selected?.subagents?.items.first { $0.name == name } }
+
+    var body: some View {
+        ComposerModelPicker(models: state.configuration.models, selectedID: agent?.model ?? "",
+            select: { id in
+                dismiss()
+                Task { await state.configureSubagent(name, model: id) }
+            }, reload: {
+                Task { await state.loadComposer() }
+            }, dismiss: dismiss,
+            title: "Model for \(name)",
+            lockedNote: agent?.hasOutstandingWork == false ? nil : SubagentConfigurationControls.lockedNote(name))
+            .accessibilityLabel("Model for \(name)")
     }
 }
 
@@ -196,7 +225,7 @@ private struct SubagentConfigurationFeedback: View {
                     .foregroundStyle(operation.error != nil ? theme.danger : theme.muted)
                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
-                Button { operation.clearFeedback() } label: { Image(systemName: "xmark") }
+                Button { operation.clearFeedback() } label: { IconView(.x, size: 10) }
                     .buttonStyle(.plain).foregroundStyle(theme.muted)
                     .help("Dismiss").accessibilityLabel("Dismiss configuration message")
             }.padding(.horizontal, 16).padding(.vertical, 10)
@@ -208,6 +237,7 @@ private struct SubagentConfigurationFeedback: View {
 private struct SubagentComposer: View {
     @Environment(\.mica) private var theme
     @Bindable var operation: SubagentSendOperation
+    let pane: WorkspacePane
     let isNew: Bool
     let enabled: Bool
     let active: Bool
@@ -235,15 +265,17 @@ private struct SubagentComposer: View {
                     shellEnabled: false, placeholder: isNew ? "Describe the task…" : "Message subagent…",
                     focusEnabled: active, accessibilityLabel: "Subagent message", theme: theme)
                     .disabled(operation.pending)
+                    .workspaceFocusTarget(pane)
                 Button(action: send) {
                     if operation.pending { KitSpinner() }
-                    else { Image(systemName: "arrow.up") }
+                    else { IconView(.arrowUp, size: 12) }
                 }.buttonStyle(MicaButtonStyle(compact: true))
                     .disabled(!enabled || operation.pending || operation.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .help(isNew ? "Start task" : "Send message")
                     .accessibilityLabel(isNew ? "Start task" : "Send message")
-            }.padding(12)
-                .background(RoundedRectangle(cornerRadius: 10).stroke(focused ? theme.accent : theme.border, lineWidth: 1))
+            }.padding(.horizontal, 12).padding(.vertical, 10)
+                .background(theme.raised, in: RoundedRectangle(cornerRadius: 4))
+                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(focused ? theme.focusBorder : theme.border))
         }
     }
 }

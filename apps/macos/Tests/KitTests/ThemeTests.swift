@@ -48,6 +48,10 @@ struct ThemeTests {
             #expect(theme.accent == NativeThemeDefinition.hexColor(try #require(definition.tokens?["borderAccent"])))
             #expect(theme.focusBorder == NativeThemeDefinition.hexColor(try #require(definition.tokens?["borderFocused"])))
             #expect(theme.accent != theme.focusBorder)
+            // Success and strong borders read the same tokens as the TUI and Paper.
+            #expect(theme.success == NativeThemeDefinition.hexColor(try #require(definition.tokens?["toolText"])))
+            #expect(theme.strongBorder == NativeThemeDefinition.hexColor(try #require(definition.tokens?["borderFocused"])))
+            #expect(theme.strongBorder != theme.border)
             let expected: ColorScheme = name == "flexoki" ? .dark : .light
             #expect(definition.preferredColorScheme == expected)
             #expect(NativeThemeDefinition.windowScheme(appearance: "light", palette: "custom", customJSON: String(decoding: data, as: UTF8.self)) == expected)

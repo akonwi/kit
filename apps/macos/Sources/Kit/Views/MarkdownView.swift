@@ -5,6 +5,8 @@ import SwiftUI
 struct MarkdownView: View {
     let source: String
     var onSections: (([TranscriptReadingSection]) -> Void)? = nil
+    /// Body text size; the transcript reads at 14 pt, docked details at 12.
+    var size: CGFloat = 14
 
     var body: some View {
         MarkdownBlocks(blocks: MarkdownContentCache.shared.content(for: source).blocks, measureSections: onSections != nil)
@@ -21,7 +23,7 @@ struct MarkdownView: View {
                 }
                 onSections?(sections)
             }
-            .font(.kit(size: 14)).textSelection(.enabled)
+            .font(.kit(size: size)).textSelection(.enabled)
     }
 }
 
@@ -159,18 +161,44 @@ enum MarkdownTableSizing {
     }
 }
 
+/// Whether Markdown code blocks drop their header and copy button, for short
+/// details inside a card such as the interaction dock.
+private struct CompactCodeBlocksKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    var compactCodeBlocks: Bool {
+        get { self[CompactCodeBlocksKey.self] }
+        set { self[CompactCodeBlocksKey.self] = newValue }
+    }
+}
+
 struct CodeBlock: View {
     @Environment(\.mica) private var theme
+    @Environment(\.compactCodeBlocks) private var compact
     let language: String
     let source: String
     @State private var copied = false
 
     var body: some View {
+        if compact {
+            Text(source.hasSuffix("\n") ? String(source.dropLast()) : source)
+                .font(.kit(size: 12, design: .monospaced)).foregroundStyle(theme.text).lineSpacing(3)
+                .textSelection(.enabled)
+                .padding(.horizontal, 10).padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(theme.raised, in: RoundedRectangle(cornerRadius: 3))
+                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border))
+        } else {
+            full
+        }
+    }
+
+    private var full: some View {
         VStack(spacing: 0) {
             HStack {
                 MetaLabel(text: language.isEmpty ? "CODE" : language.uppercased())
                 Spacer()
-                Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "document.on.document") {
+                Button(copied ? "Copied" : "Copy", icon: copied ? .check : .copy, size: 10) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(source, forType: .string)
                     copied = true

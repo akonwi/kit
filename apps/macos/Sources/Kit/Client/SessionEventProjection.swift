@@ -44,7 +44,7 @@ struct SessionEventProjection {
         self.activeRunID = activeRunID
         self.pendingInteractions = pendingInteractions
         self.session.tabStatus = Self.status(runID: activeRunID, pending: pendingInteractions)
-        self.session.activity = session.activeCompactionID != nil ? "Compacting context…" : (activeRunID == nil ? nil : "Working…")
+        self.session.activity = session.activeCompactionID != nil ? LiveActivity.compacting : (activeRunID == nil ? nil : LiveActivity.working)
         userTurns = Set(source.filter { $0.role == "user" }.map(\.turnId))
         pluginTurns = Set(source.filter { $0.role == "context" && $0.boundaryKind == "plugin_message" }.map(\.turnId))
         let pending = source.filter {
@@ -75,9 +75,13 @@ struct SessionEventProjection {
         session.subagentDiagnostics = snapshot.subagentDiagnostics ?? []
     }
 
-    mutating func apply(_ event: WireSessionEvent) throws {
+    /// Applies one event. `receivedAt` is when a new event arrived, which
+    /// times tool calls; replayed events pass nil.
+    mutating func apply(_ event: WireSessionEvent, receivedAt: Date? = nil) throws {
         guard event.sessionId == session.id else { throw ClientError.invalidPayload }
-        try apply(TranscriptEvent(event))
+        var value = TranscriptEvent(event)
+        value.receivedAt = receivedAt
+        try apply(value)
     }
 
     mutating func apply(_ event: TranscriptEvent) throws {
@@ -109,7 +113,7 @@ struct SessionEventProjection {
             if activeRunID != event.turnId { retainPluginInteractions() }
             activeRunID = event.turnId
             session.terminalError = nil
-            session.activity = "Working…"
+            session.activity = LiveActivity.working
         case "interaction.requested":
             guard let interaction = event.interaction else { throw ClientError.invalidPayload }
             if interaction.plugin != nil || interaction.turnId == activeRunID {
@@ -159,10 +163,10 @@ struct SessionEventProjection {
                     thinking[id, default: [:]][event.contentIndex ?? 0, default: ""] += delta
                 }
             }
-            if event.kind == "assistant.text.delta" { session.activity = "Working…" }
+            if event.kind == "assistant.text.delta" { session.activity = LiveActivity.working }
             else {
                 let value = joined(thinking[id])
-                session.activity = value.split(separator: "\n").last.map(String.init) ?? "Thinking…"
+                session.activity = LiveActivity.latestLine(value) ?? LiveActivity.thinking
                 if let toolID = thinkingTools[id],
                    let row = toolRow(toolID),
                    let tool = session.messages[row].tools.firstIndex(where: { $0.id == toolID }) {
@@ -191,12 +195,12 @@ struct SessionEventProjection {
                 }
             }
             text[id] = nil
-            session.activity = "Working…"
+            session.activity = LiveActivity.working
             lastTurn = event.turnId
         case "tool.planned", "tool.started", "tool.output.delta", "tool.completed":
             guard let id = event.toolCallId, !id.isEmpty, let name = event.toolName, !name.isEmpty else { throw ClientError.invalidPayload }
             guard !persistedTools.contains(id) else { return }
-            session.activity = "Working…"
+            session.activity = LiveActivity.working
             var row = toolRow(id)
             if row == nil {
                 if lastTurn == event.turnId, session.messages.last?.role == "tools" { row = session.messages.count - 1 }
@@ -221,13 +225,19 @@ struct SessionEventProjection {
             // carries the tool's final, server-bounded result.
             let nextOutput = completed ? output : liveContentSuspended ? previousOutput : previousOutput + output
             toolOutputBytes += nextOutput.utf8.count - previousOutput.utf8.count
+            // Time only calls seen starting live; a call first seen finished
+            // has no meaningful start.
+            let startedAt = old?.startedAt ?? (event.kind == "tool.planned" || completed ? nil : event.receivedAt)
             let value = ToolActivity(id: id, name: name, summary: name,
                 output: nextOutput,
                 arguments: event.arguments ?? old?.arguments, failed: event.isError ?? old?.failed ?? false,
                 status: completed ? "Completed" : event.kind == "tool.planned" ? "Planned" : "Running…",
                 thinking: evidence,
                 attachments: event.content == nil ? old?.attachments : SessionProjection.attachments(event.content ?? []),
-                contentTruncated: event.contentTruncated ?? old?.contentTruncated)
+                contentTruncated: event.contentTruncated ?? old?.contentTruncated,
+                details: event.details ?? old?.details,
+                startedAt: startedAt,
+                finishedAt: completed && startedAt != nil ? event.receivedAt : nil)
             if let toolIndex = session.messages[index].tools.firstIndex(where: { $0.id == id }) {
                 session.messages[index].tools[toolIndex] = value
             } else { session.messages[index].tools.append(value) }
@@ -238,6 +248,7 @@ struct SessionEventProjection {
         case "provider.retry.started":
             session.providerRetryAt = nil
         case "turn.completed":
+            settleTools(at: event.receivedAt)
             session.activeCompactionID = nil
             session.terminalError = event.errorMessage
             session.providerRetryAt = nil
@@ -248,7 +259,7 @@ struct SessionEventProjection {
             text.removeAll(); thinking.removeAll(); thinkingTools.removeAll(); activeAssistant = nil
         case "compaction.started":
             session.activeCompactionID = event.compactionID
-            session.activity = "Compacting context…"
+            session.activity = LiveActivity.compacting
         case "compaction.completed":
             if let id = event.compactionID, session.activeCompactionID == id {
                 let failed = event.isError == true
@@ -257,7 +268,7 @@ struct SessionEventProjection {
                                                               detail: failed && (detail?.isEmpty ?? true)
                                                                   ? "Context compaction failed" : (detail ?? ""))
                 session.activeCompactionID = nil
-                session.activity = activeRunID == nil ? nil : "Working…"
+                session.activity = activeRunID == nil ? nil : LiveActivity.working
             }
         case "usage.changed":
             guard let usage = event.usage else { throw ClientError.invalidPayload }
@@ -298,6 +309,26 @@ struct SessionEventProjection {
         candidateAnnotationTurn = nil
     }
 
+    /// Planned calls never ran once their turn ends. Executing calls whose
+    /// completion was missed are shown as done, as the TUI does.
+    private mutating func settleTools(at date: Date?) {
+        for row in session.messages.indices where session.messages[row].role == "tools" {
+            for index in session.messages[row].tools.indices {
+                switch session.messages[row].tools[index].status {
+                case "Planned":
+                    session.messages[row].tools[index].status = nil
+                    session.messages[row].tools[index].notRun = true
+                case "Running…":
+                    session.messages[row].tools[index].status = "Completed"
+                    if session.messages[row].tools[index].startedAt != nil {
+                        session.messages[row].tools[index].finishedAt = date
+                    }
+                default: break
+                }
+            }
+        }
+    }
+
     private mutating func retainPluginInteractions() {
         session.pendingInteractions = (session.pendingInteractions ?? []).filter { $0.plugin != nil }
         pendingInteractions = Set((session.pendingInteractions ?? []).map(\.id))
@@ -332,7 +363,7 @@ struct SessionEventProjection {
         liveContentSuspended = true
         text.removeAll()
         thinking.removeAll()
-        if activeRunID != nil { session.activity = "Working…" }
+        if activeRunID != nil { session.activity = LiveActivity.working }
     }
 
     private static func status(runID: String?, pending: Set<String>) -> SessionTabStatus {
@@ -343,5 +374,22 @@ struct SessionEventProjection {
 
     private func joined(_ blocks: [Int: String]?) -> String {
         (blocks ?? [:]).sorted { $0.key < $1.key }.map(\.value).joined()
+    }
+}
+
+/// The activity card's fixed labels, and how a streamed thought becomes its line.
+enum LiveActivity {
+    static let working = "Working…"
+    static let thinking = "Thinking…"
+    static let compacting = "Compacting session…"
+
+    /// Whether an activity line is a fixed label rather than a streamed thought.
+    static func isLabel(_ line: String) -> Bool { [working, thinking, compacting].contains(line) }
+
+    /// The last non-blank line of streamed thinking, as in the TUI.
+    static func latestLine(_ thinking: String) -> String? {
+        thinking.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last { !$0.isEmpty }
     }
 }

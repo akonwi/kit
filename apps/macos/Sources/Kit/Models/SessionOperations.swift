@@ -4,7 +4,13 @@ import Observation
 @MainActor @Observable
 final class SessionOperations {
     enum Submission: Equatable {
-        case idle, pending, acknowledged(String), failed(String), uncertain
+        case idle, pending, acknowledged(String), uncertain
+        /// The server, or a fork's first turn, didn't start the turn. Shown
+        /// in the activity card with Retry.
+        case failed(String)
+        /// The composer's input can't be sent as it is. Shown at the
+        /// composer, where it can be fixed.
+        case rejected(String)
     }
     enum Recovery: Equatable { case idle, refreshing, ready, failed(String) }
     private(set) var recovery: Recovery = .idle
@@ -40,9 +46,14 @@ final class SessionOperations {
 
     deinit { submitTask?.cancel(); queueTask?.cancel(); abortTask?.cancel(); recoveryTask?.cancel() }
     var sending: Bool { submission == .pending }
+    /// Why the last send didn't start a turn, if it failed.
+    var startFailure: String? { if case .failed(let message) = submission { message } else { nil } }
     var uncertain: Bool { if case .uncertain = submission { true } else { false } }
 
-    func reject(_ message: String) { submission = .failed(message) }
+    /// Refuses the composer's input before it is sent.
+    func reject(_ message: String) { submission = .rejected(message) }
+    /// Reports a turn that didn't start, such as a fork's first message.
+    func fail(_ message: String) { submission = .failed(message) }
     func clearAcknowledgement() {
         if case .acknowledged = submission { submission = .idle; receiptTurn = nil }
     }

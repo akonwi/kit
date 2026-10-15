@@ -16,7 +16,7 @@ struct ComposerAttachmentStrip: View {
                             HStack {
                                 if item.busy { KitSpinner() }
                                 Text(item.filename).lineLimit(1).truncationMode(.middle)
-                                Button { uploads.remove(item.id) } label: { Image(systemName: "xmark") }
+                                Button { uploads.remove(item.id) } label: { IconView(.x, size: 10) }
                                     .accessibilityLabel("Remove \(item.filename)")
                             }
                             if item.isImage, let model = state.imageRejectingModel {
@@ -53,8 +53,8 @@ struct RestoredAttachmentStrip: View {
             VStack(alignment: .leading) {
                 ForEach(state.ui.serverAttachmentIDs, id: \.self) { id in
                     HStack {
-                        Label(metadata[id]?.filename ?? (missing.contains(id) ? "Attachment unavailable" : "Loading attachment…"), systemImage: "paperclip")
-                        Button { state.ui.serverAttachmentIDs.removeAll { $0 == id } } label: { Image(systemName: "xmark") }
+                        Label { Text(metadata[id]?.filename ?? (missing.contains(id) ? "Attachment unavailable" : "Loading attachment…")) } icon: { IconView(.paperclip, size: 12) }
+                        Button { state.ui.serverAttachmentIDs.removeAll { $0 == id } } label: { IconView(.x, size: 10) }
                             .buttonStyle(.plain).accessibilityLabel("Remove \(metadata[id]?.filename ?? "attachment")")
                     }
                 }

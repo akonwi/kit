@@ -75,7 +75,7 @@ final class SessionStore {
         if !(catalogClient is any SessionCompactionClient) { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }
         if connectionState != .connected { return "Connect to compact" }
-        if running { return "Wait for the current turn" }
+        if running { return "idle only" }
         if compactionOperation.pending || selected?.activeCompactionID != nil { return "Compaction in progress" }
         if directoryChange.pending || reloadOperation.pending || configuration.changing { return "Wait for the current change" }
         return nil
@@ -165,7 +165,7 @@ final class SessionStore {
         if connectionState != .connected && directoryChange.request == nil { return "Connect to change directory" }
         if compactionOperation.pending { return "Wait for compaction" }
         if reloadOperation.pending { return "Wait for session reload" }
-        if running { return "Wait for the current turn" }
+        if running { return "idle only" }
         return nil
     }
     func changeDirectory(_ path: String) async -> Bool {
@@ -195,6 +195,14 @@ final class SessionStore {
 
     var isTemporary: Bool { TemporarySessions.shared.contains(server: serverID, session: selectedID) }
     var scratchpadClient: (any ScratchpadClient)? { catalogClient as? any ScratchpadClient }
+    /// Closes a workspace tab, saving the scratchpad first so a draft isn't lost.
+    func closePane(_ pane: WorkspacePane) {
+        let workspace = ui.workspace
+        if pane == .scratchpad, let client = scratchpadClient {
+            Task { await workspace.closeScratchpad(client: client, session: selectedID) }
+        } else { workspace.close(pane) }
+    }
+
     var canOpenScratchpad: Bool { (isDemo || scratchpadClient != nil) && !isTemporary && !unavailable }
     @ObservationIgnored private var annotationStates: [String: AnnotationState] = [:]
     var annotationState: AnnotationState {
@@ -396,7 +404,8 @@ final class SessionStore {
         subagentSends[selectedID, default: [:]][name] = value
         return value
     }
-    // Direct human-to-subagent messaging is intentionally deferred.
+    /// Direct messaging is off: a subagent's result is delivered to the parent
+    /// agent, not back to the user who messaged it.
     static let subagentMessagingEnabled = false
     var canSendSubagent: Bool {
         Self.subagentMessagingEnabled && subagentClient is any SubagentMessagingClient && !isTemporary && !unavailable && connectionState == .connected
@@ -444,6 +453,7 @@ final class SessionStore {
         bashOperation.merge(into: demo?.messages ?? replica.messages)
     }
     var activity: String? { replica.activity }
+    /// The running turn's streamed thinking, for the activity card.
     var model: String { demo?.model ?? selected?.model ?? "" }
     /// The active model's label when its session inputs are known to exclude images.
     var imageRejectingModel: String? {
@@ -469,12 +479,22 @@ final class SessionStore {
     var approval: Bool { !interactions.isEmpty }
     private var liveInteractions: [String: [InteractionFlow]] = [:]
     var interactions: [InteractionFlow] { unavailable ? [] : demo?.interactions ?? liveInteractions[selectedID] ?? [] }
+    /// Keeps an answered request docked briefly so a plugin's next one replaces it.
+    let interactionHold = InteractionHold()
+    /// The request in the composer's place: the oldest pending one, or the
+    /// answered one still held.
+    var dockedInteraction: InteractionFlow? {
+        interactions.first ?? (unavailable ? nil : interactionHold.flow)
+    }
     private func reconcileInteractions(_ session: SessionExcerpt) {
         let previous = liveInteractions[session.id] ?? []
         liveInteractions[session.id] = (session.pendingInteractions ?? []).sorted { $0.createdAt < $1.createdAt }.compactMap { request in
             previous.first { $0.request?.id == request.id } ?? (try? InteractionFlow(request: request))
         }
-        if session.id == selectedID, !previous.isEmpty, liveInteractions[session.id]?.isEmpty == true { ui.composerFocus += 1 }
+        guard session.id == selectedID else { return }
+        if liveInteractions[session.id]?.isEmpty == false { interactionHold.clear(); return }
+        // A held request returns focus to the composer when its hold ends.
+        if !previous.isEmpty, interactionHold.flow == nil { ui.composerFocus += 1 }
     }
 
     init(fixture: Fixture, client: (any SessionClient)? = nil, sessionID: String? = nil) {
@@ -511,6 +531,7 @@ final class SessionStore {
 
     func select(_ id: String) {
         guard id != selectedID else { return }
+        interactionHold.clear()
         cancelPluginCommandWait()
         pluginNotifications.stop()
         feedback.clearTransientPluginNotifications()
@@ -576,12 +597,20 @@ final class SessionStore {
             Task { [weak self] in
                 do {
                     try await client.respond(id, input: input)
-                    if let self, self.selectedID == id { _ = try await self.replica.resynchronize() }
+                    guard let self, self.selectedID == id else { flow.submitting = false; return }
+                    // Held before resynchronizing, so the dock never empties
+                    // while a plugin's next request is on its way. It stays in
+                    // its sending state until something replaces it.
+                    self.interactionHold.hold(flow) { [weak self] in
+                        guard let self, self.selectedID == id else { return }
+                        if self.interactions.isEmpty { self.ui.composerFocus += 1 }
+                    }
+                    _ = try? await self.replica.resynchronize()
                 } catch {
                     flow.error = error.localizedDescription
+                    flow.submitting = false
                     if let self, self.selectedID == id { _ = try? await self.replica.resynchronize() }
                 }
-                flow.submitting = false
             }
             return
         }
@@ -669,7 +698,11 @@ final class SessionStore {
         guard !annotations.contains(where: \.stale) else { operations.reject("Source changed. Replace or delete stale annotations before sending."); return }
         let annotationIDs = annotations.map(\.id)
         let text = ui.draft + review
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachmentIDs.isEmpty || !annotationIDs.isEmpty else { return }
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, attachmentIDs.isEmpty, annotationIDs.isEmpty {
+            // As in the TUI, Return in an empty composer sends the queue to the running turn.
+            if running, (operations.queue?.count ?? 0) > 0 { changeQueue(.promote) }
+            return
+        }
         let id = selectedID
         if let command = PromptCommand.invocation(ui.draft) {
             guard (selected?.promptCommands ?? []).contains(where: { $0.name == command.name }) else {
@@ -710,7 +743,7 @@ final class SessionStore {
     func applyForkFirstTurnFailure() {
         guard !isDemo, let failure = ForkFirstTurnFailures.shared.take(SessionIdentity(server: serverID, session: selectedID)) else { return }
         if ui.draft.isEmpty { ui.draft = failure.message }
-        operations.reject(failure.error)
+        operations.fail(failure.error)
     }
 
     func recoverSubmission() {
@@ -769,6 +802,7 @@ final class SessionStore {
             } else { ui.draft += (ui.draft.isEmpty || ui.draft.last?.isWhitespace == true ? "" : " ") + "@" + path + " " }
         }
         ui.filePicker = false
-        ui.composerFocus += 1
+        // An opened file takes focus in its tile; a mention returns to the composer.
+        if ui.filePickerIntent != "open" { ui.composerFocus += 1 }
     }
 }

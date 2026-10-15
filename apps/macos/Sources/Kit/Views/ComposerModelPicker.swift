@@ -10,12 +10,14 @@ struct ComposerModelPicker: View {
     let dismiss: () -> Void
     /// Names the configured target when it is not the attached session.
     var title: String? = nil
+    /// Why the model can't change now; the list is dimmed while it is set.
+    var lockedNote: String? = nil
     @State private var selection = 0
     @State private var hoveredID: String?
     @FocusState private var focused: Bool
 
     static let width: CGFloat = 320
-    static let rowHeight: CGFloat = 30
+    static let rowHeight: CGFloat = 28
     static let maxHeight: CGFloat = 300
     static let titleHeight: CGFloat = 28
 
@@ -48,6 +50,13 @@ struct ComposerModelPicker: View {
                     .accessibilityAddTraits(.isHeader)
                 Rule()
             }
+            if let lockedNote {
+                Text(lockedNote).font(.kit(size: 11)).foregroundStyle(theme.muted)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: Self.titleHeight)
+                Rule()
+            }
             list
         }
         .frame(width: Self.width)
@@ -55,19 +64,20 @@ struct ComposerModelPicker: View {
         .background(theme.surface)
         .focusable().focused($focused)
         .onKeyPress(.downArrow) {
-            guard !models.isEmpty else { return .ignored }
+            guard !models.isEmpty, lockedNote == nil else { return .ignored }
             hoveredID = nil
             selection = min(selection + 1, models.count - 1)
             return .handled
         }
         .onKeyPress(.upArrow) {
-            guard !models.isEmpty else { return .ignored }
+            guard !models.isEmpty, lockedNote == nil else { return .ignored }
             hoveredID = nil
             selection = max(0, selection - 1)
             return .handled
         }
         .onKeyPress(.return) {
             if models.isEmpty { reload(); return .handled }
+            guard lockedNote == nil else { return .ignored }
             guard models.indices.contains(selection) else { return .ignored }
             select(models[selection].id)
             return .handled
@@ -88,29 +98,34 @@ struct ComposerModelPicker: View {
                     } else {
                         ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
                             Button { selection = index; select(model.id) } label: {
+                                let locked = lockedNote != nil
                                 HStack(spacing: 8) {
-                                    Image(systemName: "checkmark")
+                                    IconView(.check, size: 10)
                                         .opacity(selectedID == model.id ? 1 : 0)
-                                        .frame(width: 14)
-                                    Text(model.name).lineLimit(1).truncationMode(.middle)
+                                        .frame(width: 12)
+                                    Text(model.name).font(.kit(size: 13)).lineLimit(1).truncationMode(.middle)
                                         .layoutPriority(1)
                                     Spacer(minLength: 4)
-                                    Text(model.provider).foregroundStyle(theme.muted)
+                                    Text(model.provider).foregroundStyle(locked ? theme.strongBorder : theme.muted)
                                         .lineLimit(1).truncationMode(.middle)
                                         .frame(maxWidth: 90, alignment: .trailing)
                                     Text(Self.contextLabel(model.contextWindow) ?? "")
-                                        .foregroundStyle(theme.muted).monospacedDigit()
-                                        .frame(width: 48, alignment: .trailing)
+                                        .font(.kit(size: 11, design: .monospaced))
+                                        .foregroundStyle(locked ? theme.strongBorder : theme.muted)
+                                        .frame(width: 36, alignment: .trailing)
                                 }
                                 .font(.kit(size: 12))
+                                .foregroundStyle(locked ? theme.strongBorder : theme.text)
                                 .padding(.horizontal, 8)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .frame(height: Self.rowHeight)
-                                .background(selection == index || hoveredID == model.id ? theme.raised : Color.clear)
+                                .background(!locked && (selection == index || hoveredID == model.id) ? theme.accent.opacity(0.18) : Color.clear,
+                                            in: RoundedRectangle(cornerRadius: 3))
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .help(Self.rowDescription(model))
+                            .disabled(lockedNote != nil)
+                            .help(lockedNote ?? Self.rowDescription(model))
                             .accessibilityLabel("\(model.name) · \(Self.rowDescription(model))")
                             .onHover { hovering in
                                 hoveredID = hovering ? model.id : nil

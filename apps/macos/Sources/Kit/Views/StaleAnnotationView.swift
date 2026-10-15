@@ -11,7 +11,7 @@ struct StaleAnnotationView: View {
     @State private var error: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label(note.statusLabel ?? "Captured diff annotation", systemImage: note.statusLabel != nil ? "exclamationmark.triangle" : "text.bubble").font(.kit(size: 16, weight: .semibold))
+            Label(note.statusLabel ?? "Captured diff annotation", icon: note.statusLabel != nil ? .warning : .chatCenteredText, size: 16).font(.kit(size: 16, weight: .semibold))
             Text(note.path + ":" + note.rangeLabel).font(.kit(size: 12, design: .monospaced)).foregroundStyle(theme.muted)
             if let context = note.diffContext {
                 Text(context).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted).textSelection(.enabled)
@@ -26,7 +26,7 @@ struct StaleAnnotationView: View {
                     }
                 }.frame(maxHeight: 360)
             } else if let error { Text(error).foregroundStyle(theme.muted) }
-            else { ProgressView("Loading captured source…") }
+            else { KitSpinner("Loading captured source…").foregroundStyle(theme.muted) }
             HStack {
                 Button("Close") { annotations.inspected = nil }
                 Spacer()

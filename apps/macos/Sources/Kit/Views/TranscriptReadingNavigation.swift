@@ -37,10 +37,10 @@ struct TranscriptReadingNavigation: View {
                 Text("\(location.selected + 1) / \(location.sections.count)")
                     .monospacedDigit().foregroundStyle(theme.muted)
                 Button { state.navigate?(location.sections[location.selected - 1].id) } label: {
-                    Image(systemName: "arrow.up")
+                    IconView(.arrowUp, size: 12)
                 }.disabled(location.selected == 0).accessibilityLabel("Previous section")
                 Button { state.navigate?(location.sections[location.selected + 1].id) } label: {
-                    Image(systemName: "arrow.down")
+                    IconView(.arrowDown, size: 12)
                 }.disabled(location.selected == location.sections.count - 1).accessibilityLabel("Next section")
             }
         }

@@ -43,14 +43,15 @@ private actor NotificationMock: PluginNotificationClient {
         let feedback = SessionFeedback()
         feedback.showPluginNotification(notification("Warning", persistent: true, variant: "warning"))
         let warning = try #require(feedback.visible)
-        #expect(warning.title == "Warning · demo")
+        #expect(warning.title == "Warning")
+        #expect(warning.source == "demo")
         #expect(warning.detail == "Details")
         #expect(warning.tone == .warning)
         #expect(feedback.notices.map(\.id) == [warning.id])
         feedback.showPluginNotification(notification("Error", variant: "error"))
         #expect(feedback.visible?.tone == .error)
         feedback.clearTransientPluginNotifications()
-        #expect(feedback.items.map(\.title) == ["Warning · demo"])
+        #expect(feedback.items.map(\.title) == ["Warning"])
         feedback.dismiss(warning.id)
         #expect(feedback.items.isEmpty)
         feedback.showPluginNotification(notification())
@@ -64,7 +65,7 @@ private actor NotificationMock: PluginNotificationClient {
         for i in 0..<40 { feedback.showPluginNotification(notification("Notice \(i)", persistent: true)) }
         #expect(feedback.notices.count == 33)
         #expect(feedback.notices.first?.title == "Other notice")
-        #expect(feedback.notices.dropFirst().first?.title == "Notice 8 · demo")
+        #expect(feedback.notices.dropFirst().first?.title == "Notice 8")
     }
     @Test func protocolFailuresStopButTransientEndingsReconnectWithoutReplay() async throws {
         let terminal: [ClientError] = [.invalidPayload, .oversized, .incompatible,
@@ -97,15 +98,15 @@ private actor NotificationMock: PluginNotificationClient {
         for _ in 0..<100 { if await client.callbacks.count == 1 { break }; try await Task.sleep(for: .milliseconds(5)) }
         #expect(await client.sessionsSeen == ["one"])
         await client.emit(0, notification("First"))
-        #expect(feedback.visible?.title == "First · demo")
+        #expect(feedback.visible?.title == "First")
         watch.start(session: "two", client: client) { feedback.showPluginNotification($0) }
         for _ in 0..<100 { if await client.callbacks.count == 2 { break }; try await Task.sleep(for: .milliseconds(5)) }
         #expect(await client.sessionsSeen == ["one", "two"])
         await client.emit(1, notification("Current"))
         await client.emit(0, notification("Stale"))
-        #expect(feedback.visible?.title == "Current · demo")
+        #expect(feedback.visible?.title == "Current")
         watch.stop()
         await client.emit(1, notification("After stop"))
-        #expect(feedback.visible?.title == "Current · demo")
+        #expect(feedback.visible?.title == "Current")
     }
 }

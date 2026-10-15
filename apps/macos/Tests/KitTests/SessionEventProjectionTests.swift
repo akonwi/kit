@@ -81,7 +81,7 @@ struct SessionEventProjectionTests {
         let initial = try JSONDecoder().decode(WireSessionSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
         var state = try SessionEventProjection(initial)
         #expect(state.session.activeCompactionID == "compact_a")
-        #expect(state.session.activity == "Compacting context…")
+        #expect(state.session.activity == "Compacting session…")
         try state.apply(event("compaction.completed", ["compactionId": "older"]))
         #expect(state.session.activeCompactionID == "compact_a")
         try state.apply(event("compaction.completed", ["compactionId": "compact_a"]))
@@ -226,6 +226,27 @@ struct SessionEventProjectionTests {
         #expect(state.session.messages[0].tools[0].failed)
         #expect(state.session.messages[0].tools[0].arguments == "{}")
     }
+    @Test func liveToolsAreTimedAndSettleWhenTheTurnEnds() throws {
+        var state = try SessionEventProjection(snapshot())
+        let start = Date(timeIntervalSince1970: 100)
+        try state.apply(event("tool.planned", ["toolCallId": "a", "toolName": "bash", "messageId": "m"]), receivedAt: start)
+        try state.apply(event("tool.planned", ["toolCallId": "b", "toolName": "read", "messageId": "m"]), receivedAt: start)
+        try state.apply(event("tool.planned", ["toolCallId": "c", "toolName": "bash", "messageId": "m"]), receivedAt: start)
+        #expect(state.session.messages[0].tools[0].startedAt == nil)
+        try state.apply(event("tool.started", ["toolCallId": "a", "toolName": "bash"]), receivedAt: start.addingTimeInterval(1))
+        try state.apply(event("tool.completed", ["toolCallId": "a", "toolName": "bash", "details": ["exitCode": 2]]),
+                        receivedAt: start.addingTimeInterval(9))
+        try state.apply(event("tool.started", ["toolCallId": "c", "toolName": "bash"]), receivedAt: start.addingTimeInterval(10))
+        try state.apply(event("turn.completed"), receivedAt: start.addingTimeInterval(12))
+        let tools = state.session.messages[0].tools
+        #expect(tools[0].startedAt == start.addingTimeInterval(1))
+        #expect(tools[0].finishedAt == start.addingTimeInterval(9))
+        #expect(ToolPresentation(tools[0]).facts == [ToolFact(text: "exit 2", tone: .danger)])
+        #expect(tools[1].notRun == true)
+        #expect(tools[1].running == false)
+        #expect(tools[2].status == "Completed")
+        #expect(tools[2].finishedAt == start.addingTimeInterval(12))
+    }
     @Test func unfinishedSnapshotToolCallReceivesLiveUpdatesInPlace() throws {
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot())) as! [String: Any]
         json["activeTurnId"] = "t"
@@ -319,6 +340,18 @@ struct SessionEventProjectionTests {
         #expect(state.session.messages.count == 0)
         try state.apply(event("assistant.completed", ["messageId": "m", "text": "Hello world"]))
         #expect(state.session.messages.map(\.text) == ["Hello world"])
+        try state.apply(event("turn.completed", ["status": "completed"]))
+        #expect(state.session.activity == nil)
+    }
+    @Test func activityCardShowsTheLatestThinkingLineUntilWorkResumes() throws {
+        var state = try SessionEventProjection(snapshot())
+        try state.apply(event("turn.started"))
+        try state.apply(event("assistant.started", ["messageId": "m"]))
+        try state.apply(event("assistant.thinking.delta", ["messageId": "m", "delta": "The tree is split.\n\n", "contentIndex": 0]))
+        try state.apply(event("assistant.thinking.delta", ["messageId": "m", "delta": "Checking `equalized()`", "contentIndex": 0]))
+        #expect(state.session.activity == "Checking `equalized()`")
+        try state.apply(event("tool.started", ["messageId": "m", "toolCallId": "a", "toolName": "bash"]))
+        #expect(state.session.activity == "Working…")
         try state.apply(event("turn.completed", ["status": "completed"]))
         #expect(state.session.activity == nil)
     }

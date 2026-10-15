@@ -29,9 +29,6 @@ struct SessionLauncherView: View {
         .background(theme.surface)
         .tint(theme.accent)
         .preferredColorScheme(scheme)
-        .navigationTitle("Kit")
-        .toolbarBackground(theme.surface, for: .windowToolbar)
-        .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
         .frame(minWidth: 680, minHeight: 540)
         .sheet(isPresented: $creating) {
             if let client = app.client as? any SessionCreationClient {
@@ -80,20 +77,20 @@ struct SessionLauncherContent: View {
             }
             Spacer()
             if let create {
-                Button(action: create) { Label("New session", systemImage: "plus") }
+                Button(action: create) { Label("New session", icon: .plus) }
                     .disabled(!connected || connecting)
             }
             }
             }
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(theme.muted)
+                    IconView(.magnifyingGlass, size: 16).foregroundStyle(theme.muted)
                     TextField("Search sessions or directories", text: $selection.query)
                         .textFieldStyle(.plain).focused($searchFocused)
                         .onSubmit { openHighlighted() }
                     if !selection.query.isEmpty {
-                        Button { selection.query = "" } label: { Image(systemName: "xmark.circle.fill") }
-                            .buttonStyle(.plain).foregroundStyle(theme.muted).help("Clear search")
+                        Button { selection.query = "" } label: { IconView(.xCircle) }
+                            .buttonStyle(.plain).foregroundStyle(theme.muted).help("Clear search").accessibilityLabel("Clear search")
                     }
                 }
                 .font(.kit(size: 14)).padding(14)
@@ -103,7 +100,7 @@ struct SessionLauncherContent: View {
                     Spacer()
                     if connecting { KitSpinner() }
                     else {
-                        Button(action: refresh) { Image(systemName: "arrow.clockwise") }
+                        Button(action: refresh) { IconView(.arrowClockwise) }
                             .buttonStyle(.plain).help("Refresh sessions").accessibilityLabel("Refresh sessions")
                     }
                 }.foregroundStyle(theme.muted).padding(.top, 24).padding(.bottom, 10)
@@ -148,7 +145,7 @@ struct SessionLauncherContent: View {
             }
             if let error, !results.isEmpty {
                 HStack(spacing: 12) {
-                    Label("Connection unavailable", systemImage: "exclamationmark.circle")
+                    Label("Connection unavailable", icon: .warningCircle)
                         .help(error)
                     Spacer()
                     Button("Retry connection", action: refresh)
@@ -205,14 +202,14 @@ struct SessionLauncherContent: View {
                 if let date = SessionLauncher.timestamp(session.lastActivity ?? session.date) {
                     Text(date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated))).font(.kit(size: 12)).foregroundStyle(theme.muted).lineLimit(1)
                 }
-                Image(systemName: session.id == currentID ? "checkmark" : compact ? "arrow.right" : "arrow.up.forward").font(.system(size: 11)).foregroundStyle(theme.muted)
+                IconView(session.id == currentID ? .check : compact ? .arrowRight : .arrowUpRight, size: 12).foregroundStyle(theme.muted)
             }
             .padding(.horizontal, 14).padding(.vertical, 14).contentShape(Rectangle())
             .background(highlighted ? theme.accent.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
         }.buttonStyle(.plain)
         .contextMenu {
-            if let rename { Button("Rename…", systemImage: "pencil") { rename(session) } }
-            if let delete { Button(session.isTemporary == true ? "Dispose…" : "Delete…", systemImage: "trash", role: .destructive) { delete(session) } }
+            if let rename { Button { rename(session) } label: { Label { Text("Rename…") } icon: { Image(.pencilSimple) } } }
+            if let delete { Button(role: .destructive) { delete(session) } label: { Label { Text(session.isTemporary == true ? "Dispose…" : "Delete…") } icon: { Image(.trash) } } }
         }
         .accessibilityLabel("\(session.title), \(path)")
         .accessibilityAddTraits(highlighted ? .isSelected : [])

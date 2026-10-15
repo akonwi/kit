@@ -164,15 +164,15 @@ private struct InlineAnnotationClient: AnnotationClient {
             #expect(window.firstResponder === Self.input(in: host))
             let row = try #require(manager.lineStorage.getLine(atIndex: 1))
             #expect(gutter.line(at: NSPoint(x: 10, y: row.yPos + row.height - 4)) == nil)
-            // Click the Cancel label in the rendered footer (12pt padding, then
-            // Save, a 12pt gap, and Cancel), through the window's event routing.
+            // Click the Cancel button in the rendered footer (12 pt padding, then
+            // Comment with 10 pt insets, an 8 pt gap, and Cancel with 8 pt insets),
+            // through the window's event routing.
             let inlineHost = try #require(controller.textView.subviews.first { $0 is NSHostingView<AnyView> })
-            let font = NSFont.systemFont(ofSize: 11)
-            let saveWidth = ("Save" as NSString).size(withAttributes: [.font: font]).width
-            let cancelWidth = ("Cancel" as NSString).size(withAttributes: [.font: font]).width
+            let commentWidth = ("Comment" as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]).width
+            let cancelWidth = ("Cancel" as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width
             let point = controller.textView.convert(NSPoint(
-                x: inlineHost.frame.maxX - 12 - saveWidth - 12 - cancelWidth / 2,
-                y: inlineHost.frame.maxY - 18), to: nil)
+                x: inlineHost.frame.maxX - 12 - (commentWidth + 20) - 8 - (cancelWidth + 16) / 2,
+                y: inlineHost.frame.maxY - 21), to: nil)
             let target = try #require(host.hitTest(host.superview!.convert(point, from: nil)))
             try #require(target === inlineHost || target.isDescendant(of: inlineHost))
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {

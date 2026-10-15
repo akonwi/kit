@@ -9,13 +9,16 @@ struct MicaTheme: Equatable {
     var surface: Color { token("bg", fallback: neutral(1, 0.14)) }
     var raised: Color { token("bgSurface", fallback: neutral(0.973, 0.17)) }
     var hover: Color { token("bgMuted", fallback: neutral(0.952, 0.20)) }
+    /// The window frame behind tiles: session tabs and the session bar.
+    var frame: Color { raised.mix(with: hover, by: 0.7) }
+    var frameHover: Color { hover.mix(with: border, by: 0.3) }
     var border: Color { token("borderDefault", fallback: neutral(0.89, 0.30)) }
-    var strongBorder: Color { token("borderDefault", fallback: neutral(0.74, 0.46)) }
+    var strongBorder: Color { token("borderFocused", fallback: neutral(0.74, 0.46)) }
     var text: Color { token("textPrimary", fallback: neutral(0.18, 0.96)) }
     var muted: Color { token("textMuted", fallback: neutral(0.44, 0.71)) }
     var accent: Color { token("borderAccent", fallback: token("borderFocused", fallback: Self.oklch(dark ? 0.70 : 0.55, 0.21, 263))) }
     var focusBorder: Color { token("borderFocused", fallback: accent) }
-    var success: Color { token("progressNormal", fallback: Self.oklch(dark ? 0.80 : 0.44, 0.162, 150)) }
+    var success: Color { token("toolText", fallback: Self.oklch(dark ? 0.80 : 0.44, 0.162, 150)) }
     var warning: Color { token("warningText", fallback: Self.oklch(dark ? 0.80 : 0.42, 0.162, 48)) }
     var danger: Color { token("errorText", fallback: Self.oklch(dark ? 0.80 : 0.44, 0.162, 25)) }
 
@@ -66,6 +69,43 @@ struct MicaButtonStyle: ButtonStyle {
             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(primary ? theme.text : theme.border, lineWidth: 1))
             .contentShape(Rectangle())
             .opacity(enabled ? 1 : 0.45)
+    }
+}
+
+/// A 22 pt text button for actions inside cards: toasts, the activity card,
+/// and the queued tray. The bordered form marks the card's main action.
+struct SmallButtonStyle: ButtonStyle {
+    var bordered = false
+    /// A filled button for the action a small form exists for, such as Comment.
+    var prominent = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        Label(configuration: configuration, bordered: bordered, prominent: prominent)
+    }
+
+    private struct Label: View {
+        @Environment(\.mica) private var theme
+        @Environment(\.isEnabled) private var enabled
+        @State private var hovering = false
+        let configuration: Configuration
+        let bordered: Bool
+        let prominent: Bool
+
+        var body: some View {
+            configuration.label
+                .font(.kit(size: 12, weight: prominent ? .medium : .regular))
+                .foregroundStyle(prominent ? theme.surface : theme.text).lineLimit(1)
+                .padding(.horizontal, prominent ? 10 : 8).frame(height: 22)
+                .background(prominent ? theme.text.opacity(hovering || configuration.isPressed ? 0.85 : 1)
+                                : hovering || configuration.isPressed ? theme.hover : .clear,
+                            in: RoundedRectangle(cornerRadius: 3))
+                .overlay {
+                    if bordered { RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border) }
+                }
+                .contentShape(Rectangle())
+                .opacity(enabled ? 1 : 0.45)
+                .onHover { hovering = enabled && $0 }
+        }
     }
 }
 

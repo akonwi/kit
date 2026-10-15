@@ -28,10 +28,26 @@ actor DiffTestClient: DiffClient, AnnotationClient {
     func setLongLines() { longLines = true }
     var multipleFiles = false
     func setMultipleFiles() { multipleFiles = true }
+    /// Twenty files of forty lines each, enough to fill several screens.
+    var tallFiles = false
+    func setTallFiles() { tallFiles = true }
+    static func tallHunk() -> String {
+        let lines = (1...40).map { line in
+            line % 5 == 0
+                ? #"{"kind":"addition","newLine":\#(line),"content":"let value\#(line) = \#(line)","hasTerminatingLF":true}"#
+                : #"{"kind":"context","oldLine":\#(line),"newLine":\#(line),"content":"let value\#(line) = \#(line)","hasTerminatingLF":true}"#
+        }
+        return #"{"oldStart":1,"oldCount":40,"newStart":1,"newCount":40,"continuedBefore":false,"continuedAfter":false,"lines":[\#(lines.joined(separator: ","))]}"#
+    }
     var revision = "diffrev_test"
     func advanceRevision() { revision = "diffrev_updated" }
+    /// Files whose content differs from the first revision.
+    var changed: Set<String> = []
+    func change(_ path: String) { changed.insert(path); advanceRevision() }
     func page(path: String = "main.swift") throws -> WireFileDiffPage {
-        try JSONDecoder().decode(WireFileDiffPage.self, from: Data(DiffTestData.pageJSON.replacingOccurrences(of: "diffrev_test", with: revision).replacingOccurrences(of: "main.swift", with: path).replacingOccurrences(of: "Bonjour 🌿", with: longLines ? String(repeating: "Long greeting ", count: 18) : "Bonjour 🌿").utf8))
+        try JSONDecoder().decode(WireFileDiffPage.self, from: Data(DiffTestData.pageJSON
+            .replacingOccurrences(of: DiffTestData.hunk, with: tallFiles ? Self.tallHunk() : DiffTestData.hunk)
+            .replacingOccurrences(of: "diff_file_test", with: changed.contains(path) ? "diff_file_changed" : "diff_file_test").replacingOccurrences(of: "diffrev_test", with: revision).replacingOccurrences(of: "main.swift", with: path).replacingOccurrences(of: "Bonjour 🌿", with: longLines ? String(repeating: "Long greeting ", count: 18) : "Bonjour 🌿").utf8))
     }
     var repeatCursor = false
     var slow = false
@@ -48,6 +64,9 @@ actor DiffTestClient: DiffClient, AnnotationClient {
     func observeDiff(_ session: String, input: WireObserveDiffInput) async throws -> WireWorkingTreePage {
         observations.append(input)
         let page = try page()
+        if tallFiles {
+            return .init(observation: page.observation, files: try (0..<20).map { try self.page(path: "Sources/File\($0).swift").file }, nextCursor: nil)
+        }
         return .init(observation: page.observation, files: input.cursor == nil ? (multipleFiles ? [page.file, try self.page(path: "greeting.swift").file] : [page.file]) : [], nextCursor: input.cursor == nil ? "files-next" : nil)
     }
     func readDiff(_ session: String, input: WireReadFileDiffInput) async throws -> WireFileDiffPage {
@@ -62,17 +81,88 @@ actor DiffTestClient: DiffClient, AnnotationClient {
 struct DiffTests {
     @Test func semanticRowsKeepOldAndNewCoordinates() throws {
         let document = try DiffTestData.document()
-        #expect(document.rows.map(\.kind) == ["hunk", "context", "deletion", "addition", "context"])
-        #expect(document.rows.map(\.oldLine) == [nil, 1, 2, nil, 3])
-        #expect(document.rows.map(\.newLine) == [nil, 1, nil, 2, 3])
-        let old = try #require(document.anchor(rows: 2...2, side: "old")?.workingTreeDiff)
+        #expect(document.rows.map(\.kind) == ["context", "deletion", "addition", "context"])
+        #expect(document.rows.map(\.oldLine) == [1, 2, nil, 3])
+        #expect(document.rows.map(\.newLine) == [1, nil, 2, 3])
+        let old = try #require(document.anchor(rows: 1...1, side: "old")?.workingTreeDiff)
         #expect(old.side == "old" && old.startLine == 2 && old.endLine == 2)
         #expect(old.targetRevision == "diffrev_test" && old.fileRevision == "diff_file_test")
-        let new = try #require(document.anchor(rows: 1...4, side: "new"))
+        let new = try #require(document.anchor(rows: 0...3, side: "new"))
         #expect(new.workingTreeDiff?.startLine == 1 && new.workingTreeDiff?.endLine == 3)
-        #expect(document.range(new) == 1...4)
-        #expect(document.anchor(rows: 0...4, side: "new") == nil)
-        #expect(document.anchor(rows: 2...2, side: "new") == nil)
+        #expect(document.range(new) == 0...3)
+        #expect(document.anchor(rows: 1...1, side: "new") == nil)
+    }
+
+    @Test func hunksAreSplitByAGapRowAndRangesStopAtIt() throws {
+        let first = try DiffTestData.document()
+        let later = DiffTestData.hunk.replacingOccurrences(of: #""oldStart":1,"oldCount":3,"newStart":1,"newCount":3"#,
+            with: #""oldStart":20,"oldCount":1,"newStart":20,"newCount":1"#)
+            .replacingOccurrences(of: #""oldLine":1,"newLine":1"#, with: #""oldLine":20,"newLine":20"#)
+            .replacingOccurrences(of: #""oldLine":2,"#, with: #""oldLine":21,"#)
+            .replacingOccurrences(of: #""newLine":2,"#, with: #""newLine":21,"#)
+            .replacingOccurrences(of: #""oldLine":3,"newLine":3"#, with: #""oldLine":22,"newLine":22"#)
+        let second = try JSONDecoder().decode(WireDiffHunk.self, from: Data(later.utf8))
+        let page = try DiffTestData.page()
+        let document = DiffDocument(observation: first.observation, file: first.file, hunks: page.hunks! + [second])
+        #expect(document.rows.map(\.kind) == ["context", "deletion", "addition", "context",
+                                               "hunk", "context", "deletion", "addition", "context"])
+        #expect(document.rows[4].text == "⋯")
+        #expect(document.rows[4].oldLine == nil && document.rows[4].newLine == nil)
+        #expect(document.anchor(rows: 3...5, side: "new") == nil)
+    }
+
+    @MainActor @Test func headerCountsAndFileNotesFollowTheTUI() throws {
+        #expect(ReviewPane.fileCount(1, more: false) == "1 file")
+        #expect(ReviewPane.fileCount(3, more: false) == "3 files")
+        #expect(ReviewPane.fileCount(200, more: true) == "200+ files")
+        let text = try DiffTestData.document().file
+        func file(_ state: String) throws -> WireDiffFileSummary {
+            try JSONDecoder().decode(WireDiffFileSummary.self, from: Data(DiffTestData.file
+                .replacingOccurrences(of: #""contentState":"text""#, with: "\"contentState\":\"\(state)\"").utf8))
+        }
+        #expect(text.contentState == "text")
+        #expect(ReviewPane.contentNote(try file("binary")) == "Binary file changed")
+        #expect(ReviewPane.contentNote(try file("conflict")) == "File has unresolved conflicts")
+        #expect(ReviewPane.contentNote(try file("too_large")) == "File diff exceeds the configured limit")
+        #expect(!DiffState.splitFits(639) && DiffState.splitFits(640))
+        // Totals add up what the server counted, and are absent when it
+        // counted nothing.
+        let model = DiffState()
+        model.files = [text, try file("text")]
+        #expect(model.additions == 2 && model.deletions == 2)
+        model.files = [try JSONDecoder().decode(WireDiffFileSummary.self, from: Data(DiffTestData.file
+            .replacingOccurrences(of: #","additions":1,"deletions":1"#, with: "").utf8))]
+        #expect(model.additions == nil && model.deletions == nil)
+    }
+
+    @Test func serverRefusalsReadInTheTUIsWords() {
+        #expect(DiffReadError(code: "not_repository").errorDescription == "Not a git repository")
+        #expect(DiffReadError(code: "not_repository").detail == "Kit can only show diffs inside a git repository.")
+        #expect(DiffReadError(code: "capacity_exceeded").errorDescription == "The workspace is busy")
+        #expect(DiffReadError(code: "capacity_exceeded").detail == nil)
+        struct Code: RawRepresentable { let rawValue: String }
+        struct Problem { let code: Code }
+        struct Payload { let error: Problem }
+        enum Output { case notFound(Payload) }
+        #expect(DiffReadError.code(in: Output.notFound(Payload(error: Problem(code: Code(rawValue: "not_repository"))))) == "not_repository")
+        #expect(DiffReadError.code(in: "no code here") == "unavailable")
+    }
+
+    @MainActor @Test func targetPickerFiltersByEveryWordAndNamesEachKind() throws {
+        let catalog = try JSONDecoder().decode(WireDiffTargetCatalog.self, from: Data(#"""
+        {"sessionId":"session_test","workspaceId":"workspace_test","targets":[
+         {"reference":"difftargetref_w","targetId":"difftarget_w","kind":"working_tree","base":{"kind":"commit","oid":"a"},"head":{"kind":"working_tree"},"metadata":{"label":"Working tree"}},
+         {"reference":"difftargetref_b","targetId":"difftarget_b","kind":"branch","base":{"kind":"commit","oid":"a"},"head":{"kind":"commit","oid":"b"},"metadata":{"label":"feat.diff vs main","refName":"feat.diff","baseRefName":"main"},"annotationCount":2},
+         {"reference":"difftargetref_c","targetId":"difftarget_c","kind":"commit","base":{"kind":"commit","oid":"a"},"head":{"kind":"commit","oid":"c"},"metadata":{"label":"2f65ae0d  Split the chip","subject":"Split the chip","abbreviatedOid":"2f65ae0d"},"annotationCount":0}
+        ],"diagnostics":[]}
+        """#.utf8))
+        let targets = try #require(catalog.targets)
+        #expect(targets.map { DiffTargetPicker.meta($0) } == ["uncommitted", "2 notes", "commit"])
+        #expect(DiffTargetPicker.filter(targets, query: "").map(\.targetId) == targets.map(\.targetId))
+        #expect(DiffTargetPicker.filter(targets, query: "main feat").map(\.targetId) == ["difftarget_b"])
+        #expect(DiffTargetPicker.filter(targets, query: "2F65").map(\.targetId) == ["difftarget_c"])
+        #expect(DiffTargetPicker.filter(targets, query: "chip main").isEmpty)
+        #expect(DiffTargetName.label(targets[1]) == "feat.diff vs main")
     }
 
     @MainActor @Test func continuationPinsRevisionAndRejectsRepeatedCursor() async throws {
@@ -84,7 +174,7 @@ struct DiffTests {
         let file = try #require(model.document?.file)
         await model.read(file, client: client, session: "session_test", more: true)
         #expect(model.stale)
-        #expect(model.document?.rows.count == 5)
+        #expect(model.document?.rows.count == 4)
         let reads = await client.reads
         #expect(reads.last?.cursor == "repeated")
         #expect(reads.last?.targetRevision == "diffrev_test")
@@ -106,6 +196,51 @@ struct DiffTests {
         #expect(model.loading == false)
     }
 
+    @MainActor @Test func prefetchLoadsFilesInOrderUntilTheBudgetIsSpent() async throws {
+        let client = DiffTestClient()
+        await client.setTallFiles()
+        let model = DiffState()
+        model.prefetchFileLimit = 5
+        await model.refresh(client: client, session: "session_test")
+        await model.prefetch(client: client, session: "session_test")
+        let first = (0..<5).map { "Sources/File\($0).swift" }
+        #expect(model.fileStates.keys.sorted() == first)
+        #expect(model.fileStates.values.allSatisfy { $0.document != nil })
+        // The selected file was read once by the target; the rest in list order.
+        #expect(await client.reads.map(\.path) == first)
+    }
+
+    @MainActor @Test func aFileComingIntoViewLoadsWithTheNextFew() async throws {
+        let client = DiffTestClient()
+        await client.setTallFiles()
+        let model = DiffState()
+        await model.refresh(client: client, session: "session_test")
+        await model.appeared(model.files[10], client: client, session: "session_test")
+        #expect(model.fileStates.keys.sorted() == (10...13).map { "Sources/File\($0).swift" })
+    }
+
+    @MainActor @Test func aNewRevisionKeepsUnchangedFilesAndReloadsChangedOnes() async throws {
+        let client = DiffTestClient()
+        await client.setTallFiles()
+        let model = DiffState()
+        model.prefetchFileLimit = 5
+        await model.refresh(client: client, session: "session_test")
+        await model.prefetch(client: client, session: "session_test")
+        let before = model.fileStates
+        before["Sources/File2.swift"]?.measuredHeights["laid out"] = 704
+        await client.change("Sources/File3.swift")
+        await model.poll(client: client, session: "session_test", canApply: { true })
+        #expect(model.observation?.revision == "diffrev_updated")
+        let kept = ["Sources/File0.swift", "Sources/File1.swift", "Sources/File2.swift", "Sources/File4.swift"]
+        #expect(model.fileStates.keys.sorted() == kept)
+        for path in kept {
+            #expect(model.fileStates[path] === before[path])
+            #expect(model.fileStates[path]?.document?.observation.revision == "diffrev_updated")
+            #expect(model.fileStates[path]?.document?.identity == before[path]?.document?.identity)
+        }
+        #expect(model.fileStates["Sources/File2.swift"]?.measuredHeights["laid out"] == 704)
+    }
+
     @MainActor @Test func pollingPreservesExpandedPagesAndDefersDuringEditing() async throws {
         let client = DiffTestClient(), model = DiffState()
         await model.refresh(client: client, session: "session_test")
@@ -113,7 +248,7 @@ struct DiffTests {
         #expect(model.fileCursor == nil)
         await model.poll(client: client, session: "session_test", canApply: { true })
         #expect(model.fileCursor == nil)
-        #expect(model.document?.rows.count == 5)
+        #expect(model.document?.rows.count == 4)
         await client.advanceRevision()
         await model.poll(client: client, session: "session_test", canApply: { true })
         #expect(model.document?.observation.revision == "diffrev_updated")
@@ -133,22 +268,22 @@ struct DiffTests {
 
     @Test func splitRowsPairReplacementsAndKeepSideSpecificAnchors() throws {
         let document = try DiffTestData.document(), pair = document.split()
-        #expect(pair.old.rows.map(\.kind) == ["hunk", "context", "deletion", "context"])
-        #expect(pair.new.rows.map(\.kind) == ["hunk", "context", "addition", "context"])
-        #expect(pair.old.rows.map(\.oldLine) == [nil, 1, 2, 3])
-        #expect(pair.new.rows.map(\.newLine) == [nil, 1, 2, 3])
-        let old = try #require(pair.old.anchor(rows: 1...2, side: "old"))
-        let new = try #require(pair.new.anchor(rows: 2...3, side: "new"))
+        #expect(pair.old.rows.map(\.kind) == ["context", "deletion", "context"])
+        #expect(pair.new.rows.map(\.kind) == ["context", "addition", "context"])
+        #expect(pair.old.rows.map(\.oldLine) == [1, 2, 3])
+        #expect(pair.new.rows.map(\.newLine) == [1, 2, 3])
+        let old = try #require(pair.old.anchor(rows: 0...1, side: "old"))
+        let new = try #require(pair.new.anchor(rows: 1...2, side: "new"))
         #expect(old.workingTreeDiff?.startLine == 1 && old.workingTreeDiff?.endLine == 2)
         #expect(new.workingTreeDiff?.startLine == 2 && new.workingTreeDiff?.endLine == 3)
         #expect(pair.new.range(old) == nil && pair.old.range(new) == nil)
-        #expect(pair.old.range(old) == 1...2 && pair.new.range(new) == 2...3)
+        #expect(pair.old.range(old) == 0...1 && pair.new.range(new) == 1...2)
         let addedOnly = DiffTestData.hunk.replacingOccurrences(of: #"{"kind":"deletion","oldLine":2,"content":"    print(\"Hello\")","hasTerminatingLF":true},"#, with: "")
         let hunk = try JSONDecoder().decode(WireDiffHunk.self, from: Data(addedOnly.utf8))
         let uneven = DiffDocument(observation: document.observation, file: document.file, hunks: [hunk]).split()
-        #expect(uneven.old.rows[2].kind == "placeholder")
-        #expect(uneven.old.rows[2].oldLine == nil)
-        #expect(uneven.new.rows[2].newLine == 2)
+        #expect(uneven.old.rows[1].kind == "placeholder")
+        #expect(uneven.old.rows[1].oldLine == nil)
+        #expect(uneven.new.rows[1].newLine == 2)
         #expect(uneven.old.rows.count == uneven.new.rows.count)
     }
 
@@ -159,11 +294,11 @@ struct DiffTests {
         for file in model.files { await model.loadFile(file, client: client, session: "session_test") }
         let second = try #require(model.fileStates["greeting.swift"]?.document)
         #expect(model.fileStates["main.swift"]?.document?.file.path == "main.swift")
-        let note = try FileAnnotation(id: 7, anchor: #require(second.anchor(rows: 3...3, side: "new")), body: "Greeting", source: "source", stale: false, complete: true)
+        let note = try FileAnnotation(id: 7, anchor: #require(second.anchor(rows: 2...2, side: "new")), body: "Greeting", source: "source", stale: false, complete: true)
         #expect(await model.openAnnotation(note, client: client, session: "session_test"))
         #expect(model.files.map(\.path) == ["main.swift", "greeting.swift"])
         #expect(model.fileStates["main.swift"]?.document?.file.path == "main.swift")
-        #expect(model.fileStates["greeting.swift"]?.document?.range(note.anchor) == 3...3)
+        #expect(model.fileStates["greeting.swift"]?.document?.range(note.anchor) == 2...2)
         model.invalidate()
         #expect(model.fileStates.isEmpty)
     }
@@ -171,10 +306,10 @@ struct DiffTests {
     @MainActor @Test func chipRevealUsesAnnotationAuthority() async throws {
         let client = DiffTestClient(), model = DiffState()
         let document = try DiffTestData.document()
-        let note = try FileAnnotation(id: 7, anchor: #require(document.anchor(rows: 2...2, side: "old")), body: "Keep this", source: "old source", stale: false, complete: true)
+        let note = try FileAnnotation(id: 7, anchor: #require(document.anchor(rows: 1...1, side: "old")), body: "Keep this", source: "old source", stale: false, complete: true)
         #expect(await model.openAnnotation(note, client: client, session: "session_test"))
         #expect(await client.reads.last?.annotationId == 7)
-        #expect(model.document?.range(note.anchor) == 2...2)
+        #expect(model.document?.range(note.anchor) == 1...1)
     }
 }
 
@@ -184,7 +319,7 @@ extension InlineAnnotationEditorTests {
         let document = try DiffTestData.document()
         for dark in [false, true] {
             let annotations = AnnotationState()
-            let old = try #require(document.anchor(rows: 2...2, side: "old"))
+            let old = try #require(document.anchor(rows: 1...1, side: "old"))
             let note = try FileAnnotation(id: 1, anchor: old, body: "Keep the original greeting available.", source: "    print(\"Hello\")", stale: false, complete: true)
             annotations.observe([note])
             let host = NSHostingView(rootView: DiffHarness(document: document, annotations: annotations)
@@ -197,9 +332,10 @@ extension InlineAnnotationEditorTests {
             let gutter = try #require(controller.view.subviews.compactMap { $0 as? AnnotationGutterOverlay }.first)
             let manager = controller.textView.layoutManager!
             #expect(controller.textView.string == document.content)
-            #expect(manager.edgeInsets.left == 108)
-            #expect(manager.blockHeights[2, default: 0] > 40)
-            #expect(gutter.diffRows?.map(\.newLine) == [nil, 1, nil, 2, 3])
+            #expect(manager.edgeInsets.left == 76)
+            #expect(gutter.railWidth == 76)
+            #expect(manager.blockHeights[1, default: 0] > 40)
+            #expect(gutter.diffRows?.map(\.newLine) == [1, nil, 2, 3])
             let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: bitmap)
             try #require(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/kit-native-diff-\(dark ? "dark" : "light").png"))
@@ -209,20 +345,59 @@ extension InlineAnnotationEditorTests {
                 return try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
             }
-            let button = try #require(gutter.buttonRect(for: 1))
+            let button = try #require(gutter.buttonRect(for: 0))
             #expect(button.maxX == gutter.railWidth)
-            gutter.mouseMoved(with: try event(.mouseMoved, row: 1, x: button.midX))
+            gutter.mouseMoved(with: try event(.mouseMoved, row: 0, x: button.midX))
             #expect(NSCursor.current == NSCursor.pointingHand)
-            let down = try event(.leftMouseDown, row: 1)
+            let down = try event(.leftMouseDown, row: 0)
             #expect(host.hitTest(host.superview!.convert(down.locationInWindow, from: nil)) === gutter)
             gutter.mouseDown(with: down)
-            gutter.mouseDragged(with: try event(.leftMouseDragged, row: 2))
-            gutter.mouseUp(with: try event(.leftMouseUp, row: 2))
+            gutter.mouseDragged(with: try event(.leftMouseDragged, row: 1))
+            gutter.mouseUp(with: try event(.leftMouseUp, row: 1))
             let anchor = try #require(annotations.editor?.anchor.workingTreeDiff)
             #expect(anchor.side == "old" && anchor.startLine == 1 && anchor.endLine == 2)
             #expect(anchor.targetId == "difftarget_test" && anchor.targetRevision == "diffrev_test")
             _ = try await Self.waitForFocusedInput(in: host, window: window)
-            #expect(manager.blockHeights[2, default: 0] > 100)
+            #expect(manager.blockHeights[1, default: 0] > 100)
+        }
+    }
+
+    @Test func diffRowTintsSitBeneathTheCodeUnderOpaqueThemeColours() async throws {
+        // Regression: Flexoki's opaque diffAddedBg/diffRemovedBg once covered the code.
+        _ = NSApplication.shared
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let json = try String(contentsOf: root.appendingPathComponent("Fixtures/Themes/flexoki.json"), encoding: .utf8)
+        let theme = MicaTheme(dark: true, palette: "custom", customJSON: json)
+        let host = NSHostingView(rootView: DiffHarness(document: try DiffTestData.document(), annotations: AnnotationState())
+            .environment(\.mica, theme).environment(\.colorScheme, .dark))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 460), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(650))
+        let controller = try #require(InlineAnnotationEditorTests.controller(in: host))
+        let manager = controller.textView.layoutManager!
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+        func distance(_ a: NSColor, _ b: NSColor) -> CGFloat {
+            abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent) + abs(a.blueComponent - b.blueComponent)
+        }
+        for (row, token) in [(1, "diffRemovedBg"), (2, "diffAddedBg")] {
+            let line = try #require(manager.lineStorage.getLine(atIndex: row))
+            var point = controller.textView.convert(NSPoint(x: 0, y: line.yPos + line.height / 2), to: host)
+            if !host.isFlipped { point.y = host.bounds.height - point.y }
+            let y = Int(point.y * scale)
+            // The rail's empty left edge shows the row tint as rendered.
+            let tint = try #require(bitmap.colorAt(x: Int(4 * scale), y: y)?.usingColorSpace(.sRGB))
+            let surface = try #require(bitmap.colorAt(x: Int(4 * scale), y: Int(200 * scale))?.usingColorSpace(.sRGB))
+            #expect(distance(tint, surface) > 0.03, "\(token) tints the row")
+            let colors = (Int(80 * scale)..<Int(400 * scale)).compactMap { bitmap.colorAt(x: $0, y: y)?.usingColorSpace(.sRGB) }
+            // The row keeps its tint past the end of the code…
+            let end = try #require(bitmap.colorAt(x: Int(800 * scale), y: y)?.usingColorSpace(.sRGB))
+            #expect(distance(end, tint) < 0.02)
+            // …and the code's glyphs draw over it.
+            #expect(colors.contains { distance($0, tint) > 0.6 })
         }
     }
 
@@ -240,9 +415,13 @@ extension InlineAnnotationEditorTests {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 560), styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
             defer { window.close() }
+            /// Editors from the top of the pane down; view order isn't screen order.
             func editors(in view: NSView) -> [TextViewController] {
-                if let editor = view.nextResponder as? TextViewController { return [editor] }
-                return view.subviews.flatMap { editors(in: $0) }
+                func found(_ view: NSView) -> [TextViewController] {
+                    if let editor = view.nextResponder as? TextViewController { return [editor] }
+                    return view.subviews.flatMap { found($0) }
+                }
+                return found(view).sorted { $0.view.convert($0.view.bounds, to: nil).maxY > $1.view.convert($1.view.bounds, to: nil).maxY }
             }
             let clock = ContinuousClock()
             let deadline = clock.now.advanced(by: .seconds(3))
@@ -252,7 +431,7 @@ extension InlineAnnotationEditorTests {
                 rendered = editors(in: host)
                 let ready = rendered.count == 2 && rendered.allSatisfy { editor in
                     guard let gutter = editor.view.subviews.compactMap({ $0 as? AnnotationGutterOverlay }).first else { return false }
-                    return gutter.diffRows?.count == 5 && gutter.frame.height > 70 &&
+                    return gutter.diffRows?.count == 4 && gutter.frame.height > 70 &&
                         abs(editor.view.frame.height - editor.textView.layoutManager.estimatedHeight() - 8) < 2
                 }
                 if ready { break }
@@ -269,7 +448,7 @@ extension InlineAnnotationEditorTests {
                 let gutter = try #require(editor.view.subviews.compactMap { $0 as? AnnotationGutterOverlay }.first)
                 #expect(gutter.frame.height > 70)
                 #expect(gutter.bounds.minY < 10)
-                #expect(gutter.diffRows?.count == 5)
+                #expect(gutter.diffRows?.count == 4)
 
                 #expect(abs(editor.view.frame.height - editor.textView.layoutManager.estimatedHeight() - 8) < 2)
             }
@@ -287,13 +466,14 @@ extension InlineAnnotationEditorTests {
                     return try #require(bitmap.colorAt(x: Int(point.x * CGFloat(bitmap.pixelsWide) / host.bounds.width),
                         y: Int(y * CGFloat(bitmap.pixelsHigh) / host.bounds.height))?.usingColorSpace(.deviceRGB))
                 }
-                let deletion = try color(row: 2), addition = try color(row: 3)
+                let deletion = try color(row: 1), addition = try color(row: 2)
                 #expect(deletion.redComponent > deletion.greenComponent)
                 #expect(addition.greenComponent > addition.redComponent)
             }
             var second = try #require(rendered.last)
+            let closedHeight = second.view.frame.height
             let gutter = try #require(second.view.subviews.compactMap { $0 as? AnnotationGutterOverlay }.first)
-            let button = try #require(gutter.buttonRect(for: 3))
+            let button = try #require(gutter.buttonRect(for: 2))
             let point = gutter.convert(NSPoint(x: button.midX, y: button.midY), to: nil)
             #expect(host.hitTest(host.superview!.convert(point, from: nil)) === gutter)
             func click(_ type: NSEvent.EventType) throws -> NSEvent {
@@ -306,13 +486,14 @@ extension InlineAnnotationEditorTests {
             while clock.now < editorDeadline {
                 host.layoutSubtreeIfNeeded()
                 second = editors(in: host).last ?? second
-                if second.view.frame.height > 180,
+                if second.view.frame.height > closedHeight + 80,
                    abs(second.view.frame.height - second.textView.layoutManager.estimatedHeight() - 8) < 2,
                    Self.input(in: host) != nil { break }
                 try await Task.sleep(for: .milliseconds(20))
             }
             #expect(state.annotationState.editor?.anchor.workingTreeDiff?.path == "greeting.swift")
-            #expect(second.view.frame.height > 180)
+            // The comment input opens inside the editor, which grows to hold it.
+            #expect(second.view.frame.height > closedHeight + 80)
             #expect(abs(second.view.frame.height - second.textView.layoutManager.estimatedHeight() - 8) < 2)
             #expect(Self.input(in: host) != nil)
             state.annotationState.cancelEditor()
@@ -324,6 +505,48 @@ extension InlineAnnotationEditorTests {
             controller.scrollView.scrollWheel(with: try #require(NSEvent(cgEvent: cgEvent)))
             try await Task.sleep(for: .milliseconds(200))
             #expect(outer.contentView.bounds.minY > 0)
+        }
+    }
+
+    /// Regression: each editor used to carry a find panel in a hosting view that
+    /// tracked safe areas. A screenful of editors under pinned file headers
+    /// looped AppKit's constraint passes until it threw.
+    @Test func manyTallFilesLoadAndScroll() async throws {
+        _ = NSApplication.shared
+        let client = DiffTestClient()
+        await client.setTallFiles()
+        let state = SessionStore(fixture: Fixture(sessions: []), client: client, sessionID: "session_test")
+        state.ui.workspace.open(.review)
+        let theme = MicaTheme(dark: true)
+        let host = NSHostingView(rootView: ReviewPane(state: state).background(theme.surface)
+            .environment(\.mica, theme).environment(\.colorScheme, .dark))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        func scrollViews(_ view: NSView) -> [NSScrollView] {
+            (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews($0) }
+        }
+        try await Task.sleep(for: .milliseconds(1500))
+        let model = state.ui.workspace.diff
+        #expect(model.files.count == 20)
+        // Every file loads in the background before it is scrolled to.
+        #expect(model.fileStates.count == 20)
+        #expect(model.fileStates.values.allSatisfy { $0.document != nil })
+        let outer = try #require(scrollViews(host).first)
+        for step in 0..<20 {
+            outer.contentView.scroll(to: NSPoint(x: 0, y: CGFloat(step) * 150))
+            outer.reflectScrolledClipView(outer.contentView)
+            try await Task.sleep(for: .milliseconds(40))
+        }
+        #expect(outer.contentView.bounds.minY > 2000)
+        // Files arrive at their size: each laid-out height matches the
+        // estimate from its rows that sized it before it was laid out.
+        let measured = model.fileStates.values.compactMap { reader in
+            reader.document.flatMap { document in reader.measuredHeights.first.map { (document.rows.count, $0.value) } }
+        }
+        #expect(measured.count >= 5)
+        for (rows, height) in measured {
+            #expect(DiffState.estimatedHeight(rows: rows) == height)
         }
     }
 
@@ -347,12 +570,12 @@ extension InlineAnnotationEditorTests {
             try await Task.sleep(for: .milliseconds(500))
             let unified = try #require(Self.controller(in: host))
             let source = unified.textView.string
-            let singleHeight = try #require(unified.textView.layoutManager.lineStorage.getLine(atIndex: 3)).height
+            let singleHeight = try #require(unified.textView.layoutManager.lineStorage.getLine(atIndex: 2)).height
             model.wrapLines = true
             try await Task.sleep(for: .milliseconds(400))
             #expect(unified.configuration.appearance.wrapLines)
             #expect(unified.textView.string == source)
-            #expect(try #require(unified.textView.layoutManager.lineStorage.getLine(atIndex: 3)).height > singleHeight)
+            #expect(try #require(unified.textView.layoutManager.lineStorage.getLine(atIndex: 2)).height > singleHeight)
             model.layout = .split
             try await Task.sleep(for: .milliseconds(650))
             let split = editors(in: host)
@@ -364,7 +587,7 @@ extension InlineAnnotationEditorTests {
             #expect(try gutter(old).fixedSide == "old")
             #expect(try gutter(new).fixedSide == "new")
             func assertAligned() throws {
-                for index in 0..<4 {
+                for index in 0..<3 {
                     let a = try #require(old.textView.layoutManager.lineStorage.getLine(atIndex: index))
                     let b = try #require(new.textView.layoutManager.lineStorage.getLine(atIndex: index))
                     #expect(abs(a.yPos - b.yPos) < 1)
@@ -375,7 +598,7 @@ extension InlineAnnotationEditorTests {
             let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: bitmap)
             try #require(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/kit-diff-split-\(dark ? "dark" : "light").png"))
-            let oldGutter = try gutter(old), button = try #require(try gutter(old).buttonRect(for: 2))
+            let oldGutter = try gutter(old), button = try #require(try gutter(old).buttonRect(for: 1))
             let point = oldGutter.convert(NSPoint(x: button.midX, y: button.midY), to: nil)
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
@@ -387,7 +610,7 @@ extension InlineAnnotationEditorTests {
             #expect(anchor.side == "old" && anchor.startLine == 2)
             try await Task.sleep(for: .milliseconds(400))
             try assertAligned()
-            #expect(old.textView.layoutManager.blockHeights[2, default: 0] > 60)
+            #expect(old.textView.layoutManager.blockHeights[1, default: 0] > 60)
             model.layout = .unified
             model.wrapLines = false
             try await Task.sleep(for: .milliseconds(450))

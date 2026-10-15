@@ -233,7 +233,7 @@ struct SelectionActions: NSViewRepresentable {
             panel.hasShadow = true
             panel.hidesOnDeactivate = true
             let content = Button { [weak self] in self?.dismiss(); self?.quote(text) } label: {
-                Label("Quote", systemImage: "text.quote").padding(.horizontal, 12).padding(.vertical, 9)
+                Label("Quote", icon: .quotes).padding(.horizontal, 12).padding(.vertical, 9)
             }.buttonStyle(.plain).font(.kit(size: 12))
                 .foregroundStyle(theme.text).background(theme.raised, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.border))

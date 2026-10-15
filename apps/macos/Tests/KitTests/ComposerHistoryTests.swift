@@ -36,14 +36,14 @@ struct ComposerHistoryTests {
     @Test func historyPanelFitsVisibleRowsAndKeepsItsBottomAnchoredToComposer() {
         let composer = NSRect(x: 40, y: 100, width: 300, height: 60)
         let screen = NSRect(x: 0, y: 0, width: 800, height: 900)
-        for (rows, expectedHeight) in [(0, 106), (1, 106), (2, 148), (6, 316), (10, 316)] {
+        for (rows, expectedHeight) in [(0, 80), (1, 80), (2, 122), (6, 290), (10, 290)] {
             let height = ComposerMentionPanel.historyHeight(rows: rows, hasError: false)
             #expect(height == CGFloat(expectedHeight))
             let frame = ComposerMentionPanel.frame(above: composer, height: height, screen: screen)
             #expect(frame == NSRect(x: 40, y: 166, width: 300, height: CGFloat(expectedHeight)))
         }
-        #expect(ComposerMentionPanel.historyHeight(rows: 0, hasError: true) == 136)
-        #expect(ComposerMentionPanel.historyHeight(rows: 10, hasError: true) == 346)
+        #expect(ComposerMentionPanel.historyHeight(rows: 0, hasError: true) == 110)
+        #expect(ComposerMentionPanel.historyHeight(rows: 10, hasError: true) == 320)
     }
 
     @Test func recentsPaintOldestAboveNewestAndUpMovesOlderWithoutWrapping() async throws {

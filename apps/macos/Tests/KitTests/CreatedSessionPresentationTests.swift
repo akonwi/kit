@@ -61,10 +61,17 @@ struct CreatedSessionPresentationTests {
             defer { window.close() }
             try await Task.sleep(for: .milliseconds(200))
             host.layoutSubtreeIfNeeded()
+            // Size the host to its content so the whole render is captured.
+            host.frame = NSRect(origin: .zero, size: host.fittingSize)
+            host.layoutSubtreeIfNeeded()
             let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: bitmap)
             // Flat tool details share the transcript surface in both appearances.
-            let actual = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 4)?.usingColorSpace(.deviceRGB))
+            // Details span the full width, so a card fill would reach their
+            // trailing edge, where the left-aligned text never does.
+            let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+            let actual = try #require(bitmap.colorAt(x: Int((host.bounds.width - 40) * scale),
+                                                     y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB))
             let expected = try #require(NSColor(theme.surface).usingColorSpace(.deviceRGB))
             #expect(abs(actual.redComponent - expected.redComponent) < 0.02)
             #expect(abs(actual.greenComponent - expected.greenComponent) < 0.02)

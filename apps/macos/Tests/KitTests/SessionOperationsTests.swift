@@ -56,7 +56,10 @@ private actor MutationStub: SessionMutationClient {
         queue = WireFollowUpQueue(count: 0, previews: [], annotationIds: nil)
         return WireRestoreFollowUpsResult(messages: [WirePromptInput(text: "Restored", attachmentIds: ["attachment"], annotationIds: nil)], queue: queue)
     }
+    var promotions = 0
+    func queueFollowUp(_ preview: String) { queue = WireFollowUpQueue(count: 1, previews: [preview], annotationIds: nil) }
     func promoteFollowUps(_ session: String) async throws -> WirePromoteFollowUpsResult {
+        promotions += 1
         queue = WireFollowUpQueue(count: 0, previews: [], annotationIds: nil)
         return WirePromoteFollowUpsResult(promoted: 1, queue: queue)
     }
@@ -220,6 +223,19 @@ private actor MutationStub: SessionMutationClient {
         #expect(state.ui.serverAttachmentIDs == ["attachment"])
         #expect(state.operations.queue?.count == 0)
     }
+    @Test func returnInAnEmptyComposerSendsTheQueueToTheRunningTurn() async throws {
+        let client = MutationStub()
+        await client.beginRun()
+        await client.queueFollowUp("Also run the split tree tests")
+        let state = try await store(client)
+        defer { state.detach() }
+        try await wait { state.operations.queue?.count == 1 }
+        state.ui.draft = "  "
+        state.send()
+        try await wait { await client.promotions == 1 }
+        try await wait { state.operations.queue?.count == 0 }
+        #expect(await client.calls.isEmpty)
+    }
     @Test func queuedReceiptBecomesSentOnceItsTurnIsObserved() async throws {
         let client = MutationStub()
         let operations = SessionOperations()
@@ -283,7 +299,6 @@ private actor MutationStub: SessionMutationClient {
             let view = VStack(spacing: 12) {
                 Spacer(minLength: 0)
                 ComposerView(state: state)
-                SessionFooter(state: state)
             }.environment(\.mica, theme).environment(\.colorScheme, dark ? .dark : .light)
                 .foregroundStyle(theme.text).background(theme.surface).frame(width: 840, height: 320)
             let host = NSHostingView(rootView: view)
@@ -308,8 +323,8 @@ private actor MutationStub: SessionMutationClient {
 
     @Test func retryCountdownUsesServerDeadline() {
         let now = Date(timeIntervalSince1970: 0)
-        #expect(SessionFooter.secondsRemaining("1970-01-01T00:00:05.500Z", now: now) == 6)
-        #expect(SessionFooter.secondsRemaining("1970-01-01T00:00:05Z", now: now.addingTimeInterval(10)) == 0)
+        #expect(ActivityLine.secondsRemaining("1970-01-01T00:00:05.500Z", now: now) == 6)
+        #expect(ActivityLine.secondsRemaining("1970-01-01T00:00:05Z", now: now.addingTimeInterval(10)) == 0)
     }
 }
 

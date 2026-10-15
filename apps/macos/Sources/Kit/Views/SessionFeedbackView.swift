@@ -1,5 +1,17 @@
 import SwiftUI
 
+/// Toast metrics from Paper's "Explore · toasts" board.
+enum ToastMetrics {
+    static let width: CGFloat = 360
+    /// A toast showing a reload report widens while it is open.
+    static let reportWidth: CGFloat = 560
+    static let spacing: CGFloat = 8
+    /// The stack folds from this many toasts.
+    static let foldCount = 5
+    static let listedHeight: CGFloat = 420
+    static let detailHeight: CGFloat = 220
+}
+
 /// Session-owned feedback floats over the workspace rather than resizing the composer.
 struct SessionFeedbackView: View {
     @Environment(\.mica) private var theme
@@ -17,40 +29,42 @@ struct SessionFeedbackView: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 0) {
-            if newestFirst.count >= 5 && !expanded {
+            if newestFirst.count >= ToastMetrics.foldCount && !expanded {
                 foldedStack
             } else if !newestFirst.isEmpty {
                 if expanded {
                     HStack {
                         Text("\(newestFirst.count) in this session").foregroundStyle(theme.muted)
                         Spacer()
-                        Button("Collapse", systemImage: "chevron.up") {
-                            expanded = false; expandedReportID = nil
+                        Button { expanded = false; expandedReportID = nil } label: {
+                            HStack(spacing: 4) {
+                                Text("Collapse")
+                                IconView(.caretUp, size: 10)
+                            }
                         }
-                            .labelStyle(.titleAndIcon).buttonStyle(.plain).foregroundStyle(theme.accent)
-                            .focused($stackControlFocused)
-                    }.font(.kit(size: 11)).padding(.horizontal, 4).padding(.bottom, 8)
-                }
-                if expanded {
+                        .buttonStyle(.plain).foregroundStyle(theme.muted)
+                        .focused($stackControlFocused)
+                    }.font(.kit(size: 12)).padding(.horizontal, 2).padding(.bottom, ToastMetrics.spacing)
                     ScrollView { toastRows }
-                        .frame(maxHeight: 420)
+                        .scrollIndicators(.never)
+                        .frame(maxHeight: ToastMetrics.listedHeight)
                 } else {
                     toastRows
                 }
             }
         }
-        .frame(width: expandedReportID == nil ? 360 : 568, alignment: .topTrailing)
+        .frame(width: expandedReportID == nil ? ToastMetrics.width : ToastMetrics.reportWidth, alignment: .topTrailing)
         .foregroundStyle(theme.text)
         .onHover { hovered = $0 }
         .onExitCommand {
             if expanded && (stackControlFocused || !focusedIDs.isEmpty) {
                 expanded = false
                 expandedReportID = nil
-                stackControlFocused = true // Move focus to the folded Expand control.
+                stackControlFocused = true // Move focus to the folded count.
             }
         }
         .onChange(of: newestFirst.map(\.id)) { _, ids in
-            if ids.count < 5 { expanded = false }
+            if ids.count < ToastMetrics.foldCount { expanded = false }
             focusedIDs.formIntersection(ids)
             if let expandedReportID, !ids.contains(expandedReportID) { self.expandedReportID = nil }
         }
@@ -70,47 +84,67 @@ struct SessionFeedbackView: View {
     }
 
     private var toastRows: some View {
-        LazyVStack(alignment: .trailing, spacing: 8) {
+        LazyVStack(alignment: .trailing, spacing: ToastMetrics.spacing) {
             ForEach(newestFirst) { item in
-                SessionFeedbackCard(item: item, close: { feedback.dismiss(item.id) },
-                                    stackExpanded: expanded,
-                                    reportExpanded: expandedReportID == item.id,
-                                    setReportExpanded: { expandedReportID = $0 ? item.id : nil },
-                                    focusChanged: { setFocused(item.id, $0) })
-                    .frame(width: expandedReportID == item.id ? 564 : 356)
-            }
-        }.padding(.trailing, 4).padding(.bottom, 3)
-    }
-
-    private var foldedStack: some View {
-        Button { expanded = true } label: {
-            ZStack(alignment: .top) {
-                RoundedRectangle(cornerRadius: 9).fill(theme.raised)
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(theme.border))
-                    .frame(height: 74).padding(.horizontal, 8).offset(y: 14)
-                RoundedRectangle(cornerRadius: 9).fill(theme.raised)
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(theme.border))
-                    .frame(height: 74).padding(.horizontal, 4).offset(y: 7)
-                if let item = newestFirst.first {
-                    SessionFeedbackCard(item: item, close: {}, interactive: false)
-                }
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.bottom, 15)
-            .overlay(alignment: .bottomTrailing) {
-                Text("+\(newestFirst.count - 1)")
-                    .font(.kit(size: 11, weight: .medium))
-                    .padding(.horizontal, 9).padding(.vertical, 4)
-                    .background(theme.hover, in: Capsule())
-                    .overlay(Capsule().stroke(theme.border))
+                card(item)
             }
         }
-        .buttonStyle(.plain).focused($stackControlFocused)
-        .accessibilityLabel("Expand \(newestFirst.count) session toasts; newest: \(newestFirst.first?.title ?? "")")
+    }
+
+    private func card(_ item: SessionFeedback.Item) -> some View {
+        SessionFeedbackCard(item: item, close: { feedback.dismiss(item.id) },
+                            stackExpanded: expanded,
+                            reportExpanded: expandedReportID == item.id,
+                            setReportExpanded: { expandedReportID = $0 ? item.id : nil },
+                            focusChanged: { setFocused(item.id, $0) })
+            .frame(width: expandedReportID == item.id ? ToastMetrics.reportWidth : ToastMetrics.width)
+    }
+
+    /// The newest toast with two card edges below it, then a count that
+    /// lists the whole stack.
+    private var foldedStack: some View {
+        VStack(alignment: .trailing, spacing: ToastMetrics.spacing) {
+            if let item = newestFirst.first {
+                VStack(spacing: 0) {
+                    card(item)
+                    ToastEdge(inset: 6).opacity(0.85).zIndex(-1)
+                    ToastEdge(inset: 12).opacity(0.6).zIndex(-2)
+                }
+            }
+            Button { expanded = true } label: {
+                HStack(spacing: 6) {
+                    Text("\(newestFirst.count - 1) more").foregroundStyle(theme.text)
+                    IconView(.caretDown, size: 10)
+                        .foregroundStyle(theme.muted)
+                }
+                .font(.kit(size: 12)).padding(.horizontal, 8).frame(height: 22)
+                .background(theme.raised, in: RoundedRectangle(cornerRadius: 3))
+                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).focused($stackControlFocused)
+            .accessibilityLabel("List \(newestFirst.count) session toasts; newest: \(newestFirst.first?.title ?? "")")
+        }
     }
 
     private func setFocused(_ id: UUID, _ focused: Bool) {
         if focused { focusedIDs.insert(id) } else { focusedIDs.remove(id) }
+    }
+}
+
+/// The lower edge of a card folded under the newest toast.
+private struct ToastEdge: View {
+    @Environment(\.mica) private var theme
+    let inset: CGFloat
+
+    var body: some View {
+        UnevenRoundedRectangle(bottomLeadingRadius: 4, bottomTrailingRadius: 4)
+            .fill(theme.surface)
+            .overlay(UnevenRoundedRectangle(bottomLeadingRadius: 4, bottomTrailingRadius: 4)
+                .stroke(theme.border, lineWidth: 1))
+            .frame(height: 5)
+            .padding(.horizontal, inset)
+            .accessibilityHidden(true)
     }
 }
 
@@ -154,6 +188,8 @@ private struct SessionToastExpiry: View {
     }
 }
 
+/// One toast: a surface card with a border, icon, and title in its tone's
+/// colour, a two-line detail, and small actions.
 struct SessionFeedbackCard: View {
     @Environment(\.mica) private var theme
     let item: SessionFeedback.Item
@@ -164,61 +200,105 @@ struct SessionFeedbackCard: View {
     var setReportExpanded: (Bool) -> Void = { _ in }
     var focusChanged: (Bool) -> Void = { _ in }
     @State private var expanded = false
+    @State private var clampedHeight: CGFloat = 0
+    @State private var fullHeight: CGFloat = 0
     @FocusState private var focused: Bool
+
     private var color: Color {
         switch item.tone { case .info: theme.accent; case .warning: theme.warning; case .error: theme.danger }
     }
-    private var symbol: String {
-        switch item.tone { case .info: "checkmark.circle"; case .warning: "exclamationmark.triangle"; case .error: "exclamationmark.circle" }
+    private var icon: Icon {
+        switch item.tone { case .info: .info; case .warning: .warning; case .error: .warningCircle }
     }
     private var isExpanded: Bool { item.reloadReport == nil ? expanded : reportExpanded }
+    /// Details appear only when there is more to read than the two lines.
+    private var hasMore: Bool { item.reloadReport != nil || fullHeight > clampedHeight + 1 }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 11) {
-            Image(systemName: symbol).foregroundStyle(color).padding(.top, 2).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(item.title).font(.kit(size: 13, weight: .medium))
+        HStack(alignment: .top, spacing: 10) {
+            IconView(icon).foregroundStyle(color)
+                .frame(height: 16)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(item.title).font(.kit(size: 13, weight: .medium)).foregroundStyle(color)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if let source = item.source {
+                        Text(source).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
+                            .lineLimit(1)
+                    }
+                }
                 if let report = item.reloadReport, isExpanded {
                     SessionReloadEvidenceView(report: report, outerScrollable: stackExpanded)
                 } else if !item.detail.isEmpty {
-                    Group {
-                        if isExpanded {
-                            ScrollView {
-                                Text(item.detail).frame(maxWidth: .infinity, alignment: .leading)
-                                    .textSelection(.enabled)
-                            }.frame(maxHeight: 220)
-                        } else {
-                            Text(String(item.detail.prefix { $0 != "\n" }))
-                                .lineLimit(2).textSelection(.enabled)
-                        }
-                    }.font(.kit(size: 12)).foregroundStyle(theme.muted)
+                    detail
                 }
-                if interactive {
-                    HStack(spacing: 14) {
-                        if let title = item.actionTitle, let action = item.action {
-                            Button(title, action: action).focused($focused)
-                        }
-                        if item.reloadReport != nil && isExpanded { Spacer(minLength: 0) }
-                        if item.persistent && !item.detail.isEmpty {
-                            Button(isExpanded ? "Less detail" : "View details") {
-                                if item.reloadReport != nil { setReportExpanded(!reportExpanded) }
-                                else { expanded.toggle() }
-                            }.focused($focused)
-                        }
-                    }.font(.kit(size: 12)).foregroundStyle(theme.accent).buttonStyle(.plain)
+                if interactive && (item.action != nil || (hasMore && !item.detail.isEmpty)) {
+                    actions.padding(.top, 4)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
-            if interactive && item.persistent {
-                Button(action: close) { Image(systemName: "xmark").font(.kit(size: 11)).foregroundStyle(theme.muted) }
-                    .buttonStyle(.plain).frame(width: 24, height: 24).focused($focused)
-                    .accessibilityLabel("Acknowledge \(item.title)")
+            if interactive {
+                Button(action: close) {
+                    IconView(.x, size: 10).foregroundStyle(theme.muted)
+                        .frame(width: 18, height: 16).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).focused($focused)
+                .accessibilityLabel(item.persistent ? "Acknowledge \(item.title)" : "Dismiss \(item.title)")
             }
         }
-        .padding(14).background(theme.raised, in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(theme.border, lineWidth: 1))
+        .padding(.top, 11).padding(.leading, 12).padding(.trailing, 8).padding(.bottom, 12)
+        .background(theme.surface, in: RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(color, lineWidth: 1))
+        .shadow(color: .black.opacity(theme.dark ? 0.45 : 0.15), radius: 12, y: 8)
         .onChange(of: focused) { _, value in focusChanged(value) }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(item.title). \(item.reloadReport?.accessibilityDetail ?? item.detail)")
+        .accessibilityLabel("\(item.title)\(item.source.map { ", from " + $0 } ?? ""). \(item.reloadReport?.accessibilityDetail ?? item.detail)")
+    }
+
+    /// Two lines, or the whole text once opened, scrolling past 220 pt.
+    private var detail: some View {
+        let text = Text(item.detail).font(.kit(size: 12)).lineSpacing(2).foregroundStyle(theme.muted)
+            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+        return Group {
+            if isExpanded && fullHeight > ToastMetrics.detailHeight {
+                ScrollView { text.fixedSize(horizontal: false, vertical: true) }
+                    .frame(height: ToastMetrics.detailHeight)
+            } else {
+                text.lineLimit(isExpanded ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGFloat.self, of: \.size.height) { if !isExpanded { clampedHeight = $0 } }
+            }
+        }
+        .background(alignment: .topLeading) {
+            // The unclamped text, measured at the same width, tells whether
+            // the two visible lines hide any more.
+            Text(item.detail).font(.kit(size: 12)).lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .hidden()
+                .onGeometryChange(for: CGFloat.self, of: \.size.height) { fullHeight = $0 }
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 8) {
+            if let title = item.actionTitle, let action = item.action {
+                // Acting on a toast resolves it.
+                Button(title) { action(); close() }
+                    .buttonStyle(SmallButtonStyle(bordered: true)).focused($focused)
+            }
+            if hasMore && !item.detail.isEmpty {
+                Button {
+                    if item.reloadReport != nil { setReportExpanded(!reportExpanded) } else { expanded.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(isExpanded ? "Less" : "Details")
+                        IconView(isExpanded ? .caretUp : .caretDown, size: 10)
+                    }
+                    .font(.kit(size: 12)).foregroundStyle(theme.muted).frame(height: 22).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).focused($focused)
+            }
+        }
     }
 }
 
@@ -273,8 +353,7 @@ struct SessionReloadEvidenceView: View {
                 Divider().overlay(theme.border)
                 Button { sourcesExpanded.toggle() } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: sourcesExpanded ? "chevron.down" : "chevron.right")
-                            .font(.kit(size: 9))
+                        IconView(sourcesExpanded ? .caretDown : .caretRight, size: 10)
                         Text("Loaded sources (\(report.sources.count))")
                         Spacer()
                         Text(sourcesExpanded ? "Hide" : "Show")

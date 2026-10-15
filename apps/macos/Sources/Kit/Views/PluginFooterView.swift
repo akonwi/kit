@@ -1,24 +1,20 @@
 import SwiftUI
 
-/// Only the right-hand footer is configurable; session controls and status remain
-/// outside this region. Overflow opens the complete styled content in a popover.
+/// Plugin footer items, shown at the trailing end of the session bar.
+/// Overflow opens the complete styled content in a popover.
 struct PluginFooterView: View {
     @Environment(\.mica) private var theme
     let session: SessionExcerpt?
     @State private var showingOverflow = false
     private var items: [WirePluginFooterItem] { session?.pluginFooter?.items ?? [] }
-    private var hideLocation: Bool { session?.pluginFooter?.locationHidden == true }
     var body: some View {
         Group {
-            if items.isEmpty {
-                if !hideLocation { WorkspaceLocation(session: session) }
-            } else {
+            if !items.isEmpty {
                 ViewThatFits(in: .horizontal) {
                     // Prefer the largest ordered prefix that fits; an item
                     // never disappears merely because a later item is wide.
                     ForEach(Array((0...items.count).reversed()), id: \.self) { count in
                         HStack(spacing: 8) {
-                            if !hideLocation { WorkspaceLocation(session: session) }
                             if count > 0 {
                                 Text(Self.styledContent(items: Array(items.prefix(count)), theme: theme)).fixedSize()
                             }
@@ -27,12 +23,6 @@ struct PluginFooterView: View {
                             }
                         }.fixedSize()
                     }
-                    HStack(spacing: 8) {
-                        if !hideLocation { WorkspaceLocation(session: session) }
-                        overflowButton("… \(items.count) more").fixedSize().layoutPriority(1)
-                    }
-                    // Even the location-plus-label row can be too wide. Drop
-                    // location before allowing the count itself to truncate.
                     overflowButton("… \(items.count) more")
                         .lineLimit(1).truncationMode(.tail)
                 }
@@ -48,7 +38,7 @@ struct PluginFooterView: View {
     }
     private func overflowButton(_ label: String) -> some View {
         Button { showingOverflow = true } label: {
-            Text(label).font(.kit(size: 12))
+            Text(label).font(.kit(size: 11, design: .monospaced))
         }
         .buttonStyle(MicaButtonStyle(compact: true))
         .accessibilityLabel("Show all footer content")
@@ -66,7 +56,7 @@ struct PluginFooterView: View {
             for segment in item.content ?? [] {
                 var part = AttributedString(segment.text)
                 let style = segment.style
-                var font = Font.kit(size: 12, weight: style.bold == true ? .bold : .regular)
+                var font = Font.kit(size: 11, weight: style.bold == true ? .bold : .regular, design: .monospaced)
                 if style.italic == true { font = font.italic() }
                 part.font = font
                 let foreground = color(style.fg, fallback: theme.muted, theme: theme)
