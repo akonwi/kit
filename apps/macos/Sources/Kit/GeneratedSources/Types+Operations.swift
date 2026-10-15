@@ -2730,6 +2730,4739 @@ internal enum Operations {
             }
         }
     }
+    /// - Remark: HTTP `POST /v1/logins`.
+    /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)`.
+    internal enum StartProviderLogin {
+        internal static let id: Swift.String = "startProviderLogin"
+        internal struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/logins/POST/header`.
+            internal struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/header/X-Kit-Instance-ID`.
+                internal var xKitInstanceID: Swift.String
+                internal var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.StartProviderLogin.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - accept:
+                internal init(
+                    xKitInstanceID: Swift.String,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.StartProviderLogin.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.accept = accept
+                }
+            }
+            internal var headers: Operations.StartProviderLogin.Input.Headers
+            /// - Remark: Generated from `#/paths/v1/logins/POST/requestBody`.
+            internal enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.StartLoginInput)
+            }
+            internal var body: Operations.StartProviderLogin.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            internal init(
+                headers: Operations.StartProviderLogin.Input.Headers,
+                body: Operations.StartProviderLogin.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        internal enum Output: Sendable, Hashable {
+            internal struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/responses/201/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.ProviderLogin)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Components.Schemas.ProviderLogin {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartProviderLogin.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartProviderLogin.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.StartProviderLogin.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            internal var created: Operations.StartProviderLogin.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/responses/400/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/400/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/400/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/400/content/json/error/InvalidRequestError`.
+                            case invalidRequest(Components.Schemas.InvalidRequestError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_request":
+                                    self = .invalidRequest(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidRequest(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/400/content/json/error`.
+                        internal var error: Operations.StartProviderLogin.Output.BadRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartProviderLogin.Output.BadRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartProviderLogin.Output.BadRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/400/content/application\/json`.
+                    case json(Operations.StartProviderLogin.Output.BadRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartProviderLogin.Output.BadRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartProviderLogin.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartProviderLogin.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Bad Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.StartProviderLogin.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            internal var badRequest: Operations.StartProviderLogin.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/responses/401/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/401/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/401/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/401/content/json/error`.
+                        internal var error: Operations.StartProviderLogin.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartProviderLogin.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartProviderLogin.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/401/content/application\/json`.
+                    case json(Operations.StartProviderLogin.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartProviderLogin.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartProviderLogin.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartProviderLogin.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.StartProviderLogin.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            internal var unauthorized: Operations.StartProviderLogin.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/responses/403/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/403/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/403/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/403/content/json/error`.
+                        internal var error: Operations.StartProviderLogin.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartProviderLogin.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartProviderLogin.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/403/content/application\/json`.
+                    case json(Operations.StartProviderLogin.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartProviderLogin.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartProviderLogin.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartProviderLogin.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.StartProviderLogin.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            internal var forbidden: Operations.StartProviderLogin.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/responses/404/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/404/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/404/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/404/content/json/error/NotFoundError`.
+                            case notFound(Components.Schemas.NotFoundError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "not_found":
+                                    self = .notFound(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .notFound(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/404/content/json/error`.
+                        internal var error: Operations.StartProviderLogin.Output.NotFound.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartProviderLogin.Output.NotFound.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartProviderLogin.Output.NotFound.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/404/content/application\/json`.
+                    case json(Operations.StartProviderLogin.Output.NotFound.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartProviderLogin.Output.NotFound.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartProviderLogin.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartProviderLogin.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not Found
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.StartProviderLogin.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            internal var notFound: Operations.StartProviderLogin.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/responses/409/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/409/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/409/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/409/content/json/error/ConflictError`.
+                            case conflict(Components.Schemas.ConflictError)
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "conflict":
+                                    self = .conflict(try .init(from: decoder))
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .conflict(value):
+                                    try value.encode(to: encoder)
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/409/content/json/error`.
+                        internal var error: Operations.StartProviderLogin.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartProviderLogin.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartProviderLogin.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/409/content/application\/json`.
+                    case json(Operations.StartProviderLogin.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartProviderLogin.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartProviderLogin.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartProviderLogin.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.StartProviderLogin.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            internal var conflict: Operations.StartProviderLogin.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct ContentTooLarge: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/responses/413/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/413/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/413/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/413/content/json/error/LimitExceededError`.
+                            case limitExceeded(Components.Schemas.LimitExceededError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "limit_exceeded":
+                                    self = .limitExceeded(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .limitExceeded(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/413/content/json/error`.
+                        internal var error: Operations.StartProviderLogin.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartProviderLogin.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartProviderLogin.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/413/content/application\/json`.
+                    case json(Operations.StartProviderLogin.Output.ContentTooLarge.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartProviderLogin.Output.ContentTooLarge.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartProviderLogin.Output.ContentTooLarge.Body
+                /// Creates a new `ContentTooLarge`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartProviderLogin.Output.ContentTooLarge.Body) {
+                    self.body = body
+                }
+            }
+            /// Request Entity Too Large
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)/responses/413`.
+            ///
+            /// HTTP response code: `413 contentTooLarge`.
+            case contentTooLarge(Operations.StartProviderLogin.Output.ContentTooLarge)
+            /// The associated value of the enum case if `self` is `.contentTooLarge`.
+            ///
+            /// - Throws: An error if `self` is not `.contentTooLarge`.
+            /// - SeeAlso: `.contentTooLarge`.
+            internal var contentTooLarge: Operations.StartProviderLogin.Output.ContentTooLarge {
+                get throws {
+                    switch self {
+                    case let .contentTooLarge(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "contentTooLarge",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/responses/421/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/421/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/421/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/421/content/json/error`.
+                        internal var error: Operations.StartProviderLogin.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartProviderLogin.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartProviderLogin.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/421/content/application\/json`.
+                    case json(Operations.StartProviderLogin.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartProviderLogin.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartProviderLogin.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartProviderLogin.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.StartProviderLogin.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            internal var misdirectedRequest: Operations.StartProviderLogin.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/responses/426/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/426/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/426/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/426/content/json/error`.
+                        internal var error: Operations.StartProviderLogin.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartProviderLogin.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartProviderLogin.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/426/content/application\/json`.
+                    case json(Operations.StartProviderLogin.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartProviderLogin.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartProviderLogin.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartProviderLogin.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.StartProviderLogin.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            internal var upgradeRequired: Operations.StartProviderLogin.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/429/content/json/error/CapacityExceededError`.
+                            case capacityExceeded(Components.Schemas.CapacityExceededError)
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "capacity_exceeded":
+                                    self = .capacityExceeded(try .init(from: decoder))
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .capacityExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/429/content/json/error`.
+                        internal var error: Operations.StartProviderLogin.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartProviderLogin.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartProviderLogin.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/429/content/application\/json`.
+                    case json(Operations.StartProviderLogin.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartProviderLogin.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartProviderLogin.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartProviderLogin.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.StartProviderLogin.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.StartProviderLogin.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/responses/500/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/500/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/500/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/500/content/json/error`.
+                        internal var error: Operations.StartProviderLogin.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartProviderLogin.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartProviderLogin.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/500/content/application\/json`.
+                    case json(Operations.StartProviderLogin.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartProviderLogin.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartProviderLogin.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartProviderLogin.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.StartProviderLogin.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            internal var internalServerError: Operations.StartProviderLogin.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/POST/responses/503/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/503/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/503/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/POST/responses/503/content/json/error/UnavailableError`.
+                            case unavailable(Components.Schemas.UnavailableError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "unavailable":
+                                    self = .unavailable(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .unavailable(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/POST/responses/503/content/json/error`.
+                        internal var error: Operations.StartProviderLogin.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.StartProviderLogin.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.StartProviderLogin.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/POST/responses/503/content/application\/json`.
+                    case json(Operations.StartProviderLogin.Output.ServiceUnavailable.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.StartProviderLogin.Output.ServiceUnavailable.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.StartProviderLogin.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.StartProviderLogin.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// Service Unavailable
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.StartProviderLogin.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            internal var serviceUnavailable: Operations.StartProviderLogin.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        internal enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            internal init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            internal var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            internal static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// - Remark: HTTP `GET /v1/logins/{loginID}`.
+    /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)`.
+    internal enum GetProviderLogin {
+        internal static let id: Swift.String = "getProviderLogin"
+        internal struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/path`.
+            internal struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/path/loginID`.
+                internal var loginID: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - loginID:
+                internal init(loginID: Swift.String) {
+                    self.loginID = loginID
+                }
+            }
+            internal var path: Operations.GetProviderLogin.Input.Path
+            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/query`.
+            internal struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/query/waitSeconds`.
+                internal var waitSeconds: Swift.Int?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - waitSeconds:
+                internal init(waitSeconds: Swift.Int? = nil) {
+                    self.waitSeconds = waitSeconds
+                }
+            }
+            internal var query: Operations.GetProviderLogin.Input.Query
+            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/header`.
+            internal struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/header/X-Kit-Instance-ID`.
+                internal var xKitInstanceID: Swift.String
+                internal var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetProviderLogin.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - accept:
+                internal init(
+                    xKitInstanceID: Swift.String,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetProviderLogin.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.accept = accept
+                }
+            }
+            internal var headers: Operations.GetProviderLogin.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - query:
+            ///   - headers:
+            internal init(
+                path: Operations.GetProviderLogin.Input.Path,
+                query: Operations.GetProviderLogin.Input.Query = .init(),
+                headers: Operations.GetProviderLogin.Input.Headers
+            ) {
+                self.path = path
+                self.query = query
+                self.headers = headers
+            }
+        }
+        internal enum Output: Sendable, Hashable {
+            internal struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/200/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ProviderLogin)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Components.Schemas.ProviderLogin {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetProviderLogin.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetProviderLogin.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetProviderLogin.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            internal var ok: Operations.GetProviderLogin.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/400/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/400/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/400/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/400/content/json/error/InvalidRequestError`.
+                            case invalidRequest(Components.Schemas.InvalidRequestError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_request":
+                                    self = .invalidRequest(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidRequest(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/400/content/json/error`.
+                        internal var error: Operations.GetProviderLogin.Output.BadRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetProviderLogin.Output.BadRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetProviderLogin.Output.BadRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/400/content/application\/json`.
+                    case json(Operations.GetProviderLogin.Output.BadRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetProviderLogin.Output.BadRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetProviderLogin.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetProviderLogin.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Bad Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.GetProviderLogin.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            internal var badRequest: Operations.GetProviderLogin.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/401/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/401/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/401/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/401/content/json/error`.
+                        internal var error: Operations.GetProviderLogin.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetProviderLogin.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetProviderLogin.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/401/content/application\/json`.
+                    case json(Operations.GetProviderLogin.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetProviderLogin.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetProviderLogin.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetProviderLogin.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.GetProviderLogin.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            internal var unauthorized: Operations.GetProviderLogin.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/403/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/403/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/403/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/403/content/json/error`.
+                        internal var error: Operations.GetProviderLogin.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetProviderLogin.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetProviderLogin.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/403/content/application\/json`.
+                    case json(Operations.GetProviderLogin.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetProviderLogin.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetProviderLogin.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetProviderLogin.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.GetProviderLogin.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            internal var forbidden: Operations.GetProviderLogin.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/404/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/404/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/404/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/404/content/json/error/NotFoundError`.
+                            case notFound(Components.Schemas.NotFoundError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "not_found":
+                                    self = .notFound(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .notFound(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/404/content/json/error`.
+                        internal var error: Operations.GetProviderLogin.Output.NotFound.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetProviderLogin.Output.NotFound.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetProviderLogin.Output.NotFound.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/404/content/application\/json`.
+                    case json(Operations.GetProviderLogin.Output.NotFound.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetProviderLogin.Output.NotFound.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetProviderLogin.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetProviderLogin.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not Found
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.GetProviderLogin.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            internal var notFound: Operations.GetProviderLogin.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/409/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/409/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/409/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/409/content/json/error`.
+                        internal var error: Operations.GetProviderLogin.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetProviderLogin.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetProviderLogin.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/409/content/application\/json`.
+                    case json(Operations.GetProviderLogin.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetProviderLogin.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetProviderLogin.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetProviderLogin.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.GetProviderLogin.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            internal var conflict: Operations.GetProviderLogin.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/421/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/421/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/421/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/421/content/json/error`.
+                        internal var error: Operations.GetProviderLogin.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetProviderLogin.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetProviderLogin.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/421/content/application\/json`.
+                    case json(Operations.GetProviderLogin.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetProviderLogin.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetProviderLogin.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetProviderLogin.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.GetProviderLogin.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            internal var misdirectedRequest: Operations.GetProviderLogin.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/426/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/426/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/426/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/426/content/json/error`.
+                        internal var error: Operations.GetProviderLogin.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetProviderLogin.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetProviderLogin.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/426/content/application\/json`.
+                    case json(Operations.GetProviderLogin.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetProviderLogin.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetProviderLogin.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetProviderLogin.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.GetProviderLogin.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            internal var upgradeRequired: Operations.GetProviderLogin.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/429/content/json/error`.
+                        internal var error: Operations.GetProviderLogin.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetProviderLogin.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetProviderLogin.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/429/content/application\/json`.
+                    case json(Operations.GetProviderLogin.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetProviderLogin.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetProviderLogin.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetProviderLogin.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.GetProviderLogin.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.GetProviderLogin.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/500/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/500/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/500/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/500/content/json/error`.
+                        internal var error: Operations.GetProviderLogin.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetProviderLogin.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetProviderLogin.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/500/content/application\/json`.
+                    case json(Operations.GetProviderLogin.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetProviderLogin.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetProviderLogin.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetProviderLogin.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.GetProviderLogin.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            internal var internalServerError: Operations.GetProviderLogin.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/503/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/503/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/503/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/503/content/json/error/UnavailableError`.
+                            case unavailable(Components.Schemas.UnavailableError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "unavailable":
+                                    self = .unavailable(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .unavailable(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/503/content/json/error`.
+                        internal var error: Operations.GetProviderLogin.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.GetProviderLogin.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.GetProviderLogin.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/GET/responses/503/content/application\/json`.
+                    case json(Operations.GetProviderLogin.Output.ServiceUnavailable.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.GetProviderLogin.Output.ServiceUnavailable.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.GetProviderLogin.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.GetProviderLogin.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// Service Unavailable
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetProviderLogin.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            internal var serviceUnavailable: Operations.GetProviderLogin.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        internal enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            internal init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            internal var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            internal static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// - Remark: HTTP `DELETE /v1/logins/{loginID}`.
+    /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)`.
+    internal enum CancelProviderLogin {
+        internal static let id: Swift.String = "cancelProviderLogin"
+        internal struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/path`.
+            internal struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/path/loginID`.
+                internal var loginID: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - loginID:
+                internal init(loginID: Swift.String) {
+                    self.loginID = loginID
+                }
+            }
+            internal var path: Operations.CancelProviderLogin.Input.Path
+            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/header`.
+            internal struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/header/X-Kit-Instance-ID`.
+                internal var xKitInstanceID: Swift.String
+                internal var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CancelProviderLogin.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - accept:
+                internal init(
+                    xKitInstanceID: Swift.String,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CancelProviderLogin.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.accept = accept
+                }
+            }
+            internal var headers: Operations.CancelProviderLogin.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            internal init(
+                path: Operations.CancelProviderLogin.Input.Path,
+                headers: Operations.CancelProviderLogin.Input.Headers
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        internal enum Output: Sendable, Hashable {
+            internal struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                internal init() {}
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.CancelProviderLogin.Output.NoContent)
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            internal static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            internal var noContent: Operations.CancelProviderLogin.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/401/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/401/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/401/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/401/content/json/error`.
+                        internal var error: Operations.CancelProviderLogin.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CancelProviderLogin.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CancelProviderLogin.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/401/content/application\/json`.
+                    case json(Operations.CancelProviderLogin.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CancelProviderLogin.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CancelProviderLogin.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CancelProviderLogin.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.CancelProviderLogin.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            internal var unauthorized: Operations.CancelProviderLogin.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/403/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/403/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/403/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/403/content/json/error`.
+                        internal var error: Operations.CancelProviderLogin.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CancelProviderLogin.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CancelProviderLogin.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/403/content/application\/json`.
+                    case json(Operations.CancelProviderLogin.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CancelProviderLogin.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CancelProviderLogin.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CancelProviderLogin.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.CancelProviderLogin.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            internal var forbidden: Operations.CancelProviderLogin.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/404/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/404/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/404/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/404/content/json/error/NotFoundError`.
+                            case notFound(Components.Schemas.NotFoundError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "not_found":
+                                    self = .notFound(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .notFound(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/404/content/json/error`.
+                        internal var error: Operations.CancelProviderLogin.Output.NotFound.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CancelProviderLogin.Output.NotFound.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CancelProviderLogin.Output.NotFound.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/404/content/application\/json`.
+                    case json(Operations.CancelProviderLogin.Output.NotFound.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CancelProviderLogin.Output.NotFound.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CancelProviderLogin.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CancelProviderLogin.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not Found
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.CancelProviderLogin.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            internal var notFound: Operations.CancelProviderLogin.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/409/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/409/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/409/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/409/content/json/error`.
+                        internal var error: Operations.CancelProviderLogin.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CancelProviderLogin.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CancelProviderLogin.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/409/content/application\/json`.
+                    case json(Operations.CancelProviderLogin.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CancelProviderLogin.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CancelProviderLogin.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CancelProviderLogin.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.CancelProviderLogin.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            internal var conflict: Operations.CancelProviderLogin.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/421/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/421/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/421/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/421/content/json/error`.
+                        internal var error: Operations.CancelProviderLogin.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CancelProviderLogin.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CancelProviderLogin.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/421/content/application\/json`.
+                    case json(Operations.CancelProviderLogin.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CancelProviderLogin.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CancelProviderLogin.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CancelProviderLogin.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.CancelProviderLogin.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            internal var misdirectedRequest: Operations.CancelProviderLogin.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/426/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/426/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/426/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/426/content/json/error`.
+                        internal var error: Operations.CancelProviderLogin.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CancelProviderLogin.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CancelProviderLogin.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/426/content/application\/json`.
+                    case json(Operations.CancelProviderLogin.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CancelProviderLogin.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CancelProviderLogin.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CancelProviderLogin.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.CancelProviderLogin.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            internal var upgradeRequired: Operations.CancelProviderLogin.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/429/content/json/error`.
+                        internal var error: Operations.CancelProviderLogin.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CancelProviderLogin.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CancelProviderLogin.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/429/content/application\/json`.
+                    case json(Operations.CancelProviderLogin.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CancelProviderLogin.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CancelProviderLogin.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CancelProviderLogin.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.CancelProviderLogin.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.CancelProviderLogin.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/500/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/500/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/500/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/500/content/json/error`.
+                        internal var error: Operations.CancelProviderLogin.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.CancelProviderLogin.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.CancelProviderLogin.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/DELETE/responses/500/content/application\/json`.
+                    case json(Operations.CancelProviderLogin.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.CancelProviderLogin.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.CancelProviderLogin.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.CancelProviderLogin.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.CancelProviderLogin.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            internal var internalServerError: Operations.CancelProviderLogin.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        internal enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            internal init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            internal var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            internal static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// - Remark: HTTP `POST /v1/logins/{loginID}/authorization`.
+    /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)`.
+    internal enum SubmitProviderLoginAuthorization {
+        internal static let id: Swift.String = "submitProviderLoginAuthorization"
+        internal struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/path`.
+            internal struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/path/loginID`.
+                internal var loginID: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - loginID:
+                internal init(loginID: Swift.String) {
+                    self.loginID = loginID
+                }
+            }
+            internal var path: Operations.SubmitProviderLoginAuthorization.Input.Path
+            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/header`.
+            internal struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/header/X-Kit-Instance-ID`.
+                internal var xKitInstanceID: Swift.String
+                internal var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SubmitProviderLoginAuthorization.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - accept:
+                internal init(
+                    xKitInstanceID: Swift.String,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SubmitProviderLoginAuthorization.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.accept = accept
+                }
+            }
+            internal var headers: Operations.SubmitProviderLoginAuthorization.Input.Headers
+            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/requestBody`.
+            internal enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.LoginAuthorizationInput)
+            }
+            internal var body: Operations.SubmitProviderLoginAuthorization.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            internal init(
+                path: Operations.SubmitProviderLoginAuthorization.Input.Path,
+                headers: Operations.SubmitProviderLoginAuthorization.Input.Headers,
+                body: Operations.SubmitProviderLoginAuthorization.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        internal enum Output: Sendable, Hashable {
+            internal struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                internal init() {}
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.SubmitProviderLoginAuthorization.Output.NoContent)
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            internal static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            internal var noContent: Operations.SubmitProviderLoginAuthorization.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/400/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/400/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/400/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/400/content/json/error/InvalidRequestError`.
+                            case invalidRequest(Components.Schemas.InvalidRequestError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_request":
+                                    self = .invalidRequest(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidRequest(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/400/content/json/error`.
+                        internal var error: Operations.SubmitProviderLoginAuthorization.Output.BadRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SubmitProviderLoginAuthorization.Output.BadRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SubmitProviderLoginAuthorization.Output.BadRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/400/content/application\/json`.
+                    case json(Operations.SubmitProviderLoginAuthorization.Output.BadRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SubmitProviderLoginAuthorization.Output.BadRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SubmitProviderLoginAuthorization.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SubmitProviderLoginAuthorization.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Bad Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.SubmitProviderLoginAuthorization.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            internal var badRequest: Operations.SubmitProviderLoginAuthorization.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/401/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/401/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/401/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/401/content/json/error`.
+                        internal var error: Operations.SubmitProviderLoginAuthorization.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SubmitProviderLoginAuthorization.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SubmitProviderLoginAuthorization.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/401/content/application\/json`.
+                    case json(Operations.SubmitProviderLoginAuthorization.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SubmitProviderLoginAuthorization.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SubmitProviderLoginAuthorization.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SubmitProviderLoginAuthorization.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.SubmitProviderLoginAuthorization.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            internal var unauthorized: Operations.SubmitProviderLoginAuthorization.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/403/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/403/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/403/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/403/content/json/error`.
+                        internal var error: Operations.SubmitProviderLoginAuthorization.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SubmitProviderLoginAuthorization.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SubmitProviderLoginAuthorization.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/403/content/application\/json`.
+                    case json(Operations.SubmitProviderLoginAuthorization.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SubmitProviderLoginAuthorization.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SubmitProviderLoginAuthorization.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SubmitProviderLoginAuthorization.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.SubmitProviderLoginAuthorization.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            internal var forbidden: Operations.SubmitProviderLoginAuthorization.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/404/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/404/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/404/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/404/content/json/error/NotFoundError`.
+                            case notFound(Components.Schemas.NotFoundError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "not_found":
+                                    self = .notFound(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .notFound(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/404/content/json/error`.
+                        internal var error: Operations.SubmitProviderLoginAuthorization.Output.NotFound.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SubmitProviderLoginAuthorization.Output.NotFound.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SubmitProviderLoginAuthorization.Output.NotFound.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/404/content/application\/json`.
+                    case json(Operations.SubmitProviderLoginAuthorization.Output.NotFound.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SubmitProviderLoginAuthorization.Output.NotFound.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SubmitProviderLoginAuthorization.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SubmitProviderLoginAuthorization.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not Found
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.SubmitProviderLoginAuthorization.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            internal var notFound: Operations.SubmitProviderLoginAuthorization.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/409/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/409/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/409/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/409/content/json/error/ConflictError`.
+                            case conflict(Components.Schemas.ConflictError)
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "conflict":
+                                    self = .conflict(try .init(from: decoder))
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .conflict(value):
+                                    try value.encode(to: encoder)
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/409/content/json/error`.
+                        internal var error: Operations.SubmitProviderLoginAuthorization.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SubmitProviderLoginAuthorization.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SubmitProviderLoginAuthorization.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/409/content/application\/json`.
+                    case json(Operations.SubmitProviderLoginAuthorization.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SubmitProviderLoginAuthorization.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SubmitProviderLoginAuthorization.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SubmitProviderLoginAuthorization.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.SubmitProviderLoginAuthorization.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            internal var conflict: Operations.SubmitProviderLoginAuthorization.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct ContentTooLarge: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/413/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/413/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/413/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/413/content/json/error/LimitExceededError`.
+                            case limitExceeded(Components.Schemas.LimitExceededError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "limit_exceeded":
+                                    self = .limitExceeded(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .limitExceeded(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/413/content/json/error`.
+                        internal var error: Operations.SubmitProviderLoginAuthorization.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SubmitProviderLoginAuthorization.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SubmitProviderLoginAuthorization.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/413/content/application\/json`.
+                    case json(Operations.SubmitProviderLoginAuthorization.Output.ContentTooLarge.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SubmitProviderLoginAuthorization.Output.ContentTooLarge.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SubmitProviderLoginAuthorization.Output.ContentTooLarge.Body
+                /// Creates a new `ContentTooLarge`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SubmitProviderLoginAuthorization.Output.ContentTooLarge.Body) {
+                    self.body = body
+                }
+            }
+            /// Request Entity Too Large
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)/responses/413`.
+            ///
+            /// HTTP response code: `413 contentTooLarge`.
+            case contentTooLarge(Operations.SubmitProviderLoginAuthorization.Output.ContentTooLarge)
+            /// The associated value of the enum case if `self` is `.contentTooLarge`.
+            ///
+            /// - Throws: An error if `self` is not `.contentTooLarge`.
+            /// - SeeAlso: `.contentTooLarge`.
+            internal var contentTooLarge: Operations.SubmitProviderLoginAuthorization.Output.ContentTooLarge {
+                get throws {
+                    switch self {
+                    case let .contentTooLarge(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "contentTooLarge",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/421/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/421/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/421/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/421/content/json/error`.
+                        internal var error: Operations.SubmitProviderLoginAuthorization.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SubmitProviderLoginAuthorization.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SubmitProviderLoginAuthorization.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/421/content/application\/json`.
+                    case json(Operations.SubmitProviderLoginAuthorization.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SubmitProviderLoginAuthorization.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SubmitProviderLoginAuthorization.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SubmitProviderLoginAuthorization.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.SubmitProviderLoginAuthorization.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            internal var misdirectedRequest: Operations.SubmitProviderLoginAuthorization.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/426/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/426/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/426/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/426/content/json/error`.
+                        internal var error: Operations.SubmitProviderLoginAuthorization.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SubmitProviderLoginAuthorization.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SubmitProviderLoginAuthorization.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/426/content/application\/json`.
+                    case json(Operations.SubmitProviderLoginAuthorization.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SubmitProviderLoginAuthorization.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SubmitProviderLoginAuthorization.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SubmitProviderLoginAuthorization.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.SubmitProviderLoginAuthorization.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            internal var upgradeRequired: Operations.SubmitProviderLoginAuthorization.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/429/content/json/error`.
+                        internal var error: Operations.SubmitProviderLoginAuthorization.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SubmitProviderLoginAuthorization.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SubmitProviderLoginAuthorization.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/429/content/application\/json`.
+                    case json(Operations.SubmitProviderLoginAuthorization.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SubmitProviderLoginAuthorization.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SubmitProviderLoginAuthorization.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SubmitProviderLoginAuthorization.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.SubmitProviderLoginAuthorization.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.SubmitProviderLoginAuthorization.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/500/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/500/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/500/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/500/content/json/error`.
+                        internal var error: Operations.SubmitProviderLoginAuthorization.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SubmitProviderLoginAuthorization.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SubmitProviderLoginAuthorization.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/logins/{loginID}/authorization/POST/responses/500/content/application\/json`.
+                    case json(Operations.SubmitProviderLoginAuthorization.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SubmitProviderLoginAuthorization.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SubmitProviderLoginAuthorization.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SubmitProviderLoginAuthorization.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.SubmitProviderLoginAuthorization.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            internal var internalServerError: Operations.SubmitProviderLoginAuthorization.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        internal enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            internal init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            internal var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            internal static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// - Remark: HTTP `GET /v1/models`.
     /// - Remark: Generated from `#/paths//v1/models/get(listModels)`.
     internal enum ListModels {
@@ -6409,6 +11142,3069 @@ internal enum Operations {
             /// - Throws: An error if `self` is not `.internalServerError`.
             /// - SeeAlso: `.internalServerError`.
             internal var internalServerError: Operations.RedeemPairing.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        internal enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            internal init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            internal var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            internal static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// - Remark: HTTP `GET /v1/providers`.
+    /// - Remark: Generated from `#/paths//v1/providers/get(listProviders)`.
+    internal enum ListProviders {
+        internal static let id: Swift.String = "listProviders"
+        internal struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/providers/GET/header`.
+            internal struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/GET/header/X-Kit-Instance-ID`.
+                internal var xKitInstanceID: Swift.String
+                internal var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListProviders.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - accept:
+                internal init(
+                    xKitInstanceID: Swift.String,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListProviders.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.accept = accept
+                }
+            }
+            internal var headers: Operations.ListProviders.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            internal init(headers: Operations.ListProviders.Input.Headers) {
+                self.headers = headers
+            }
+        }
+        internal enum Output: Sendable, Hashable {
+            internal struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/GET/responses/200/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ProviderList)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Components.Schemas.ProviderList {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListProviders.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListProviders.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/get(listProviders)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListProviders.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            internal var ok: Operations.ListProviders.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/GET/responses/401/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/401/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/401/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/GET/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/providers/GET/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/401/content/json/error`.
+                        internal var error: Operations.ListProviders.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListProviders.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListProviders.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/401/content/application\/json`.
+                    case json(Operations.ListProviders.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListProviders.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListProviders.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListProviders.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/get(listProviders)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.ListProviders.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            internal var unauthorized: Operations.ListProviders.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/GET/responses/403/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/403/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/403/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/GET/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/403/content/json/error`.
+                        internal var error: Operations.ListProviders.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListProviders.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListProviders.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/403/content/application\/json`.
+                    case json(Operations.ListProviders.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListProviders.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListProviders.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListProviders.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/get(listProviders)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.ListProviders.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            internal var forbidden: Operations.ListProviders.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/GET/responses/409/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/409/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/409/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/GET/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/409/content/json/error`.
+                        internal var error: Operations.ListProviders.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListProviders.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListProviders.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/409/content/application\/json`.
+                    case json(Operations.ListProviders.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListProviders.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListProviders.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListProviders.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/get(listProviders)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.ListProviders.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            internal var conflict: Operations.ListProviders.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/GET/responses/421/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/421/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/421/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/GET/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/421/content/json/error`.
+                        internal var error: Operations.ListProviders.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListProviders.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListProviders.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/421/content/application\/json`.
+                    case json(Operations.ListProviders.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListProviders.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListProviders.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListProviders.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/get(listProviders)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.ListProviders.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            internal var misdirectedRequest: Operations.ListProviders.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/GET/responses/426/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/426/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/426/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/GET/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/426/content/json/error`.
+                        internal var error: Operations.ListProviders.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListProviders.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListProviders.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/426/content/application\/json`.
+                    case json(Operations.ListProviders.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListProviders.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListProviders.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListProviders.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/get(listProviders)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.ListProviders.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            internal var upgradeRequired: Operations.ListProviders.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/GET/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/GET/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/429/content/json/error`.
+                        internal var error: Operations.ListProviders.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListProviders.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListProviders.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/429/content/application\/json`.
+                    case json(Operations.ListProviders.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListProviders.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListProviders.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListProviders.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/get(listProviders)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.ListProviders.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.ListProviders.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/GET/responses/500/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/500/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/500/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/GET/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/GET/responses/500/content/json/error`.
+                        internal var error: Operations.ListProviders.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ListProviders.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ListProviders.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/GET/responses/500/content/application\/json`.
+                    case json(Operations.ListProviders.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ListProviders.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ListProviders.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ListProviders.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/get(listProviders)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.ListProviders.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            internal var internalServerError: Operations.ListProviders.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        internal enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            internal init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            internal var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            internal static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// - Remark: HTTP `PUT /v1/providers/{providerID}/api-key`.
+    /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)`.
+    internal enum SetProviderAPIKey {
+        internal static let id: Swift.String = "setProviderAPIKey"
+        internal struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/path`.
+            internal struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/path/providerID`.
+                internal var providerID: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - providerID:
+                internal init(providerID: Swift.String) {
+                    self.providerID = providerID
+                }
+            }
+            internal var path: Operations.SetProviderAPIKey.Input.Path
+            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/header`.
+            internal struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/header/X-Kit-Instance-ID`.
+                internal var xKitInstanceID: Swift.String
+                internal var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SetProviderAPIKey.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - accept:
+                internal init(
+                    xKitInstanceID: Swift.String,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SetProviderAPIKey.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.accept = accept
+                }
+            }
+            internal var headers: Operations.SetProviderAPIKey.Input.Headers
+            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/requestBody`.
+            internal enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/requestBody/content/application\/json`.
+                case json(Components.Schemas.ProviderAPIKeyInput)
+            }
+            internal var body: Operations.SetProviderAPIKey.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            internal init(
+                path: Operations.SetProviderAPIKey.Input.Path,
+                headers: Operations.SetProviderAPIKey.Input.Headers,
+                body: Operations.SetProviderAPIKey.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        internal enum Output: Sendable, Hashable {
+            internal struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                internal init() {}
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.SetProviderAPIKey.Output.NoContent)
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            internal static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            internal var noContent: Operations.SetProviderAPIKey.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/400/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/400/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/400/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/400/content/json/error/InvalidRequestError`.
+                            case invalidRequest(Components.Schemas.InvalidRequestError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_request":
+                                    self = .invalidRequest(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidRequest(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/400/content/json/error`.
+                        internal var error: Operations.SetProviderAPIKey.Output.BadRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SetProviderAPIKey.Output.BadRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SetProviderAPIKey.Output.BadRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/400/content/application\/json`.
+                    case json(Operations.SetProviderAPIKey.Output.BadRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SetProviderAPIKey.Output.BadRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SetProviderAPIKey.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SetProviderAPIKey.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Bad Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.SetProviderAPIKey.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            internal var badRequest: Operations.SetProviderAPIKey.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/401/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/401/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/401/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/401/content/json/error`.
+                        internal var error: Operations.SetProviderAPIKey.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SetProviderAPIKey.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SetProviderAPIKey.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/401/content/application\/json`.
+                    case json(Operations.SetProviderAPIKey.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SetProviderAPIKey.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SetProviderAPIKey.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SetProviderAPIKey.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.SetProviderAPIKey.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            internal var unauthorized: Operations.SetProviderAPIKey.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/403/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/403/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/403/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/403/content/json/error`.
+                        internal var error: Operations.SetProviderAPIKey.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SetProviderAPIKey.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SetProviderAPIKey.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/403/content/application\/json`.
+                    case json(Operations.SetProviderAPIKey.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SetProviderAPIKey.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SetProviderAPIKey.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SetProviderAPIKey.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.SetProviderAPIKey.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            internal var forbidden: Operations.SetProviderAPIKey.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/404/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/404/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/404/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/404/content/json/error/NotFoundError`.
+                            case notFound(Components.Schemas.NotFoundError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "not_found":
+                                    self = .notFound(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .notFound(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/404/content/json/error`.
+                        internal var error: Operations.SetProviderAPIKey.Output.NotFound.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SetProviderAPIKey.Output.NotFound.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SetProviderAPIKey.Output.NotFound.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/404/content/application\/json`.
+                    case json(Operations.SetProviderAPIKey.Output.NotFound.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SetProviderAPIKey.Output.NotFound.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SetProviderAPIKey.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SetProviderAPIKey.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not Found
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.SetProviderAPIKey.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            internal var notFound: Operations.SetProviderAPIKey.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/409/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/409/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/409/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/409/content/json/error/ConflictError`.
+                            case conflict(Components.Schemas.ConflictError)
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "conflict":
+                                    self = .conflict(try .init(from: decoder))
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .conflict(value):
+                                    try value.encode(to: encoder)
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/409/content/json/error`.
+                        internal var error: Operations.SetProviderAPIKey.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SetProviderAPIKey.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SetProviderAPIKey.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/409/content/application\/json`.
+                    case json(Operations.SetProviderAPIKey.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SetProviderAPIKey.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SetProviderAPIKey.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SetProviderAPIKey.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.SetProviderAPIKey.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            internal var conflict: Operations.SetProviderAPIKey.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct ContentTooLarge: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/413/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/413/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/413/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/413/content/json/error/LimitExceededError`.
+                            case limitExceeded(Components.Schemas.LimitExceededError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "limit_exceeded":
+                                    self = .limitExceeded(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .limitExceeded(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/413/content/json/error`.
+                        internal var error: Operations.SetProviderAPIKey.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SetProviderAPIKey.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SetProviderAPIKey.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/413/content/application\/json`.
+                    case json(Operations.SetProviderAPIKey.Output.ContentTooLarge.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SetProviderAPIKey.Output.ContentTooLarge.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SetProviderAPIKey.Output.ContentTooLarge.Body
+                /// Creates a new `ContentTooLarge`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SetProviderAPIKey.Output.ContentTooLarge.Body) {
+                    self.body = body
+                }
+            }
+            /// Request Entity Too Large
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)/responses/413`.
+            ///
+            /// HTTP response code: `413 contentTooLarge`.
+            case contentTooLarge(Operations.SetProviderAPIKey.Output.ContentTooLarge)
+            /// The associated value of the enum case if `self` is `.contentTooLarge`.
+            ///
+            /// - Throws: An error if `self` is not `.contentTooLarge`.
+            /// - SeeAlso: `.contentTooLarge`.
+            internal var contentTooLarge: Operations.SetProviderAPIKey.Output.ContentTooLarge {
+                get throws {
+                    switch self {
+                    case let .contentTooLarge(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "contentTooLarge",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/421/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/421/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/421/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/421/content/json/error`.
+                        internal var error: Operations.SetProviderAPIKey.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SetProviderAPIKey.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SetProviderAPIKey.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/421/content/application\/json`.
+                    case json(Operations.SetProviderAPIKey.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SetProviderAPIKey.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SetProviderAPIKey.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SetProviderAPIKey.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.SetProviderAPIKey.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            internal var misdirectedRequest: Operations.SetProviderAPIKey.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/426/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/426/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/426/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/426/content/json/error`.
+                        internal var error: Operations.SetProviderAPIKey.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SetProviderAPIKey.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SetProviderAPIKey.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/426/content/application\/json`.
+                    case json(Operations.SetProviderAPIKey.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SetProviderAPIKey.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SetProviderAPIKey.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SetProviderAPIKey.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.SetProviderAPIKey.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            internal var upgradeRequired: Operations.SetProviderAPIKey.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/429/content/json/error`.
+                        internal var error: Operations.SetProviderAPIKey.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SetProviderAPIKey.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SetProviderAPIKey.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/429/content/application\/json`.
+                    case json(Operations.SetProviderAPIKey.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SetProviderAPIKey.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SetProviderAPIKey.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SetProviderAPIKey.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.SetProviderAPIKey.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.SetProviderAPIKey.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/500/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/500/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/500/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/500/content/json/error`.
+                        internal var error: Operations.SetProviderAPIKey.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.SetProviderAPIKey.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.SetProviderAPIKey.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/api-key/PUT/responses/500/content/application\/json`.
+                    case json(Operations.SetProviderAPIKey.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.SetProviderAPIKey.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.SetProviderAPIKey.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.SetProviderAPIKey.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.SetProviderAPIKey.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            internal var internalServerError: Operations.SetProviderAPIKey.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        internal enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            internal init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            internal var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            internal static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// - Remark: HTTP `DELETE /v1/providers/{providerID}/credentials`.
+    /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)`.
+    internal enum DeleteProviderCredentials {
+        internal static let id: Swift.String = "deleteProviderCredentials"
+        internal struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/path`.
+            internal struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/path/providerID`.
+                internal var providerID: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - providerID:
+                internal init(providerID: Swift.String) {
+                    self.providerID = providerID
+                }
+            }
+            internal var path: Operations.DeleteProviderCredentials.Input.Path
+            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/header`.
+            internal struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/header/X-Kit-Instance-ID`.
+                internal var xKitInstanceID: Swift.String
+                internal var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DeleteProviderCredentials.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - accept:
+                internal init(
+                    xKitInstanceID: Swift.String,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DeleteProviderCredentials.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.accept = accept
+                }
+            }
+            internal var headers: Operations.DeleteProviderCredentials.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            internal init(
+                path: Operations.DeleteProviderCredentials.Input.Path,
+                headers: Operations.DeleteProviderCredentials.Input.Headers
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        internal enum Output: Sendable, Hashable {
+            internal struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                internal init() {}
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.DeleteProviderCredentials.Output.NoContent)
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            internal static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            internal var noContent: Operations.DeleteProviderCredentials.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/401/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/401/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/401/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/401/content/json/error/ServerCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.ServerCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/401/content/json/error`.
+                        internal var error: Operations.DeleteProviderCredentials.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.DeleteProviderCredentials.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DeleteProviderCredentials.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/401/content/application\/json`.
+                    case json(Operations.DeleteProviderCredentials.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.DeleteProviderCredentials.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.DeleteProviderCredentials.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.DeleteProviderCredentials.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.DeleteProviderCredentials.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            internal var unauthorized: Operations.DeleteProviderCredentials.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/403/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/403/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/403/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/403/content/json/error`.
+                        internal var error: Operations.DeleteProviderCredentials.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.DeleteProviderCredentials.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DeleteProviderCredentials.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/403/content/application\/json`.
+                    case json(Operations.DeleteProviderCredentials.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.DeleteProviderCredentials.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.DeleteProviderCredentials.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.DeleteProviderCredentials.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.DeleteProviderCredentials.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            internal var forbidden: Operations.DeleteProviderCredentials.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/404/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/404/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/404/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/404/content/json/error/NotFoundError`.
+                            case notFound(Components.Schemas.NotFoundError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "not_found":
+                                    self = .notFound(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .notFound(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/404/content/json/error`.
+                        internal var error: Operations.DeleteProviderCredentials.Output.NotFound.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.DeleteProviderCredentials.Output.NotFound.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DeleteProviderCredentials.Output.NotFound.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/404/content/application\/json`.
+                    case json(Operations.DeleteProviderCredentials.Output.NotFound.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.DeleteProviderCredentials.Output.NotFound.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.DeleteProviderCredentials.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.DeleteProviderCredentials.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not Found
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.DeleteProviderCredentials.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            internal var notFound: Operations.DeleteProviderCredentials.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/409/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/409/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/409/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/409/content/json/error/ConflictError`.
+                            case conflict(Components.Schemas.ConflictError)
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "conflict":
+                                    self = .conflict(try .init(from: decoder))
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .conflict(value):
+                                    try value.encode(to: encoder)
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/409/content/json/error`.
+                        internal var error: Operations.DeleteProviderCredentials.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.DeleteProviderCredentials.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DeleteProviderCredentials.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/409/content/application\/json`.
+                    case json(Operations.DeleteProviderCredentials.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.DeleteProviderCredentials.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.DeleteProviderCredentials.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.DeleteProviderCredentials.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.DeleteProviderCredentials.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            internal var conflict: Operations.DeleteProviderCredentials.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/421/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/421/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/421/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/421/content/json/error`.
+                        internal var error: Operations.DeleteProviderCredentials.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.DeleteProviderCredentials.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DeleteProviderCredentials.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/421/content/application\/json`.
+                    case json(Operations.DeleteProviderCredentials.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.DeleteProviderCredentials.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.DeleteProviderCredentials.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.DeleteProviderCredentials.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.DeleteProviderCredentials.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            internal var misdirectedRequest: Operations.DeleteProviderCredentials.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/426/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/426/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/426/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/426/content/json/error`.
+                        internal var error: Operations.DeleteProviderCredentials.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.DeleteProviderCredentials.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DeleteProviderCredentials.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/426/content/application\/json`.
+                    case json(Operations.DeleteProviderCredentials.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.DeleteProviderCredentials.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.DeleteProviderCredentials.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.DeleteProviderCredentials.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.DeleteProviderCredentials.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            internal var upgradeRequired: Operations.DeleteProviderCredentials.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/429/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/429/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/429/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/429/content/json/error/ServerRateLimitedError`.
+                            case rateLimited(Components.Schemas.ServerRateLimitedError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/429/content/json/error`.
+                        internal var error: Operations.DeleteProviderCredentials.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.DeleteProviderCredentials.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DeleteProviderCredentials.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/429/content/application\/json`.
+                    case json(Operations.DeleteProviderCredentials.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.DeleteProviderCredentials.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.DeleteProviderCredentials.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.DeleteProviderCredentials.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.DeleteProviderCredentials.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            internal var tooManyRequests: Operations.DeleteProviderCredentials.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/500/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/500/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/500/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/500/content/json/error`.
+                        internal var error: Operations.DeleteProviderCredentials.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.DeleteProviderCredentials.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.DeleteProviderCredentials.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/providers/{providerID}/credentials/DELETE/responses/500/content/application\/json`.
+                    case json(Operations.DeleteProviderCredentials.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.DeleteProviderCredentials.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.DeleteProviderCredentials.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.DeleteProviderCredentials.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.DeleteProviderCredentials.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            internal var internalServerError: Operations.DeleteProviderCredentials.Output.InternalServerError {
                 get throws {
                     switch self {
                     case let .internalServerError(response):

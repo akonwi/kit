@@ -1470,6 +1470,44 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/BrowserLoginInstructions`.
+        internal struct BrowserLoginInstructions: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BrowserLoginInstructions/authorizationUrl`.
+            internal var authorizationUrl: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BrowserLoginInstructions/redirectUri`.
+            internal var redirectUri: Swift.String
+            /// Creates a new `BrowserLoginInstructions`.
+            ///
+            /// - Parameters:
+            ///   - authorizationUrl:
+            ///   - redirectUri:
+            internal init(
+                authorizationUrl: Swift.String,
+                redirectUri: Swift.String
+            ) {
+                self.authorizationUrl = authorizationUrl
+                self.redirectUri = redirectUri
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case authorizationUrl
+                case redirectUri
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.authorizationUrl = try container.decode(
+                    Swift.String.self,
+                    forKey: .authorizationUrl
+                )
+                self.redirectUri = try container.decode(
+                    Swift.String.self,
+                    forKey: .redirectUri
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "authorizationUrl",
+                    "redirectUri"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/CapacityExceededError`.
         internal struct CapacityExceededError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/CapacityExceededError/code`.
@@ -2204,6 +2242,55 @@ extension Components {
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "devices"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DeviceLoginInstructions`.
+        internal struct DeviceLoginInstructions: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginInstructions/expiresAt`.
+            internal var expiresAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginInstructions/userCode`.
+            internal var userCode: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginInstructions/verificationUri`.
+            internal var verificationUri: Swift.String
+            /// Creates a new `DeviceLoginInstructions`.
+            ///
+            /// - Parameters:
+            ///   - expiresAt:
+            ///   - userCode:
+            ///   - verificationUri:
+            internal init(
+                expiresAt: Swift.String,
+                userCode: Swift.String,
+                verificationUri: Swift.String
+            ) {
+                self.expiresAt = expiresAt
+                self.userCode = userCode
+                self.verificationUri = verificationUri
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case expiresAt
+                case userCode
+                case verificationUri
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.expiresAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .expiresAt
+                )
+                self.userCode = try container.decode(
+                    Swift.String.self,
+                    forKey: .userCode
+                )
+                self.verificationUri = try container.decode(
+                    Swift.String.self,
+                    forKey: .verificationUri
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "expiresAt",
+                    "userCode",
+                    "verificationUri"
                 ])
             }
         }
@@ -5368,6 +5455,31 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/LoginAuthorizationInput`.
+        internal struct LoginAuthorizationInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/LoginAuthorizationInput/authorization`.
+            internal var authorization: Swift.String
+            /// Creates a new `LoginAuthorizationInput`.
+            ///
+            /// - Parameters:
+            ///   - authorization:
+            internal init(authorization: Swift.String) {
+                self.authorization = authorization
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case authorization
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.authorization = try container.decode(
+                    Swift.String.self,
+                    forKey: .authorization
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "authorization"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/MCPServerStatus`.
         internal struct MCPServerStatus: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/MCPServerStatus/configPath`.
@@ -7284,6 +7396,246 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ProviderAPIKeyInput`.
+        internal struct ProviderAPIKeyInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ProviderAPIKeyInput/apiKey`.
+            internal var apiKey: Swift.String
+            /// Creates a new `ProviderAPIKeyInput`.
+            ///
+            /// - Parameters:
+            ///   - apiKey:
+            internal init(apiKey: Swift.String) {
+                self.apiKey = apiKey
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case apiKey
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.apiKey = try container.decode(
+                    Swift.String.self,
+                    forKey: .apiKey
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "apiKey"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ProviderInfo`.
+        internal struct ProviderInfo: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ProviderInfo/configured`.
+            internal var configured: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/ProviderInfo/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ProviderInfo/methods`.
+            internal var methods: [Swift.String]
+            /// - Remark: Generated from `#/components/schemas/ProviderInfo/name`.
+            internal var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ProviderInfo/source`.
+            internal var source: Swift.String
+            /// Creates a new `ProviderInfo`.
+            ///
+            /// - Parameters:
+            ///   - configured:
+            ///   - id:
+            ///   - methods:
+            ///   - name:
+            ///   - source:
+            internal init(
+                configured: Swift.Bool,
+                id: Swift.String,
+                methods: [Swift.String],
+                name: Swift.String,
+                source: Swift.String
+            ) {
+                self.configured = configured
+                self.id = id
+                self.methods = methods
+                self.name = name
+                self.source = source
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case configured
+                case id
+                case methods
+                case name
+                case source
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.configured = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .configured
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.methods = try container.decode(
+                    [Swift.String].self,
+                    forKey: .methods
+                )
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.source = try container.decode(
+                    Swift.String.self,
+                    forKey: .source
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "configured",
+                    "id",
+                    "methods",
+                    "name",
+                    "source"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ProviderList`.
+        internal struct ProviderList: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ProviderList/providers`.
+            internal var providers: [Components.Schemas.ProviderInfo]
+            /// Creates a new `ProviderList`.
+            ///
+            /// - Parameters:
+            ///   - providers:
+            internal init(providers: [Components.Schemas.ProviderInfo]) {
+                self.providers = providers
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case providers
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.providers = try container.decode(
+                    [Components.Schemas.ProviderInfo].self,
+                    forKey: .providers
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "providers"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ProviderLogin`.
+        internal struct ProviderLogin: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ProviderLogin/browser`.
+            internal var browser: Components.Schemas.BrowserLoginInstructions?
+            /// - Remark: Generated from `#/components/schemas/ProviderLogin/device`.
+            internal var device: Components.Schemas.DeviceLoginInstructions?
+            /// - Remark: Generated from `#/components/schemas/ProviderLogin/expiresAt`.
+            internal var expiresAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ProviderLogin/failure`.
+            internal var failure: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ProviderLogin/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ProviderLogin/method`.
+            internal enum MethodPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case device = "device"
+                case browser = "browser"
+                case apiKey = "apiKey"
+            }
+            /// - Remark: Generated from `#/components/schemas/ProviderLogin/method`.
+            internal var method: Components.Schemas.ProviderLogin.MethodPayload
+            /// - Remark: Generated from `#/components/schemas/ProviderLogin/provider`.
+            internal var provider: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ProviderLogin/state`.
+            internal enum StatePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case pending = "pending"
+                case succeeded = "succeeded"
+                case failed = "failed"
+                case expired = "expired"
+                case cancelled = "cancelled"
+                case superseded = "superseded"
+            }
+            /// - Remark: Generated from `#/components/schemas/ProviderLogin/state`.
+            internal var state: Components.Schemas.ProviderLogin.StatePayload
+            /// Creates a new `ProviderLogin`.
+            ///
+            /// - Parameters:
+            ///   - browser:
+            ///   - device:
+            ///   - expiresAt:
+            ///   - failure:
+            ///   - id:
+            ///   - method:
+            ///   - provider:
+            ///   - state:
+            internal init(
+                browser: Components.Schemas.BrowserLoginInstructions? = nil,
+                device: Components.Schemas.DeviceLoginInstructions? = nil,
+                expiresAt: Swift.String,
+                failure: Swift.String? = nil,
+                id: Swift.String,
+                method: Components.Schemas.ProviderLogin.MethodPayload,
+                provider: Swift.String,
+                state: Components.Schemas.ProviderLogin.StatePayload
+            ) {
+                self.browser = browser
+                self.device = device
+                self.expiresAt = expiresAt
+                self.failure = failure
+                self.id = id
+                self.method = method
+                self.provider = provider
+                self.state = state
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case browser
+                case device
+                case expiresAt
+                case failure
+                case id
+                case method
+                case provider
+                case state
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.browser = try container.decodeIfPresent(
+                    Components.Schemas.BrowserLoginInstructions.self,
+                    forKey: .browser
+                )
+                self.device = try container.decodeIfPresent(
+                    Components.Schemas.DeviceLoginInstructions.self,
+                    forKey: .device
+                )
+                self.expiresAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .expiresAt
+                )
+                self.failure = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .failure
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.method = try container.decode(
+                    Components.Schemas.ProviderLogin.MethodPayload.self,
+                    forKey: .method
+                )
+                self.provider = try container.decode(
+                    Swift.String.self,
+                    forKey: .provider
+                )
+                self.state = try container.decode(
+                    Components.Schemas.ProviderLogin.StatePayload.self,
+                    forKey: .state
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "browser",
+                    "device",
+                    "expiresAt",
+                    "failure",
+                    "id",
+                    "method",
+                    "provider",
+                    "state"
                 ])
             }
         }
@@ -9297,6 +9649,50 @@ extension Components {
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "stopping"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/StartLoginInput`.
+        internal struct StartLoginInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/StartLoginInput/method`.
+            internal enum MethodPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case device = "device"
+                case browser = "browser"
+                case apiKey = "apiKey"
+            }
+            /// - Remark: Generated from `#/components/schemas/StartLoginInput/method`.
+            internal var method: Components.Schemas.StartLoginInput.MethodPayload
+            /// - Remark: Generated from `#/components/schemas/StartLoginInput/provider`.
+            internal var provider: Swift.String
+            /// Creates a new `StartLoginInput`.
+            ///
+            /// - Parameters:
+            ///   - method:
+            ///   - provider:
+            internal init(
+                method: Components.Schemas.StartLoginInput.MethodPayload,
+                provider: Swift.String
+            ) {
+                self.method = method
+                self.provider = provider
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case method
+                case provider
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.method = try container.decode(
+                    Components.Schemas.StartLoginInput.MethodPayload.self,
+                    forKey: .method
+                )
+                self.provider = try container.decode(
+                    Swift.String.self,
+                    forKey: .provider
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "method",
+                    "provider"
                 ])
             }
         }

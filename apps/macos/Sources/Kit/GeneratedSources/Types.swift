@@ -20,6 +20,18 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /v1/health`.
     /// - Remark: Generated from `#/paths//v1/health/get(getHealth)`.
     func getHealth(_ input: Operations.GetHealth.Input) async throws -> Operations.GetHealth.Output
+    /// - Remark: HTTP `POST /v1/logins`.
+    /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)`.
+    func startProviderLogin(_ input: Operations.StartProviderLogin.Input) async throws -> Operations.StartProviderLogin.Output
+    /// - Remark: HTTP `GET /v1/logins/{loginID}`.
+    /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)`.
+    func getProviderLogin(_ input: Operations.GetProviderLogin.Input) async throws -> Operations.GetProviderLogin.Output
+    /// - Remark: HTTP `DELETE /v1/logins/{loginID}`.
+    /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)`.
+    func cancelProviderLogin(_ input: Operations.CancelProviderLogin.Input) async throws -> Operations.CancelProviderLogin.Output
+    /// - Remark: HTTP `POST /v1/logins/{loginID}/authorization`.
+    /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)`.
+    func submitProviderLoginAuthorization(_ input: Operations.SubmitProviderLoginAuthorization.Input) async throws -> Operations.SubmitProviderLoginAuthorization.Output
     /// - Remark: HTTP `GET /v1/models`.
     /// - Remark: Generated from `#/paths//v1/models/get(listModels)`.
     func listModels(_ input: Operations.ListModels.Input) async throws -> Operations.ListModels.Output
@@ -32,6 +44,15 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/pairing/redeem`.
     /// - Remark: Generated from `#/paths//v1/pairing/redeem/post(redeemPairing)`.
     func redeemPairing(_ input: Operations.RedeemPairing.Input) async throws -> Operations.RedeemPairing.Output
+    /// - Remark: HTTP `GET /v1/providers`.
+    /// - Remark: Generated from `#/paths//v1/providers/get(listProviders)`.
+    func listProviders(_ input: Operations.ListProviders.Input) async throws -> Operations.ListProviders.Output
+    /// - Remark: HTTP `PUT /v1/providers/{providerID}/api-key`.
+    /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)`.
+    func setProviderAPIKey(_ input: Operations.SetProviderAPIKey.Input) async throws -> Operations.SetProviderAPIKey.Output
+    /// - Remark: HTTP `DELETE /v1/providers/{providerID}/credentials`.
+    /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)`.
+    func deleteProviderCredentials(_ input: Operations.DeleteProviderCredentials.Input) async throws -> Operations.DeleteProviderCredentials.Output
     /// - Remark: HTTP `GET /v1/sessions`.
     /// - Remark: Generated from `#/paths//v1/sessions/get(listSessions)`.
     func listSessions(_ input: Operations.ListSessions.Input) async throws -> Operations.ListSessions.Output
@@ -222,6 +243,54 @@ extension APIProtocol {
     internal func getHealth(headers: Operations.GetHealth.Input.Headers = .init()) async throws -> Operations.GetHealth.Output {
         try await getHealth(Operations.GetHealth.Input(headers: headers))
     }
+    /// - Remark: HTTP `POST /v1/logins`.
+    /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)`.
+    internal func startProviderLogin(
+        headers: Operations.StartProviderLogin.Input.Headers,
+        body: Operations.StartProviderLogin.Input.Body
+    ) async throws -> Operations.StartProviderLogin.Output {
+        try await startProviderLogin(Operations.StartProviderLogin.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/logins/{loginID}`.
+    /// - Remark: Generated from `#/paths//v1/logins/{loginID}/get(getProviderLogin)`.
+    internal func getProviderLogin(
+        path: Operations.GetProviderLogin.Input.Path,
+        query: Operations.GetProviderLogin.Input.Query = .init(),
+        headers: Operations.GetProviderLogin.Input.Headers
+    ) async throws -> Operations.GetProviderLogin.Output {
+        try await getProviderLogin(Operations.GetProviderLogin.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `DELETE /v1/logins/{loginID}`.
+    /// - Remark: Generated from `#/paths//v1/logins/{loginID}/delete(cancelProviderLogin)`.
+    internal func cancelProviderLogin(
+        path: Operations.CancelProviderLogin.Input.Path,
+        headers: Operations.CancelProviderLogin.Input.Headers
+    ) async throws -> Operations.CancelProviderLogin.Output {
+        try await cancelProviderLogin(Operations.CancelProviderLogin.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/logins/{loginID}/authorization`.
+    /// - Remark: Generated from `#/paths//v1/logins/{loginID}/authorization/post(submitProviderLoginAuthorization)`.
+    internal func submitProviderLoginAuthorization(
+        path: Operations.SubmitProviderLoginAuthorization.Input.Path,
+        headers: Operations.SubmitProviderLoginAuthorization.Input.Headers,
+        body: Operations.SubmitProviderLoginAuthorization.Input.Body
+    ) async throws -> Operations.SubmitProviderLoginAuthorization.Output {
+        try await submitProviderLoginAuthorization(Operations.SubmitProviderLoginAuthorization.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
     /// - Remark: HTTP `GET /v1/models`.
     /// - Remark: Generated from `#/paths//v1/models/get(listModels)`.
     internal func listModels(headers: Operations.ListModels.Input.Headers) async throws -> Operations.ListModels.Output {
@@ -246,6 +315,35 @@ extension APIProtocol {
         try await redeemPairing(Operations.RedeemPairing.Input(
             headers: headers,
             body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/providers`.
+    /// - Remark: Generated from `#/paths//v1/providers/get(listProviders)`.
+    internal func listProviders(headers: Operations.ListProviders.Input.Headers) async throws -> Operations.ListProviders.Output {
+        try await listProviders(Operations.ListProviders.Input(headers: headers))
+    }
+    /// - Remark: HTTP `PUT /v1/providers/{providerID}/api-key`.
+    /// - Remark: Generated from `#/paths//v1/providers/{providerID}/api-key/put(setProviderAPIKey)`.
+    internal func setProviderAPIKey(
+        path: Operations.SetProviderAPIKey.Input.Path,
+        headers: Operations.SetProviderAPIKey.Input.Headers,
+        body: Operations.SetProviderAPIKey.Input.Body
+    ) async throws -> Operations.SetProviderAPIKey.Output {
+        try await setProviderAPIKey(Operations.SetProviderAPIKey.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `DELETE /v1/providers/{providerID}/credentials`.
+    /// - Remark: Generated from `#/paths//v1/providers/{providerID}/credentials/delete(deleteProviderCredentials)`.
+    internal func deleteProviderCredentials(
+        path: Operations.DeleteProviderCredentials.Input.Path,
+        headers: Operations.DeleteProviderCredentials.Input.Headers
+    ) async throws -> Operations.DeleteProviderCredentials.Output {
+        try await deleteProviderCredentials(Operations.DeleteProviderCredentials.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// - Remark: HTTP `GET /v1/sessions`.

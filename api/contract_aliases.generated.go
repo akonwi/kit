@@ -30,6 +30,7 @@ type (
 	BashExecutionStatus               = contract.BashExecutionStatus
 	BashHistoryEntry                  = contract.BashHistoryEntry
 	BashHistoryPage                   = contract.BashHistoryPage
+	BrowserLoginInstructions          = contract.BrowserLoginInstructions
 	ChangeCWDInput                    = contract.ChangeCWDInput
 	ChangeWorkspaceCWDResult          = contract.ChangeWorkspaceCWDResult
 	CompactSessionInput               = contract.CompactSessionInput
@@ -44,9 +45,11 @@ type (
 	ContextContent                    = contract.ContextContent
 	CreateAnnotationInput             = contract.CreateAnnotationInput
 	CreateSessionInput                = contract.CreateSessionInput
+	CredentialSource                  = contract.CredentialSource
 	DeleteAnnotationInput             = contract.DeleteAnnotationInput
 	DeviceInfo                        = contract.DeviceInfo
 	DeviceList                        = contract.DeviceList
+	DeviceLoginInstructions           = contract.DeviceLoginInstructions
 	DiffComputation                   = contract.DiffComputation
 	DiffEndpoint                      = contract.DiffEndpoint
 	DiffError                         = contract.DiffError
@@ -89,6 +92,9 @@ type (
 	ListAnnotationsInput              = contract.ListAnnotationsInput
 	ListDiffTargetsInput              = contract.ListDiffTargetsInput
 	ListDirectoryInput                = contract.ListDirectoryInput
+	LoginAuthorizationInput           = contract.LoginAuthorizationInput
+	LoginMethod                       = contract.LoginMethod
+	LoginState                        = contract.LoginState
 	MCPServerStatus                   = contract.MCPServerStatus
 	MessagePage                       = contract.MessagePage
 	MessagePageQuery                  = contract.MessagePageQuery
@@ -121,7 +127,11 @@ type (
 	PromptOutcome                     = contract.PromptOutcome
 	PromptSectionKind                 = contract.PromptSectionKind
 	PromptSource                      = contract.PromptSource
+	ProviderAPIKeyInput               = contract.ProviderAPIKeyInput
 	ProviderErrorKind                 = contract.ProviderErrorKind
+	ProviderInfo                      = contract.ProviderInfo
+	ProviderList                      = contract.ProviderList
+	ProviderLogin                     = contract.ProviderLogin
 	ProviderRetry                     = contract.ProviderRetry
 	ProviderRetryScheduledEvent       = contract.ProviderRetryScheduledEvent
 	ProviderRetryStartedEvent         = contract.ProviderRetryStartedEvent
@@ -151,6 +161,7 @@ type (
 	SessionUsage                      = contract.SessionUsage
 	SessionUsageCost                  = contract.SessionUsageCost
 	SessionVCSStatus                  = contract.SessionVCSStatus
+	StartLoginInput                   = contract.StartLoginInput
 	SubagentAction                    = contract.SubagentAction
 	SubagentChangedEvent              = contract.SubagentChangedEvent
 	SubagentConversation              = contract.SubagentConversation
@@ -240,6 +251,8 @@ const (
 	BashExecutionFailed                   = contract.BashExecutionFailed
 	BashExecutionInterrupted              = contract.BashExecutionInterrupted
 	BashExecutionRunning                  = contract.BashExecutionRunning
+	CredentialSourceEnvironment           = contract.CredentialSourceEnvironment
+	CredentialSourceStore                 = contract.CredentialSourceStore
 	DefaultAnnotationPageSize             = contract.DefaultAnnotationPageSize
 	DefaultBashHistoryPageSize            = contract.DefaultBashHistoryPageSize
 	DefaultDiffFilePageSize               = contract.DefaultDiffFilePageSize
@@ -275,6 +288,16 @@ const (
 	InteractionQuestionSelect             = contract.InteractionQuestionSelect
 	InteractionQuestionText               = contract.InteractionQuestionText
 	InteractionSelect                     = contract.InteractionSelect
+	LoginMethodAPIKey                     = contract.LoginMethodAPIKey
+	LoginMethodBrowser                    = contract.LoginMethodBrowser
+	LoginMethodDevice                     = contract.LoginMethodDevice
+	LoginStateCancelled                   = contract.LoginStateCancelled
+	LoginStateExpired                     = contract.LoginStateExpired
+	LoginStateFailed                      = contract.LoginStateFailed
+	LoginStatePending                     = contract.LoginStatePending
+	LoginStateSucceeded                   = contract.LoginStateSucceeded
+	LoginStateSuperseded                  = contract.LoginStateSuperseded
+	MaxAPIKeyBytes                        = contract.MaxAPIKeyBytes
 	MaxAnnotationBodyBytes                = contract.MaxAnnotationBodyBytes
 	MaxAnnotationCursorBytes              = contract.MaxAnnotationCursorBytes
 	MaxAnnotationPageSize                 = contract.MaxAnnotationPageSize

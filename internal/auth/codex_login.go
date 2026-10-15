@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -21,9 +20,8 @@ type OpenAICodexDeviceInstructions struct {
 
 // OpenAICodexDeviceLogin performs one application-facing Codex device flow.
 type OpenAICodexDeviceLogin struct {
-	oauth       openAICodexDeviceOAuth
-	installer   openAICodexCredentialInstaller
-	acquireSave func(context.Context) (func() error, error)
+	oauth     openAICodexDeviceOAuth
+	installer openAICodexCredentialInstaller
 }
 
 // OpenAICodexDeviceLoginOptions configures a device login service.
@@ -55,17 +53,11 @@ func NewOpenAICodexDeviceLogin(options OpenAICodexDeviceLoginOptions) (*OpenAICo
 	if err != nil {
 		return nil, err
 	}
-	return newOpenAICodexDeviceLogin(oauthClient, options.Store, options.AcquireSave), nil
+	return newOpenAICodexDeviceLogin(oauthClient, options.Store), nil
 }
 
-func newOpenAICodexDeviceLogin(
-	oauthClient openAICodexDeviceOAuth,
-	installer openAICodexCredentialInstaller,
-	acquireSave func(context.Context) (func() error, error),
-) *OpenAICodexDeviceLogin {
-	return &OpenAICodexDeviceLogin{
-		oauth: oauthClient, installer: installer, acquireSave: acquireSave,
-	}
+func newOpenAICodexDeviceLogin(oauthClient openAICodexDeviceOAuth, installer openAICodexCredentialInstaller) *OpenAICodexDeviceLogin {
+	return &OpenAICodexDeviceLogin{oauth: oauthClient, installer: installer}
 }
 
 // Login runs a device flow, reports its safe display instructions, then saves
@@ -98,20 +90,8 @@ func (l *OpenAICodexDeviceLogin) Login(
 	if err != nil {
 		return fmt.Errorf("complete device authorization: %w", err)
 	}
-	release := func() error { return nil }
-	if l.acquireSave != nil {
-		release, err = l.acquireSave(ctx)
-		if err != nil {
-			return fmt.Errorf("authorize credential save: %w", err)
-		}
-		if release == nil {
-			return fmt.Errorf("auth: OpenAI Codex login save guard returned no release function")
-		}
+	if err := l.installer.ReplaceOpenAICodexCredentials(ctx, credentials); err != nil {
+		return fmt.Errorf("save credentials: %w", err)
 	}
-	saveErr := l.installer.ReplaceOpenAICodexCredentials(ctx, credentials)
-	if saveErr != nil {
-		saveErr = fmt.Errorf("save credentials: %w", saveErr)
-	}
-	releaseErr := release()
-	return errors.Join(saveErr, releaseErr)
+	return nil
 }
