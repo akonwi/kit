@@ -12,6 +12,8 @@ func Catalog() []Descriptor {
 		ConfigureSubagent.Describe(), GetSubagentEvents.Describe(), GetSubagentTranscript.Describe(), OperateSubagent.Describe(),
 		GetHealth.Describe(), Shutdown.Describe(), ListModels.Describe(), RefreshModels.Describe(),
 		RedeemPairing.Describe(), CreatePairing.Describe(), ListDevices.Describe(), RevokeDevice.Describe(),
+		ListProviders.Describe(), StartProviderLogin.Describe(), GetProviderLogin.Describe(), SubmitProviderLoginAuthorization.Describe(),
+		CancelProviderLogin.Describe(), SetProviderAPIKey.Describe(), DeleteProviderCredentials.Describe(),
 		GetWorkspace.Describe(), ListWorkspaceDirectory.Describe(), ReadWorkspaceFile.Describe(), GetSessionFileIndex.Describe(),
 		GetSessionVCS.Describe(), StreamSessionVCS.Describe(),
 		ExecutePluginCommand.Describe(), StreamPluginToasts.Describe(),

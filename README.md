@@ -77,7 +77,7 @@ kit --help
 kit server status
 kit server restart
 
-# Persist OpenAI Codex OAuth credentials with a headless device flow:
+# Log the server in to OpenAI Codex with a headless device flow:
 kit auth login openai-codex
 kit auth status
 kit auth logout openai-codex
@@ -90,9 +90,11 @@ missing, resumes the latest usable session
 for the selected working directory, and restores its persisted transcript snapshot. `kit sessions` opens a bounded
 primary-screen session manager before transitioning to the normal TUI for an
 opened session. `--temp` uses an in-memory session that is disposed when its
-foreground command exits. Claude subscription login uses a localhost callback;
-if that callback cannot complete, the login dialog accepts the final redirect
-URL or authorization code.
+foreground command exits. Logins run on the server, which stores the
+credentials ([provider login](docs/features/provider-login.md)). Claude
+subscription login relays the browser's localhost redirect to the server; if
+that redirect cannot be received, the login dialog accepts the authorization
+code instead.
 
 Print mode creates and resumes droids sessions through the local session-client
 boundary, writes only final assistant prose to stdout, and keeps diagnostics on

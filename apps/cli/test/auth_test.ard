@@ -24,6 +24,7 @@ struct Model {
   device_cancelled: Bool,
   device_failure: Str,
   device_context: context::Context?,
+  browser_received: Str,
 }
 
 struct HostProps {
@@ -51,6 +52,8 @@ impl cui::Component for Host {
             themes: self.props.themes,
             lifetime: self.props.lifetime,
             services: auth::Services{
+              // The browser login takes one pasted authorization, then waits
+              // for its exchange until cancelled.
               device: fn(ctx: context::Context, notify: fn(authbridge::DeviceInstructions)) Void!Error {
                 notify(
                   authbridge::DeviceInstructions{
@@ -70,7 +73,16 @@ impl cui::Component for Host {
                 }
               },
               browser: fn(ctx: context::Context, manual: Chan<Str>, notify: fn(authbridge::BrowserInstructions)) Void!Error {
-                errors::New("browser login unavailable")
+                notify(
+                  authbridge::BrowserInstructions{
+                    AuthorizationURL: "https://claude.example.test/authorize",
+                    RedirectURI: "http://localhost:53692/callback",
+                    ReceivesRedirect: false,
+                  },
+                )
+                model.browser_received = manual.recv().or("")
+                ctx.Done().recv()
+                errors::New("browser login canceled")
               },
               api_key: fn(ctx: context::Context, provider: Str, key: Str) Void!Error {
                 model.api_provider = provider
@@ -165,6 +177,7 @@ fn new_model() mut Model {
     device_cancelled: false,
     device_failure: "",
     device_context: Maybe::new<context::Context>(),
+    browser_received: "",
   })
 }
 
@@ -326,4 +339,53 @@ test fn a_failed_device_login_returns_to_the_picker_and_releases_its_attempt() V
     ctx => testing::assert(ctx.Err().is_err(), "the finished attempt's context is canceled"),
     _ => testing::fail("the device service received a context"),
   }
+}
+
+test fn a_browser_login_without_the_redirect_takes_one_pasted_code() Void!Str {
+  let terminal = headless::new(100, 32)
+  defer terminal.destroy()
+  let model = new_model()
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "return")
+  try testing::assert(
+    wait_for_text(terminal, "https://claude.example.test/authorize"),
+    "the browser step shows the authorization URL",
+  )
+  try testing::assert(
+    shows(terminal, "Kit can't receive the browser's redirect here; paste it below."),
+    "the step asks for the pasted redirect when the client cannot receive it:\n{terminal.frame().text()}",
+  )
+
+  type_text(terminal, "abc#s")
+  press(terminal, "return")
+  mut attempts = 0
+  while model.browser_received == "" and attempts < 200 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  try testing::assert(
+    model.browser_received == "abc#s",
+    "the pasted code is submitted: {model.browser_received}",
+  )
+
+  // The login reads no more pastes: one waits in the channel, and the next
+  // stays in the field instead of blocking the UI.
+  type_text(terminal, "again")
+  press(terminal, "return")
+  type_text(terminal, "stuck")
+  press(terminal, "return")
+  try testing::assert(wait_for_text(terminal, "stuck"), "an undeliverable paste stays in the field")
+  press(terminal, "escape")
+  testing::assert(
+    wait_for_text(terminal, "Connect a provider"),
+    "the UI still responds and goes back",
+  )
 }

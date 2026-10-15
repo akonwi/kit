@@ -12,8 +12,6 @@ import (
 
 	kit "github.com/akonwi/kit/api"
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/auth"
-	"github.com/akonwi/kit/internal/daemonctl"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/settings"
 	kittheme "github.com/akonwi/kit/internal/theme"
@@ -297,62 +295,16 @@ func (e Environment) Prepare(ctx context.Context, invocation Invocation, stderr 
 		fmt.Fprintf(stderr, "kit: inspect server providers: %v\n", err)
 		return failed(1)
 	}
-	// Credential-source support is checked under the daemon startup lock at
-	// login time, not by restarting a healthy daemon during client startup.
 	providers, defaultModel := interactiveProviders(info.Providers)
 	authenticated := len(providers) > 0
-	missingProvider := ""
 	if options.Model != "" {
 		defaultModel = options.Model
 		provider, _, _ := strings.Cut(options.Model, "/")
-		if !providers[provider] {
-			authenticated = false
-			missingProvider = provider
-		}
+		authenticated = authenticated && providers[provider]
 	}
-	if e.serverPaths.Home == "" {
-		// Provider login writes the server's credential store, which a URL
-		// server does not expose until login moves behind the session API.
-		if !authenticated {
-			if missingProvider != "" {
-				fmt.Fprintf(stderr, "kit: server %q has no credentials for %s; log in on that machine with `kit`, then attach again\n", e.server, missingProvider)
-			} else {
-				fmt.Fprintf(stderr, "kit: server %q has no provider credentials; log in on that machine with `kit`, then attach again\n", e.server)
-			}
-			return failed(1)
-		}
-		return e.prepared(ctx, options, cwd, defaultModel, providers, authenticated, remoteDeviceLogin{}, remoteBrowserLogin{}, remoteAPIKeyLogin{})
-	}
-	manager := daemonctl.NewManager(e.serverPaths)
-	credentialStore := auth.NewStore(e.serverPaths.Auth)
-	login, err := auth.NewOpenAICodexDeviceLogin(auth.OpenAICodexDeviceLoginOptions{
-		Store: credentialStore,
-		AcquireSave: func(ctx context.Context) (func() error, error) {
-			return manager.AcquireCredentialStoreMutation(ctx, auth.OpenAICodexProviderID)
-		},
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: configure OpenAI Codex login: %v\n", err)
-		return failed(1)
-	}
-	browserLogin, err := auth.NewAnthropicOAuthLogin(auth.AnthropicOAuthLoginOptions{
-		Store: credentialStore,
-		AcquireSave: func(ctx context.Context) (func() error, error) {
-			return manager.AcquireCredentialStoreMutation(ctx, auth.AnthropicProviderID)
-		},
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: configure Claude subscription login: %v\n", err)
-		return failed(1)
-	}
-	apiKeyLogin, err := auth.NewAPIKeyLogin(auth.APIKeyLoginOptions{
-		Store: credentialStore, AcquireSave: manager.AcquireCredentialStoreMutation,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: configure API-key login: %v\n", err)
-		return failed(1)
-	}
-	return e.prepared(ctx, options, cwd, defaultModel, providers, authenticated, login, browserLogin, apiKeyLogin)
+	// Logins run on the server, which stores their credentials.
+	return e.prepared(ctx, options, cwd, defaultModel, providers, authenticated,
+		serverDeviceLogin{client: e.Client}, serverBrowserLogin{client: e.Client}, serverAPIKeyLogin{client: e.Client})
 }
 
 // prepared assembles the terminal client's options.
@@ -406,26 +358,6 @@ func (e Environment) pairingURLs() []string {
 	}
 	return homeServedURLs(e.serverPaths, nil)
 }
-
-// errRemoteLogin reports provider login while attached to a URL server.
-var errRemoteLogin = errors.New("provider login is not available while attached to a server by URL; log in on the server's machine with `kit`")
-
-// The provider logins of a URL server, which are unavailable.
-type (
-	remoteDeviceLogin  struct{}
-	remoteBrowserLogin struct{}
-	remoteAPIKeyLogin  struct{}
-)
-
-func (remoteDeviceLogin) Login(context.Context, func(auth.OpenAICodexDeviceInstructions) error) error {
-	return errRemoteLogin
-}
-
-func (remoteBrowserLogin) Login(context.Context, <-chan string, func(auth.AnthropicLoginInstructions) error) error {
-	return errRemoteLogin
-}
-
-func (remoteAPIKeyLogin) Login(context.Context, string, string) error { return errRemoteLogin }
 
 // serverCWD chooses the working directory of a new session on a URL server:
 // the requested or shell directory when the server shares this machine,

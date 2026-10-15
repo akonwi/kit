@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/akonwi/kit/apps/cli/ffi/cli"
-	"github.com/akonwi/kit/internal/auth"
 )
 
 // DeviceInstructions is the display-safe state for an OpenAI Codex device login.
@@ -20,6 +19,9 @@ type DeviceInstructions struct {
 type BrowserInstructions struct {
 	AuthorizationURL string
 	RedirectURI      string
+	// ReceivesRedirect reports that the client listens for the browser's
+	// redirect; otherwise the user pastes it.
+	ReceivesRedirect bool
 }
 
 // RunDevice runs an injected Codex device login and projects its instructions
@@ -31,7 +33,7 @@ func RunDevice(ctx context.Context, login cli.DeviceLogin, notify func(DeviceIns
 	if notify == nil {
 		return fmt.Errorf("device-login instruction handler is unavailable")
 	}
-	return login.Login(ctx, func(instructions auth.OpenAICodexDeviceInstructions) error {
+	return login.Login(ctx, func(instructions cli.DeviceLoginInstructions) error {
 		notify(DeviceInstructions{
 			VerificationURI: instructions.VerificationURI,
 			UserCode:        instructions.UserCode,
@@ -50,10 +52,11 @@ func RunBrowser(ctx context.Context, login cli.BrowserLogin, manual <-chan strin
 	if notify == nil {
 		return fmt.Errorf("browser-login instruction handler is unavailable")
 	}
-	return login.Login(ctx, manual, func(instructions auth.AnthropicLoginInstructions) error {
+	return login.Login(ctx, manual, func(instructions cli.BrowserLoginInstructions) error {
 		notify(BrowserInstructions{
 			AuthorizationURL: instructions.AuthorizationURL,
 			RedirectURI:      instructions.RedirectURI,
+			ReceivesRedirect: instructions.ReceivesRedirect,
 		})
 		return nil
 	})

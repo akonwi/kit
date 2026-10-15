@@ -76,15 +76,17 @@ WantedBy=multi-user.target
 ### Provider credentials
 
 The server, not the client, calls model providers, so credentials belong on
-the server. Provider login is not yet available while attached by URL. Use
-one of:
+the server. Use one of:
 
-- `kit auth login openai-codex`, a device-code login that works over SSH;
-- `kit` in a shell on the server, for the other provider logins;
+- the terminal client attached to the server, which offers the providers'
+  logins when the server has no credentials and runs them on the server;
+- `kit auth login openai-codex` in a shell on the server, a device-code login
+  that works over SSH;
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `OPENCODE_API_KEY` in the server's
   environment.
 
-Restart the server after changing environment variables.
+Restart the server after changing environment variables. See
+[Provider login](provider-login.md).
 
 ## Tailscale
 

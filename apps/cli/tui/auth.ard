@@ -79,6 +79,9 @@ struct Flow {
   browser_code: Str,
   browser_manual: Chan<Str>?,
   browser_url: Str,
+  // browser_relayed is whether this client listens for the browser's
+  // redirect; without it the user pastes the redirect URL or code.
+  browser_relayed: Bool,
 }
 
 // flow mounts the retained connection flow at its provider picker.
@@ -103,6 +106,7 @@ private fn new(props: mut Props) mut Flow {
     browser_code: "",
     browser_manual: Maybe::new<Chan<Str>>(),
     browser_url: "",
+    browser_relayed: false,
   })
 }
 
@@ -346,6 +350,7 @@ impl Flow {
         self.attempt = Maybe::new(attempt)
         self.browser_manual = Maybe::new(manual)
         self.browser_url = ""
+        self.browser_relayed = false
         self.browser_code = ""
         self.pending = true
         async::start(fn() {
@@ -356,6 +361,7 @@ impl Flow {
               let _ = dispatch(fn() {
                 if generation == self.generation {
                   self.browser_url = instructions.AuthorizationURL
+                  self.browser_relayed = instructions.ReceivesRedirect
                 }
               })
             },
@@ -381,9 +387,13 @@ impl Flow {
   private fn mut submit_browser_code(value: Str) {
     if value != "" and self.pending {
       match self.browser_manual {
+        // The login takes one authorization; while one is still on its way,
+        // another is dropped rather than blocking the UI.
         manual => {
-          manual.send(value)
-          self.browser_code = ""
+          select {
+            manual.send(value) => { self.browser_code = "" },
+            _ => (),
+          }
         },
         _ => (),
       }
@@ -545,6 +555,11 @@ impl Flow {
       body.push(layout::blank())
       body.push(link_line(self.browser_url, colors))
       body.push(layout::blank())
+      if not self.browser_relayed {
+        body.push(
+          layout::line("Kit can't receive the browser's redirect here; paste it below.", muted),
+        )
+      }
       body.push(
         cui::input(
           self.browser_code,

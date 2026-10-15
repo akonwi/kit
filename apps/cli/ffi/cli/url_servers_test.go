@@ -83,10 +83,15 @@ func TestURLServersPairAttachAndRecoverFromRevocation(t *testing.T) {
 		t.Fatalf("open environment: %s", errs.String())
 	}
 	errs.Reset()
+	// The server has no providers, so the terminal client starts by logging
+	// it in; the logins run on the server.
 	prepared := environment.Prepare(context.Background(), invocation, &errs)
 	environment.Close()
-	if prepared.ExitCode != 1 || errs.String() != "kit: server \"vps\" has no provider credentials; log in on that machine with `kit`, then attach again\n" {
-		t.Fatalf("prepare: exit %d, stderr %q", prepared.ExitCode, errs.String())
+	if prepared.ExitCode != 0 || prepared.Options.Authenticated {
+		t.Fatalf("prepare: exit %d, authenticated %v, stderr %q", prepared.ExitCode, prepared.Options.Authenticated, errs.String())
+	}
+	if _, ok := prepared.Options.Login.(serverDeviceLogin); !ok {
+		t.Fatalf("device login = %T", prepared.Options.Login)
 	}
 
 	// kit pair from this device prints a link at the saved URL.
@@ -190,18 +195,6 @@ func TestSessionsOnAnotherMachineStartInServerPaths(t *testing.T) {
 	directory := t.TempDir()
 	if got, err := serverCWD(kit.ServerInfo{SameMachine: true}, "vps", directory); err != nil || got != directory {
 		t.Errorf("same machine: %q, %v", got, err)
-	}
-}
-
-func TestProviderLoginIsUnavailableOnURLServers(t *testing.T) {
-	for _, err := range []error{
-		remoteDeviceLogin{}.Login(context.Background(), nil),
-		remoteBrowserLogin{}.Login(context.Background(), nil, nil),
-		remoteAPIKeyLogin{}.Login(context.Background(), "openai", "key"),
-	} {
-		if err != errRemoteLogin {
-			t.Errorf("login error = %v", err)
-		}
 	}
 }
 

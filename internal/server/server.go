@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/akonwi/kit/internal/providerlogin"
 	"log/slog"
 	"net"
 	"net/http"
@@ -69,6 +70,9 @@ type RunOptions struct {
 	// Foreground marks a server run in the foreground under its own
 	// supervisor, which clients must not restart.
 	Foreground bool
+	// LoginFlows replaces the provider login flows, which otherwise use the
+	// providers' real endpoints.
+	LoginFlows *providerlogin.Flows
 }
 
 // Run serves the authenticated local daemon until cancellation or shutdown.
@@ -386,10 +390,19 @@ func Run(ctx context.Context, options RunOptions) error {
 		<-purgeDone
 	}()
 
+	credentialStore := auth.NewStore(paths.Auth)
+	loginFlows := authLoginFlows(credentialStore)
+	if options.LoginFlows != nil {
+		loginFlows = *options.LoginFlows
+	}
+	logins := providerlogin.NewRegistry(loginFlows, nil)
+	defer logins.Close()
+
 	stop := make(chan struct{}, 1)
 	streamShutdown, endStreams := context.WithCancel(context.Background())
 	defer endStreams()
 	handler := newHandler(localHandlerOptions{
+		providerAccess: &providerAccess{logins: logins, store: credentialStore, sources: credentialSources, configured: providerAvailability},
 		streamShutdown: streamShutdown,
 		access:         allowed.policy(),
 		registry:       registry,
@@ -421,6 +434,9 @@ func Run(ctx context.Context, options RunOptions) error {
 	// Shutdown waits for active requests, and attached clients hold event
 	// streams open indefinitely. End those streams as soon as shutdown begins.
 	server.RegisterOnShutdown(endStreams)
+	// Pending logins hold their followers' requests open; fail them so
+	// those requests finish, and their flows end, before Shutdown's deadline.
+	server.RegisterOnShutdown(logins.Close)
 
 	serveResult := make(chan error, 1)
 	go func() {
@@ -478,7 +494,9 @@ type localHandlerOptions struct {
 	sessions    sessionService
 	attachments attachmentService
 	providers   func(context.Context) []string
-	requestStop func()
+	// providerAccess serves provider credentials and logins; nil omits them.
+	providerAccess *providerAccess
+	requestStop    func()
 	// streamShutdown ends open event streams when it is done.
 	streamShutdown context.Context
 	// logger receives causes of failed requests; nil disables reporting.
@@ -520,6 +538,9 @@ func newHandler(options localHandlerOptions) http.Handler {
 	credentials := newAccess(options.token, options.devices, options.pairing)
 	if options.devices != nil {
 		registerDeviceRoutes(mux, credentials, options.logger)
+	}
+	if options.providerAccess != nil {
+		registerProviderRoutes(mux, *options.providerAccess, options.logger)
 	}
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

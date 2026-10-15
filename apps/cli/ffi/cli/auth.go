@@ -5,55 +5,81 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"text/tabwriter"
+	"time"
 
+	kit "github.com/akonwi/kit/api"
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/auth"
-	"github.com/akonwi/kit/internal/daemonctl"
 )
 
-const openAICodexDisplayName = "OpenAI Codex"
+// The provider logins `kit auth` runs against this home's server, which it
+// starts when needed. The server runs each login and stores the credential.
+// `kit auth status` only reads, so it reports on a running server and never
+// starts or replaces one.
 
-type openAICodexLogin interface {
-	Login(context.Context, func(auth.OpenAICodexDeviceInstructions) error) error
+// connectAuthServer connects to this home's server, starting it as `kit`
+// does.
+func connectAuthServer(ctx context.Context) (*kit.Client, error) {
+	paths, err := apphome.Resolve("")
+	if err != nil {
+		return nil, err
+	}
+	return bootstrapLocalClient(ctx, paths)
 }
 
-func runLogin(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	if len(args) != 1 || args[0] != auth.OpenAICodexProviderID {
-		return loginUsage(stderr)
+func runAuthCommand(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return authUsage(stderr)
 	}
-	paths, err := apphome.Resolve("")
+	switch {
+	case args[0] == "status" && len(args) == 1:
+		return runAuthStatus(ctx, stdout, stderr)
+	case args[0] == "login" && len(args) == 2 && args[1] == deviceLoginProvider:
+		client, err := connectAuthServer(ctx)
+		if err != nil {
+			return writeAuthFailure(ctx, stderr, "connect to server", err)
+		}
+		defer client.Close()
+		return executeOpenAICodexLogin(ctx, serverDeviceLogin{client: client}, stdout, stderr)
+	case args[0] == "logout" && len(args) == 2:
+		return runLogout(ctx, args[1], stdout, stderr)
+	default:
+		return authUsage(stderr)
+	}
+}
+
+func runAuthStatus(ctx context.Context, stdout, stderr io.Writer) int {
+	client, _, err := connectOwnServer(ctx)
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
 	}
-	manager := daemonctl.NewManager(paths)
-	// Fail before starting a potentially long browser interaction when a live
-	// daemon would ignore the resulting stored credential.
-	release, err := manager.AcquireCredentialStoreMutation(ctx, auth.OpenAICodexProviderID)
+	defer client.Close()
+	listContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	providers, err := client.Providers(listContext)
 	if err != nil {
-		return writeAuthFailure(ctx, stderr, "prepare OpenAI Codex login", err)
+		return writeAuthFailure(ctx, stderr, "list providers", loginError(err))
 	}
-	if err := release(); err != nil {
-		return writeAuthFailure(ctx, stderr, "prepare OpenAI Codex login", err)
+	table := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+	for _, provider := range providers {
+		status := "not logged in"
+		switch {
+		case provider.Configured && provider.Source == kit.CredentialSourceEnvironment:
+			status = "logged in from the server's environment"
+		case provider.Configured:
+			status = "logged in"
+		}
+		fmt.Fprintf(table, "%s\t%s\t%s\n", provider.ID, provider.Name, status)
 	}
-	login, err := auth.NewOpenAICodexDeviceLogin(auth.OpenAICodexDeviceLoginOptions{
-		Store: auth.NewStore(paths.Auth),
-		AcquireSave: func(ctx context.Context) (func() error, error) {
-			return manager.AcquireCredentialStoreMutation(ctx, auth.OpenAICodexProviderID)
-		},
-	})
-	if err != nil {
-		return writeAuthFailure(ctx, stderr, "configure OpenAI Codex login", err)
+	if err := table.Flush(); err != nil {
+		return writeAuthFailure(ctx, stderr, "write provider status", err)
 	}
-	return executeOpenAICodexLogin(ctx, login, stdout, stderr)
+	return 0
 }
 
-func executeOpenAICodexLogin(
-	ctx context.Context,
-	login openAICodexLogin,
-	stdout, stderr io.Writer,
-) int {
-	err := login.Login(ctx, func(instructions auth.OpenAICodexDeviceInstructions) error {
+func executeOpenAICodexLogin(ctx context.Context, login DeviceLogin, stdout, stderr io.Writer) int {
+	err := login.Login(ctx, func(instructions DeviceLoginInstructions) error {
 		_, err := fmt.Fprintf(
 			stdout,
 			"Open %s\nEnter code: %s\nWaiting for authorization…\n",
@@ -69,85 +95,24 @@ func executeOpenAICodexLogin(
 	return 0
 }
 
-func runLogout(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	if len(args) != 1 || args[0] != auth.OpenAICodexProviderID {
-		return logoutUsage(stderr)
-	}
-	paths, err := apphome.Resolve("")
+func runLogout(ctx context.Context, providerID string, stdout, stderr io.Writer) int {
+	client, err := connectAuthServer(ctx)
 	if err != nil {
-		fmt.Fprintf(stderr, "kit: %v\n", err)
-		return 1
+		return writeAuthFailure(ctx, stderr, "connect to server", err)
 	}
-	release, err := daemonctl.NewManager(paths).AcquireCredentialStoreMutation(ctx, auth.OpenAICodexProviderID)
-	if err != nil {
-		return writeAuthFailure(ctx, stderr, "prepare OpenAI Codex logout", err)
+	defer client.Close()
+	logoutContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := client.Logout(logoutContext, providerID); err != nil {
+		var failure *kit.ServerError
+		if errors.As(err, &failure) && failure.Code == kit.ErrorNotFound {
+			fmt.Fprintf(stderr, "kit: unknown provider %q; list providers with `kit auth status`\n", providerID)
+			return 2
+		}
+		return writeAuthFailure(ctx, stderr, "log out of "+providerID, loginError(err))
 	}
-	deleteErr := auth.NewStore(paths.Auth).Delete(ctx, auth.OpenAICodexProviderID)
-	releaseErr := release()
-	if err := errors.Join(deleteErr, releaseErr); err != nil {
-		return writeAuthFailure(ctx, stderr, "remove OpenAI Codex credentials", err)
-	}
-	fmt.Fprintln(stdout, "Logged out of OpenAI Codex.")
+	fmt.Fprintf(stdout, "Logged out of %s.\n", providerID)
 	return 0
-}
-
-func runAuthCommand(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		return authUsage(stderr)
-	}
-	switch args[0] {
-	case "status":
-		if len(args) != 1 {
-			return authUsage(stderr)
-		}
-		paths, err := apphome.Resolve("")
-		if err != nil {
-			fmt.Fprintf(stderr, "kit: %v\n", err)
-			return 1
-		}
-		entries, err := auth.NewStore(paths.Auth).List(ctx)
-		if err != nil {
-			return writeAuthFailure(ctx, stderr, "list provider credentials", err)
-		}
-		activeEnvironment, err := openAICodexEnvironmentActive(ctx, paths)
-		if err != nil {
-			return writeAuthFailure(ctx, stderr, "inspect active provider credentials", err)
-		}
-		if len(entries) == 0 && !activeEnvironment {
-			fmt.Fprintln(stdout, "No saved provider credentials.")
-			return 0
-		}
-		savedCodex := false
-		for _, entry := range entries {
-			fmt.Fprintf(stdout, "%s\t%s\tsaved\n", entry.ProviderID, entry.Type)
-			savedCodex = savedCodex || entry.ProviderID == auth.OpenAICodexProviderID
-		}
-		if activeEnvironment {
-			details := "active daemon"
-			if savedCodex {
-				details += "; overrides saved credential"
-			}
-			fmt.Fprintf(stdout, "%s\tenvironment\t%s\n", auth.OpenAICodexProviderID, details)
-		}
-		return 0
-	case "login":
-		return runLogin(ctx, args[1:], stdout, stderr)
-	case "logout":
-		return runLogout(ctx, args[1:], stdout, stderr)
-	default:
-		return authUsage(stderr)
-	}
-}
-
-func openAICodexEnvironmentActive(ctx context.Context, paths apphome.Paths) (bool, error) {
-	release, err := daemonctl.NewManager(paths).AcquireCredentialStoreMutation(ctx, auth.OpenAICodexProviderID)
-	if errors.Is(err, daemonctl.ErrEnvironmentCredentialsActive) {
-		return true, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return false, release()
 }
 
 func writeAuthFailure(ctx context.Context, output io.Writer, action string, err error) int {
@@ -163,17 +128,7 @@ func writeAuthFailure(ctx context.Context, output io.Writer, action string, err 
 	return 1
 }
 
-func loginUsage(output io.Writer) int {
-	fmt.Fprintln(output, "usage: kit login openai-codex")
-	return 2
-}
-
-func logoutUsage(output io.Writer) int {
-	fmt.Fprintln(output, "usage: kit logout openai-codex")
-	return 2
-}
-
 func authUsage(output io.Writer) int {
-	fmt.Fprintln(output, "usage: kit auth <status|login openai-codex|logout openai-codex>")
+	fmt.Fprintln(output, "usage: kit auth <status|login openai-codex|logout PROVIDER>")
 	return 2
 }

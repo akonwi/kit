@@ -12,7 +12,8 @@ type stringEnum interface{ EnumValues() []string }
 
 func TestStringEnumValuesCoverDeclaredConstants(t *testing.T) {
 	t.Parallel()
-	enums := map[string]stringEnum{"FirstTurnErrorCode": FirstTurnErrorCode(""), "ScratchpadErrorCode": ScratchpadErrorCode(""), "VCSHeadKind": VCSHeadKind("")}
+	enums := map[string]stringEnum{"FirstTurnErrorCode": FirstTurnErrorCode(""), "ScratchpadErrorCode": ScratchpadErrorCode(""), "VCSHeadKind": VCSHeadKind(""),
+		"LoginMethod": LoginMethod(""), "CredentialSource": CredentialSource(""), "LoginState": LoginState("")}
 	files, err := parser.ParseDir(token.NewFileSet(), ".", nil, 0)
 	if err != nil {
 		t.Fatal(err)

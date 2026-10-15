@@ -5,22 +5,20 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/droids/anthropicoauth"
 )
 
-const anthropicCallbackAddress = "127.0.0.1:53692"
 const anthropicRedirectURI = "http://localhost:53692/callback"
 
-// AnthropicLoginInstructions are safe values displayed while browser OAuth is pending.
+// AnthropicLoginInstructions are safe values displayed while browser OAuth is
+// pending. The browser redirects to RedirectURI on the machine running it,
+// whose client relays the redirect, or the code the page shows, to Login.
 type AnthropicLoginInstructions struct {
 	AuthorizationURL string
 	RedirectURI      string
@@ -28,16 +26,14 @@ type AnthropicLoginInstructions struct {
 
 // AnthropicOAuthLogin performs one Claude Pro/Max browser OAuth flow.
 type AnthropicOAuthLogin struct {
-	oauth       *anthropicoauth.Client
-	store       *Store
-	acquireSave func(context.Context) (func() error, error)
+	oauth *anthropicoauth.Client
+	store *Store
 }
 
 // AnthropicOAuthLoginOptions configures Claude subscription login.
 type AnthropicOAuthLoginOptions struct {
-	Store       *Store
-	HTTPClient  *http.Client
-	AcquireSave func(context.Context) (func() error, error)
+	Store      *Store
+	HTTPClient *http.Client
 }
 
 // NewAnthropicOAuthLogin constructs a login service using Anthropic's fixed OAuth origins.
@@ -45,12 +41,13 @@ func NewAnthropicOAuthLogin(options AnthropicOAuthLoginOptions) (*AnthropicOAuth
 	if options.Store == nil {
 		return nil, fmt.Errorf("auth: Anthropic credential store is required")
 	}
-	return &AnthropicOAuthLogin{oauth: anthropicoauth.NewClient(options.HTTPClient), store: options.Store, acquireSave: options.AcquireSave}, nil
+	return &AnthropicOAuthLogin{oauth: anthropicoauth.NewClient(options.HTTPClient), store: options.Store}, nil
 }
 
-// Login starts a loopback callback server, reports the browser URL, accepts an
-// optional manually pasted code or redirect URL, and installs the credential.
-func (l *AnthropicOAuthLogin) Login(ctx context.Context, manualCode <-chan string, notify func(AnthropicLoginInstructions) error) error {
+// Login reports the browser URL, waits for an authorization (the relayed
+// redirect URL or a pasted code) on authorization, and installs the
+// credential.
+func (l *AnthropicOAuthLogin) Login(ctx context.Context, authorization <-chan string, notify func(AnthropicLoginInstructions) error) error {
 	if l == nil || l.oauth == nil || l.store == nil {
 		return fmt.Errorf("auth: Anthropic login is not configured")
 	}
@@ -61,111 +58,64 @@ func (l *AnthropicOAuthLogin) Login(ctx context.Context, manualCode <-chan strin
 	if err != nil {
 		return err
 	}
-	listener, _ := net.Listen("tcp", anthropicCallbackAddress)
-	result := make(chan authorizationResult, 1)
-	if listener != nil {
-		defer listener.Close()
-		server := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: anthropicCallbackHandler(verifier, result)}
-		go func() { _ = server.Serve(listener) }()
-		defer func() {
-			shutdown, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			_ = server.Shutdown(shutdown)
-		}()
+	// The state is separate from the verifier, which never leaves this
+	// process: whoever sees the authorization URL or the redirect cannot
+	// exchange the code without it.
+	state, err := randomURLToken()
+	if err != nil {
+		return fmt.Errorf("generate Anthropic OAuth state: %w", err)
 	}
-
 	parameters := url.Values{
 		"code": {"true"}, "client_id": {anthropicoauth.ClientID}, "response_type": {"code"},
 		"redirect_uri": {anthropicRedirectURI}, "scope": {anthropicoauth.Scopes},
-		"code_challenge": {challenge}, "code_challenge_method": {"S256"}, "state": {verifier},
+		"code_challenge": {challenge}, "code_challenge_method": {"S256"}, "state": {state},
 	}
 	if err := notify(AnthropicLoginInstructions{AuthorizationURL: anthropicoauth.AuthorizeURL + "?" + parameters.Encode(), RedirectURI: anthropicRedirectURI}); err != nil {
 		return err
 	}
 
-	var authorization authorizationResult
+	var input string
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case authorization = <-result:
-	case input := <-manualCode:
-		authorization, err = parseAnthropicAuthorization(input, verifier)
-		if err != nil {
-			return err
-		}
+	case input = <-authorization:
 	}
-	if authorization.err != nil {
-		return authorization.err
+	result, err := parseAnthropicAuthorization(input, state)
+	if err != nil {
+		return err
 	}
-	credentials, err := l.oauth.Exchange(ctx, authorization.code, authorization.state, verifier, anthropicRedirectURI)
+	credentials, err := l.oauth.Exchange(ctx, result.code, result.state, verifier, anthropicRedirectURI)
 	if err != nil {
 		return fmt.Errorf("exchange Anthropic authorization code: %w", err)
 	}
-
-	release := func() error { return nil }
-	if l.acquireSave != nil {
-		release, err = l.acquireSave(ctx)
-		if err != nil {
-			return fmt.Errorf("authorize Anthropic credential save: %w", err)
-		}
-		if release == nil {
-			return fmt.Errorf("auth: Anthropic login save guard returned no release function")
-		}
-	}
-	saveErr := l.store.ReplaceAnthropicOAuthCredentials(ctx, droids.AnthropicCredentials{
+	if err := l.store.ReplaceAnthropicOAuthCredentials(ctx, droids.AnthropicCredentials{
 		AccessToken: credentials.AccessToken, RefreshToken: credentials.RefreshToken, ExpiresAt: credentials.ExpiresAt,
-	})
-	if saveErr != nil {
-		saveErr = fmt.Errorf("save Anthropic credentials: %w", saveErr)
+	}); err != nil {
+		return fmt.Errorf("save Anthropic credentials: %w", err)
 	}
-	return errors.Join(saveErr, release())
+	return nil
 }
 
 type authorizationResult struct {
 	code, state string
-	err         error
-}
-
-func anthropicCallbackHandler(expectedState string, result chan<- authorizationResult) http.Handler {
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/callback" {
-			http.NotFound(writer, request)
-			return
-		}
-		code, state := request.URL.Query().Get("code"), request.URL.Query().Get("state")
-		if oauthError := request.URL.Query().Get("error"); oauthError != "" {
-			if state != expectedState {
-				http.Error(writer, "Invalid OAuth callback.", http.StatusBadRequest)
-				return
-			}
-			http.Error(writer, "Anthropic authentication did not complete.", http.StatusBadRequest)
-			select {
-			case result <- authorizationResult{err: fmt.Errorf("Anthropic authentication failed")}:
-			default:
-			}
-			return
-		}
-		if code == "" || state == "" || state != expectedState {
-			http.Error(writer, "Invalid OAuth callback.", http.StatusBadRequest)
-			return
-		}
-		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = writer.Write([]byte("<!doctype html><title>Kit connected</title><p>Anthropic authentication completed. You can close this window.</p>"))
-		select {
-		case result <- authorizationResult{code: code, state: state}:
-		default:
-		}
-	})
 }
 
 func newAnthropicPKCE() (string, string, error) {
-	value := make([]byte, 32)
-	if _, err := rand.Read(value); err != nil {
+	verifier, err := randomURLToken()
+	if err != nil {
 		return "", "", fmt.Errorf("generate Anthropic OAuth verifier: %w", err)
 	}
-	verifier := base64.RawURLEncoding.EncodeToString(value)
 	digest := sha256.Sum256([]byte(verifier))
 	return verifier, base64.RawURLEncoding.EncodeToString(digest[:]), nil
+}
+
+// randomURLToken returns 256 random bits, URL-safe.
+func randomURLToken() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(value), nil
 }
 
 func parseAnthropicAuthorization(input, expectedState string) (authorizationResult, error) {
@@ -174,6 +124,9 @@ func parseAnthropicAuthorization(input, expectedState string) (authorizationResu
 		return authorizationResult{}, fmt.Errorf("Anthropic authorization code is missing")
 	}
 	if parsed, err := url.Parse(value); err == nil && parsed.Scheme != "" {
+		if oauthError := parsed.Query().Get("error"); oauthError != "" {
+			return authorizationResult{}, fmt.Errorf("Anthropic authorization was not granted (%s)", oauthError)
+		}
 		return validateAnthropicAuthorization(parsed.Query().Get("code"), parsed.Query().Get("state"), expectedState)
 	}
 	if strings.Contains(value, "#") {

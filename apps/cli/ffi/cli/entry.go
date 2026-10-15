@@ -4,7 +4,6 @@ import (
 	"context"
 
 	kit "github.com/akonwi/kit/api"
-	"github.com/akonwi/kit/internal/auth"
 	kittheme "github.com/akonwi/kit/internal/theme"
 )
 
@@ -44,14 +43,16 @@ type TUIOptions struct {
 	DiffPreferenceService DiffPreferenceService
 }
 
-// DeviceLogin performs OpenAI Codex device-code login.
+// DeviceLogin performs OpenAI Codex device-code login on the attached server.
 type DeviceLogin interface {
-	Login(context.Context, func(auth.OpenAICodexDeviceInstructions) error) error
+	Login(context.Context, func(DeviceLoginInstructions) error) error
 }
 
-// BrowserLogin performs Claude subscription browser OAuth.
+// BrowserLogin performs Claude subscription browser OAuth on the attached
+// server. The channel carries a code the user pasted from the authorization
+// page.
 type BrowserLogin interface {
-	Login(context.Context, <-chan string, func(auth.AnthropicLoginInstructions) error) error
+	Login(context.Context, <-chan string, func(BrowserLoginInstructions) error) error
 }
 
 // APIKeyLogin installs an API-key credential and activates its provider.

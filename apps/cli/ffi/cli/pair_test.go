@@ -16,19 +16,24 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/daemonctl"
 	"github.com/akonwi/kit/internal/pairing"
+	"github.com/akonwi/kit/internal/providerlogin"
 	kitserver "github.com/akonwi/kit/internal/server"
 	"rsc.io/qr"
 )
 
 // startDaemon runs this home's server in process and stops it when the test
 // ends.
-func startDaemon(t *testing.T, home string) {
+func startDaemon(t *testing.T, home string) { startDaemonWith(t, home, nil) }
+
+// startDaemonWith runs this home's server in process with provider login
+// flows, the real ones when nil, and stops it when the test ends.
+func startDaemonWith(t *testing.T, home string, flows *providerlogin.Flows) {
 	t.Helper()
 	paths := apphome.FromHome(home)
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)
 	go func() {
-		result <- kitserver.Run(ctx, kitserver.RunOptions{Paths: paths, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+		result <- kitserver.Run(ctx, kitserver.RunOptions{Paths: paths, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), LoginFlows: flows})
 	}()
 	t.Cleanup(func() {
 		cancel()
