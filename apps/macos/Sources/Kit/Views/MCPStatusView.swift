@@ -74,7 +74,7 @@ struct MCPStatusView: View {
 
     @ViewBuilder private func statusIndicator(_ server: MCPServerStatus) -> some View {
         if server.state == "connecting" || server.state == "authorizing" {
-            ProgressView().controlSize(.small).frame(width: 14, height: 14)
+            KitSpinner().foregroundStyle(statusColor(server.state)).frame(width: 14)
         } else {
             Text(symbol(server.state)).font(.kit(size: 14, weight: .medium, design: .monospaced))
                 .foregroundStyle(statusColor(server.state)).frame(width: 14)

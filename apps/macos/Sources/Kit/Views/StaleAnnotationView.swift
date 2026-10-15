@@ -26,7 +26,7 @@ struct StaleAnnotationView: View {
                     }
                 }.frame(maxHeight: 360)
             } else if let error { Text(error).foregroundStyle(theme.muted) }
-            else { ProgressView("Loading captured source…") }
+            else { KitSpinner("Loading captured source…").foregroundStyle(theme.muted) }
             HStack {
                 Button("Close") { annotations.inspected = nil }
                 Spacer()
