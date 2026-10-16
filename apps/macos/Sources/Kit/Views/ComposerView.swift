@@ -91,7 +91,8 @@ struct ComposerView: View {
                                       state.changeQueue(.edit); return true
                                   }, mentionRevision: mentions.revision,
                                   mentionIdentity: state.serverID + "/" + state.selectedID,
-                                  mentionLoader: mentionLoader, pickerAnchor: pickerAnchor, theme: theme)
+                                  mentionLoader: mentionLoader, pickerAnchor: pickerAnchor, theme: theme,
+                                  selection: $ui.composerSelection)
                 .fixedSize(horizontal: false, vertical: true)
                 .workspaceFocusTarget(.conversation)
                 .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)

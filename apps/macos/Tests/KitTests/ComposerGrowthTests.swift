@@ -10,6 +10,28 @@ import SwiftUI
     var focusAtEndRequest: Int?
 }
 
+@MainActor @Observable private final class RemountComposerState {
+    var draft = "Fix the resize clamp"
+    var mounted = true
+    @ObservationIgnored var selection: NSRange?
+}
+
+/// Like a session tab, the editor is removed while another tab shows and
+/// rebuilt when its tab returns.
+private struct RemountComposerHost: View {
+    @Bindable var state: RemountComposerState
+
+    var body: some View {
+        if state.mounted {
+            GrowingComposerEditor(text: $state.draft, focused: .constant(false), focusRequest: 0,
+                foreground: .primary, placeholderColor: .secondary, attachmentDrop: { _ in false },
+                attachmentDropTargeted: { _ in }, submit: {}, selection: $state.selection)
+        } else {
+            Text("Another tab")
+        }
+    }
+}
+
 private struct QuoteComposerHost: View {
     @Bindable var state: QuoteComposerState
 
@@ -57,6 +79,43 @@ private struct QuoteComposerHost: View {
         #expect(window.firstResponder === input)
         input.insertText("My reply", replacementRange: input.selectedRange())
         #expect(input.string == "Existing draft\n\n> Selected 🚀 text\n\nMy reply")
+    }
+
+    @Test func remountedEditorKeepsTheCaretWhereItWas() async throws {
+        _ = NSApplication.shared
+        let state = RemountComposerState()
+        let host = NSHostingView(rootView: RemountComposerHost(state: state))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+
+        func editor(in view: NSView) -> ComposerTextView? {
+            if let editor = view as? ComposerTextView { return editor }
+            return view.subviews.lazy.compactMap { editor(in: $0) }.first
+        }
+        func settle(until done: () -> Bool) async throws {
+            for _ in 0..<20 where !done() {
+                host.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(20))
+            }
+        }
+        try await settle { editor(in: host)?.string == state.draft }
+        let first = try #require(editor(in: host))
+        // A draft with no saved caret opens with the caret at its end.
+        #expect(first.selectedRange() == NSRange(location: 20, length: 0))
+        first.setSelectedRange(NSRange(location: 4, length: 3))
+
+        state.mounted = false
+        try await settle { editor(in: host) == nil }
+        #expect(editor(in: host) == nil)
+        state.mounted = true
+        try await settle { editor(in: host)?.string == state.draft }
+        let second = try #require(editor(in: host))
+        #expect(second !== first)
+        #expect(second.selectedRange() == NSRange(location: 4, length: 3))
     }
 
     @Test func swiftUIEditorCapsLargePastes() async throws {

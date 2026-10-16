@@ -31,6 +31,9 @@ struct GrowingComposerEditor: NSViewRepresentable {
     var mentionLoader: (@Sendable (Bool) async throws -> FileIndex)? = nil
     var pickerAnchor: ComposerPickerAnchor? = nil
     var theme = MicaTheme(dark: false)
+    /// Where the caret was, kept outside the view so a remounted editor puts
+    /// it back. Without a saved range the caret starts at the end of the text.
+    var selection: Binding<NSRange?>? = nil
 
     func makeNSView(context: Context) -> ComposerScrollView {
         let scroll = ComposerScrollView()
@@ -89,6 +92,14 @@ struct GrowingComposerEditor: NSViewRepresentable {
             mentions?.close(); history?.close()
         }
         context.coordinator.previousText = view.string
+        if !context.coordinator.selectionRestored {
+            context.coordinator.selectionRestored = true
+            let length = view.string.utf16.count
+            let saved = selection?.wrappedValue ?? NSRange(location: length, length: 0)
+            let location = min(saved.location, length)
+            view.setSelectedRange(NSRange(location: location, length: min(saved.length, length - location)))
+            scroll.revealSelectionAfterLayout = true
+        }
         view.font = Typography.shared.font(size: 14, mono: !view.shellPrefix.isEmpty)
         view.textColor = NSColor(foreground)
         view.typingAttributes = [.font: view.font!, .foregroundColor: NSColor(foreground)]
@@ -135,6 +146,9 @@ struct GrowingComposerEditor: NSViewRepresentable {
         var previousText: String
         var identity: String
         var lastFocusRequest: Int?
+        /// Set once the first update has placed the caret; selection changes
+        /// before then come from loading the draft, not from the user.
+        var selectionRestored = false
         init(_ parent: GrowingComposerEditor) {
             self.parent = parent
             lastFocusRequest = parent.focusAtEndRequest == parent.focusRequest ? nil : parent.focusRequest
@@ -183,7 +197,9 @@ struct GrowingComposerEditor: NSViewRepresentable {
             }, retry: { [weak self] in self?.loadMentions(force: true) })
         }
         func textViewDidChangeSelection(_ notification: Notification) {
-            guard let view = notification.object as? ComposerTextView, view.string == previousText,
+            guard let view = notification.object as? ComposerTextView else { return }
+            if selectionRestored { parent.selection?.wrappedValue = view.selectedRange() }
+            guard view.string == previousText,
                   let mentions = parent.mentions, mentions.isOpen else { return }
             if view.selectedRange().length != 0 || view.selectedRange().location != NSMaxRange(mentions.range) {
                 mentions.close(); panel.dismiss()

@@ -23,6 +23,9 @@ final class SessionUIState {
     var workspace: WorkspaceState
     var notice = ""
     var draft = ""
+    /// The composer's caret within the draft. Only the selected session tab
+    /// is mounted, so this restores the caret when its composer is rebuilt.
+    @ObservationIgnored var composerSelection: NSRange?
     var attachments: [String] = []
     var uploads = ComposerAttachments()
     var serverAttachmentIDs: [String] = []
@@ -30,6 +33,7 @@ final class SessionUIState {
     private struct DraftState {
         let uploads: ComposerAttachments
         let text: String
+        let selection: NSRange?
         let serverAttachmentIDs: [String]
         let attachments: [String]
         let previews: [String: NSImage]
@@ -42,18 +46,19 @@ final class SessionUIState {
 
     func restoreQueueDraft(session: SessionIdentity, text: String, attachmentIDs: [String]) {
         guard let saved = drafts[session] else { return }
-        drafts[session] = DraftState(uploads: saved.uploads, text: [text, saved.text].filter { !$0.isEmpty }.joined(separator: "\n\n"),
+        drafts[session] = DraftState(uploads: saved.uploads, text: [text, saved.text].filter { !$0.isEmpty }.joined(separator: "\n\n"), selection: nil,
             serverAttachmentIDs: ComposerAttachments.uniqueIDs(saved.serverAttachmentIDs + attachmentIDs), attachments: saved.attachments,
             previews: saved.previews, workspace: saved.workspace, transcript: saved.transcript)
     }
 
     func switchSession(from old: SessionIdentity, to new: SessionIdentity, demo: Bool) {
-        drafts[old] = DraftState(uploads: uploads, text: draft, serverAttachmentIDs: serverAttachmentIDs, attachments: attachments, previews: attachmentPreviews, workspace: workspace, transcript: transcript)
+        drafts[old] = DraftState(uploads: uploads, text: draft, selection: composerSelection, serverAttachmentIDs: serverAttachmentIDs, attachments: attachments, previews: attachmentPreviews, workspace: workspace, transcript: transcript)
         subagentsPresented = false
         composerFocusAtEndRequest = nil
         let saved = drafts[new]
         uploads = saved?.uploads ?? ComposerAttachments()
         draft = saved?.text ?? ""
+        composerSelection = saved?.selection
         serverAttachmentIDs = saved?.serverAttachmentIDs ?? []
         attachments = saved?.attachments ?? []
         attachmentPreviews = saved?.previews ?? [:]
