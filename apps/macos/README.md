@@ -20,7 +20,16 @@ bundled-daemon work is tracked by [#143](https://github.com/akonwi/kit/issues/14
 
 Start a compatible Kit daemon separately. The app discovers it through
 `$KIT_HOME/run`, defaulting to `~/.kit/run`, and checks identity and protocol
-compatibility. It never starts a daemon or reads a separate legacy home. There is
+compatibility. To keep a development bundle off production state, bind it to a
+channel, as with the CLI's `--define channel=NAME`:
+
+```sh
+KIT_MACOS_CHANNEL=dev apps/macos/script/build_and_run.sh --verify
+```
+
+The bundle then uses `~/.local/state/kit/dev/home` instead of `~/.kit`
+([ADR 0047](../../docs/adrs/0047-give-development-builds-an-isolated-kit-home.md)),
+and needs a daemon running in that home. Without a channel it uses `~/.kit`. It never starts a daemon or reads a separate legacy home. There is
 no demo launch mode or packaged private transcript data.
 
 ## Apple Silicon app release
@@ -73,12 +82,12 @@ that these gates have passed.
 
 ## Navigation
 
-Each window holds session tabs, grouped by project in a sidebar or shown in a
-strip along the top; the toggle beside the tabs, or Session > Session Tabs,
+Each window holds session tabs, listed in a sidebar as a tree with each session
+under the one it came from, or shown in a strip along the top; the toggle beside the tabs, or Session > Session Tabs,
 switches between them. Open windows, their tabs, and each tab's tile layout restore on launch. Without a
 saved layout, Kit shows the session launcher rather than selecting a session
 itself. Cmd+T opens the launcher in a new tab, Cmd+W closes the tab, Cmd+1–9
-select tabs, and Cmd+Shift+[ and ] move between them. Opening a session that
+select tabs by position, and Cmd+Shift+[ and ] move between them. Opening a session that
 another window already shows brings that window forward. Search matches session names and paths;
 arrow keys navigate and Return opens. New session accepts a working directory,
 optional name, model, and thinking level.

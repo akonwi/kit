@@ -10,20 +10,24 @@ APP_BUILD="${KIT_MACOS_APP_BUILD:-1}"
 APP_COMMIT="${KIT_MACOS_SOURCE_COMMIT:-}"
 DERIVED_DATA="${KIT_MACOS_DERIVED_DATA:-$APP_ROOT/.build/xcode}"
 # Development bundles get their own identity so their preferences, window
-# restoration, and process never touch an installed Kit.app. They also carry an
-# isolated Kit home: a launched GUI app does not inherit its launching shell's
-# environment, so the home is written into Info.plist instead. `KIT_HOME` still
-# overrides it when set, matching the CLI's precedence. Release bundles never
-# carry a home, so they keep resolving the shared ~/.kit.
+# restoration, and process never touch an installed Kit.app. Like the CLI, a
+# bundle uses ~/.kit unless it is bound to a channel: KIT_MACOS_CHANNEL=NAME
+# binds it to the isolated home ~/.local/state/kit/NAME/home (ADR 0047). A
+# launched GUI app does not inherit its launching shell's environment, so the
+# home is written into Info.plist. `KIT_HOME` still overrides it when set,
+# matching the CLI's precedence. Release bundles name no channel.
+CHANNEL="${KIT_MACOS_CHANNEL:-}"
+DEV_HOME=""
 if [[ "${KIT_MACOS_RELEASE_BUILD:-0}" == 1 ]]; then
   BUNDLE_ID=com.akonwi.kit; BUNDLE_NAME=Kit
+  [[ -z "$CHANNEL" ]] || { echo "A release build names no channel" >&2; exit 2; }
 else
   BUNDLE_ID=com.akonwi.kit.dev; BUNDLE_NAME="Kit Dev"
-  DEV_HOME="${KIT_MACOS_HOME:-$HOME/.local/state/kit/dev/home}"
-  case "$DEV_HOME" in
-    /*) ;;
-    *) echo "KIT_MACOS_HOME must be an absolute path, got '$DEV_HOME'" >&2; exit 2 ;;
-  esac
+fi
+if [[ -n "$CHANNEL" ]]; then
+  # One directory name, so a channel can't escape the state directory.
+  [[ "$CHANNEL" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "Invalid channel '$CHANNEL': want a single directory name" >&2; exit 2; }
+  DEV_HOME="$HOME/.local/state/kit/$CHANNEL/home"
 fi
 [[ -z "$APP_COMMIT" || "$APP_COMMIT" =~ ^[a-f0-9]{40}$ ]] || { echo "Invalid source commit" >&2; exit 2; }
 [[ "$CONFIGURATION" == Debug || "$CONFIGURATION" == Release ]] || { echo "Invalid build configuration" >&2; exit 2; }
@@ -71,9 +75,7 @@ rm -f "$APP_BUNDLE/Contents/Resources/fixture.json" "$APP_BUNDLE/Contents/Resour
 commit_entry=""
 if [[ -n "$APP_COMMIT" ]]; then commit_entry="<key>KitSourceCommit</key><string>$APP_COMMIT</string>"; fi
 dev_home_entry=""
-if [[ "${KIT_MACOS_RELEASE_BUILD:-0}" != 1 ]]; then
-  dev_home_entry="<key>KitDevHome</key><string>$DEV_HOME</string>"
-fi
+if [[ -n "$DEV_HOME" ]]; then dev_home_entry="<key>KitDevHome</key><string>$DEV_HOME</string>"; fi
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -95,6 +97,7 @@ $dev_home_entry
 PLIST
 # Seal the assembled development bundle after replacing its executable/resources.
 codesign --force --deep --sign - "$APP_BUNDLE"
+if [[ -n "$DEV_HOME" ]]; then echo "Kit home: $DEV_HOME (channel $CHANNEL)" >&2; fi
 if [[ "$MODE" == --build ]]; then echo "$APP_BUNDLE"; exit; fi
 /usr/bin/open -n "$APP_BUNDLE"
 if [[ "$MODE" == --verify ]]; then
