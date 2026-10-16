@@ -6,13 +6,14 @@ struct SessionLauncherView: View {
     /// The status of each of the window's sessions that is working or
     /// awaiting a response.
     var activity: [String: SessionTabStatus] = [:]
+    /// Opens the new session form.
+    let create: () -> Void
     let open: (SessionExcerpt) -> Void
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("themeConfiguration") private var themeConfiguration = ""
     @Environment(\.installedThemes) private var installedThemes
 
     @State private var refreshRequest = 0
-    @State private var creating = false
     @State private var target: SessionExcerpt?
     @State private var deleting = false
 
@@ -22,7 +23,7 @@ struct SessionLauncherView: View {
         let theme = ThemeConfiguration.decode(themeConfiguration).theme(dark: dark, installed: installedThemes)
         SessionLauncherContent(sessions: app.sessions, connecting: app.connecting,
                                connected: app.client != nil, error: app.error, open: open, refresh: { refreshRequest += 1 },
-                               create: { creating = true }, focusRequest: target == nil, activity: activity,
+                               create: create, focusRequest: target == nil, activity: activity,
                                rename: { deleting = false; target = $0 },
                                delete: { deleting = true; target = $0 })
         .modifier(SessionCatalogActions(client: app.client, refresh: { await app.refreshSessions() },
@@ -33,14 +34,6 @@ struct SessionLauncherView: View {
         .tint(theme.accent)
         .preferredColorScheme(scheme)
         .frame(minWidth: 680, minHeight: 540)
-        .sheet(isPresented: $creating) {
-            if let client = app.client as? any SessionCreationClient {
-                NewSessionView(client: client, suggestedModel: app.sessions.first?.model) { session in
-                    app.recordCreated(session)
-                    open(session)
-                }.environment(\.mica, theme)
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .kitSessionDeleted)) { notification in
             if let identity = notification.object as? SessionIdentity { app.sessionDeleted(identity) }
         }

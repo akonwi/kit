@@ -22,6 +22,14 @@ active. Search, arrow keys, and Return open a session without a pointer; ⌘R an
 the way to start the first one. The transcript, composer, and workspace panes
 stay hidden until a session is explicitly chosen.
 
+New session opens a form over the whole window. It starts in the home folder,
+with the default model, or the most recent session's when there is none, at
+medium thinking when the model offers it. Model and Thinking open the
+composer's popovers below their fields; a model that lacks the chosen level
+falls back the same way. Return creates and Esc cancels. While the server
+answers the fields lock, and a temporary session the server didn't confirm
+must be disposed of before the form closes.
+
 Relaunch restores only intentionally opened sessions: each window's session tabs,
 its selected session, each tab's tile arrangement, and the sidebar's collapsed
 families. Closing a session removes

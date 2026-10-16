@@ -72,6 +72,8 @@ final class SessionWindowModel: Identifiable {
     private(set) var selectedTabID: UUID
     /// Sessions whose children the sidebar hides.
     private(set) var collapsed: Set<String>
+    /// The launcher tab whose new session form is open over the window.
+    var creatingIn: SessionTab?
     @ObservationIgnored weak var window: NSWindow?
     /// Keeps the window's traffic lights in the chrome row while it is open.
     @ObservationIgnored var trafficLights: TrafficLightPlacement?
@@ -295,6 +297,13 @@ final class SessionWindowModel: Identifiable {
         } else {
             open(Self.launcherIdentity)
         }
+    }
+
+    /// Opens a session made by the new session form: in the launcher tab that
+    /// asked for it, or in a new tab when that launcher has gone.
+    func showCreated(_ identity: SessionIdentity, from launcher: SessionTab) {
+        if tabs.contains(where: { $0 === launcher }), launcher.isLauncher { show(identity, in: launcher) }
+        else { open(identity) }
     }
 
     /// Points a tab at another session, as when the launcher or chooser picks one.

@@ -39,6 +39,9 @@ struct SessionWindowRoot: View {
                 }
             }
         }
+        .disabled(model.creatingIn != nil)
+        .accessibilityHidden(model.creatingIn != nil)
+        .overlay { newSessionForm(model: model, theme: theme) }
         .environment(\.mica, theme)
         .foregroundStyle(theme.text)
         .background(theme.frame)
@@ -69,6 +72,19 @@ struct SessionWindowRoot: View {
         }
         .onAppear {
             windows.restoreRemaining { openWindow(id: "session", value: $0) }
+        }
+    }
+
+    /// The new session form, over the whole window while a launcher asks for it.
+    @ViewBuilder private func newSessionForm(model: SessionWindowModel, theme: MicaTheme) -> some View {
+        let app = model.app
+        if let launcher = model.creatingIn, let client = app.client as? any SessionCreationClient {
+            NewSessionOverlay(client: client, suggestedModel: app.sessions.first?.model,
+                              close: { model.creatingIn = nil }) { session in
+                app.recordCreated(session)
+                model.showCreated(SessionIdentity(server: client.serverID, session: session.id), from: launcher)
+            }
+            .environment(\.mica, theme)
         }
     }
 
@@ -103,7 +119,7 @@ private struct SessionTabContent: View {
     var body: some View {
         let app = model.app
         if tab.isLauncher {
-            SessionLauncherView(app: app, activity: model.activity) { session in
+            SessionLauncherView(app: app, activity: model.activity, create: { if app.client is any SessionCreationClient { model.creatingIn = tab } }) { session in
                 model.show(SessionIdentity(server: app.client?.serverID ?? SessionWindowModel.defaultServer, session: session.id), in: tab)
             }
         } else if let client = app.client, tab.identity.server.isEmpty || tab.identity.server == client.serverID {
