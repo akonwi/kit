@@ -11,6 +11,7 @@ enum Icon: String, CaseIterable, Sendable {
     case arrowUp = "arrow-up"
     case arrowUpRight = "arrow-up-right"
     case arrowsLeftRight = "arrows-left-right"
+    case arrowSquareOut = "arrow-square-out"
     case browser
     case caretDown = "caret-down"
     case caretLeft = "caret-left"
@@ -21,11 +22,14 @@ enum Icon: String, CaseIterable, Sendable {
     case chatCircle = "chat-circle"
     case chatCircleDots = "chat-circle-dots"
     case check
+    case checkCircle = "check-circle"
     case circleHalf = "circle-half"
     case copy
     case cornersIn = "corners-in"
     case cornersOut = "corners-out"
     case dotsThree = "dots-three"
+    case eye
+    case eyeSlash = "eye-slash"
     case file
     case fileMagnifyingGlass = "file-magnifying-glass"
     case filePlus = "file-plus"
@@ -35,8 +39,10 @@ enum Icon: String, CaseIterable, Sendable {
     case gitBranch = "git-branch"
     case gitDiff = "git-diff"
     case gitPullRequest = "git-pull-request"
+    case hash
     case image
     case info
+    case key
     case magnifyingGlass = "magnifying-glass"
     case moon
     case note

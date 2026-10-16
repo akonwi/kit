@@ -115,8 +115,6 @@ struct CommandPalette: View {
         case "model", "thinking": configurationUnavailableReason
         case "diff": state.catalogClient is any DiffClient ? nil : "Unavailable for this connection"
         case "files": state.unavailable ? "Session unavailable" : nil
-        // Provider sign-in has no session API yet (#153).
-        case "login": "not available yet"
         case "split-right", "split-down": workspace.canSplit(workspace.selected) ? nil : "needs another tab"
         case "zoom", "equalize", "join-tabs": workspace.root.tiles.count < 2 ? "needs two tiles" : nil
         default: nil
@@ -191,6 +189,7 @@ struct CommandPalette: View {
             case "new": navigation.openLauncher()
             case "quit": NSApp.terminate(nil)
             case "theme": openSettings()
+            case "login": close(); SettingsSection.providers.open(with: openSettings)
             case "appearance": appearance = theme.dark ? "light" : "dark"
             case "split-right": workspace.split(workspace.selected, .right)
             case "split-down": workspace.split(workspace.selected, .bottom)

@@ -36,6 +36,7 @@ struct NewSessionView: View {
     let open: (SessionExcerpt) -> Void
     var loadDefaults: @Sendable () async throws -> SharedSettingsStore.Snapshot = { try await SharedSettingsStore.shared.load() }
     @Environment(\.mica) private var theme
+    @Environment(\.openSettings) private var openSettings
     @State private var temporary = false
     @State private var creationID = "session_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     @State private var name = ""
@@ -156,14 +157,16 @@ struct NewSessionView: View {
     }
 
     private var noModels: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("No models available")
-                Text("Sign in to a provider, then reload.").font(.kit(size: 12)).foregroundStyle(theme.muted)
+                Text("Sign in to a provider to start a session.").font(.kit(size: 12)).foregroundStyle(theme.muted)
             }
             Spacer(minLength: 8)
             Button("Reload") { Task { await loadModels() } }
                 .buttonStyle(FormButtonStyle(fill: .surface))
+            Button("Sign in…") { SettingsSection.providers.open(with: openSettings) }
+                .buttonStyle(FormButtonStyle(fill: .primary))
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .fieldBox(theme)
@@ -342,7 +345,7 @@ struct NewSessionView: View {
 
 /// A 30 pt field that opens a popover below itself; it lights while hovered
 /// or open.
-private struct PickerField<Label: View>: View {
+struct PickerField<Label: View>: View {
     @Environment(\.mica) private var theme
     @Environment(\.isEnabled) private var enabled
     let open: Bool
@@ -371,7 +374,7 @@ private struct PickerField<Label: View>: View {
 
 /// The form's 28 pt buttons: bordered on the raised surface, or filled for
 /// the action the form exists for.
-private struct FormButtonStyle: ButtonStyle {
+struct FormButtonStyle: ButtonStyle {
     enum Fill { case raised, surface, primary }
     var fill = Fill.raised
 
@@ -409,7 +412,7 @@ private struct FormButtonStyle: ButtonStyle {
 
 /// A 36 × 20 pt switch: the accent track with a white knob on the right when
 /// on, the strong border track with a text-coloured knob when off.
-private struct FormSwitchStyle: ToggleStyle {
+struct FormSwitchStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View { FormSwitch(configuration: configuration) }
 
     private struct FormSwitch: View {
@@ -438,7 +441,7 @@ private struct FormSwitchStyle: ToggleStyle {
     }
 }
 
-private extension View {
+extension View {
     /// A form field's box: the raised surface, a hairline border that turns
     /// accent while the field has focus, and 3 pt corners.
     func fieldBox(_ theme: MicaTheme, focused: Bool = false) -> some View {

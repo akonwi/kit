@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// One window: its session tabs, the selected session's bar, and that
@@ -12,6 +13,10 @@ struct SessionWindowRoot: View {
     @Environment(\.installedThemes) private var installedThemes
     @Environment(\.openWindow) private var openWindow
     @State private var localConnectionRequest = 0
+    @State private var signIn: ProviderSignIn?
+    /// Whether first run is showing. It stays until Continue, so signing in
+    /// to another provider from the connected step keeps the window on it.
+    @State private var firstRun = false
 
     var body: some View {
         let model = windows.model(for: request)
@@ -20,23 +25,10 @@ struct SessionWindowRoot: View {
         let theme = ThemeConfiguration.decode(themeConfiguration).theme(dark: scheme == .dark, installed: installedThemes)
         let tab = model.selectedTab
         Group {
-            switch placement {
-            case .side:
-                HStack(spacing: 0) {
-                    SessionSidebar(model: model, placement: $placement)
-                    VStack(spacing: 0) {
-                        SessionBar(tab: tab)
-                        tile(model: model, tab: tab, theme: theme)
-                    }
-                }
-            case .top:
-                VStack(spacing: 0) {
-                    SessionTopTabs(model: model, placement: $placement)
-                    if !tab.isLauncher {
-                        SessionBar(tab: tab, showsTitle: false).padding(.horizontal, 6)
-                    }
-                    tile(model: model, tab: tab, theme: theme)
-                }
+            if firstRun, let signIn {
+                FirstRunView(signIn: signIn) { firstRun = false }
+            } else {
+                workspace(model: model, tab: tab, theme: theme)
             }
         }
         .disabled(model.creatingIn != nil)
@@ -73,6 +65,42 @@ struct SessionWindowRoot: View {
         .onAppear {
             windows.restoreRemaining { openWindow(id: "session", value: $0) }
         }
+        .task(id: app.client?.serverID) { await checkProviders(app, reset: true) }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await checkProviders(app, reset: false) }
+        }
+    }
+
+    /// The session tabs, the selected session's bar, and its content.
+    @ViewBuilder private func workspace(model: SessionWindowModel, tab: SessionTab, theme: MicaTheme) -> some View {
+        switch placement {
+        case .side:
+            HStack(spacing: 0) {
+                SessionSidebar(model: model, placement: $placement)
+                VStack(spacing: 0) {
+                    SessionBar(tab: tab)
+                    tile(model: model, tab: tab, theme: theme)
+                }
+            }
+        case .top:
+            VStack(spacing: 0) {
+                SessionTopTabs(model: model, placement: $placement)
+                if !tab.isLauncher {
+                    SessionBar(tab: tab, showsTitle: false).padding(.horizontal, 6)
+                }
+                tile(model: model, tab: tab, theme: theme)
+            }
+        }
+    }
+
+    /// Shows first run while the server has no provider connected. A server
+    /// that can't list providers keeps the workspace.
+    private func checkProviders(_ app: AppModel, reset: Bool) async {
+        guard let client = app.client as? any ProviderClient else { signIn = nil; firstRun = false; return }
+        if reset || signIn == nil { signIn = ProviderSignIn(client: client) }
+        guard let signIn, signIn.step == .list else { return }
+        await signIn.load()
+        if signIn.loadError == nil && !signIn.anyConnected { firstRun = true }
     }
 
     /// The new session form, over the whole window while a launcher asks for it.

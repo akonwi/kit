@@ -28,7 +28,25 @@ medium thinking when the model offers it. Model and Thinking open the
 composer's popovers below their fields; a model that lacks the chosen level
 falls back the same way. Return creates and Esc cancels. While the server
 answers the fields lock, and a temporary session the server didn't confirm
-must be disposed of before the form closes.
+must be disposed of before the form closes. When the server offers no models,
+the form says to sign in to a provider and links to Settings › Providers.
+
+### First run and providers
+
+While the server has no provider connected, each window shows first run in
+place of its tabs: Kit's wordmark over one row per sign-in method, browser
+sign-ins last. Choosing one replaces the list with its step in the same column:
+a device code to copy and open, a browser page to approve (or a code to paste
+back), or an API key. Every step ends on Connected, which picks the default
+model for new sessions; Continue opens the workspace and Add another returns to
+the list. Back cancels a sign-in the server is still waiting on. First run
+shows even when sessions exist, so a server whose credentials were removed
+asks for one again.
+
+Settings › Providers lists each provider once with its status. Sign in replaces
+the list with the same steps; Sign out removes the stored credential. A key
+from the server's environment shows as connected without Sign out, since the
+app can't remove it. The `login` command opens this section.
 
 Relaunch restores only intentionally opened sessions: each window's session tabs,
 its selected session, each tab's tile arrangement, and the sidebar's collapsed
@@ -119,8 +137,7 @@ by name, in the TUI's row layout: monospace name, argument hint, description,
 and the prompt's source or the command's plugin on the right. Plugin commands
 show their name within the plugin. A command that can't run now stays listed,
 dimmed, with its reason before the description, such as "idle only" while a
-turn runs; choosing it shows the reason as a toast. `login` is listed but not
-available until the app can sign in to providers.
+turn runs; choosing it shows the reason as a toast.
 
 Matching follows the TUI: the command word is ranked against names first, then
 descriptions and aliases, so typing arguments never changes the selection. A

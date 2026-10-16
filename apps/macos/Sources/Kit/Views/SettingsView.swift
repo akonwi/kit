@@ -4,7 +4,7 @@ struct SettingsView: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("themeConfiguration") private var storedConfiguration = ""
     @Environment(\.installedThemes) private var installedThemes
-    @State private var selection = "appearance"
+    @AppStorage(SettingsSection.storageKey) private var selection = SettingsSection.appearance.rawValue
     let themeLibrary: NativeThemeLibrary
 
     var body: some View {
@@ -15,6 +15,7 @@ struct SettingsView: View {
             VStack(spacing: 6) {
                 section("Appearance", icon: .circleHalf, id: "appearance", theme: theme)
                 section("Models", icon: .stack, id: "models", theme: theme)
+                section("Providers", icon: .plugsConnected, id: "providers", theme: theme)
                 Spacer()
             }.padding(12).padding(.top, 16).frame(width: 170).background(theme.raised)
             Rectangle().fill(theme.border).frame(width: 1)
@@ -28,6 +29,8 @@ struct SettingsView: View {
                         ThemeSettingsView(library: themeLibrary)
                         Divider()
                         TypographySettingsView()
+                    } else if selection == "providers" {
+                        ProviderSettingsView()
                     } else {
                         ModelSettingsView()
                     }

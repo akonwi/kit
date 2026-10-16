@@ -1,0 +1,214 @@
+import AppKit
+import Foundation
+
+/// One way to sign in to a provider, as the provider list shows it. A
+/// provider with several methods gets a row for each, so Anthropic's browser
+/// sign-in reads as Claude.
+struct ProviderOption: Hashable, Identifiable, Sendable {
+    let provider: String
+    let providerName: String
+    let method: ProviderLoginMethod
+
+    var id: String { provider + "/" + method.rawValue }
+
+    var title: String { provider == "anthropic" && method == .browser ? "Claude" : providerName }
+
+    var detail: String {
+        switch method {
+        case .device: provider == "openai-codex" ? "ChatGPT plan · device code" : "Device code"
+        case .browser: provider == "anthropic" ? "Pro or Max plan · browser" : "Browser"
+        case .apiKey: "API key"
+        }
+    }
+
+    var icon: Icon {
+        switch method {
+        case .device: .hash
+        case .browser: .arrowSquareOut
+        case .apiKey: .key
+        }
+    }
+
+    /// Where to create an API key, for the providers whose page is known.
+    var keyPage: (name: String, url: URL)? {
+        switch provider {
+        case "anthropic": ("Anthropic Console", URL(string: "https://console.anthropic.com/settings/keys")!)
+        case "openai": ("OpenAI dashboard", URL(string: "https://platform.openai.com/api-keys")!)
+        default: nil
+        }
+    }
+
+    /// Every provider's methods in the server's order, with browser sign-ins
+    /// last.
+    static func options(_ providers: [ProviderInfo]) -> [ProviderOption] {
+        let all = providers.flatMap { provider in
+            provider.methods.map { ProviderOption(provider: provider.id, providerName: provider.name, method: $0) }
+        }
+        return all.filter { $0.method != .browser } + all.filter { $0.method == .browser }
+    }
+}
+
+/// Signs the server in to model providers: the provider list, the chosen
+/// method's step, and the connected step that picks a default model.
+@MainActor @Observable
+final class ProviderSignIn {
+    enum Step: Equatable {
+        case list
+        /// The methods of one provider, when Settings signs it in.
+        case methods(String)
+        case signingIn(ProviderOption)
+        case connected(ProviderOption)
+    }
+
+    let client: any ProviderClient
+    private(set) var providers: [ProviderInfo] = []
+    private(set) var loaded = false
+    /// Why the provider list couldn't load.
+    private(set) var loadError: String?
+    private(set) var step = Step.list
+    private(set) var login: ProviderLogin?
+    private(set) var pending = false
+    var error: String?
+    /// The models the server offers once connected, and the default chosen among them.
+    private(set) var models: [WireModelCapability] = []
+    var defaultModel = ""
+    private var savedDefault = ""
+
+    @ObservationIgnored var open: @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) }
+    @ObservationIgnored var loadDefaults: @Sendable () async throws -> SharedSettingsStore.Snapshot = { try await SharedSettingsStore.shared.load() }
+    @ObservationIgnored var saveDefault: @Sendable (String) async throws -> Void = { _ = try await SharedSettingsStore.shared.update(.defaultModel($0)) }
+    @ObservationIgnored private var polling: Task<Void, Never>?
+
+    /// How long one request waits for a pending sign-in to finish.
+    static let wait = 20
+
+    init(client: any ProviderClient) { self.client = client }
+
+    var options: [ProviderOption] { ProviderOption.options(providers) }
+    var anyConnected: Bool { providers.contains(where: \.configured) }
+
+    func load() async {
+        do {
+            providers = try await client.providers()
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
+        }
+        loaded = true
+    }
+
+    /// Settings' Sign in: the provider's only method, or a choice of them.
+    func signIn(_ provider: ProviderInfo) {
+        let options = options.filter { $0.provider == provider.id }
+        if options.count == 1 { choose(options[0]) } else { step = .methods(provider.id) }
+    }
+
+    func choose(_ option: ProviderOption) {
+        cancelPolling()
+        error = nil
+        login = nil
+        step = .signingIn(option)
+        if option.method != .apiKey { start(option) }
+    }
+
+    /// Starts the sign-in again after it failed or expired.
+    func retry() {
+        guard case let .signingIn(option) = step else { return }
+        choose(option)
+    }
+
+    /// Returns to the list, cancelling a sign-in that is still waiting.
+    func back() {
+        let waiting = login.flatMap { $0.state == .pending ? $0.id : nil }
+        cancelPolling()
+        login = nil
+        error = nil
+        pending = false
+        step = .list
+        if let waiting { Task { [client] in try? await client.cancelLogin(waiting) } }
+    }
+
+    func reopenBrowser() {
+        if let url = login?.authorizationURL { open(url) }
+    }
+
+    func submit(authorization: String) async {
+        guard let login, login.state == .pending, !pending else { return }
+        pending = true; error = nil
+        defer { pending = false }
+        do { try await client.submitAuthorization(login: login.id, authorization) }
+        catch { self.error = error.localizedDescription }
+    }
+
+    func save(apiKey: String) async {
+        guard case let .signingIn(option) = step, option.method == .apiKey, !pending else { return }
+        pending = true; error = nil
+        defer { pending = false }
+        do {
+            try await client.setAPIKey(provider: option.provider, apiKey)
+            await connected(option)
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func signOut(_ provider: ProviderInfo) async {
+        guard !pending else { return }
+        pending = true; error = nil
+        defer { pending = false }
+        do { try await client.signOut(provider: provider.id) }
+        catch { self.error = error.localizedDescription }
+        await load()
+    }
+
+    /// Saves the default model if it changed, then returns to the list.
+    func finish() async {
+        if !defaultModel.isEmpty, defaultModel != savedDefault {
+            do { try await saveDefault(defaultModel) }
+            catch { self.error = "Couldn’t save the default model. " + error.localizedDescription; return }
+        }
+        step = .list
+    }
+
+    // MARK: Device and browser
+
+    private func start(_ option: ProviderOption) {
+        pending = true
+        polling = Task { [weak self, client] in
+            do {
+                var login = try await client.startLogin(provider: option.provider, method: option.method)
+                guard let self, !Task.isCancelled else { return }
+                self.login = login
+                self.pending = false
+                if let url = login.authorizationURL { self.open(url) }
+                while login.state == .pending {
+                    login = try await client.login(login.id, wait: Self.wait)
+                    guard !Task.isCancelled else { return }
+                    self.login = login
+                }
+                switch login.state {
+                case .succeeded: await self.connected(option)
+                case .expired: self.error = login.failure ?? "The sign-in expired."
+                default: self.error = login.failure ?? "The sign-in didn’t finish."
+                }
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                self.pending = false
+                self.error = error.localizedDescription
+            }
+        }
+    }
+
+    private func cancelPolling() {
+        polling?.cancel()
+        polling = nil
+    }
+
+    private func connected(_ option: ProviderOption) async {
+        await load()
+        models = (try? await client.models()) ?? []
+        savedDefault = (try? await loadDefaults().defaultModel) ?? ""
+        // Keep a default that still works; otherwise suggest this provider's first model.
+        let own = models.first { $0.provider == option.provider || $0.id.hasPrefix(option.provider + "/") }
+        defaultModel = models.contains(where: { $0.id == savedDefault }) ? savedDefault : (own ?? models.first)?.id ?? ""
+        step = .connected(option)
+    }
+}

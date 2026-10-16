@@ -1295,3 +1295,138 @@ struct EventCursor {
         return next
     }
 }
+
+// MARK: Providers
+
+extension HTTPClient {
+    func providers() async throws -> [ProviderInfo] {
+        let output = try await generatedOperation { try await api.listProviders(headers: .init(xKitInstanceID: instance)) }
+        guard case let .ok(response) = output else { throw Self.providerFailure(output) }
+        return try response.body.json.providers.map { info in
+            guard Self.validProviderID(info.id), !info.name.isEmpty, ["store", "environment"].contains(info.source) else { throw ClientError.invalidPayload }
+            return ProviderInfo(id: info.id, name: info.name, methods: info.methods.compactMap(ProviderLoginMethod.init(rawValue:)),
+                                configured: info.configured, fromEnvironment: info.source == "environment")
+        }
+    }
+
+    func startLogin(provider: String, method: ProviderLoginMethod) async throws -> ProviderLogin {
+        guard Self.validProviderID(provider), method != .apiKey,
+              let payload = Components.Schemas.StartLoginInput.MethodPayload(rawValue: method.rawValue) else { throw MutationNotSent(reason: "Invalid provider sign-in.") }
+        let output = try await generatedOperation {
+            try await api.startProviderLogin(headers: .init(xKitInstanceID: instance), body: .json(.init(method: payload, provider: provider)))
+        }
+        guard case let .created(response) = output else { throw Self.providerFailure(output) }
+        return try Self.projectLogin(try response.body.json)
+    }
+
+    func login(_ id: String, wait: Int) async throws -> ProviderLogin {
+        guard Self.validLoginID(id) else { throw ClientError.invalidPayload }
+        let output = try await generatedOperation {
+            try await api.getProviderLogin(path: .init(loginID: id), query: .init(waitSeconds: max(0, min(wait, 25))),
+                                           headers: .init(xKitInstanceID: instance))
+        }
+        guard case let .ok(response) = output else { throw Self.providerFailure(output) }
+        return try Self.projectLogin(try response.body.json)
+    }
+
+    func submitAuthorization(login: String, _ authorization: String) async throws {
+        let value = authorization.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.validLoginID(login), !value.isEmpty, value.utf8.count <= 8 * 1024 else { throw MutationNotSent(reason: "Paste the code from the browser.") }
+        let output = try await generatedOperation {
+            try await api.submitProviderLoginAuthorization(path: .init(loginID: login), headers: .init(xKitInstanceID: instance),
+                                                           body: .json(.init(authorization: value)))
+        }
+        guard case .noContent = output else { throw Self.providerFailure(output) }
+    }
+
+    func cancelLogin(_ id: String) async throws {
+        guard Self.validLoginID(id) else { throw ClientError.invalidPayload }
+        let output = try await generatedOperation { try await api.cancelProviderLogin(path: .init(loginID: id), headers: .init(xKitInstanceID: instance)) }
+        switch output {
+        case .noContent, .notFound: return
+        default: throw Self.providerFailure(output)
+        }
+    }
+
+    func setAPIKey(provider: String, _ key: String) async throws {
+        let value = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.validProviderID(provider), !value.isEmpty, value.utf8.count <= 4 << 10 else { throw MutationNotSent(reason: "Enter an API key.") }
+        let output = try await generatedOperation {
+            try await api.setProviderAPIKey(path: .init(providerID: provider), headers: .init(xKitInstanceID: instance),
+                                            body: .json(.init(apiKey: value)))
+        }
+        guard case .noContent = output else { throw Self.providerFailure(output) }
+    }
+
+    func signOut(provider: String) async throws {
+        guard Self.validProviderID(provider) else { throw MutationNotSent(reason: "Invalid provider.") }
+        let output = try await generatedOperation {
+            try await api.deleteProviderCredentials(path: .init(providerID: provider), headers: .init(xKitInstanceID: instance))
+        }
+        guard case .noContent = output else { throw Self.providerFailure(output) }
+    }
+
+    private static func validProviderID(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 64 && id.allSatisfy { ($0 >= "a" && $0 <= "z") || ($0 >= "0" && $0 <= "9") || $0 == "-" }
+    }
+
+    private static func validLoginID(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 128 && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
+    }
+
+    private static func projectLogin(_ login: Components.Schemas.ProviderLogin) throws -> ProviderLogin {
+        guard validLoginID(login.id), validProviderID(login.provider),
+              let method = ProviderLoginMethod(rawValue: login.method.rawValue),
+              let state = ProviderLogin.State(rawValue: login.state.rawValue) else { throw ClientError.invalidPayload }
+        var device: ProviderLogin.Device?
+        if let instructions = login.device {
+            guard let url = URL(string: instructions.verificationUri), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+                  !instructions.userCode.isEmpty, instructions.userCode.count <= 64 else { throw ClientError.invalidPayload }
+            device = .init(userCode: instructions.userCode, verificationURL: url, expiresAt: Self.date(instructions.expiresAt))
+        }
+        var authorization: URL?
+        if let browser = login.browser {
+            guard let url = URL(string: browser.authorizationUrl), url.scheme?.lowercased() == "https" else { throw ClientError.invalidPayload }
+            authorization = url
+        }
+        return ProviderLogin(id: login.id, provider: login.provider, method: method, state: state, device: device,
+                             authorizationURL: authorization, failure: login.failure.flatMap { $0.isEmpty ? nil : String($0.prefix(2048)) },
+                             expiresAt: Self.date(login.expiresAt))
+    }
+
+    private static func date(_ value: String) -> Date? {
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return parser.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    /// The server's explanation of a refused provider request, or its status.
+    private static func providerFailure(_ output: Any) -> Error {
+        let statuses = ["badRequest": 400, "unauthorized": 401, "forbidden": 403, "notFound": 404, "conflict": 409,
+                        "contentTooLarge": 413, "misdirectedRequest": 421, "upgradeRequired": 426, "tooManyRequests": 429,
+                        "internalServerError": 500, "serviceUnavailable": 503]
+        guard let child = Mirror(reflecting: output).children.first, let label = child.label else { return ClientError.invalidPayload }
+        if label == "undocumented", let code = Mirror(reflecting: child.value).children.first?.value as? Int { return ClientError.http(code) }
+        let status = statuses[label] ?? 0
+        if status == 401 || status == 403 { return ClientError.http(status) }
+        if let message = errorMessage(in: child.value) { return ProviderRequestFailed(message: message) }
+        return status == 0 ? ClientError.invalidPayload : ClientError.http(status)
+    }
+
+    /// Finds the `error.message` of an error response's JSON body.
+    private static func errorMessage(in response: Any) -> String? {
+        struct Envelope: Decodable { struct Failure: Decodable { let message: String }; let error: Failure }
+        var value: Any? = Mirror(reflecting: response).children.first { $0.label == "body" }?.value
+        for _ in 0..<3 {
+            guard let current = value else { return nil }
+            if let encodable = current as? any Encodable,
+               let data = try? JSONEncoder().encode(encodable),
+               let envelope = try? JSONDecoder().decode(Envelope.self, from: data) {
+                let message = envelope.error.message.trimmingCharacters(in: .whitespacesAndNewlines)
+                return message.isEmpty ? nil : String(message.prefix(1024))
+            }
+            value = Mirror(reflecting: current).children.first?.value
+        }
+        return nil
+    }
+}
