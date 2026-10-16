@@ -73,7 +73,11 @@ fn listed() [protocol::SessionInfo] {
 
 // Mounts the explorer as `kit sessions` does: filling its rows and choosing
 // a session by ID.
-fn mount(terminal: headless::TestApp, outcome: mut Outcome) cui::Renderer {
+fn mount(
+  terminal: headless::TestApp,
+  outcome: mut Outcome,
+  activity: [protocol::SessionActivityEntry],
+) cui::Renderer {
   let dismiss = keymap::simple_command("sessions.dismiss", "Close", fn() Bool {
     outcome.dismissed =+ 1
     true
@@ -98,6 +102,7 @@ fn mount(terminal: headless::TestApp, outcome: mut Outcome) cui::Renderer {
               outcome.chosen = id
             },
             listed: listed(),
+            activity: Maybe::new(activity),
             placement: modal::Placement::region,
           },
         ),
@@ -112,10 +117,11 @@ test fn the_session_picker_fills_its_rows_and_returns_the_chosen_session() Void!
   let terminal = headless::new(60, height)
   defer terminal.destroy()
   let outcome = mut Outcome{chosen: "", dismissed: 0}
-  let renderer = mount(terminal, outcome)
+  let renderer = mount(terminal, outcome, [])
   defer renderer.destroy()
   terminal.flush()
-  // The explorer fills the picker's rows at picker width, centered.
+  // The explorer fills the picker's rows at picker width, centered. Idle
+  // sessions start their rows with their names.
   try expect_rows(
     rows(terminal),
     [
@@ -138,6 +144,48 @@ test fn the_session_picker_fills_its_rows_and_returns_the_chosen_session() Void!
   testing::assert(outcome.chosen == "session_b", "chose {outcome.chosen}")
 }
 
+test fn session_rows_show_whether_each_session_is_working_or_waiting() Void!Str {
+  let terminal = headless::new(60, 10)
+  defer terminal.destroy()
+  let outcome = mut Outcome{chosen: "", dismissed: 0}
+  let renderer = mount(
+    terminal,
+    outcome,
+    [
+      protocol::SessionActivityEntry{SessionID: "session_a", Status: protocol::SessionActivityRunning},
+      protocol::SessionActivityEntry{SessionID: "session_b", Status: protocol::SessionActivityAwaitingResponse},
+    ],
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  // A working session shows the spinner and a waiting one a question, in a
+  // status column before every row's name.
+  try expect_rows(
+    rows(terminal),
+    [
+      "      ┌──────────────────────────────────────────────┐",
+      "      │ Sessions                                     │",
+      "      ├──────────────────────────────────────────────┤",
+      "      │ Search sessions…                             │",
+      "      ├──────────────────────────────────────────────┤",
+      "      │▌⠋ Release notes    /tmp/kit         unknown  │",
+      "      │ ? Fix the flaky …  ~/src/kit        unknown  │",
+      "      ├──────────────────────────────────────────────┤",
+      "      │ ctrl+r rename · ctrl+d delete                │",
+      "      └──────────────────────────────────────────────┘",
+    ],
+  )
+  let color = terminal.frame().cell(
+    8,
+    6,
+  ).expect("waiting mark").style.foreground.expect("waiting color")
+  let warning = theme::system().warning_text
+  testing::assert(
+    color.red == warning.red and color.green == warning.green and color.blue == warning.blue,
+    "the waiting mark uses the warning tone",
+  )
+}
+
 test fn the_session_picker_is_between_ten_and_twenty_rows() Void!Str {
   try testing::assert(tui::picker_height(Maybe::new<[protocol::SessionInfo]>()) == 10, "a failed list")
   try testing::assert(tui::picker_height(Maybe::new(listed())) == 10, "two sessions")
@@ -157,7 +205,7 @@ test fn escape_dismisses_the_session_picker() Void!Str {
   let terminal = headless::new(60, 10)
   defer terminal.destroy()
   let outcome = mut Outcome{chosen: "", dismissed: 0}
-  let renderer = mount(terminal, outcome)
+  let renderer = mount(terminal, outcome, [])
   defer renderer.destroy()
   terminal.flush()
   terminal.key(key("escape"))

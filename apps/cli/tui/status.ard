@@ -8,10 +8,12 @@ use kit/tui/theme
 // surface draws a state the same way.
 enum Status {
   // Doing work: the shared spinner.
+  // Blocked on the user, such as a question or a permission request.
   // Live and ready, such as a connected server.
   // At rest: finished, or available but not started.
   // Aborted, interrupted, or cancelled.
   working,
+  waiting,
   active,
   idle,
   failed,
@@ -23,6 +25,7 @@ enum Status {
 fn glyph(status: Status) Str {
   match status {
     Status::working => "⠋",
+    Status::waiting => "?",
     Status::active => "●",
     Status::idle => "○",
     Status::failed => "✗",
@@ -34,6 +37,7 @@ fn glyph(status: Status) Str {
 fn color(colors: theme::Theme, status: Status) ui::Color {
   match status {
     Status::working => colors.accent_text,
+    Status::waiting => colors.warning_text,
     Status::active => colors.accent_text,
     Status::idle => colors.muted,
     Status::failed => colors.danger_text,

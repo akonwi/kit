@@ -114,6 +114,18 @@ func (c *Client) ListSessions(ctx context.Context, cwd string) ([]protocol.Sessi
 	return output.Sessions, nil
 }
 
+// GetSessionActivity reports the saved sessions that are not idle.
+func (c *Client) GetSessionActivity(ctx context.Context) ([]protocol.SessionActivityEntry, error) {
+	output, err := httpapi.Call(ctx, c, httpapi.GetSessionActivity, httpapi.ServerPath{}, httpapi.NoBody{})
+	if err != nil {
+		return nil, err
+	}
+	if err := output.Validate(); err != nil {
+		return nil, protocolErrorf("validate daemon session activity: %w", err)
+	}
+	return output.Sessions, nil
+}
+
 // ListModels returns the selectable model catalog and authentication availability.
 func (c *Client) ListModels(ctx context.Context) (protocol.ModelCatalog, error) {
 	output, err := httpapi.Call(ctx, c, httpapi.ListModels, httpapi.ServerPath{}, httpapi.NoBody{})

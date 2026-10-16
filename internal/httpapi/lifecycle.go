@@ -39,6 +39,10 @@ func lifecycleErrors(statuses ...int) []ErrorResponse {
 var (
 	// ListSessions lists sessions, optionally restricted to a working directory.
 	ListSessions = Operation[ListSessionsPath, NoBody, protocol.SessionList]{ID: "listSessions", Tag: "sessions", Method: http.MethodGet, Path: "/v1/sessions", Success: http.StatusOK, Errors: lifecycleErrors(400, 503, 500)}
+	// GetSessionActivity reports the saved sessions that are working or
+	// waiting on their user. It is separate from ListSessions so listing
+	// stays a catalog read; a session it omits is idle.
+	GetSessionActivity = Operation[ServerPath, NoBody, protocol.SessionActivityList]{ID: "getSessionActivity", Tag: "sessions", Method: http.MethodGet, Path: "/v1/sessions/activity", Success: http.StatusOK, Errors: lifecycleErrors(503, 500)}
 	// CreateSession creates a persisted or temporary session.
 	CreateSession = Operation[NoBody, protocol.CreateSessionInput, protocol.SessionInfo]{ID: "createSession", Tag: "sessions", Method: http.MethodPost, Path: "/v1/sessions", Success: http.StatusCreated, Errors: lifecycleErrors(400, 413, 409, 503, 500)}
 	// GetSession reads an authoritative session snapshot.

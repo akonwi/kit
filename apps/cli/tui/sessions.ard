@@ -10,6 +10,7 @@ use kit/tui/format
 use kit/tui/modal
 use kit/tui/palette
 use kit/tui/spinner
+use kit/tui/status
 use kit/tui/theme
 use go:strings
 use go:time
@@ -31,6 +32,9 @@ struct Props {
   choose: fn(Str)?,
   // Sessions already listed, shown without loading them again.
   listed: [protocol::SessionInfo]?,
+  // Session activity already fetched with `listed`, shown without fetching
+  // it again. Otherwise the picker fetches it; sessions it omits are idle.
+  activity: [protocol::SessionActivityEntry]?,
   // Where the explorer's dialogs sit; centered and picker placements by
   // default.
   placement: modal::Placement?,
@@ -46,6 +50,9 @@ struct Picker {
   // picker-owned query, disclosure, editing, and pending state are retained.
   props: mut Props,
   sessions: [protocol::SessionInfo],
+  // Each working or waiting session's activity by ID; absent sessions are
+  // idle.
+  statuses: [Str: protocol::SessionActivity],
   loading: Bool,
   pending: Bool,
   error: Str,
@@ -64,6 +71,7 @@ fn new(props: mut Props) mut Picker {
   (mut Picker{
     props: props,
     sessions: props.listed.or([]),
+    statuses: statuses_of(props.activity.or([])),
     loading: props.listed.is_none(),
     pending: false,
     error: "",
@@ -77,6 +85,32 @@ fn new(props: mut Props) mut Picker {
     delete_pending: false,
     context: Maybe::new<cui::Context>(),
   })
+}
+
+// statuses_of indexes reported session activity by session ID.
+private fn statuses_of(entries: [protocol::SessionActivityEntry]) [Str: protocol::SessionActivity] {
+  let statuses = mut Map::new<protocol::SessionActivity>()
+  for entry in entries {
+    statuses.set(entry.SessionID, entry.Status)
+  }
+  statuses.@
+}
+
+// row_status is a session row's status icon: the spinner while it works and
+// a question while it waits on the user. Idle rows have none.
+private fn row_status(statuses: [Str: protocol::SessionActivity], id: Str) status::Status? {
+  match statuses.get(id) {
+    activity => {
+      if activity == protocol::SessionActivityAwaitingResponse {
+        Maybe::new(status::Status::waiting)
+      } else if activity == protocol::SessionActivityRunning {
+        Maybe::new(status::Status::working)
+      } else {
+        Maybe::new<status::Status>()
+      }
+    },
+    _ => Maybe::new<status::Status>(),
+  }
 }
 
 // hierarchy retains server ordering among siblings while placing each child
@@ -166,6 +200,7 @@ private fn hidden_by_collapsed(
 // shows each parent's disclosure.
 private fn catalog(
   sessions: [protocol::SessionInfo],
+  statuses: [Str: protocol::SessionActivity],
   current: Str,
   pending: Bool,
   collapsed: [Str],
@@ -187,7 +222,7 @@ private fn catalog(
         },
         false => "",
       }
-      items.push(row_item(row, current, pending, now, disclosure, home))
+      items.push(row_item(row, statuses, current, pending, now, disclosure, home))
     }
   }
   items.@
@@ -196,13 +231,19 @@ private fn catalog(
 // search_tree is every session in tree order, including those under collapsed
 // parents. Search results have no disclosures because filtering ignores
 // collapsed state.
-private fn search_tree(sessions: [protocol::SessionInfo], current: Str, pending: Bool, home: Str) [palette::Branch] {
+private fn search_tree(
+  sessions: [protocol::SessionInfo],
+  statuses: [Str: protocol::SessionActivity],
+  current: Str,
+  pending: Bool,
+  home: Str,
+) [palette::Branch] {
   let branches = mut List::new<palette::Branch>()
   let now = time::Now()
   for row in hierarchy(sessions) {
     branches.push(
       palette::Branch{
-        item: row_item(row, current, pending, now, "", home),
+        item: row_item(row, statuses, current, pending, now, "", home),
         parent: row.session.ParentSessionID,
         name: format::session_name(row.session),
       },
@@ -213,6 +254,7 @@ private fn search_tree(sessions: [protocol::SessionInfo], current: Str, pending:
 
 private fn row_item(
   row: Row,
+  statuses: [Str: protocol::SessionActivity],
   current: Str,
   pending: Bool,
   now: time::Time,
@@ -246,6 +288,7 @@ private fn row_item(
       true => "switching…",
       false => "",
     },
+    status: row_status(statuses, session.ID),
   }
 }
 
@@ -254,6 +297,8 @@ impl cui::Lifecycle for Picker {
     self.context = Maybe::new(context)
     if self.loading {
       self.load(context)
+    } else if self.props.activity.is_none() {
+      self.load_activity(context)
     }
   }
 
@@ -267,6 +312,8 @@ impl Picker {
     let dispatch = context.dispatch
     async::start(fn() {
       let result = client.ListSessions(lifetime.Context, api::ListSessionsOptions{CWD: ""})
+      // Activity is optional: without it, rows show no status.
+      let activity = client.SessionActivity(lifetime.Context)
       let _ = dispatch(fn() {
         match result {
           ok(sessions) => {
@@ -278,7 +325,28 @@ impl Picker {
             self.loading = false
           },
         }
+        match activity {
+          ok(entries) => { self.statuses = statuses_of(entries) },
+          err(_) => (),
+        }
       })
+    })
+  }
+
+  // Fetches activity for sessions that were listed without it.
+  private fn mut load_activity(context: cui::Context) {
+    let lifetime = self.props.lifetime
+    let client = self.props.client
+    let dispatch = context.dispatch
+    async::start(fn() {
+      match client.SessionActivity(lifetime.Context) {
+        ok(entries) => {
+          let _ = dispatch(fn() {
+            self.statuses = statuses_of(entries)
+          })
+        },
+        err(_) => (),
+      }
     })
   }
 
@@ -588,7 +656,14 @@ impl cui::Component for Picker {
                 palette::new_picker,
                 palette::PickerProps{
                   themes: self.props.themes,
-                  catalog: catalog(self.sessions, self.props.current_session_id, self.pending, self.collapsed, self.props.home),
+                  catalog: catalog(
+                    self.sessions,
+                    self.statuses,
+                    self.props.current_session_id,
+                    self.pending,
+                    self.collapsed,
+                    self.props.home,
+                  ),
                   placeholder: "Search sessions…",
                   initial_selection: self.props.current_session_id,
                   title: "Sessions",
@@ -605,7 +680,15 @@ impl cui::Component for Picker {
                   toggle: Maybe::new(fn(session_id: Str, expand: Bool) {
                     self.toggle(session_id, expand)
                   }),
-                  tree: Maybe::new(search_tree(self.sessions, self.props.current_session_id, self.pending, self.props.home)),
+                  tree: Maybe::new(
+                    search_tree(
+                      self.sessions,
+                      self.statuses,
+                      self.props.current_session_id,
+                      self.pending,
+                      self.props.home,
+                    ),
+                  ),
                   placement: self.props.placement,
                   on_query_change: fn(query: Str) {},
                   on_selection_change: fn(selected: Str) {

@@ -339,6 +339,40 @@ type SessionList struct {
 	Sessions []SessionInfo `json:"sessions"`
 }
 
+// SessionActivity is what a session is doing that its user would want to
+// see. A session that is doing neither is idle and is not reported.
+type SessionActivity string
+
+const (
+	// SessionActivityRunning means a turn, bash command, or subagent is working.
+	SessionActivityRunning SessionActivity = "running"
+	// SessionActivityAwaitingResponse means a request waits on the user. It
+	// takes precedence over running.
+	SessionActivityAwaitingResponse SessionActivity = "awaitingResponse"
+)
+
+// Valid reports whether a is a reported session activity.
+func (a SessionActivity) Valid() bool {
+	return a == SessionActivityRunning || a == SessionActivityAwaitingResponse
+}
+
+// EnumValues returns the wire vocabulary used by contract generation.
+func (SessionActivity) EnumValues() []string {
+	return []string{string(SessionActivityRunning), string(SessionActivityAwaitingResponse)}
+}
+
+// SessionActivityEntry reports one session that is not idle.
+type SessionActivityEntry struct {
+	SessionID string          `json:"sessionId"`
+	Status    SessionActivity `json:"status"`
+}
+
+// SessionActivityList is a point-in-time report of the saved sessions that
+// are not idle, ordered by session ID. A session it omits is idle.
+type SessionActivityList struct {
+	Sessions []SessionActivityEntry `json:"sessions"`
+}
+
 // SessionInfo is the client-facing projection of authoritative session metadata.
 type SessionInfo struct {
 	ID                string `json:"id"`

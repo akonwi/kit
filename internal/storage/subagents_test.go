@@ -247,6 +247,40 @@ func TestSubagentCancellationAndDismissal(t *testing.T) {
 	}
 }
 
+func TestWorkingSessionsReportOwnersWithQueuedOrRunningTasks(t *testing.T) {
+	store, owner := newSubagentStore(t)
+	working := func() []string {
+		t.Helper()
+		owners, err := store.WorkingSessions(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return owners
+	}
+	if owners := working(); len(owners) != 0 {
+		t.Fatalf("owners before admission = %v, want none", owners)
+	}
+	conversation, _, err := store.Admit(t.Context(), testAdmission(owner, "first"), subagent.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owners := working(); len(owners) != 1 || owners[0] != owner {
+		t.Fatalf("owners with a queued task = %v, want [%s]", owners, owner)
+	}
+	if _, err := store.ClaimNext(t.Context(), owner, subagent.DefaultLimits(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if owners := working(); len(owners) != 1 || owners[0] != owner {
+		t.Fatalf("owners with a running task = %v, want [%s]", owners, owner)
+	}
+	if _, err := store.Dismiss(t.Context(), conversation.ID, conversation.Generation, "dismiss", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if owners := working(); len(owners) != 0 {
+		t.Fatalf("owners after dismissal = %v, want none", owners)
+	}
+}
+
 func TestSubagentRecoveryInterruptsRunningAndPreservesQueued(t *testing.T) {
 	store, owner := newSubagentStore(t)
 	conversation, first, err := store.Admit(t.Context(), testAdmission(owner, "first"), subagent.DefaultLimits())
