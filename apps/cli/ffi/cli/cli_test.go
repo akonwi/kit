@@ -17,7 +17,6 @@ import (
 )
 
 func TestServerStatusShowsDaemonAndClientCompatibility(t *testing.T) {
-	t.Parallel()
 	const compatibleVerdict = "compatibility: compatible"
 	for _, tc := range []struct {
 		name     string
@@ -34,6 +33,10 @@ func TestServerStatusShowsDaemonAndClientCompatibility(t *testing.T) {
 		{name: "unready compatible daemon", protocol: version.SessionProtocolVersion, release: version.Version, verdict: compatibleVerdict},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			// The home an invocation uses is part of its status, so a dev
+			// build's isolated state is never mistaken for production.
+			t.Setenv("KIT_HOME", home)
 			registry := localdiscovery.Registry{PID: 42, URL: "http://127.0.0.1:2345", KitVersion: tc.release, ProtocolVersion: tc.protocol}
 			var output bytes.Buffer
 			writeServerStatus(&output, registry, daemonctl.Health{DatabaseReady: tc.ready})
@@ -41,7 +44,8 @@ func TestServerStatusShowsDaemonAndClientCompatibility(t *testing.T) {
 			if tc.ready {
 				readiness = "database: ready\n"
 			}
-			wantPrefix := "server running: pid 42, http://127.0.0.1:2345\n" +
+			wantPrefix := "home: " + home + "\n" +
+				"server running: pid 42, http://127.0.0.1:2345\n" +
 				"daemon: version " + tc.release + ", protocol " + strconv.Itoa(tc.protocol) + "\n" +
 				"client: version " + version.Version + ", protocol " + strconv.Itoa(version.SessionProtocolVersion) + "\n" + readiness
 			if !strings.HasPrefix(output.String(), wantPrefix) || !strings.HasPrefix(strings.TrimPrefix(output.String(), wantPrefix), tc.verdict) {
@@ -52,8 +56,7 @@ func TestServerStatusShowsDaemonAndClientCompatibility(t *testing.T) {
 }
 
 func TestRunVersion(t *testing.T) {
-	t.Parallel()
-
+	// Resolving a home reads the environment, so this test owns it.
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	code := Parse(context.Background(), []string{"version"}, &stdout, &stderr).ExitCode
@@ -62,6 +65,39 @@ func TestRunVersion(t *testing.T) {
 	}
 	if !strings.HasPrefix(stdout.String(), "kit ") {
 		t.Fatalf("stdout = %q, want version", stdout.String())
+	}
+}
+
+func TestRunVersionNamesANonDefaultHome(t *testing.T) {
+	// A home other than the shared one is worth naming, so nobody has to guess
+	// which state a binary owns.
+	isolated := t.TempDir()
+	t.Setenv("KIT_HOME", isolated)
+
+	var stdout bytes.Buffer
+	code := Parse(context.Background(), []string{"version"}, &stdout, io.Discard).ExitCode
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	if want := "home: " + isolated + "\n"; !strings.HasSuffix(stdout.String(), want) {
+		t.Fatalf("stdout = %q, want it to end with the resolved home %q", stdout.String(), isolated)
+	}
+}
+
+func TestRunVersionLeavesTheSharedHomeUnnamed(t *testing.T) {
+	// The familiar default needs no announcement; naming it on every run would
+	// be noise.
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("KIT_HOME", filepath.Join(fakeHome, ".kit"))
+
+	var stdout bytes.Buffer
+	code := Parse(context.Background(), []string{"version"}, &stdout, io.Discard).ExitCode
+	if code != 0 {
+		t.Fatalf("exit code = %d", code)
+	}
+	if strings.Contains(stdout.String(), "home:") {
+		t.Fatalf("stdout = %q, want no home line for the shared default", stdout.String())
 	}
 }
 

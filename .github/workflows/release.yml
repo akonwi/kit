@@ -55,7 +55,8 @@ jobs:
           mkdir -p dist
           cd apps/cli
           # Build values replace -ldflags -X stamping; with Go 1.22 and newer,
-          # -s also implies -w.
+          # -s also implies -w. A release names no channel, so it resolves the
+          # user's Kit home as it always has.
           GOFLAGS="${GOFLAGS:+$GOFLAGS }-trimpath -ldflags=-s" \
             ard build main.ard --release \
             --define version="${GITHUB_REF_NAME#v}" --define commit="$GITHUB_SHA" \
@@ -72,7 +73,18 @@ jobs:
           export KIT_HOME="$smoke_dir/home"
           actual=$("$smoke_dir/kit" version)
           expected="kit ${GITHUB_REF_NAME#v} ($GITHUB_SHA)"
-          [[ "$actual" == "$expected" ]] || { printf 'Expected %s; got %s\n' "$expected" "$actual" >&2; exit 1; }
+          if [[ "$actual" != "$expected" ]]; then
+            printf 'Expected %s; got %s\n' "$expected" "$actual" >&2
+            exit 1
+          fi
+          # A release names no channel, so the home it resolves must be the one
+          # KIT_HOME explicitly points at. Any other home means this build is
+          # not behaving as the shared one.
+          reported=$("$smoke_dir/kit" version | sed -n 's/^home: //p')
+          if [[ -n "$reported" && "$reported" != "$KIT_HOME" ]]; then
+            echo "A release build reported an isolated Kit home: $reported" >&2
+            exit 1
+          fi
           "$smoke_dir/kit" --help
 
       - uses: actions/upload-artifact@v7

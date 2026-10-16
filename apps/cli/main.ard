@@ -31,6 +31,8 @@ use go:syscall
 fn main() {
   version::Version = build::version
   version::Commit = build::commit
+  // Channel names the isolated state directory an unstamped build resolves.
+  version::Channel = build::channel
 
   let lifetime = contextbridge::WithCancel(context::Background())
   defer lifetime.Cancel()

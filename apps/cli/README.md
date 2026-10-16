@@ -43,8 +43,9 @@ lock, before committing Kit.
 
 ## Develop
 
-Run commands from this directory. Use an isolated `KIT_HOME`; see
-`.agents/skills/worktree-development/SKILL.md` before starting a daemon.
+Run commands from this directory. A build bound to a channel uses
+`~/.local/state/kit/<channel>/home` as its default Kit home instead of `~/.kit`.
+See `.agents/skills/worktree-development/SKILL.md` before starting a daemon.
 
 ```sh
 ard deps fetch
@@ -57,6 +58,9 @@ KIT_HOME="$(mktemp -d)" go test ./...
 ard build main.ard --out /tmp/kit-dev/kit
 KIT_HOME=/tmp/kit-dev/home /tmp/kit-dev/kit version
 ```
+
+The last line prints the isolated home a channel-bound build resolves, because
+that home is not the default one.
 
 `ard build` regenerates `ard-out/`, which is ignored and not formatted.
 
@@ -73,3 +77,8 @@ CGO_ENABLED=1 GOFLAGS="${GOFLAGS:+$GOFLAGS }-trimpath -ldflags=-s" \
   ard build main.ard --release \
   --define version="$version" --define commit="$commit" --out "$out/kit"
 ```
+
+Stamping a real version is what makes this a release build. A release names no
+channel and resolves `~/.kit` exactly as it always has; `--define channel=NAME`
+is the only thing that binds a build to an isolated
+`~/.local/state/kit/NAME/home` (ADR 0047).

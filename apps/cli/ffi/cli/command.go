@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/spf13/cobra"
@@ -552,8 +554,34 @@ func newVersionCommand() *cobra.Command {
 		Use: "version", Short: "Print version information", Args: cobra.NoArgs,
 		Run: func(command *cobra.Command, _ []string) {
 			fmt.Fprintf(command.OutOrStdout(), "kit %s (%s)\n", version.Version, version.Commit)
+			// A home that is not the familiar default is worth naming, so nobody
+			// has to guess which state a binary owns.
+			if line, isolated := homeLine(); isolated {
+				fmt.Fprintf(command.OutOrStdout(), "home: %s\n", line)
+			}
 		},
 	}
+}
+
+// homeLine names the resolved home when it is not the shared default one.
+// A failure is reported rather than guessed at, and never claimed to be an
+// override.
+func homeLine() (string, bool) {
+	paths, err := apphome.Resolve("")
+	if err != nil {
+		return "unknown: " + err.Error(), true
+	}
+	sharedHome := filepath.Join(defaultUserHome(), apphome.DefaultDirectory)
+	return paths.Home, paths.Home != sharedHome
+}
+
+// defaultUserHome is the user's home without its trailing separator.
+func defaultUserHome() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return home
 }
 
 func newInternalServerCommand(deps commandDependencies) *cobra.Command {

@@ -66,6 +66,12 @@ KIT_MACOS_APP_BUNDLE="$app" KIT_MACOS_CONFIGURATION=Release KIT_MACOS_ARCH=arm64
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" == "$version" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" == "$build" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :KitSourceCommit' "$app/Contents/Info.plist")" == "$commit" ]]
+# A published app must never resolve an isolated development home: it has to
+# read the user's real Kit state.
+if /usr/libexec/PlistBuddy -c 'Print :KitDevHome' "$app/Contents/Info.plist" >/dev/null 2>&1; then
+  echo "A release app bundle carries a development Kit home" >&2
+  exit 1
+fi
 [[ "$(lipo -archs "$app/Contents/MacOS/Kit")" == arm64 ]] || { echo "Expected an arm64 app" >&2; exit 1; }
 [[ ! -e "$app/Contents/Resources/fixture.json" && ! -e "$app/Contents/Resources/workspace.json" ]]
 if [[ -n "$(find "$app/Contents" -type d \( -name '*.framework' -o -name '*.appex' -o -name '*.xpc' -o -name '*.app' -o -name '*.plugin' \) -print -quit)" ]]; then
