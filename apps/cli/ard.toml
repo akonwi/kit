@@ -11,7 +11,7 @@ commit = { type = "Str", default = "unknown", release = true }
 channel = { type = "Str", default = "" }
 
 [dependencies]
-cooper = { git = "https://github.com/akonwi/cooper.git", commit = "d677333" }
+cooper = { git = "https://github.com/akonwi/cooper.git", commit = "d8c6368" }
 
 [go.imports]
 api = "github.com/akonwi/kit/api"
