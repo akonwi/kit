@@ -107,10 +107,16 @@ private struct SessionCommands: Commands {
                 .keyboardShortcut("]", modifiers: [.command, .shift])
                 .disabled(navigable < 2)
             Divider()
+            let numbered = window?.numberedRows(placement).count ?? 0
             ForEach(1...9, id: \.self) { number in
-                Button("Show Tab \(number)") { window?.select(index: number - 1, in: placement) }
-                    .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
-                    .disabled(navigable < number)
+                Button("Show Tab \(number)") {
+                    // A closed parent opens as clicking its row does.
+                    if let window, let parent = window.select(index: number - 1, in: placement) {
+                        windows.open(parent, from: window)
+                    }
+                }
+                .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
+                .disabled(numbered < number)
             }
             Divider()
             Picker("Session Tabs", selection: $placement) {

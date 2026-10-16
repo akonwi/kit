@@ -130,9 +130,9 @@ import Testing
 
     @Test func numberedAndAdjacentSelectionFollowDisplayOrder() {
         let model = SessionWindowModel(id: UUID(), sessions: [id("a"), id("b"), id("c")], selected: id("a"))
-        model.select(index: 2, in: .side)
+        #expect(model.select(index: 2, in: .side) == nil)
         #expect(model.selectedSession == id("c"))
-        model.select(index: 8, in: .side)
+        #expect(model.select(index: 8, in: .side) == nil)
         #expect(model.selectedSession == id("c"))
         model.selectAdjacent(1, in: .side)
         #expect(model.selectedSession == id("a"))

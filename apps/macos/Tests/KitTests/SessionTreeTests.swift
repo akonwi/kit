@@ -137,30 +137,46 @@ struct SessionTreeTests {
     @Test func topTabsAndShortcutsFollowFamilyOrder() {
         let model = model(["a", "b", "a1"], parents: ["a1": "a"], selected: "a")
         #expect(titles(model.familyOrder) == ["A", "A1", "B"])
-        model.select(index: 1, in: .top)
+        #expect(model.select(index: 1, in: .top) == nil)
         #expect(model.selectedSession == id("a1"))
         model.selectAdjacent(1, in: .side)
         #expect(model.selectedSession == id("b"))
         #expect(model.parentTitle(of: model.tabs[2]) == "A")
     }
 
-    @Test func sidebarShortcutsSkipCollapsedChildrenAndClosedParents() {
+    @Test func numberedShortcutsFollowVisibleRowsAndReopenClosedParents() {
         let model = model(["b", "p1", "p2", "c"], parents: ["p1": "p", "p2": "p"], selected: "b",
                           closed: ["p"], collapsed: [])
         #expect(model.rows.map(\.id) == ["b", "p", "p1", "p2", "c"])
-        #expect(titles(model.navigableTabs(.side)) == ["B", "P1", "P2", "C"])
+        #expect(model.select(index: 2, in: .side) == nil)
+        #expect(model.selectedSession == id("p1"))
+        // A closed parent is for the caller to open.
+        #expect(model.select(index: 1, in: .side) == id("p"))
+        #expect(model.selectedSession == id("p1"))
         model.toggleCollapsed("p")
         #expect(model.rows.map(\.id) == ["b", "p", "c"])
+        #expect(model.select(index: 2, in: .side) == nil)
+        #expect(model.selectedSession == id("c"))
+        // With top tabs, the strip has no closed parents.
+        #expect(model.select(index: 1, in: .top) == nil)
+        #expect(model.selectedSession == id("p1"))
+    }
+
+    @Test func adjacentSelectionSkipsCollapsedChildrenAndClosedParents() {
+        let model = model(["b", "p1", "p2", "c"], parents: ["p1": "p", "p2": "p"], selected: "b",
+                          closed: ["p"], collapsed: [])
+        #expect(titles(model.navigableTabs(.side)) == ["B", "P1", "P2", "C"])
+        model.toggleCollapsed("p")
         #expect(titles(model.navigableTabs(.side)) == ["B", "C"])
         #expect(titles(model.navigableTabs(.top)) == ["B", "P1", "P2", "C"])
-        model.select(index: 1, in: .side)
+        model.selectAdjacent(1, in: .side)
         #expect(model.selectedSession == id("c"))
     }
 
     @Test func selectingAHiddenTabExpandsItsFamily() {
         let model = model(["a", "a1", "a1x"], parents: ["a1": "a", "a1x": "a1"], selected: "a", collapsed: ["a", "a1"])
         #expect(model.rows.map(\.id) == ["a"])
-        model.select(index: 2, in: .top)
+        #expect(model.select(index: 2, in: .top) == nil)
         #expect(model.selectedSession == id("a1x"))
         #expect(model.collapsed.isEmpty)
         #expect(model.rows.map(\.id) == ["a", "a1", "a1x"])

@@ -52,8 +52,10 @@ family. The working directory isn't in the sidebar; the session bar shows it.
 - Dragging a row moves it, with its descendants, among its siblings; at the top
   level that moves whole families. A line marks where it will land, and Esc
   cancels the drag.
-- ⌘1–⌘9 and next/previous follow the visible tab rows, skipping dimmed parents
-  and collapsed children. With top tabs they follow the strip.
+- ⌘1–⌘9 follow the visible rows, so the number matches the row's position. On
+  a dimmed parent it reopens the tab, as choosing the row does. Next/previous
+  follow the visible tab rows, skipping dimmed parents and collapsed children.
+  With top tabs, both follow the strip.
 - Each level indents 32 pt, so a child's row starts at its parent's title and
   the family's rail runs under that title. Indentation stops after three
   levels; deeper sessions share the third level's rail.

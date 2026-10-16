@@ -111,10 +111,16 @@ final class SessionWindowModel: Identifiable {
     /// Every tab in family order, as the top tabs show them.
     var familyOrder: [SessionTab] { tree(collapsed: []).compactMap(\.tab) }
 
-    /// The tabs ⌘1–⌘9 and next/previous follow: the sidebar's visible tab
-    /// rows, or every top tab.
+    /// The tabs next/previous follow: the sidebar's visible tab rows, or
+    /// every top tab.
     func navigableTabs(_ placement: SessionTabPlacement) -> [SessionTab] {
         placement == .side ? rows.compactMap(\.tab) : familyOrder
+    }
+
+    /// What ⌘1–⌘9 reach: each visible sidebar row, including closed
+    /// parents, or every top tab.
+    func numberedRows(_ placement: SessionTabPlacement) -> [SessionTreeRow.Content] {
+        placement == .side ? rows.map(\.content) : familyOrder.map { .tab($0) }
     }
 
     /// The parent's title for a tab whose session came from another.
@@ -234,11 +240,19 @@ final class SessionWindowModel: Identifiable {
         }
     }
 
-    /// Selects the tab at a display position.
-    func select(index: Int, in placement: SessionTabPlacement) {
-        let displayed = navigableTabs(placement)
-        guard displayed.indices.contains(index) else { return }
-        select(displayed[index])
+    /// Selects the tab at a numbered position. A closed parent there isn't
+    /// a tab of this window, so its identity is returned for the caller to
+    /// open, which may focus another window that has it.
+    func select(index: Int, in placement: SessionTabPlacement) -> SessionIdentity? {
+        let numbered = numberedRows(placement)
+        guard numbered.indices.contains(index) else { return nil }
+        switch numbered[index] {
+        case .tab(let tab):
+            select(tab)
+            return nil
+        case .closedParent(let session, _):
+            return SessionIdentity(server: app.client?.serverID ?? Self.defaultServer, session: session)
+        }
     }
 
     func selectAdjacent(_ offset: Int, in placement: SessionTabPlacement) {
