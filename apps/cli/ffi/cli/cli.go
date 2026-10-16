@@ -544,6 +544,11 @@ func runServerCommand(ctx context.Context, args []string, stdout, stderr io.Writ
 }
 
 func writeServerStatus(output io.Writer, registry localdiscovery.Registry, health daemonctl.Health) {
+	// A dev build's home is not the familiar default, so name it wherever a
+	// daemon is described.
+	if paths, err := apphome.Resolve(""); err == nil {
+		fmt.Fprintf(output, "home: %s\n", paths.Home)
+	}
 	fmt.Fprintf(output, "server running: pid %d, %s\n", registry.PID, registry.URL)
 	fmt.Fprintf(output, "daemon: version %s, protocol %d\n", registry.KitVersion, registry.ProtocolVersion)
 	fmt.Fprintf(output, "client: version %s, protocol %d\n", version.Version, version.SessionProtocolVersion)

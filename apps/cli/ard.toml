@@ -5,6 +5,10 @@ target = "go"
 [build.values]
 version = { type = "Str", default = "dev", release = true }
 commit = { type = "Str", default = "unknown", release = true }
+# Naming a channel binds this build to an isolated Kit home, which becomes its
+# default KIT_HOME instead of ~/.kit. Empty, the usual default, keeps the
+# shared home: a release build needs nothing here.
+channel = { type = "Str", default = "" }
 
 [dependencies]
 cooper = { git = "https://github.com/akonwi/cooper.git", commit = "d677333" }

@@ -4,13 +4,9 @@ import Darwin
 
 /// Machine-wide defaults shared with the CLI. Session configuration remains server-owned.
 actor SharedSettingsStore {
-    static let shared = SharedSettingsStore(url: home.appendingPathComponent("settings.json"))
-    static var home: URL {
-        if let value = ProcessInfo.processInfo.environment["KIT_HOME"], !value.isEmpty {
-            return URL(fileURLWithPath: value, isDirectory: true).standardizedFileURL
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kit")
-    }
+    static let shared = SharedSettingsStore(url: DevHomeResolver.resolve().appendingPathComponent("settings.json"))
+    /// The Kit home this process resolves to. See `DevHomeResolver`.
+    static var home: URL { DevHomeResolver.resolve() }
     struct Snapshot: Equatable, Sendable {
         var defaultModel = ""
         var overrides: [String: Int] = [:]

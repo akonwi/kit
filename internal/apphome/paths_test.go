@@ -4,19 +4,23 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/akonwi/kit/internal/version"
 )
 
 func TestResolvePrecedence(t *testing.T) {
-	t.Run("default uses kit without creating files", func(t *testing.T) {
+	// Resolve reads version.Channel, so this test owns it.
+	t.Run("a build without a channel uses the shared home without creating files", func(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("HOME", home)
 		t.Setenv(EnvHome, "")
+		version.Channel = ""
 
 		paths, err := Resolve("")
 		if err != nil {
 			t.Fatalf("Resolve() error = %v", err)
 		}
-		want := filepath.Join(home, ".kit")
+		want := filepath.Join(home, DefaultDirectory)
 		if paths.Home != want {
 			t.Fatalf("Home = %q, want %q", paths.Home, want)
 		}
@@ -25,9 +29,30 @@ func TestResolvePrecedence(t *testing.T) {
 		}
 	})
 
-	t.Run("explicit home wins", func(t *testing.T) {
-		environmentHome := filepath.Join(t.TempDir(), "environment")
-		t.Setenv(EnvHome, environmentHome)
+	t.Run("a channel-bound build defaults to its isolated home", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv(EnvHome, "")
+		version.Channel = "dev"
+		defer func() { version.Channel = "" }()
+
+		paths, err := Resolve("")
+		if err != nil {
+			t.Fatalf("Resolve() error = %v", err)
+		}
+		want := filepath.Join(home, DevStateDirectory, "dev", "home")
+		if paths.Home != want {
+			t.Fatalf("Home = %q, want %q", paths.Home, want)
+		}
+		if _, err := os.Stat(want); !os.IsNotExist(err) {
+			t.Fatalf("Resolve must not create the home: stat error = %v", err)
+		}
+	})
+
+	t.Run("a channel never overrides an explicit home", func(t *testing.T) {
+		t.Setenv(EnvHome, "")
+		version.Channel = "dev"
+		defer func() { version.Channel = "" }()
 		explicitHome := filepath.Join(t.TempDir(), "explicit")
 
 		paths, err := Resolve(explicitHome)
@@ -35,13 +60,15 @@ func TestResolvePrecedence(t *testing.T) {
 			t.Fatalf("Resolve() error = %v", err)
 		}
 		if paths.Home != explicitHome {
-			t.Fatalf("Home = %q, want %q", paths.Home, explicitHome)
+			t.Fatalf("Home = %q, want the explicit %q", paths.Home, explicitHome)
 		}
 	})
 
-	t.Run("environment overrides default", func(t *testing.T) {
+	t.Run("environment overrides a channel", func(t *testing.T) {
 		environmentHome := filepath.Join(t.TempDir(), "environment")
 		t.Setenv(EnvHome, environmentHome)
+		version.Channel = "dev"
+		defer func() { version.Channel = "" }()
 
 		paths, err := Resolve("")
 		if err != nil {
@@ -117,5 +144,55 @@ func TestEnsureCreatesPrivateDirectories(t *testing.T) {
 		if info.Mode().Perm() != 0o700 {
 			t.Errorf("mode for %q = %o, want 700", directory, info.Mode().Perm())
 		}
+	}
+}
+
+func TestDevHomeSeparatesChannels(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	dev, err := DevHome("dev")
+	if err != nil {
+		t.Fatalf("DevHome(dev) error = %v", err)
+	}
+	review, err := DevHome("review")
+	if err != nil {
+		t.Fatalf("DevHome(review) error = %v", err)
+	}
+	if want := filepath.Join(home, DevStateDirectory, "dev", "home"); dev != want {
+		t.Errorf("dev home = %q, want %q", dev, want)
+	}
+	if dev == review {
+		t.Fatalf("channels must not share a home: %q", dev)
+	}
+	// The layout is complete before anything is written, so a home can be
+	// described and reported without side effects.
+	if _, err := os.Stat(dev); !os.IsNotExist(err) {
+		t.Errorf("DevHome created a directory: stat error = %v", err)
+	}
+}
+
+func TestDevHomeRejectsEscapingChannels(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, channel := range []string{"../production", "/absolute", "a/b", ".", ".."} {
+		if _, err := DevHome(channel); err == nil {
+			t.Errorf("DevHome(%q) succeeded, want a channel error", channel)
+		}
+	}
+}
+
+func TestAnEmptyChannelIsNotAChannel(t *testing.T) {
+	// An empty channel means "no channel", which selects the shared home. It
+	// must never resolve to a state directory or error.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(EnvHome, "")
+	version.Channel = ""
+
+	paths, err := Resolve("")
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got := paths.Home; got != filepath.Join(os.Getenv("HOME"), DefaultDirectory) {
+		t.Fatalf("Home = %q, want the shared home", got)
 	}
 }

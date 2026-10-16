@@ -10,7 +10,11 @@ and outstanding work is tracked in [Kit issues](https://github.com/akonwi/kit/is
 [Kit project](https://github.com/users/akonwi/projects/4).
 
 Kit uses `~/.kit` by default. Set `KIT_HOME` to an explicit isolated directory
-for development and tests when production state must not be read or mutated.
+for development and tests when production state must not be read or mutated. A
+build bound to a channel with `--define channel=NAME` defaults to
+`~/.local/state/kit/NAME/home` instead
+([ADR 0047](docs/adrs/0047-give-development-builds-an-isolated-kit-home.md));
+set `KIT_HOME` when a run needs a particular home.
 
 When working from a development worktree, do not launch a development daemon,
 replace or restart the existing daemon, or open/migrate the production `~/.kit`

@@ -10,11 +10,20 @@ APP_BUILD="${KIT_MACOS_APP_BUILD:-1}"
 APP_COMMIT="${KIT_MACOS_SOURCE_COMMIT:-}"
 DERIVED_DATA="${KIT_MACOS_DERIVED_DATA:-$APP_ROOT/.build/xcode}"
 # Development bundles get their own identity so their preferences, window
-# restoration, and process never touch an installed Kit.app.
+# restoration, and process never touch an installed Kit.app. They also carry an
+# isolated Kit home: a launched GUI app does not inherit its launching shell's
+# environment, so the home is written into Info.plist instead. `KIT_HOME` still
+# overrides it when set, matching the CLI's precedence. Release bundles never
+# carry a home, so they keep resolving the shared ~/.kit.
 if [[ "${KIT_MACOS_RELEASE_BUILD:-0}" == 1 ]]; then
   BUNDLE_ID=com.akonwi.kit; BUNDLE_NAME=Kit
 else
   BUNDLE_ID=com.akonwi.kit.dev; BUNDLE_NAME="Kit Dev"
+  DEV_HOME="${KIT_MACOS_HOME:-$HOME/.local/state/kit/dev/home}"
+  case "$DEV_HOME" in
+    /*) ;;
+    *) echo "KIT_MACOS_HOME must be an absolute path, got '$DEV_HOME'" >&2; exit 2 ;;
+  esac
 fi
 [[ -z "$APP_COMMIT" || "$APP_COMMIT" =~ ^[a-f0-9]{40}$ ]] || { echo "Invalid source commit" >&2; exit 2; }
 [[ "$CONFIGURATION" == Debug || "$CONFIGURATION" == Release ]] || { echo "Invalid build configuration" >&2; exit 2; }
@@ -61,6 +70,10 @@ cp "$APP_ROOT/../../assets/kit/Kit.icns" "$APP_BUNDLE/Contents/Resources/Kit.icn
 rm -f "$APP_BUNDLE/Contents/Resources/fixture.json" "$APP_BUNDLE/Contents/Resources/workspace.json"
 commit_entry=""
 if [[ -n "$APP_COMMIT" ]]; then commit_entry="<key>KitSourceCommit</key><string>$APP_COMMIT</string>"; fi
+dev_home_entry=""
+if [[ "${KIT_MACOS_RELEASE_BUILD:-0}" != 1 ]]; then
+  dev_home_entry="<key>KitDevHome</key><string>$DEV_HOME</string>"
+fi
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -71,6 +84,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
 <key>CFBundleVersion</key><string>$APP_BUILD</string>
 $commit_entry
+$dev_home_entry
 <key>CFBundleIconFile</key><string>Kit</string>
 <key>CFBundleIconName</key><string>Kit</string>
 <key>CFBundlePackageType</key><string>APPL</string>

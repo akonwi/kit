@@ -6,6 +6,10 @@ var (
 	Version = "dev"
 	// Commit is replaced by release builds with -ldflags.
 	Commit = "unknown"
+	// Channel names the isolated Kit home this build binds to when KIT_HOME is
+	// unset. Empty means the usual shared home, which is what a release build
+	// wants; naming a channel is what opts a build into isolated state.
+	Channel = ""
 )
 
 const (

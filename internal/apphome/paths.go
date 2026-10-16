@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/akonwi/kit/internal/securefs"
+	"github.com/akonwi/kit/internal/version"
 )
 
 const (
@@ -54,25 +56,60 @@ type Paths struct {
 	ServerLock       string
 }
 
-// Resolve selects an explicit home, then KIT_HOME, then ~/.kit.
+// Resolve selects an explicit home, then KIT_HOME, then the build's
+// default. An explicit home and KIT_HOME win absolutely: they are how tests,
+// containers, and multi-home machines choose state. A build bound to a channel
+// and given neither resolves to that channel's isolated home instead of the
+// shared one.
 func Resolve(explicit string) (Paths, error) {
 	home := explicit
 	if home == "" {
 		home = os.Getenv(EnvHome)
 	}
-	if home == "" {
-		userHome, err := os.UserHomeDir()
+	if home != "" {
+		absolute, err := filepath.Abs(home)
 		if err != nil {
-			return Paths{}, fmt.Errorf("resolve user home: %w", err)
+			return Paths{}, fmt.Errorf("resolve Kit home %q: %w", home, err)
 		}
-		home = filepath.Join(userHome, DefaultDirectory)
+		return FromHome(absolute), nil
 	}
-
-	absolute, err := filepath.Abs(home)
+	if version.Channel != "" {
+		isolated, err := DevHome(version.Channel)
+		if err != nil {
+			return Paths{}, fmt.Errorf("resolve development Kit home: %w", err)
+		}
+		return FromHome(isolated), nil
+	}
+	userHome, err := os.UserHomeDir()
 	if err != nil {
-		return Paths{}, fmt.Errorf("resolve Kit home %q: %w", home, err)
+		return Paths{}, fmt.Errorf("resolve user home: %w", err)
 	}
-	return FromHome(absolute), nil
+	return FromHome(filepath.Join(userHome, DefaultDirectory)), nil
+}
+
+// DevStateDirectory is the machine-wide root of isolated development state. It
+// is the same on every platform: Kit's supported systems are single-user
+// developer machines, and one path keeps dev homes predictable when moving
+// between them.
+const DevStateDirectory = ".local/state/kit"
+
+// DevHome is the isolated home a channel such as "dev" binds to. Each channel
+// owns its own home beneath the user's state directory, so its daemon,
+// database, credentials, and logs never share state with the shared default or
+// with another channel. The home is derived, never created: Resolve only
+// selects a path, and the directory appears when a command needs it.
+func DevHome(channel string) (string, error) {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home: %w", err)
+	}
+	// A channel names a home directory namespace, so it must be exactly one
+	// path segment. This keeps a channel such as "dev" or a worktree name
+	// from escaping the state directory.
+	if channel == "." || channel == ".." || channel != filepath.Base(filepath.Clean(channel)) || strings.ContainsAny(channel, "/\\") {
+		return "", fmt.Errorf("invalid Kit channel %q: want a single directory name", channel)
+	}
+	return filepath.Join(userHome, DevStateDirectory, channel, "home"), nil
 }
 
 // FromHome derives the full path layout from home without touching disk.
