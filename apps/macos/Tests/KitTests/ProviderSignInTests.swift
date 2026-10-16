@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import Kit
 
@@ -231,6 +233,40 @@ struct ProviderSignInTests {
         signIn.back()
         signIn.signIn(Self.providers[2])
         #expect(signIn.step == .signingIn(try #require(signIn.options.first { $0.provider == "openai" })))
+    }
+
+    @Test func firstRunContinuesFromTheListOnceAProviderIsConnected() async throws {
+        let server = FakeProviders(list: Self.providers)
+        let (signIn, _) = signIn(server)
+        await signIn.load()
+        var continued = 0
+        let theme = ThemeConfiguration.decode("").theme(dark: true)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 620), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: FirstRunView(signIn: signIn) { continued += 1 }
+            .environment(\.mica, theme).frame(width: 760, height: 620))
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        func pressReturn() async throws {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                isARepeat: false, keyCode: 36))
+            window.sendEvent(event)
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
+        try await Task.sleep(for: .milliseconds(100))
+        try await pressReturn()
+        #expect(continued == 0)
+
+        let key = try #require(signIn.options.first { $0.provider == "openai" })
+        signIn.choose(key)
+        await signIn.save(apiKey: "sk-test")
+        signIn.back()
+        #expect(signIn.connected == ["openai"])
+        try await Task.sleep(for: .milliseconds(100))
+        try await pressReturn()
+        #expect(continued == 1)
     }
 
     @Test func describesEachProviderInSettings() {

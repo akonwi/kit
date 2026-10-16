@@ -39,7 +39,8 @@ sign-ins last. Choosing one replaces the list with its step in the same column:
 a device code to copy and open, a browser page to approve (or a code to paste
 back), or an API key. Every step ends on Connected, which picks the default
 model for new sessions; Continue opens the workspace and Add another returns to
-the list. Back cancels a sign-in the server is still waiting on. First run
+the list. Once a provider is connected, its rows read Connected and a Continue
+below the list opens the workspace; choosing a connected row signs in again. Back cancels a sign-in the server is still waiting on. First run
 shows even when sessions exist, so a server whose credentials were removed
 asks for one again.
 

@@ -86,6 +86,8 @@ final class ProviderSignIn {
 
     var options: [ProviderOption] { ProviderOption.options(providers) }
     var anyConnected: Bool { providers.contains(where: \.configured) }
+    /// The providers the server has a credential for.
+    var connected: Set<String> { Set(providers.filter(\.configured).map(\.id)) }
 
     func load() async {
         do {

@@ -26,6 +26,15 @@ struct FirstRunView: View {
                     if signIn.step == .list { done() }
                 }
             }
+            // Once a provider is connected, the list itself can move on.
+            if signIn.step == .list && signIn.loaded && signIn.loadError == nil && signIn.anyConnected {
+                HStack {
+                    Spacer()
+                    Button("Continue", action: done)
+                        .buttonStyle(FormButtonStyle(fill: .primary))
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
         }
         .frame(width: Self.width, alignment: .leading)
         .padding(.bottom, 44)
@@ -64,12 +73,13 @@ struct ProviderSignInFlow: View {
             } else if !signIn.loaded {
                 KitSpinner("Loading providers…").foregroundStyle(theme.muted)
             } else {
-                ProviderOptionList(options: signIn.options, select: signIn.choose)
+                ProviderOptionList(options: signIn.options, connected: signIn.connected, select: signIn.choose)
             }
         case let .methods(provider):
             ProviderCard {
                 BackLink(action: signIn.back)
-                ProviderOptionList(options: signIn.options.filter { $0.provider == provider }, select: signIn.choose)
+                ProviderOptionList(options: signIn.options.filter { $0.provider == provider }, connected: signIn.connected,
+                                   select: signIn.choose)
             }
         case let .signingIn(option):
             ProviderStepCard(signIn: signIn, option: option)
@@ -79,10 +89,13 @@ struct ProviderSignInFlow: View {
     }
 }
 
-/// The 44 pt rows of sign-in methods, each naming its provider and method.
+/// The 44 pt rows of sign-in methods, each naming its provider and method,
+/// or Connected once the server has the provider's credential. Choosing a
+/// connected row signs in again, replacing it.
 struct ProviderOptionList: View {
     @Environment(\.mica) private var theme
     let options: [ProviderOption]
+    var connected: Set<String> = []
     let select: (ProviderOption) -> Void
     @State private var hovered: String?
 
@@ -95,8 +108,13 @@ struct ProviderOptionList: View {
                         Text(option.title).font(.kit(size: 13, weight: .medium))
                             .frame(maxWidth: .infinity, alignment: .leading)
                         HStack(spacing: 6) {
-                            IconView(option.icon, size: 13)
-                            Text(option.detail).font(.kit(size: 12))
+                            if connected.contains(option.provider) {
+                                Circle().fill(theme.success).frame(width: 6, height: 6)
+                                Text("Connected").font(.kit(size: 12))
+                            } else {
+                                IconView(option.icon, size: 13)
+                                Text(option.detail).font(.kit(size: 12))
+                            }
                         }.foregroundStyle(theme.muted)
                         IconView(.caretRight, size: 10).foregroundStyle(theme.muted)
                     }
@@ -107,6 +125,7 @@ struct ProviderOptionList: View {
                 .buttonStyle(.plain)
                 .onHover { hovered = $0 ? option.id : (hovered == option.id ? nil : hovered) }
                 .accessibilityLabel("\(option.title), \(option.detail)")
+                .accessibilityValue(connected.contains(option.provider) ? "Connected" : "")
             }
         }
         .background(theme.surface)
