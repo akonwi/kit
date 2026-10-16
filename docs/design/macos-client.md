@@ -15,9 +15,12 @@ These rules cover behavior that the Paper designs do not record.
 
 When a window has no open session, it shows a session launcher instead of
 opening the latest session. The launcher connects in the background and lists
-recent sessions with their working directories and update times. Search, arrow
-keys, and Return open a session without a pointer. The transcript, composer, and
-workspace panes stay hidden until a session is explicitly chosen.
+the window's sessions that are working or awaiting a response under Active,
+then the rest under Recent with their folders and how long ago they were
+active. Search, arrow keys, and Return open a session without a pointer; ⌘R and
+⌘⌫ rename and delete the highlighted one. A server with no sessions shows only
+the way to start the first one. The transcript, composer, and workspace panes
+stay hidden until a session is explicitly chosen.
 
 Relaunch restores only intentionally opened sessions: each window's session tabs,
 its selected session, each tab's tile arrangement, and the sidebar's collapsed

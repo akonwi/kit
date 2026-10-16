@@ -184,6 +184,13 @@ final class SessionWindowModel: Identifiable {
 
     /// Session identities to restore, in tab order; launcher tabs are not intent.
     var sessions: [SessionIdentity] { tabs.filter { !$0.isLauncher }.map(\.identity) }
+    /// The status of each session tab that is working or awaiting a response.
+    var activity: [String: SessionTabStatus] {
+        var activity: [String: SessionTabStatus] = [:]
+        for tab in tabs where !tab.isLauncher && tab.status != .idle { activity[tab.identity.session] = tab.status }
+        return activity
+    }
+
     var selectedSession: SessionIdentity? { selectedTab.isLauncher ? nil : selectedTab.identity }
     /// Tile layouts to restore, for session tabs whose layout isn't the default.
     var layouts: [SessionIdentity: TileArrangement] {

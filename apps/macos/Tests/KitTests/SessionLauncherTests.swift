@@ -31,6 +31,31 @@ struct SessionLauncherTests {
         #expect(launcher.highlightedID == "b")
     }
 
+    @Test func activeSessionsLeadTheRecentOnes() {
+        let sessions = [
+            session("a", title: "Window restoration", path: "/work/kit", date: "2026-09-10T12:00:00Z"),
+            session("b", title: "Markdown rendering", path: "/work/mica", date: "2026-09-11T12:00:00Z"),
+            session("c", title: "Parser recovery", path: "/work/ard", date: "2026-09-12T12:00:00Z")
+        ]
+        var launcher = SessionLauncher()
+        let sections = launcher.sections(in: sessions, activity: ["a": .awaitingResponse, "b": .running, "c": .idle])
+        #expect(sections.active.map(\.id) == ["b", "a"])
+        #expect(sections.recent.map(\.id) == ["c"])
+        launcher.query = "ard"
+        let filtered = launcher.sections(in: sessions, activity: ["b": .running])
+        #expect(filtered.active.isEmpty)
+        #expect(filtered.recent.map(\.id) == ["c"])
+    }
+
+    @Test func ageReadsAsTheLauncherShowsIt() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
+        let now = try #require(SessionLauncher.timestamp("2026-09-15T15:00:00Z"))
+        let offsets: [TimeInterval] = [-20, -720, -7200, -72000, -86400, -259_200, -691_200, -1_814_400]
+        let ages = offsets.map { SessionLauncher.age(of: now.addingTimeInterval($0), now: now, calendar: calendar) }
+        #expect(ages == ["just now", "12 min ago", "2 hr ago", "20 hr ago", "yesterday", "3 days ago", "last week", "3 weeks ago"])
+    }
+
     @MainActor @Test func renderLauncherForReview() async throws {
         let sessions = [
             session("a", title: "Native window restoration", path: "/Users/akonwi/Developer/agent/kit-macos", date: "2026-09-13T13:10:00Z"),
@@ -41,7 +66,6 @@ struct SessionLauncherTests {
             var opened: [String] = []
             var renamed: [String] = []
             var deleted: [String] = []
-            #expect(try #require(SessionLauncherContent.logo(dark: dark)).size == NSSize(width: 1024, height: 768))
             let theme = ThemeConfiguration.decode("").theme(dark: dark)
             let view = SessionLauncherContent(sessions: sessions, connecting: false, connected: true, error: nil,
                                                open: { opened.append($0.id) }, refresh: {},

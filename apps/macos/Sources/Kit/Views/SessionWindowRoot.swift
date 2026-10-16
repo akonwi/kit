@@ -103,7 +103,7 @@ private struct SessionTabContent: View {
     var body: some View {
         let app = model.app
         if tab.isLauncher {
-            SessionLauncherView(app: app) { session in
+            SessionLauncherView(app: app, activity: model.activity) { session in
                 model.show(SessionIdentity(server: app.client?.serverID ?? SessionWindowModel.defaultServer, session: session.id), in: tab)
             }
         } else if let client = app.client, tab.identity.server.isEmpty || tab.identity.server == client.serverID {

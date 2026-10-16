@@ -19,10 +19,36 @@ struct SessionLauncher {
         }
     }
 
+    /// Sessions that are working or awaiting a response lead, in recency
+    /// order; the rest follow as recent sessions.
+    func sections(in sessions: [SessionExcerpt], activity: [String: SessionTabStatus])
+        -> (active: [SessionExcerpt], recent: [SessionExcerpt]) {
+        let ordered = results(in: sessions)
+        let active = ordered.filter { (activity[$0.id] ?? .idle) != .idle }
+        let ids = Set(active.map(\.id))
+        return (active, ordered.filter { !ids.contains($0.id) })
+    }
+
     mutating func move(_ offset: Int, in sessions: [SessionExcerpt]) {
         guard !sessions.isEmpty else { highlightedID = nil; return }
         let current = sessions.firstIndex { $0.id == highlightedID } ?? (offset > 0 ? -1 : sessions.count)
         highlightedID = sessions[max(0, min(sessions.count - 1, current + offset))].id
+    }
+
+    /// How long ago a session was last active, as the launcher shows it.
+    static func age(of date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        if seconds < 60 { return "just now" }
+        if seconds < 3600 { return "\(Int(seconds / 60)) min ago" }
+        if seconds < 86400 { return "\(Int(seconds / 3600)) hr ago" }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date),
+                                           to: calendar.startOfDay(for: now)).day ?? 0
+        if days <= 1 { return "yesterday" }
+        if days < 7 { return "\(days) days ago" }
+        if days < 14 { return "last week" }
+        if days < 60 { return "\(days / 7) weeks ago" }
+        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+        return date.formatted(sameYear ? .dateTime.month(.abbreviated).day() : .dateTime.month(.abbreviated).day().year())
     }
 
     static func timestamp(_ value: String) -> Date? {
