@@ -6,9 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -69,36 +67,16 @@ func (s *memoryMCPAuthStore) DeleteMCPOAuthRevision(_ context.Context, key, expe
 	return "rejected", nil
 }
 
-func TestOAuthCallbackOpensBrowserAndReturnsValidatedValues(t *testing.T) {
-	var prompted string
-	launcher, err := NewLauncher(t.Context(),
-		WithOAuthBrowser(func(ctx context.Context, raw string) error {
-			parsed, err := url.Parse(raw)
-			if err != nil {
-				return err
-			}
-			callback := oauthRedirectURL + "?code=accepted&state=" + url.QueryEscape(parsed.Query().Get("state")) + "&iss=" + url.QueryEscape("https://issuer.example")
-			go func() {
-				response, requestErr := http.Get(callback)
-				if requestErr == nil {
-					response.Body.Close()
-				}
-			}()
-			return nil
-		}),
-		WithOAuthPrompt(func(_ context.Context, _ string, raw string, openErr error) error {
-			if openErr != nil {
-				t.Fatalf("browser open = %v", openErr)
-			}
-			prompted = raw
-			return nil
-		}),
-	)
+func TestOAuthAsksTheToolCallsUserAndReturnsTheRedirectsValues(t *testing.T) {
+	launcher, err := NewLauncher(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	launcher.oauthTimeout = 5 * time.Second
-
+	var asked droidsmcp.AuthorizationRequest
+	launcher.authorize = func(_ context.Context, request droidsmcp.AuthorizationRequest) (string, error) {
+		asked = request
+		return oauthRedirectURL + "?code=accepted&state=state-value&iss=" + url.QueryEscape("https://issuer.example"), nil
+	}
 	result, err := launcher.fetchAuthorizationCode(t.Context(), "docs", "https://auth.example/authorize?state=state-value")
 	if err != nil {
 		t.Fatal(err)
@@ -106,90 +84,80 @@ func TestOAuthCallbackOpensBrowserAndReturnsValidatedValues(t *testing.T) {
 	if result.Code != "accepted" || result.State != "state-value" || result.Iss != "https://issuer.example" {
 		t.Fatalf("result = %#v", result)
 	}
-	if prompted == "" {
-		t.Fatal("authorization URL was not surfaced")
+	if asked != (droidsmcp.AuthorizationRequest{Server: "docs", URL: "https://auth.example/authorize?state=state-value", RedirectURI: "http://127.0.0.1:53173/mcp/callback"}) {
+		t.Fatalf("asked = %#v", asked)
 	}
 }
 
-func TestOAuthBrowserFailureSurfacesFallbackWhileCallbackRemainsActive(t *testing.T) {
-	openFailure := errors.New("no browser")
-	launcher, err := NewLauncher(t.Context(),
-		WithOAuthBrowser(func(context.Context, string) error { return openFailure }),
-		WithOAuthPrompt(func(_ context.Context, _ string, raw string, got error) error {
-			if !errors.Is(got, openFailure) {
-				t.Fatalf("open error = %v", got)
-			}
-			parsed, _ := url.Parse(raw)
-			callback := oauthRedirectURL + "?code=manual&state=" + url.QueryEscape(parsed.Query().Get("state"))
-			go func() {
-				response, requestErr := http.Get(callback)
-				if requestErr == nil {
-					response.Body.Close()
+func TestOAuthAnswerParsing(t *testing.T) {
+	for _, test := range []struct {
+		name, answer string
+		want         *sdkauth.AuthorizationResult
+		err          string
+	}{
+		{name: "redirect", answer: "http://127.0.0.1:53173/mcp/callback?code=c1&state=expected", want: &sdkauth.AuthorizationResult{Code: "c1", State: "expected"}},
+		{name: "pasted query", answer: "  code=c2&state=expected&iss=https%3A%2F%2Fi.example  ", want: &sdkauth.AuthorizationResult{Code: "c2", State: "expected", Iss: "https://i.example"}},
+		{name: "bare code", answer: "c3==", err: "OAuth authorization failed: paste the whole address the browser ended up at, not only the code"},
+		{name: "other state", answer: "http://127.0.0.1:53173/mcp/callback?code=c&state=attacker", err: "OAuth authorization failed: the redirect is for a different authorization"},
+		{name: "denied", answer: "http://127.0.0.1:53173/mcp/callback?error=access_denied&state=expected", err: "OAuth authorization failed: access_denied"},
+		{name: "no code", answer: "http://127.0.0.1:53173/mcp/callback?state=expected", err: "OAuth authorization failed: the redirect has no code"},
+		{name: "empty", answer: " ", err: "OAuth authorization failed: invalid answer"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseAuthorizationAnswer(test.answer, "expected")
+			if test.err != "" {
+				if err == nil || err.Error() != test.err {
+					t.Fatalf("error = %v, want %q", err, test.err)
 				}
-			}()
-			return nil
-		}),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := launcher.fetchAuthorizationCode(t.Context(), "docs", "https://auth.example/authorize?state=fallback")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Code != "manual" || result.State != "fallback" {
-		t.Fatalf("result = %#v", result)
+				return
+			}
+			if err != nil || *got != *test.want {
+				t.Fatalf("result = %#v, %v", got, err)
+			}
+		})
 	}
 }
 
-func TestOAuthCallbackIgnoresMismatchedErrorState(t *testing.T) {
-	result := make(chan oauthCallbackResult, 1)
-	handler := oauthCallbackHandler("expected", result)
-	bad := httptest.NewRequest(http.MethodGet, oauthCallbackPath+"?error=denied&state=attacker", nil)
-	badResponse := httptest.NewRecorder()
-	handler.ServeHTTP(badResponse, bad)
-	if badResponse.Code != http.StatusBadRequest {
-		t.Fatalf("bad state status = %d", badResponse.Code)
+func TestOAuthWithoutAnAskingUserFailsWithAnExplanation(t *testing.T) {
+	launcher, err := NewLauncher(t.Context())
+	if err != nil {
+		t.Fatal(err)
 	}
-	select {
-	case value := <-result:
-		t.Fatalf("mismatched callback terminated flow: %#v", value)
-	default:
-	}
-	valid := httptest.NewRequest(http.MethodGet, oauthCallbackPath+"?error=denied&state=expected", nil)
-	handler.ServeHTTP(httptest.NewRecorder(), valid)
-	select {
-	case value := <-result:
-		if value.err == nil || !strings.Contains(value.err.Error(), "denied") {
-			t.Fatalf("callback result = %#v", value)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("valid OAuth error callback was not delivered")
+	_, err = launcher.fetchAuthorizationCode(t.Context(), "docs", "https://auth.example/authorize?state=s")
+	if err == nil || err.Error() != `MCP server "docs" needs authorization, which only the session's own conversation can ask the user for` {
+		t.Fatalf("error = %v", err)
 	}
 }
 
-func TestOAuthAuthorizationTimesOutAndClosesCallback(t *testing.T) {
-	launcher, err := NewLauncher(t.Context(),
-		WithOAuthBrowser(func(context.Context, string) error { return nil }),
-		WithOAuthPrompt(func(context.Context, string, string, error) error { return nil }),
-	)
+func TestOAuthAuthorizationTimesOut(t *testing.T) {
+	launcher, err := NewLauncher(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	launcher.oauthTimeout = 25 * time.Millisecond
+	launcher.authorize = func(ctx context.Context, _ droidsmcp.AuthorizationRequest) (string, error) {
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
 	_, err = launcher.fetchAuthorizationCode(t.Context(), "docs", "https://auth.example/authorize?state=timeout")
-	if !errors.Is(err, context.DeadlineExceeded) {
+	if err == nil || err.Error() != `MCP server "docs" was not authorized within 25ms` {
 		t.Fatalf("timeout error = %v", err)
 	}
-	listener, listenErr := netListenOAuthCallback()
-	if listenErr != nil {
-		t.Fatalf("callback listener survived timeout: %v", listenErr)
-	}
-	listener.Close()
 }
 
-func netListenOAuthCallback() (io.Closer, error) {
-	return net.Listen("tcp", oauthCallbackAddress)
+func TestOAuthRefusesAnAuthorizationPageThatIsNotHTTPS(t *testing.T) {
+	launcher, err := NewLauncher(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	launcher.authorize = func(context.Context, droidsmcp.AuthorizationRequest) (string, error) {
+		t.Fatal("asked to open a page that is not https")
+		return "", nil
+	}
+	_, err = launcher.fetchAuthorizationCode(t.Context(), "docs", "http://auth.example/authorize?state=s")
+	if err == nil || err.Error() != `MCP server "docs" has an authorization page that is not https` {
+		t.Fatalf("error = %v", err)
+	}
 }
 
 type fakeOAuthHandler struct {
@@ -299,6 +267,31 @@ func TestRejectedSavedOAuthIsClearedOnceBeforeReauthorization(t *testing.T) {
 	}
 	if delegate.authorizes != 2 {
 		t.Fatalf("authorization calls = %d", delegate.authorizes)
+	}
+}
+
+// A subagent or print-mode call meeting a rejected credential leaves it, and
+// registers no client, since no one can authorize a replacement.
+func TestRejectedSavedOAuthIsKeptWhenNoOneCanAuthorize(t *testing.T) {
+	key := oauthServerKey("docs", "https://example.com/mcp")
+	store := &memoryMCPAuthStore{records: map[string]kitauth.MCPOAuthRecord{key: {Found: true, Revision: "saved"}}}
+	delegate := &fakeOAuthHandler{token: &oauth2.Token{AccessToken: "rejected"}}
+	handler := &recoveringOAuthHandler{
+		delegate:     delegate,
+		state:        &oauthSessionState{store: store, key: key, revision: "saved"},
+		hadSaved:     true,
+		server:       "docs",
+		canAuthorize: droidsmcp.CanAuthorize,
+	}
+	request, _ := http.NewRequest(http.MethodPost, "https://example.com/mcp", nil)
+	request.Header.Set("Authorization", "Bearer rejected")
+	response := &http.Response{StatusCode: http.StatusUnauthorized, Body: io.NopCloser(strings.NewReader("unauthorized"))}
+	err := handler.Authorize(t.Context(), request, response)
+	if err == nil || err.Error() != `MCP server "docs" needs authorization, which only the session's own conversation can ask the user for` {
+		t.Fatalf("error = %v", err)
+	}
+	if store.deletes != 0 || delegate.authorizes != 0 {
+		t.Fatalf("deletes = %d, authorizations = %d", store.deletes, delegate.authorizes)
 	}
 }
 

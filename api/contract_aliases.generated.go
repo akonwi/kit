@@ -284,6 +284,7 @@ const (
 	FirstTurnInvalidRequest               = contract.FirstTurnInvalidRequest
 	FirstTurnNotFound                     = contract.FirstTurnNotFound
 	FirstTurnUnavailable                  = contract.FirstTurnUnavailable
+	InteractionAuthorize                  = contract.InteractionAuthorize
 	InteractionConfirm                    = contract.InteractionConfirm
 	InteractionGuided                     = contract.InteractionGuided
 	InteractionInput                      = contract.InteractionInput

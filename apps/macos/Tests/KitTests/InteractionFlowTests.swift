@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Kit
 
@@ -89,6 +90,28 @@ struct InteractionFlowTests {
         #expect(flow.mode == .unsupported)
         #expect(flow.title == "Pick one")
         #expect(flow.response(cancelled: false) == nil)
+        #expect(flow.response(cancelled: true)?.cancelled == true)
+    }
+
+    @Test func anAuthorizationAnswersWithThePastedRedirect() throws {
+        let json = #"{"id":"interaction_authorize","sessionId":"s","turnId":"t","toolCallId":"c","kind":"authorize","title":"Authorize the docs MCP server","url":"https://auth.example.com/authorize?state=s","redirectUri":"http://127.0.0.1:53173/mcp/callback","createdAt":"2026-10-12T00:00:00Z"}"#
+        let request = try JSONDecoder().decode(WireInteractionRequest.self, from: Data(json.utf8))
+        let flow = try InteractionFlow(request: request)
+        #expect(flow.mode == .text)
+        #expect(flow.authorizationURL == URL(string: "https://auth.example.com/authorize?state=s"))
+        // Nothing pasted yet is not an answer.
+        #expect(flow.submitText() == false)
+        flow.answers[0].text = "  http://127.0.0.1:53173/mcp/callback?code=c&state=s  "
+        #expect(flow.submitText())
+        #expect(flow.response(cancelled: false)?.value == "http://127.0.0.1:53173/mcp/callback?code=c&state=s")
+    }
+
+    @Test func anAuthorizationOfAPageThatIsNotHTTPSCanOnlyBeCancelled() throws {
+        let request = WireInteractionRequest(id: "interaction_authorize", sessionId: "s", turnId: "t", toolCallId: "c",
+            kind: .value4, title: "Authorize", url: "http://auth.example.com/authorize",
+            redirectUri: "http://127.0.0.1:53173/mcp/callback", createdAt: "2026-10-12T00:00:00Z")
+        let flow = try InteractionFlow(request: request)
+        #expect(flow.mode == .unsupported)
         #expect(flow.response(cancelled: true)?.cancelled == true)
     }
 

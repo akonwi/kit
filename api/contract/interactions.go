@@ -3,6 +3,9 @@ package contract
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -29,6 +32,11 @@ const (
 	InteractionInput   InteractionKind = "input"
 	InteractionSelect  InteractionKind = "select"
 	InteractionGuided  InteractionKind = "guided"
+	// InteractionAuthorize asks the user to open url in a browser and approve
+	// access. The answer value is the URL the browser was redirected to, or
+	// the code the page showed. The answering client may listen on
+	// redirectUri and relay the redirect itself.
+	InteractionAuthorize InteractionKind = "authorize"
 )
 
 // InteractionQuestionKind identifies a guided answer shape.
@@ -82,7 +90,12 @@ type InteractionRequest struct {
 	Detail       string                  `json:"detail,omitempty"`
 	Options      []InteractionOption     `json:"options,omitempty"`
 	Questions    []InteractionQuestion   `json:"questions,omitempty"`
-	CreatedAt    string                  `json:"createdAt"`
+	// URL is the https page an authorize request opens.
+	URL string `json:"url,omitempty"`
+	// RedirectURI is the loopback http address an authorize request's page
+	// redirects the browser to after approval.
+	RedirectURI string `json:"redirectUri,omitempty"`
+	CreatedAt   string `json:"createdAt"`
 }
 
 // InteractionAnswer is one guided-question answer submitted by a client.
@@ -126,10 +139,17 @@ func (request InteractionRequest) Validate() error {
 	if len(request.Options) > MaxInteractionOptions || len(request.Questions) > MaxGuidedQuestions {
 		return fmt.Errorf("interaction collection limit exceeded")
 	}
+	if request.Kind != InteractionAuthorize && (request.URL != "" || request.RedirectURI != "") {
+		return fmt.Errorf("authorization fields on other interaction")
+	}
 	switch request.Kind {
 	case InteractionConfirm, InteractionInput:
 		if len(request.Options) != 0 || len(request.Questions) != 0 {
 			return fmt.Errorf("interaction payload does not match kind")
+		}
+	case InteractionAuthorize:
+		if request.Plugin != nil || len(request.Options) != 0 || len(request.Questions) != 0 || !validAuthorizationURL(request.URL) || !validRedirectURI(request.RedirectURI) {
+			return fmt.Errorf("authorize interaction is invalid")
 		}
 	case InteractionSelect:
 		if len(request.Options) == 0 || len(request.Questions) != 0 {
@@ -175,6 +195,37 @@ func (request InteractionRequest) Validate() error {
 		return fmt.Errorf("interaction exceeds size limit")
 	}
 	return nil
+}
+
+// validAuthorizationURL accepts an absolute https page.
+func validAuthorizationURL(raw string) bool {
+	if !validInteractionText(raw, MaxInteractionDetailBytes, true) {
+		return false
+	}
+	parsed, err := url.Parse(raw)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil
+}
+
+// validRedirectURI accepts an http address on the loopback interface with an
+// explicit port.
+func validRedirectURI(raw string) bool {
+	if !validInteractionText(raw, 2<<10, true) {
+		return false
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil || port < 1 || port > 65535 {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // Validate checks the response's standalone wire constraints. Request-specific

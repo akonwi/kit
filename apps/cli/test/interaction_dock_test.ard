@@ -7,6 +7,7 @@ use cooper/cui
 use cooper/event
 use cooper/testing as headless
 use cooper/ui
+use go:kit/ffi/authbridge
 use kit/tui/interaction_dock
 use kit/tui/theme
 use go:strings
@@ -18,6 +19,15 @@ struct Model {
   submitting: Bool,
   responses: [protocol::InteractionResponse],
   control: mut interaction_dock::Ref,
+  // URLs the dock opened, and why opening fails, if it should.
+  opened: [Str],
+  open_failure: Str,
+  // Whether this machine can listen for a redirect, and the dock's
+  // listener while it listens.
+  can_listen: Bool,
+  listening: [Str],
+  redirect: fn(Str)?,
+  stopped: Int,
 }
 
 struct HostProps {
@@ -56,6 +66,29 @@ impl cui::Component for Host {
               model.responses.push(response)
             },
             control: model.control,
+            open_url: fn(url: Str) Void!Error {
+              match model.open_failure == "" {
+                true => {
+                  model.opened.push(url)
+                  Result::ok(())
+                },
+                false => Result::err(Error::new(model.open_failure)),
+              }
+            },
+            receive_redirect: fn(url: Str, redirect: Str, receive: fn(Str)) authbridge::RedirectReceiver!Error {
+              match model.can_listen {
+                true => {
+                  model.listening = [url, redirect]
+                  model.redirect = Maybe::new(receive)
+                  Result::ok(
+                    authbridge::RedirectReceiver{Stop: fn() {
+                      model.stopped =+ 1
+                    }},
+                  )
+                },
+                false => Result::err(Error::new("address already in use")),
+              }
+            },
           },
         ),
       ],
@@ -76,6 +109,12 @@ fn model(request: protocol::InteractionRequest) mut Model {
     submitting: false,
     responses: [],
     control: interaction_dock::ref(),
+    opened: [],
+    open_failure: "",
+    can_listen: true,
+    listening: [],
+    redirect: Maybe::new<fn(Str)>(),
+    stopped: 0,
   })
 }
 
@@ -1123,5 +1162,107 @@ test fn details_give_way_to_labels_in_a_row_too_narrow_for_both() Void!Str {
       "│ ↑↓ move · enter/space select · esc cancel                    Cancel  │",
       "└──────────────────────────────────────────────────────────────────────┘",
     ],
+  )
+}
+
+fn authorization() protocol::InteractionRequest {
+  protocol::InteractionRequest{
+    ID: "interaction_authorize",
+    TurnID: "turn-1",
+    ToolCallID: "call-1",
+    Kind: protocol::InteractionAuthorize,
+    Title: "Authorize the docs MCP server",
+    URL: "https://auth.example.com/authorize?state=s",
+    RedirectURI: "http://127.0.0.1:53173/mcp/callback",
+  }
+}
+
+test fn an_authorization_opens_its_page_and_answers_with_the_redirect() Void!Str {
+  let terminal = headless::new(60, 13)
+  defer terminal.destroy()
+  let state = model(authorization())
+  let renderer = mount(terminal, state)
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────┐",
+      "│ Authorize the docs MCP server                            │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ https://auth.example.com/authorize?state=s               │",
+      "│ Approve access in your browser and Kit continues.        │",
+      "│                                                          │",
+      "│  Paste the address your browser ended up at              │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ enter open in browser · esc cancel        Open   Cancel  │",
+      "└──────────────────────────────────────────────────────────┘",
+    ],
+  )
+  // The dock listens at the redirect address.
+  try expect_rows(
+    state.listening,
+    ["https://auth.example.com/authorize?state=s", "http://127.0.0.1:53173/mcp/callback"],
+  )
+  press(terminal, "return")
+  // Return in the empty field opens the page.
+  try expect_rows(state.opened, ["https://auth.example.com/authorize?state=s"])
+  try testing::assert(state.responses.size() == 0, "opening the page does not answer")
+  let redirect = state.redirect.expect("listener")
+  redirect("http://127.0.0.1:53173/mcp/callback?code=c&state=s")
+  settle(terminal)
+  let response = try only_response(state)
+  try testing::assert(
+    (not unsafe::is_nil(response.Value)) and response.Value.@ == "http://127.0.0.1:53173/mcp/callback?code=c&state=s",
+    "the received redirect answers the request",
+  )
+  renderer.destroy()
+  testing::assert(state.stopped == 1, "the dock stops listening when it goes away")
+}
+
+test fn an_authorization_takes_a_pasted_redirect_when_it_cannot_listen() Void!Str {
+  let terminal = headless::new(70, 13)
+  defer terminal.destroy()
+  let state = model(authorization())
+  state.can_listen = false
+  state.open_failure = "no browser"
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  press(terminal, "return")
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌────────────────────────────────────────────────────────────────────┐",
+      "│ Authorize the docs MCP server                                      │",
+      "├────────────────────────────────────────────────────────────────────┤",
+      "│ https://auth.example.com/authorize?state=s                         │",
+      "│ The browser didn't open: no browser                                │",
+      "│                                                                    │",
+      "│  Paste the address your browser ended up at                        │",
+      "├────────────────────────────────────────────────────────────────────┤",
+      "│ enter open in browser · esc cancel                  Open   Cancel  │",
+      "└────────────────────────────────────────────────────────────────────┘",
+    ],
+  )
+  state.open_failure = ""
+  press(terminal, "return")
+  try testing::assert(
+    rows(terminal).at(7).or("") == "│ After approving, paste the address your browser ends up at.        │",
+    "a browser that opened clears the failure",
+  )
+  type_text(terminal, "code=c&state=s")
+  try testing::assert(
+    rows(terminal).at(11).or("") == "│ enter submit · esc cancel                           Open   Cancel  │",
+    "a pasted redirect is submitted with Return",
+  )
+  press(terminal, "return")
+  let response = try only_response(state)
+  testing::assert(
+    (not unsafe::is_nil(response.Value)) and response.Value.@ == "code=c&state=s",
+    "Return submits the pasted redirect",
   )
 }

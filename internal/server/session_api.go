@@ -1389,6 +1389,7 @@ func projectInteractionRequest(request kitsession.InteractionRequest) protocol.I
 	}
 	result.ConfirmLabel, result.CancelLabel = request.ConfirmLabel, request.CancelLabel
 	result.Placeholder, result.InitialValue = request.Placeholder, request.InitialValue
+	result.URL, result.RedirectURI = request.URL, request.RedirectURI
 	if request.DefaultValue != nil {
 		value := *request.DefaultValue
 		result.DefaultValue = &value

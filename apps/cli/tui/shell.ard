@@ -13,6 +13,7 @@ use cooper/keymap
 use cooper/testing as headless
 use cooper/ui
 use go:github.com/akonwi/kit/internal/theme as kittheme
+use go:kit/ffi/authbridge
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
@@ -1161,6 +1162,10 @@ impl Shell {
           self.request_interaction_response(response)
         },
         control: self.dock_control,
+        open_url: self.props.open_url,
+        receive_redirect: fn(url: Str, redirect: Str, receive: fn(Str)) authbridge::RedirectReceiver!Error {
+          authbridge::ReceiveRedirect(url, redirect, receive)
+        },
       },
     )
   }

@@ -266,9 +266,10 @@ Server-owned, exposed through the session API:
   the client listens on that callback address on its own machine and relays
   the result to the server; manual code entry remains available. Clients do
   not import credential storage.
-- **Server settings.** Default model and thinking level, model overrides such
-  as context windows, and prompt cache retention are read and written through
-  the API.
+- **Server settings.** Default and compaction models, model overrides such as
+  context windows, prompt cache retention, and whether Claude configuration
+  files are read are read and written through the API. New sessions start at
+  their model's default thinking level.
 - **Workspace selection.** New-session working directories are server paths,
   validated by the server. Choosing one uses a server directory listing that
   does not require an existing session and a recent-workspaces view derived
@@ -283,9 +284,17 @@ Client-owned:
 - Attachment and image previews, which the client downloads and opens
   locally.
 
-Routed to the attached client: requests to open a URL or file presentation,
-from tools, plugins, or MCP authorization, are delivered to an attached client
-and opened on the client machine, for same-machine and remote servers alike.
+Routed to the attached client: an MCP server that needs authorization asks the
+user through an `authorize` interaction owned by the tool call that is
+connecting. The interaction carries the https page to open and the loopback
+address the page redirects to. An attached client opens the page on its own
+machine, listens on the redirect address when it can, and answers with the
+redirect; otherwise the user pastes it. The server never launches a browser or
+listens for the redirect, for same-machine and remote servers alike. With no
+client attached, the request waits for one, for a bounded time, and the tool
+call then fails. Only the session's own conversation can ask; a subagent
+borrowing the session's MCP servers cannot. Plugins cannot open URLs
+([ADR 0026](0026-scope-plugin-processes-and-route-plugin-ui.md)).
 
 Same-machine only, hidden otherwise with an explanation: revealing workspace
 files in Finder or opening them in local applications, and daemon lifecycle

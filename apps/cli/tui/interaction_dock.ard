@@ -6,6 +6,7 @@ use cooper/cui
 use cooper/event
 use cooper/keymap
 use cooper/ui
+use go:kit/ffi/authbridge
 use kit/tui/after_commit
 use kit/tui/controls
 use kit/tui/markdown
@@ -46,15 +47,22 @@ struct Props {
   submitting: Bool,
   respond: fn(protocol::InteractionResponse),
   control: mut Ref,
+  // Opens a URL with the system's default application.
+  open_url: fn(Str) Void!Error,
+  // Listens for an authorization redirect on this machine; normally
+  // `authbridge::ReceiveRedirect`.
+  receive_redirect: fn(Str, Str, fn(Str)) authbridge::RedirectReceiver!Error,
 }
 
 // Mode is the answer shape the dock is currently collecting: the request's
 // own kind, or the kind of the current guided question.
 enum Mode {
+  // Open a page in the browser and answer with where it redirects.
   confirm,
   text,
   choice,
   multiple,
+  authorize,
   unsupported,
 }
 
@@ -95,6 +103,10 @@ struct Dock {
   revealing: Bool,
   focus: mut cui::BoxRef,
   input: mut cui::InputRef,
+  // An authorize request's redirect listener, while it listens.
+  receiver: authbridge::RedirectReceiver?,
+  // Why the browser did not open, after it failed to.
+  open_error: Str,
 }
 
 // dock presents `props.request`. Each request mounts a fresh dock, so answer
@@ -119,6 +131,8 @@ private fn new(props: mut Props) mut Dock {
     revealing: false,
     focus: cui::box_ref(),
     input: cui::input_ref(),
+    receiver: Maybe::new<authbridge::RedirectReceiver>(),
+    open_error: "",
   })
 }
 
@@ -128,10 +142,18 @@ impl cui::Lifecycle for Dock {
     self.props.control.focus_action = Maybe::new(fn() Bool {
       self.request_focus()
     })
+    if self.mode() == Mode::authorize {
+      self.listen(ctx)
+    }
   }
 
   fn mut unmounting(ctx: cui::Context) {
     self.props.control.focus_action = Maybe::new<fn() Bool>()
+    match self.receiver {
+      receiver => receiver.Stop(),
+      _ => (),
+    }
+    self.receiver = Maybe::new<authbridge::RedirectReceiver>()
   }
 }
 
@@ -196,10 +218,60 @@ impl Dock {
           "confirm" => Mode::confirm,
           "input" => Mode::text,
           "select" => Mode::choice,
+          "authorize" => Mode::authorize,
           _ => Mode::unsupported,
         }
       },
     }
+  }
+
+  // Whether the current answer is typed, so the field owns focus.
+  private fn typing() Bool {
+    let mode = self.mode()
+    mode == Mode::text or mode == Mode::authorize
+  }
+
+  // Listens for the browser's redirect after the user approves access, and
+  // answers with it. Another client on this machine may already listen;
+  // then the user pastes the redirect instead.
+  private fn mut listen(ctx: cui::Context) {
+    let request = self.props.request
+    let receiving = (self.props.receive_redirect)(
+      request.URL,
+      request.RedirectURI,
+      fn(redirect: Str) {
+        let _ = ctx.dispatch(fn() {
+          self.relay(redirect)
+        })
+      },
+    )
+    match receiving {
+      ok(receiver) => { self.receiver = Maybe::new(receiver) },
+      err(_) => (),
+    }
+  }
+
+  // Answers with a received redirect, even behind a dialog: it needs no
+  // keyboard input. The redirect stays in the field, so an answer that is
+  // not sent can be sent again with Return.
+  private fn mut relay(redirect: Str) {
+    if self.receiver.is_some() {
+      self.value = redirect
+    }
+    if self.receiver.is_some() and not self.props.submitting {
+      let answer = mut redirect
+      (self.props.respond)(
+        protocol::InteractionResponse{RequestID: self.props.request.ID, Value: answer},
+      )
+    }
+  }
+
+  private fn mut open_page() Bool {
+    match (self.props.open_url)(self.props.request.URL) {
+      ok(_) => { self.open_error = "" },
+      err(failure) => { self.open_error = failure.error() },
+    }
+    true
   }
 
   // The choices for the current request or question.
@@ -223,7 +295,7 @@ impl Dock {
       ctx => {
         let input = self.input
         let focus = self.focus
-        let text = self.mode() == Mode::text
+        let text = self.typing()
         let _ = ctx.dispatch(fn() {
           if self.props.active {
             match text {
@@ -337,6 +409,18 @@ impl Dock {
   private fn mut submit_text(value: Str) Bool {
     let trimmed = strings::TrimSpace(value)
     match {
+      self.mode() == Mode::authorize => {
+        match trimmed == "" {
+          // An empty field opens the page; a pasted one answers with it.
+          true => self.open_page(),
+          false => {
+            let answer = mut trimmed
+            self.respond(
+              protocol::InteractionResponse{RequestID: self.props.request.ID, Value: answer},
+            )
+          },
+        }
+      },
       trimmed == "" and not self.plugin() => self.skip(),
       self.guided() => {
         let answer = mut trimmed
@@ -398,6 +482,7 @@ impl Dock {
       Mode::text => self.submit_text(self.value),
       Mode::choice => self.choose(self.cursor),
       Mode::multiple => self.continue_multiple(),
+      Mode::authorize => true,
       Mode::confirm => {
         match self.question() {
           question => {
@@ -707,42 +792,9 @@ impl Dock {
           self.props.request.Placeholder == "" => "Type a response",
           _ => self.props.request.Placeholder,
         }
-        let field = cui::box(
-          [
-            cui::input(
-              // Each question mounts its own field so it takes focus.
-              self.value,
-              key: "interaction.input.{self.step}",
-              styles: ui::style(flex_grow: 1.0),
-              placeholder: placeholder,
-              autofocus: self.props.active,
-              ref: self.input,
-              on_input: fn(value: Str, ctx: cui::Context) {
-                self.value = value
-              },
-              on_submit: fn(value: Str, ctx: cui::Context) {
-                let _ = self.submit_text(value)
-              },
-              commands: [controls::keep_interrupt],
-              bindings: [controls::keep_interrupt_binding()],
-            ),
-          ],
-          styles: ui::style(
-            flex_direction: ui::FlexDirection::row,
-            flex_grow: 1.0,
-            background: colors.surface,
-            padding: horizontal_inset(),
-          ),
-        )
-        cui::box(
-          [field],
-          styles: ui::style(
-            flex_direction: ui::FlexDirection::row,
-            flex_shrink: 0.0,
-            padding: horizontal_inset(),
-          ),
-        )
+        self.text_field(colors, placeholder)
       },
+      Mode::authorize => self.authorization(colors),
       Mode::choice => self.options(colors),
       Mode::multiple => self.options(colors),
       Mode::unsupported => {
@@ -753,6 +805,93 @@ impl Dock {
         )
       },
     }
+  }
+
+  // text_field is the dock's one-line answer field.
+  private fn mut text_field(colors: theme::Theme, placeholder: Str) cui::View {
+    let field = cui::box(
+      [
+        cui::input(
+          // Each question mounts its own field so it takes focus.
+          self.value,
+          key: "interaction.input.{self.step}",
+          styles: ui::style(flex_grow: 1.0),
+          placeholder: placeholder,
+          autofocus: self.props.active,
+          ref: self.input,
+          on_input: fn(value: Str, ctx: cui::Context) {
+            self.value = value
+          },
+          on_submit: fn(value: Str, ctx: cui::Context) {
+            let _ = self.submit_text(value)
+          },
+          commands: [controls::keep_interrupt],
+          bindings: [controls::keep_interrupt_binding()],
+        ),
+      ],
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::row,
+        flex_grow: 1.0,
+        background: colors.surface,
+        padding: horizontal_inset(),
+      ),
+    )
+    cui::box(
+      [field],
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::row,
+        flex_shrink: 0.0,
+        padding: horizontal_inset(),
+      ),
+    )
+  }
+
+  // authorization shows the page to open, how Kit learns it was approved,
+  // and a field for pasting where the browser ended up.
+  private fn mut authorization(colors: theme::Theme) cui::View {
+    let url = self.props.request.URL
+    let rows = mut List::new<cui::View>()
+    rows.push(
+      cui::text(
+        ui::styled_text(
+          [
+            ui::span(url, link: url, style: ui::span_style(foreground: colors.primary_text, underline: true)),
+          ],
+        ),
+        styles: ui::style(flex_shrink: 0.0, padding: horizontal_inset()),
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+        selectable: true,
+        selection_style: theme::selection_style(colors),
+      ),
+    )
+    let status = match {
+      self.open_error != "" => {
+        cui::text(
+          "The browser didn't open: {self.open_error}",
+          styles: ui::style(flex_shrink: 0.0, padding: horizontal_inset()),
+          text_style: ui::text_style(foreground: colors.danger_text),
+        )
+      },
+      self.receiver.is_some() => {
+        cui::text(
+          "Approve access in your browser and Kit continues.",
+          styles: ui::style(flex_shrink: 0.0, padding: horizontal_inset()),
+          text_style: ui::text_style(foreground: colors.muted),
+        )
+      },
+      _ => {
+        cui::text(
+          "After approving, paste the address your browser ends up at.",
+          styles: ui::style(flex_shrink: 0.0, padding: horizontal_inset()),
+          text_style: ui::text_style(foreground: colors.muted),
+        )
+      },
+    }
+    rows.push(status)
+    rows.push(spacer())
+    rows.push(self.text_field(colors, "Paste the address your browser ended up at"))
+    cui::box(rows.@, styles: ui::style(flex_direction: ui::FlexDirection::column, flex_shrink: 0.0))
   }
 
   // options lists every choice when it fits; a constrained terminal windows
@@ -963,6 +1102,12 @@ impl Dock {
       },
       Mode::choice => "↑↓ move · enter/space select",
       Mode::multiple => "↑↓ move · space toggle · enter continue",
+      Mode::authorize => {
+        match strings::TrimSpace(self.value) == "" {
+          true => "enter open in browser",
+          false => "enter submit",
+        }
+      },
       _ => "enter submit",
     }
     match self.step > 0 {
@@ -1004,6 +1149,14 @@ impl Dock {
           compact: true,
           focusable: false,
         ),
+      )
+    }
+    if self.mode() == Mode::authorize {
+      let open = keymap::simple_command("interaction.open.pointer", "Open", fn() Bool {
+        self.open_page()
+      })
+      children.push(
+        controls::button(self.props.themes, "Open", open, compact: true, focusable: false),
       )
     }
     // A confirmation that offers a choice already has a decline button.
@@ -1097,7 +1250,7 @@ impl cui::Component for Dock {
         border: ui::Border::single,
         border_color: colors.border,
       ),
-      autofocus: self.props.active and self.mode() != Mode::text,
+      autofocus: self.props.active and not self.typing(),
       ref: self.focus,
       commands: keys.commands,
       bindings: keys.bindings,

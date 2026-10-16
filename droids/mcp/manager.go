@@ -63,6 +63,8 @@ type Manager struct {
 	mu         sync.Mutex
 	closed     bool
 	namespaces []*namespace
+	owner      droids.ConversationID
+	authorizer Authorizer
 }
 
 type namespace struct {
@@ -186,9 +188,10 @@ func (m *Manager) Tools() []droids.AnyTool {
 			Description: namespaceDescription(ns.config),
 			Parameters:  namespaceSchema(ns.config.Logout != nil),
 			Mode:        ns.config.ExecutionMode,
-			Execute: func(ctx context.Context, _ droids.ToolContext, request namespaceRequest, update droids.ToolUpdate) (droids.ToolResult, error) {
-				ctx = context.WithValue(ctx, progressContextKey{}, update)
-				return ns.execute(ctx, request)
+			Execute: func(ctx context.Context, call droids.ToolContext, request namespaceRequest, update droids.ToolUpdate) (droids.ToolResult, error) {
+				done := make(chan struct{})
+				defer close(done)
+				return ns.execute(m.callContext(ctx, call, update, done), request)
 			},
 		}))
 	}
@@ -650,6 +653,11 @@ func (ns *namespace) logout(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// Cancel a connection in progress first, which may be waiting minutes
+	// for its user to authorize, so logout need not wait for it.
+	ns.mu.Lock()
+	ns.cancel()
+	ns.mu.Unlock()
 	ns.connectMu.Lock()
 	defer ns.connectMu.Unlock()
 	ns.mu.Lock()

@@ -4,6 +4,7 @@ package authbridge
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/akonwi/kit/apps/cli/ffi/cli"
 )
@@ -68,4 +69,38 @@ func RunAPIKey(ctx context.Context, login cli.APIKeyLogin, providerID, apiKey st
 		return fmt.Errorf("API-key login is unavailable")
 	}
 	return login.Login(ctx, providerID, apiKey)
+}
+
+// RedirectReceiver listens for an authorization redirect until Stop.
+type RedirectReceiver struct {
+	Stop func()
+}
+
+// ReceiveRedirect listens at redirectURI for the browser's redirect after it
+// opens authorizationURL, and passes the first redirect's URL to receive.
+// Receive runs on its own goroutine, so it must dispatch to the UI.
+func ReceiveRedirect(authorizationURL, redirectURI string, receive func(string)) (RedirectReceiver, error) {
+	if receive == nil {
+		return RedirectReceiver{}, fmt.Errorf("redirect handler is unavailable")
+	}
+	relayed := make(chan string, 1)
+	stopListening, err := cli.ReceiveRedirect(authorizationURL, redirectURI, relayed)
+	if err != nil {
+		return RedirectReceiver{}, err
+	}
+	done := make(chan struct{})
+	var once sync.Once
+	go func() {
+		select {
+		case redirect := <-relayed:
+			receive(redirect)
+		case <-done:
+		}
+	}()
+	return RedirectReceiver{Stop: func() {
+		once.Do(func() {
+			close(done)
+			stopListening()
+		})
+	}}, nil
 }
