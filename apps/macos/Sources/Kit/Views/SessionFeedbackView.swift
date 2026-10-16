@@ -208,7 +208,8 @@ struct SessionFeedbackCard: View {
         switch item.tone { case .info: theme.accent; case .warning: theme.warning; case .error: theme.danger }
     }
     private var icon: Icon {
-        switch item.tone { case .info: .info; case .warning: .warning; case .error: .warningCircle }
+        if let icon = item.icon { return icon }
+        return switch item.tone { case .info: .info; case .warning: .warning; case .error: .warningCircle }
     }
     private var isExpanded: Bool { item.reloadReport == nil ? expanded : reportExpanded }
     /// Details appear only when there is more to read than the two lines.

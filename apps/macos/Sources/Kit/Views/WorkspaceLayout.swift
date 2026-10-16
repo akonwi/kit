@@ -112,6 +112,8 @@ struct WorkspaceLayout: View {
         case .agent(let name): AgentPane(state: state, name: name)
         case .file(let path): FilePane(state: state, path: path)
         case .image(let id, let filename): ImagePane(state: state, id: id, filename: filename)
+        case .browser:
+            if let tab = state.ui.workspace.browser(pane) { BrowserPane(workspace: state.ui.workspace, tab: tab) }
         }
     }
 }
@@ -143,6 +145,7 @@ private struct TileChrome: View {
                                 tabFrames.frames[pane] = $0
                             }
                         }
+                        TileAddButton(state: state, workspace: workspace, tile: id)
                     }.frame(maxHeight: .infinity)
                 }.scrollIndicators(.hidden)
                 if let selected = tile?.selected, focused || hovering {
@@ -197,14 +200,12 @@ private struct WorkspaceTab: View {
                 }
                 .buttonStyle(.plain)
                 .help("Close Tab")
-                .accessibilityLabel("Close \(pane.title)")
+                .accessibilityLabel("Close \(workspace.title(of: pane))")
             }
             Button { workspace.select(pane) } label: {
                 HStack(spacing: 8) {
                     if !showsClose { icon.frame(width: 14, height: 14) }
-                    Text(pane.title).lineLimit(1).truncationMode(.middle)
-                        .font(.kit(size: 12, weight: selected ? .semibold : .regular))
-                        .foregroundStyle(selected ? theme.text : theme.muted)
+                    title
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -236,8 +237,19 @@ private struct WorkspaceTab: View {
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityActions {
-            if pane.closable { Button("Close \(pane.title)", action: close) }
+            if pane.closable { Button("Close \(workspace.title(of: pane))", action: close) }
         }
+    }
+
+    /// A browser tab's page title is capped and trails off; other names
+    /// keep both ends.
+    @ViewBuilder private var title: some View {
+        let browser = workspace.browser(pane)
+        Text(workspace.title(of: pane)).lineLimit(1)
+            .truncationMode(browser == nil ? .middle : .tail)
+            .font(.kit(size: 12, weight: selected ? .semibold : .regular))
+            .foregroundStyle(selected ? theme.text : theme.muted)
+            .frame(maxWidth: browser == nil ? nil : 180, alignment: .leading)
     }
 
     /// Every tab shows its icon so activating one never shifts the strip; a
@@ -255,6 +267,14 @@ private struct WorkspaceTab: View {
             case .scratchpad: IconView(.note).foregroundStyle(tint)
             case .file: IconView(.file).foregroundStyle(tint)
             case .image: IconView(.image).foregroundStyle(tint)
+            case .browser:
+                // The site's icon keeps its own colours.
+                if let favicon = workspace.browser(pane)?.favicon {
+                    Image(nsImage: favicon).resizable().interpolation(.high).scaledToFit()
+                        .frame(width: 14, height: 14).clipShape(RoundedRectangle(cornerRadius: 3))
+                } else {
+                    IconView(.browser).foregroundStyle(tint)
+                }
             }
         }
     }
@@ -291,7 +311,8 @@ private struct TabDragOverlay: View {
                         .offset(x: zone.minX, y: zone.minY)
                         .animation(.easeOut(duration: 0.12), value: target)
                 }
-                Text(drag.pane.title)
+                Text(workspace.title(of: drag.pane))
+                    .lineLimit(1).frame(maxWidth: 220)
                     .font(.kit(size: 12, weight: .semibold))
                     .foregroundStyle(theme.text)
                     .padding(.horizontal, 10)

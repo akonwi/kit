@@ -6,6 +6,13 @@ import Testing
 /// An editor stand-in that can hold the keyboard.
 private final class ProbeTextView: NSTextView {
     var name = ""
+    /// Report a visible rect reaching far past the view's left edge, as a
+    /// web view's does.
+    var overreaches = false
+    override var visibleRect: NSRect {
+        let rect = super.visibleRect
+        return overreaches ? NSRect(x: rect.minX - 600, y: rect.minY, width: rect.width + 600, height: rect.height) : rect
+    }
 }
 
 /// A scrolling text view, shaped like the app's editors.
@@ -123,6 +130,18 @@ private struct FocusHarness: View {
         try await fixture.settle()
         #expect(fixture.workspace.focusedTile == fixture.right)
         #expect(fixture.responder == "file:a.swift")
+    }
+
+    @Test func aViewWhoseVisibleRectOverreachesFocusesItsOwnTile() async throws {
+        let fixture = try await Fixture()
+        fixture.workspace.select(.scratchpad)
+        try await fixture.settle()
+
+        let page = fixture.editor("file:a.swift")
+        page.overreaches = true
+        fixture.window.makeFirstResponder(page)
+        try await fixture.settle()
+        #expect(fixture.workspace.focusedTile == fixture.right)
     }
 
     @Test func aPaneWithoutTargetTakesTheKeyboardFromItsHiddenNeighbor() async throws {

@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Observation
 @preconcurrency import CodeEditSourceEditor
 
@@ -19,6 +19,8 @@ enum WorkspacePane: Hashable, Identifiable {
     case conversation, review, scratchpad, agent(String), file(String)
     /// A transcript image, by its attachment ID and filename.
     case image(id: String, filename: String)
+    /// A browser tab. Each is its own instance; the workspace holds its page.
+    case browser(UUID)
     var id: String {
         switch self {
         case .conversation: "conversation"
@@ -27,8 +29,10 @@ enum WorkspacePane: Hashable, Identifiable {
         case .agent(let name): "agent:" + name
         case .file(let path): "file:" + path
         case .image(let id, let filename): "image:" + id + ":" + filename
+        case .browser(let id): "browser:" + id.uuidString.lowercased()
         }
     }
+    /// The pane's name. A browser tab's is its page's; see `WorkspaceState.title(of:)`.
     var title: String {
         switch self {
         case .conversation: "Agent"
@@ -37,6 +41,7 @@ enum WorkspacePane: Hashable, Identifiable {
         case .agent(let name): name
         case .file(let path): URL(fileURLWithPath: path).lastPathComponent
         case .image(_, let filename): filename
+        case .browser: "Browser"
         }
     }
     var closable: Bool { self != .conversation }
@@ -50,6 +55,10 @@ enum WorkspacePane: Hashable, Identifiable {
         default:
             if id.hasPrefix("agent:"), id.count > 6 { self = .agent(String(id.dropFirst(6))) }
             else if id.hasPrefix("file:"), id.count > 5 { self = .file(String(id.dropFirst(5))) }
+            else if id.hasPrefix("browser:") {
+                guard let uuid = UUID(uuidString: String(id.dropFirst(8))) else { return nil }
+                self = .browser(uuid)
+            }
             else if id.hasPrefix("image:") {
                 // Attachment IDs never contain a colon; filenames may.
                 let rest = id.dropFirst(6)
@@ -90,6 +99,12 @@ final class WorkspaceState {
     /// The tiles' bounds when last laid out, for spatial focus and keyboard
     /// resizing. Not observed: layout shouldn't re-render the workspace.
     @ObservationIgnored var bounds = CGRect(x: 0, y: 0, width: 1000, height: 1000)
+    /// Open browser tabs' pages, by pane.
+    private(set) var browsers: [UUID: BrowserTab] = [:]
+    /// Makes the engine behind each browser tab.
+    @ObservationIgnored var makeBrowserEngine: @MainActor () -> any BrowserEngine = WebKitBrowserEngine.make
+    /// Where browser downloads are reported.
+    @ObservationIgnored weak var feedback: SessionFeedback?
 
     struct TabDrag: Equatable {
         var pane: WorkspacePane
@@ -128,6 +143,7 @@ final class WorkspaceState {
 
     /// Opens a pane as a tab in the focused tile, or selects it if it is open.
     func open(_ pane: WorkspacePane) {
+        if case .browser(let id) = pane, browsers[id] == nil { return }
         if !panes.contains(pane) {
             panes.append(pane)
             tiles[focusedTile]?.panes.append(pane)
@@ -140,6 +156,7 @@ final class WorkspaceState {
     /// the one to its right, or in a new tile on its right when it has none.
     /// A pane that is already open is selected where it is.
     func open(_ pane: WorkspacePane, beside anchor: WorkspacePane) {
+        if case .browser(let id) = pane, browsers[id] == nil { return }
         guard !panes.contains(pane) else { select(pane); return }
         guard let home = tile(containing: anchor) else { open(pane); return }
         let neighbor = [TileDirection.right, .down, .left, .up].lazy
@@ -162,6 +179,7 @@ final class WorkspaceState {
         guard pane.closable, let id = tile(containing: pane), var tile = tiles[id],
               let index = tile.panes.firstIndex(of: pane) else { return }
         if case .file(let path) = pane { filePreviews.remove(path) }
+        if case .browser(let id) = pane { browsers.removeValue(forKey: id)?.close() }
         panes.removeAll { $0 == pane }
         tile.panes.remove(at: index)
         if tile.panes.isEmpty {
@@ -267,8 +285,16 @@ final class WorkspaceState {
                                     ratio: split.ratio, first: node(split.first), second: node(split.second)))
             }
         }
+        // Each browser tab's address, by pane, read in pane order so the
+        // arrangement tracks address changes.
+        var addresses: [String: String] = [:]
+        for pane in panes {
+            if case .browser(let id) = pane, let url = browsers[id]?.url {
+                addresses[pane.id] = BrowserAddress.withoutCredentials(url).absoluteString
+            }
+        }
         return TileArrangement(root: node(root), focused: root.tiles.firstIndex(of: focusedTile) ?? 0,
-                               zoomed: zoomedTile != nil)
+                               zoomed: zoomedTile != nil, browsers: addresses.isEmpty ? nil : addresses)
     }
 
     /// Replaces the layout with a saved one. Unknown and repeated panes are
@@ -308,6 +334,14 @@ final class WorkspaceState {
         root = tree
         tiles = restored
         panes = tree.tiles.flatMap { restored[$0]?.panes ?? [] }
+        for tab in browsers.values { tab.close() }
+        browsers = [:]
+        for pane in panes {
+            guard case .browser(let id) = pane else { continue }
+            // A saved address that isn't a web address restores a blank tab.
+            let url = arrangement.browsers?[pane.id].flatMap(URL.init(string:)).flatMap { BrowserAddress.isWeb($0) ? $0 : nil }
+            adopt(BrowserTab(id: id, url: url, makeEngine: makeBrowserEngine))
+        }
         let order = tree.tiles
         focusedTile = order[min(max(arrangement.focused, 0), order.count - 1)]
         zoomedTile = arrangement.zoomed && order.count > 1 ? focusedTile : nil
@@ -397,6 +431,82 @@ final class WorkspaceState {
         guard cancelledDrag == pane else { return false }
         if ending { cancelledDrag = nil }
         return true
+    }
+
+    // MARK: Browser tabs
+
+    /// The name a pane's tab shows.
+    func title(of pane: WorkspacePane) -> String {
+        if case .browser(let id) = pane, let tab = browsers[id] { return tab.title }
+        return pane.title
+    }
+
+    func browser(_ pane: WorkspacePane) -> BrowserTab? {
+        guard case .browser(let id) = pane else { return nil }
+        return browsers[id]
+    }
+
+    /// Opens a browser tab at `url`, or a blank one with its address field
+    /// focused. It opens in `tile`, beside `anchor`'s tile, or in the
+    /// focused tile.
+    @discardableResult
+    func openBrowser(_ url: URL? = nil, in tile: UUID? = nil, beside anchor: WorkspacePane? = nil) -> BrowserTab {
+        let tab = BrowserTab(makeEngine: makeBrowserEngine)
+        adopt(tab)
+        let pane = WorkspacePane.browser(tab.id)
+        if let anchor {
+            open(pane, beside: anchor)
+        } else {
+            if let tile { focus(tile: tile) }
+            open(pane)
+        }
+        if let url { tab.load(url) } else { tab.requestAddressFocus() }
+        return tab
+    }
+
+    /// Stops every page when the session tab closes.
+    func closeBrowsers() {
+        for tab in browsers.values { tab.close() }
+    }
+
+    private func adopt(_ tab: BrowserTab) {
+        browsers[tab.id] = tab
+        tab.onRequest = { [weak self, weak tab] request in
+            guard let self, let tab else { return }
+            self.handle(request, from: tab)
+        }
+    }
+
+    private func handle(_ request: BrowserTabRequest, from tab: BrowserTab) {
+        let pane = WorkspacePane.browser(tab.id)
+        switch request {
+        case .openTab(let child):
+            // A page's new window opens as the next tab in the same tile.
+            guard let id = self.tile(containing: pane), let index = tiles[id]?.panes.firstIndex(of: pane) else {
+                child.close(); return
+            }
+            adopt(child)
+            let opened = WorkspacePane.browser(child.id)
+            panes.append(opened)
+            tiles[id]?.panes.insert(opened, at: index + 1)
+            select(opened)
+        case .close:
+            close(pane)
+        case .downloadFinished(let file, let source):
+            feedback?.show(title: "Downloaded " + file.lastPathComponent,
+                           detail: "Saved to Downloads" + (source.map { " from " + BrowserAddress.hostLabel($0) } ?? ""),
+                           icon: .arrowDown, actionTitle: "Show in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([file])
+            }
+        case .downloadFailed(let filename, let message):
+            feedback?.show(title: "Couldn’t download " + filename, detail: message, tone: .error, persistent: true)
+        case .downloadBlocked(let source):
+            // One notice per site while it shows, however often the page tries.
+            let host = source.map(BrowserAddress.hostLabel) ?? ""
+            feedback?.show(key: "download-blocked:" + host, title: "Blocked a download",
+                           detail: (host.isEmpty ? "A page" : host) + " tried to download a file without a click.",
+                           tone: .warning)
+        }
     }
 
     private func removeTile(_ id: UUID) {

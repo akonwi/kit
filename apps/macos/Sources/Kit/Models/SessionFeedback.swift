@@ -55,6 +55,8 @@ final class SessionFeedback {
         let persistent: Bool
         let actionTitle: String?
         let action: (@MainActor () -> Void)?
+        /// Replaces the tone's icon, as a download's arrow does.
+        var icon: Icon? = nil
         /// Where the toast came from when that isn't Kit, such as a plugin's id.
         var source: String? = nil
     }
@@ -67,14 +69,14 @@ final class SessionFeedback {
     var notices: [Item] { items.filter(\.persistent) }
 
     func show(key: String = UUID().uuidString, title: String, detail: String = "", tone: Tone = .info,
-              persistent: Bool = false, actionTitle: String? = nil, action: (@MainActor () -> Void)? = nil,
+              icon: Icon? = nil, persistent: Bool = false, actionTitle: String? = nil, action: (@MainActor () -> Void)? = nil,
               reloadReport: SessionReloadReport? = nil, source: String? = nil) {
         guard !acknowledged.contains(key), !items.contains(where: { $0.key == key }), seen.insert(key).inserted else { return }
         seenOrder.append(key)
         if seenOrder.count > 512 { seen.remove(seenOrder.removeFirst()) }
         items.append(Item(id: UUID(), key: key, title: title, detail: detail, reloadReport: reloadReport,
                           tone: tone, persistent: persistent, actionTitle: actionTitle, action: action,
-                          source: source))
+                          icon: icon, source: source))
         // Bound short-lived confirmations without ever evicting an item that
         // requires acknowledgement. Visual grouping is a separate concern.
         while items.filter({ !$0.persistent }).count > 10 {

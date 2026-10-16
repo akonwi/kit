@@ -164,6 +164,16 @@ struct NativeTranscript: NSViewRepresentable {
             })
             .environment(\.transcriptSessionLink, input.sessionLink)
             .environment(\.transcriptToolContext, input.toolContext)
+            .environment(\.openURL, OpenURLAction { [workspace = input.workspace, pane = input.pane] url in
+                // A web link opens in a browser tab beside the conversation;
+                // ⌘-click uses the default browser.
+                guard BrowserAddress.isWeb(url),
+                      !(NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags).contains(.command) else {
+                    return .systemAction
+                }
+                workspace.openBrowser(url, beside: pane)
+                return .handled
+            })
             .foregroundStyle(input.theme.text)
             .environment(\.colorScheme, input.theme.dark ? .dark : .light)
             .frame(width: min(780, max(1, scroll.contentSize.width - 64)), alignment: .leading)

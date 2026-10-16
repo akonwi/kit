@@ -9,7 +9,7 @@ struct PaletteCommandTests {
         #expect(names == [
             "cd", "compact", "debug", "diff", "files", "fork", "login", "mcp", "model", "name", "new", "quit",
             "refresh-models", "reload", "sessions", "subagents", "tabs", "theme", "thinking",
-            "appearance", "split-right", "split-down", "zoom", "equalize", "join-tabs", "scratchpad"
+            "appearance", "browser", "split-right", "split-down", "zoom", "equalize", "join-tabs", "scratchpad"
         ])
         #expect(PaletteCommand.builtIns(dark: true, scratchpad: false).contains { $0.name == "scratchpad" } == false)
         #expect(PaletteCommand.builtIns(dark: true, temporary: true).last?.name == "dispose")
@@ -20,6 +20,7 @@ struct PaletteCommandTests {
         #expect(rows["cd"]?.hint == "[path]")
         #expect(rows["fork"]?.hint == "[message]")
         #expect(rows["name"]?.hint == "[name]")
+        #expect(rows["browser"]?.hint == "[url]")
         #expect(rows["diff"]?.description == "Review working-tree changes")
         #expect(rows["scratchpad"]?.description == "Open shared working notes")
         #expect(rows["subagents"]?.description == "Inspect delegated work")

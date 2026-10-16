@@ -225,7 +225,9 @@ closes the session tab. Esc cancels a tab drag.
 There is no footer below the tiles. Status that the footer showed (compaction,
 provider retry countdown, replay, local notices) appears in the Agent pane's
 activity card. Diff, Scratchpad, files, and the subagent list open from the
-Tile and Session menus and the command palette.
+Tile and Session menus and the command palette. The + after each tile's tabs
+opens a menu of panes to add to that tile: Browser, Diff, Scratchpad, then
+Open file…. Panes already open are dimmed, and choosing one selects it.
 
 The activity card shows one line, chosen in this order: a failed stop, a failed
 turn start, a provider retry with its live countdown and attempt, compaction,
@@ -233,6 +235,60 @@ the live activity (latest thinking line, or "Working…"), then a local notice.
 Failures appear in red with a Retry button; local composer validation stays at
 the composer. The card has no thinking panel: the complete reasoning is in the
 transcript's tool drawers.
+
+### Browser tabs
+
+A browser tab shows a web page in a tile, for checking a development server or
+reading a linked page beside the conversation. It is a tile tab like any other.
+It opens from the tile + menu (blank, with the address field focused), the
+palette's `browser [url]`, and clicking a web link in the transcript, which
+opens it beside the transcript's tile; ⌘-clicking a link uses the default
+browser instead. There is no shortcut.
+
+The toolbar under the tab strip has back, forward, reload (stop while
+loading), the address field, and Open in Default Browser. A 2 pt accent line
+along the toolbar's bottom edge shows load progress. At rest the field shows
+the host and port, then the rest of the address in muted text, without the
+scheme; editing shows the whole address, selected. The field takes addresses
+only and never searches: a host without a scheme gets http for localhost,
+`*.localhost`, loopback addresses, and `*.local`, and https otherwise. Other
+text shows Kit's message in the pane, "Can't open ‘text’" / "That isn't a
+web address." A page that can't load shows "Can't reach host" with the
+engine's reason and Try again, and the tab is titled with the host. The tab
+shows the site's favicon and page title, capped at 180 pt; the browser icon
+and host stand in until they load.
+
+The page draws with its own colours. A link that opens a window opens a new
+browser tab after its opener in the same tile, keeping its opener, and a page
+that closes its window closes its tab. Login prompts, page alerts, confirms,
+prompts, and file choosers use standard macOS sheets on the window; page
+dialogs offer "Don't allow more dialogs from this page" until the next page
+loads, and a page that isn't on screen gets none (alerts are dismissed,
+confirms and logins cancelled). A download starts only when the person asked
+for it: within 5 s of clicking or typing in the page, as a link click or form
+submission does, or from a navigation started with Kit's own controls. Others are blocked with a warning toast
+naming the site. Downloads save to `~/Downloads`, numbering a
+name already taken ("report 2.pdf"), and are quarantined as web downloads; a
+finished download shows the info toast with Show in Finder, and a failed one a
+persistent error toast. A clicked mail, phone, or app link asks before opening
+the app that handles it; pages can't open other apps on their own. Site icons
+are fetched over http(s) only, size-limited, and decoded at tab size. A page
+whose process ends reloads once, then shows the failure with Try again.
+Saved and listed addresses leave out any user name and password.
+
+Each page stays alive while its tab is open, including in hidden tabs, moved
+tabs, and session tabs that aren't shown: one live view per tab moves into
+whichever host shows it, so switching never reloads the page. Focusing a
+browser tab's tile gives the page the keyboard, or the address field for a
+blank tab or one showing a failure. Relaunch restores each browser tab at its last address, without
+back history; a restored page loads when its session tab is first shown.
+Cookies and site data persist across launches in Kit's own store, separate
+from Safari's. Browser tabs work the same with remote servers, since pages
+load on the Mac. Only `Sources/Kit/Browser/WebKitBrowserEngine.swift` uses
+WebKit; the rest of the app uses the `BrowserEngine` interface.
+
+Find in page (⌘F) and page zoom (⌘+, ⌘−, ⌘0) are drawn on Paper ("Explore ·
+browser tab states") and not built yet.
 
 ### Appearance and themes
 

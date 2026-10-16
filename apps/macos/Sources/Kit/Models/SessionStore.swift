@@ -503,6 +503,7 @@ final class SessionStore {
         if let sessionID, !sessionID.isEmpty { replica.select(sessionID) }
         ui = SessionUIState(demo: client.isDemo)
         demo = client.isDemo ? DemoSessionState() : nil
+        ui.workspace.feedback = feedback(for: replica.selectedID)
         demo?.select(selectedSnapshot)
         operationsBySession[replica.selectedID] = SessionOperations()
         configurations[replica.selectedID] = ComposerConfiguration()
@@ -537,6 +538,7 @@ final class SessionStore {
         feedback.clearTransientPluginNotifications()
         ui.switchSession(from: SessionIdentity(server: replica.client.serverID, session: selectedID),
                          to: SessionIdentity(server: replica.client.serverID, session: id), demo: isDemo)
+        ui.workspace.feedback = feedback(for: id)
         if operationsBySession[id] == nil { operationsBySession[id] = SessionOperations() }
         if configurations[id] == nil { configurations[id] = ComposerConfiguration() }
         replica.select(id)
@@ -582,7 +584,11 @@ final class SessionStore {
         feedback.clearTransientPluginNotifications()
         replica.detach()
     }
-    func stop() { demo?.stop() }
+    /// Ends the session tab's work, including its browser pages.
+    func stop() {
+        demo?.stop()
+        ui.closeBrowsers()
+    }
     func replay() { ui.notice = ""; demo?.replay() }
     func previewModel(_ value: String) { demo?.model = value }
     func previewThinking(_ value: String) { demo?.thinking = value }

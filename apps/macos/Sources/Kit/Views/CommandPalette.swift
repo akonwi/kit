@@ -185,6 +185,13 @@ struct CommandPalette: View {
             case "refresh-models": Task { await state.refreshModelCatalog() }
             case "diff": workspace.open(.review)
             case "scratchpad": workspace.open(.scratchpad)
+            case "browser":
+                if let url = BrowserAddress.url(from: trimmed) {
+                    workspace.openBrowser(url)
+                } else {
+                    // Text that isn't an address shows why in the new tab.
+                    workspace.openBrowser().navigate(trimmed)
+                }
             case "files": state.showFiles(intent: "open")
             case "new": navigation.openLauncher()
             case "quit": NSApp.terminate(nil)
@@ -259,14 +266,14 @@ struct PaletteChoices: View {
         if state.catalogClient is any DiffClient, !panes.contains(.review) { panes.append(.review) }
         if state.canOpenScratchpad, !panes.contains(.scratchpad) { panes.append(.scratchpad) }
         let rows = panes.map { pane in
-            PaletteCommand(id: pane.id, name: pane.title, description: description(pane),
+            PaletteCommand(id: pane.id, name: workspace.title(of: pane), description: description(pane, in: workspace),
                            meta: workspace.panes.contains(pane) ? "open" : "")
         }
         return .init(placeholder: "Search tabs…", rows: rows, empty: "No tabs", current: workspace.selected.id,
                      choose: { row in if let pane = WorkspacePane(id: row.id) { workspace.open(pane) } }, close: close)
     }
 
-    private static func description(_ pane: WorkspacePane) -> String {
+    private static func description(_ pane: WorkspacePane, in workspace: WorkspaceState) -> String {
         switch pane {
         case .conversation: "Conversation with the agent"
         case .review: "Working-tree changes"
@@ -274,6 +281,7 @@ struct PaletteChoices: View {
         case .agent: "Subagent conversation"
         case .file(let path): path
         case .image: "Transcript image"
+        case .browser: workspace.browser(pane)?.url.map { BrowserAddress.withoutCredentials($0).absoluteString } ?? "New browser tab"
         }
     }
 }

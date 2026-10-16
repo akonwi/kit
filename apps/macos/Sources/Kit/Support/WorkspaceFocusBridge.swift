@@ -204,7 +204,9 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
         /// The center of the part of a view that is on screen, so a long
         /// scrolling document is placed by what the user sees.
         private static func windowCenter(of view: NSView) -> NSPoint {
-            let visible = view.visibleRect.isEmpty ? view.bounds : view.visibleRect
+            // Clamped to the bounds: a web view's visible rect extends past them.
+            let clipped = view.visibleRect.intersection(view.bounds)
+            let visible = clipped.isEmpty ? view.bounds : clipped
             return view.convert(NSPoint(x: visible.midX, y: visible.midY), to: nil)
         }
 
@@ -256,5 +258,11 @@ extension View {
     /// Marks this view as where the keyboard goes when `pane`'s tile is focused.
     func workspaceFocusTarget(_ pane: WorkspacePane) -> some View {
         background(FocusTargetMarker(pane: pane))
+    }
+
+    /// Marks this view as `pane`'s keyboard target while `active`, keeping
+    /// the view's identity when the target moves elsewhere.
+    func workspaceFocusTarget(_ pane: WorkspacePane, when active: Bool) -> some View {
+        background { if active { FocusTargetMarker(pane: pane) } }
     }
 }

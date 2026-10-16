@@ -29,6 +29,9 @@ struct TileArrangement: Codable, Equatable {
     /// The focused tile's index in reading order.
     var focused: Int
     var zoomed: Bool
+    /// Each browser tab's address, by pane identity. Tabs without one
+    /// restore blank. Absent when no browser tab has an address.
+    var browsers: [String: String]? = nil
 
     /// Restore keeps at most this many tiles and panes, and this split depth.
     static let maximumTiles = 32
