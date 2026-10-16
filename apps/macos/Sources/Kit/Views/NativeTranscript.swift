@@ -18,6 +18,8 @@ struct NativeTranscript: NSViewRepresentable {
     let theme: MicaTheme
     var attachmentClient: (any AttachmentClient)? = nil
     var attachmentSession = ""
+    /// The pane showing this transcript; opened images split beside it.
+    var pane = WorkspacePane.conversation
     var reading: TranscriptReadingState? = nil
     /// Whether pages loaded before the recent window can be released.
     var hasLoadedHistory = false
@@ -156,6 +158,10 @@ struct NativeTranscript: NSViewRepresentable {
             .transaction { $0.animation = nil; $0.disablesAnimations = true }
             .id(message.id).environment(\.mica, input.theme)
             .environment(\.transcriptAttachments, attachments)
+            .environment(\.openTranscriptImage, { [workspace = input.workspace, pane = input.pane] image in
+                guard let id = image.id, !id.isEmpty else { return }
+                workspace.open(.image(id: id, filename: image.filename), beside: pane)
+            })
             .environment(\.transcriptSessionLink, input.sessionLink)
             .environment(\.transcriptToolContext, input.toolContext)
             .foregroundStyle(input.theme.text)

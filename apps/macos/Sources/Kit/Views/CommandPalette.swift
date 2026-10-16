@@ -273,6 +273,7 @@ struct PaletteChoices: View {
         case .scratchpad: "Shared working notes"
         case .agent: "Subagent conversation"
         case .file(let path): path
+        case .image: "Transcript image"
         }
     }
 }

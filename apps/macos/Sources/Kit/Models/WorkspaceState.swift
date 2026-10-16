@@ -17,6 +17,8 @@ struct PreviewFile: Decodable, Identifiable {
 
 enum WorkspacePane: Hashable, Identifiable {
     case conversation, review, scratchpad, agent(String), file(String)
+    /// A transcript image, by its attachment ID and filename.
+    case image(id: String, filename: String)
     var id: String {
         switch self {
         case .conversation: "conversation"
@@ -24,6 +26,7 @@ enum WorkspacePane: Hashable, Identifiable {
         case .scratchpad: "scratchpad"
         case .agent(let name): "agent:" + name
         case .file(let path): "file:" + path
+        case .image(let id, let filename): "image:" + id + ":" + filename
         }
     }
     var title: String {
@@ -33,6 +36,7 @@ enum WorkspacePane: Hashable, Identifiable {
         case .scratchpad: "Scratchpad"
         case .agent(let name): name
         case .file(let path): URL(fileURLWithPath: path).lastPathComponent
+        case .image(_, let filename): filename
         }
     }
     var closable: Bool { self != .conversation }
@@ -46,6 +50,13 @@ enum WorkspacePane: Hashable, Identifiable {
         default:
             if id.hasPrefix("agent:"), id.count > 6 { self = .agent(String(id.dropFirst(6))) }
             else if id.hasPrefix("file:"), id.count > 5 { self = .file(String(id.dropFirst(5))) }
+            else if id.hasPrefix("image:") {
+                // Attachment IDs never contain a colon; filenames may.
+                let rest = id.dropFirst(6)
+                guard let colon = rest.firstIndex(of: ":"), colon > rest.startIndex,
+                      rest.index(after: colon) < rest.endIndex else { return nil }
+                self = .image(id: String(rest[..<colon]), filename: String(rest[rest.index(after: colon)...]))
+            }
             else { return nil }
         }
     }
@@ -123,6 +134,26 @@ final class WorkspaceState {
             zoomedTile = nil
         }
         select(pane)
+    }
+
+    /// Opens a pane beside `anchor`'s tile: in the neighbouring tile, preferring
+    /// the one to its right, or in a new tile on its right when it has none.
+    /// A pane that is already open is selected where it is.
+    func open(_ pane: WorkspacePane, beside anchor: WorkspacePane) {
+        guard !panes.contains(pane) else { select(pane); return }
+        guard let home = tile(containing: anchor) else { open(pane); return }
+        let neighbor = [TileDirection.right, .down, .left, .up].lazy
+            .compactMap { self.root.neighbor(of: home, $0, in: self.bounds) }.first
+            ?? root.tiles.first { $0 != home }
+        panes.append(pane)
+        zoomedTile = nil
+        if let neighbor {
+            tiles[neighbor]?.panes.append(pane)
+            select(pane)
+        } else {
+            tiles[home]?.panes.append(pane)
+            move(pane, to: home, edge: .right)
+        }
     }
 
     /// Closes a pane. A tile left without tabs is removed, and its sibling

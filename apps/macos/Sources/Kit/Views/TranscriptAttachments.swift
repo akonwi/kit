@@ -9,6 +9,9 @@ extension EnvironmentValues {
         get { self[TranscriptAttachmentsKey.self] }
         set { self[TranscriptAttachmentsKey.self] = newValue }
     }
+    /// Opens a transcript image in the image viewer, when the transcript sits
+    /// in a workspace.
+    @Entry var openTranscriptImage: (@MainActor (TranscriptAttachment) -> Void)? = nil
 }
 
 struct TranscriptAttachments: View {
@@ -23,7 +26,9 @@ struct TranscriptAttachments: View {
 private struct TranscriptAttachmentCard: View {
     @Environment(\.mica) private var theme
     @Environment(\.transcriptAttachments) private var store
+    @Environment(\.openTranscriptImage) private var openImage
     let reference: TranscriptAttachment
+    @State private var hovering = false
     @State private var content: TranscriptAttachmentStore.Content?
     @State private var error: String?
     @State private var attempt = 0
@@ -41,9 +46,24 @@ private struct TranscriptAttachmentCard: View {
                 }
             }.font(.kit(size: 12))
             if let image = content?.image {
-                Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 240)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                let preview = Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 240)
                     .accessibilityLabel("Image preview: " + (content?.info.filename ?? reference.filename))
+                Group {
+                    if let openImage {
+                        Button { openImage(reference) } label: {
+                            preview
+                                .overlay { if hovering { RoundedRectangle(cornerRadius: 2).strokeBorder(theme.accent) } }
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering = $0 }
+                        .help("Open in viewer")
+                        .accessibilityHint("Opens the image in a viewer beside the transcript")
+                    } else {
+                        preview
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             } else if let text = content?.text {
                 ScrollView {
                     Text(text).font(.kit(size: 11, design: .monospaced)).textSelection(.enabled)

@@ -111,6 +111,7 @@ struct WorkspaceLayout: View {
         case .scratchpad: ScratchpadPane(state: state)
         case .agent(let name): AgentPane(state: state, name: name)
         case .file(let path): FilePane(state: state, path: path)
+        case .image(let id, let filename): ImagePane(state: state, id: id, filename: filename)
         }
     }
 }
@@ -253,6 +254,7 @@ private struct WorkspaceTab: View {
             case .review: IconView(.gitDiff).foregroundStyle(tint)
             case .scratchpad: IconView(.note).foregroundStyle(tint)
             case .file: IconView(.file).foregroundStyle(tint)
+            case .image: IconView(.image).foregroundStyle(tint)
             }
         }
     }

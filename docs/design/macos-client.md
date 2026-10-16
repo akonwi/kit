@@ -370,6 +370,17 @@ one drawer; the latest thinking line also appears in the activity card above
 the pane's composer. Assistant
 prose appears on completion. Active drawer following respects manual scrolling.
 
+Clicking a transcript image, attached or shown by the agent, opens it in an
+image tab beside the transcript's tile: in the neighbouring tile, preferring
+the one to its right, or in a new tile on the right. An image already open is
+selected instead. The tab shows the image at full resolution, fitted inside a
+20 pt margin and never enlarged past 100%, over a checkerboard for transparency.
+Its header gives the pixel and file size, the zoom, Fit and 100%, Copy, and
+Save As. Pinching zooms and scrolling or dragging pans; ⌘+ and ⌘− step the zoom,
+⌘0 shows actual size, and ⌘9 fits, while the image's tile has focus. Image
+tabs restore with the layout; images in workspace files are not shown, since
+the server reads only text files.
+
 ## Editors and highlighting
 
 Swift Markdown parses blocks and inline content. SwiftTreeSitter highlights code
