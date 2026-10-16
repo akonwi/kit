@@ -110,6 +110,11 @@ fn pick_session(
     ok(found) => Maybe::new(found),
     err(_) => Maybe::new<[protocol::SessionInfo]>(),
   }
+  // Activity is optional; without it the picker tries again once it opens.
+  let activity = match client.SessionActivity(ctx) {
+    ok(found) => Maybe::new(found),
+    err(_) => Maybe::new<[protocol::SessionActivityEntry]>(),
+  }
   let application = try cooper::app(
     // Inline screens keep their last frame by default; the picker's rows are
     // erased instead, leaving the cursor where they began.
@@ -139,6 +144,7 @@ fn pick_session(
       application.context.destroy_live()
     },
     listed: listed,
+    activity: activity,
     placement: modal::Placement::region,
   }
   // Ctrl+C closes the picker from anywhere.
