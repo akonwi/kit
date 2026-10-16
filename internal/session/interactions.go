@@ -44,6 +44,11 @@ const (
 	InteractionInput   InteractionKind = "input"
 	InteractionSelect  InteractionKind = "select"
 	InteractionGuided  InteractionKind = "guided"
+	// InteractionAuthorize asks the user to open URL in a browser, approve
+	// access, and answer with the URL the browser was redirected to, or the
+	// code the page showed. The answering client may receive the redirect on
+	// RedirectURI itself.
+	InteractionAuthorize InteractionKind = "authorize"
 )
 
 // InteractionQuestionKind identifies the answer shape of a guided question.
@@ -99,7 +104,10 @@ type InteractionRequest struct {
 	Detail       string
 	Options      []InteractionOption
 	Questions    []InteractionQuestion
-	CreatedAt    time.Time
+	// URL and RedirectURI belong to authorize requests only.
+	URL         string
+	RedirectURI string
+	CreatedAt   time.Time
 }
 
 // InteractionAnswer is one renderer response to a guided question.
@@ -194,7 +202,9 @@ func (b *interactionBroker) requestOwned(ctx context.Context, request Interactio
 		return settlement, nil
 	case <-ctx.Done():
 		reason := "run_abort"
-		if request.Plugin != nil {
+		// A plugin that went away, or a request that waited too long, ends
+		// without the run ending.
+		if request.Plugin != nil || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			reason = "unavailable"
 		}
 		return b.cancelPending(pending, reason), nil
@@ -391,8 +401,15 @@ func validateInteractionRequest(request InteractionRequest) error {
 	if len(request.Options) > maxInteractionOptions || len(request.Questions) > maxGuidedQuestions {
 		return fmt.Errorf("%w: interaction has too many options or questions", ErrInvalidInput)
 	}
-	if request.Kind != InteractionConfirm && request.Kind != InteractionInput && request.Kind != InteractionSelect && request.Kind != InteractionGuided {
+	if request.Kind != InteractionConfirm && request.Kind != InteractionInput && request.Kind != InteractionSelect && request.Kind != InteractionGuided && request.Kind != InteractionAuthorize {
 		return fmt.Errorf("%w: unsupported interaction kind %q", ErrInvalidInput, request.Kind)
+	}
+	if request.Kind == InteractionAuthorize {
+		if request.Plugin != nil || !validAuthorizationURL(request.URL) || !validRedirectURI(request.RedirectURI) {
+			return fmt.Errorf("%w: authorization request is invalid", ErrInvalidInput)
+		}
+	} else if request.URL != "" || request.RedirectURI != "" {
+		return fmt.Errorf("%w: authorization fields on other interaction", ErrInvalidInput)
 	}
 	if request.Kind == InteractionSelect && len(request.Options) == 0 || request.Kind != InteractionSelect && len(request.Options) != 0 {
 		return fmt.Errorf("%w: interaction options do not match kind", ErrInvalidInput)
@@ -467,7 +484,7 @@ func validateInteractionResponse(request InteractionRequest, response Interactio
 		if response.Confirmed == nil || response.Value != nil || response.SelectedOptionID != "" || len(response.Answers) != 0 {
 			return fmt.Errorf("%w: confirmation answer is invalid", ErrInvalidInput)
 		}
-	case InteractionInput:
+	case InteractionInput, InteractionAuthorize:
 		if response.Value == nil || !boundedInteractionText(*response.Value, maxInteractionAnswerBytes, request.Plugin == nil) || response.Confirmed != nil || response.SelectedOptionID != "" || len(response.Answers) != 0 {
 			return fmt.Errorf("%w: input answer is invalid", ErrInvalidInput)
 		}

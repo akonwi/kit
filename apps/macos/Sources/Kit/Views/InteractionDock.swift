@@ -127,6 +127,12 @@ struct InteractionDock: View {
                 }.foregroundStyle(theme.danger)
             } else {
                 if !flow.detail.isEmpty { DockMarkdown(source: flow.detail) }
+                if let url = flow.authorizationURL {
+                    Link(url.absoluteString, destination: url)
+                        .font(.kit(size: 12)).lineLimit(1).truncationMode(.middle)
+                    Text("Approve access in your browser, then paste the address it ends up at.")
+                        .font(.kit(size: 12)).foregroundStyle(theme.muted)
+                }
                 if flow.guided {
                     Text(flow.question.prompt).font(.kit(size: 13, weight: .medium))
                     if !flow.question.detail.isEmpty { DockMarkdown(source: flow.question.detail) }
@@ -160,6 +166,7 @@ struct InteractionDock: View {
 
     private var placeholder: String {
         if flow.guided { return "Type an answer" }
+        if flow.authorizationURL != nil { return "Paste the address your browser ended up at" }
         return flow.request?.placeholder.flatMap { $0.isEmpty ? nil : $0 } ?? "Type a response"
     }
 
@@ -203,6 +210,10 @@ struct InteractionDock: View {
             confirmButton(false, primary: !affirmative)
             confirmButton(true, primary: affirmative)
         case .text:
+            if let url = flow.authorizationURL {
+                Button("Open") { NSWorkspace.shared.open(url) }
+                    .buttonStyle(DockButtonStyle(kind: .bordered)).disabled(flow.submitting)
+            }
             primary(flow.guided && !flow.isLastStep ? "Next" : "Submit") { forward { flow.submitText() } }
         case .choice, .multiple:
             primary(flow.isLastStep ? "Submit" : "Next") { forward { flow.next() } }

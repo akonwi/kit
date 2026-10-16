@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"html/template"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -21,13 +19,14 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const (
-	oauthCallbackAddress = "127.0.0.1:53173"
-	oauthCallbackPath    = "/mcp/callback"
-	oauthRedirectURL     = "http://" + oauthCallbackAddress + oauthCallbackPath
-)
+// oauthRedirectURL is where an authorization server sends the browser. The
+// client that answers the authorization listens there and relays the
+// redirect; the server never listens on it.
+const oauthRedirectURL = "http://127.0.0.1:53173/mcp/callback"
 
-var oauthFlowSlot = make(chan struct{}, 1)
+// oauthAuthorizationTimeout bounds how long a tool call waits for a user to
+// authorize an MCP server, including waiting for a client to attach.
+const oauthAuthorizationTimeout = 5 * time.Minute
 
 func oauthServerKey(name, endpoint string) string {
 	digest := sha256.Sum256([]byte(endpoint))
@@ -87,7 +86,7 @@ func (l *Launcher) oauthHandler(ctx context.Context, serverName, endpoint string
 		return nil, fmt.Errorf("configure MCP OAuth for %q: %w", serverName, err)
 	}
 	return &recoveringOAuthHandler{
-		delegate: delegate, state: state, hadSaved: record.Found,
+		delegate: delegate, state: state, hadSaved: record.Found, server: serverName, canAuthorize: l.canAuthorize,
 	}, nil
 }
 
@@ -187,6 +186,10 @@ func (s *oauthSessionState) clearRejected(ctx context.Context) error {
 type recoveringOAuthHandler struct {
 	delegate sdkauth.OAuthHandler
 	state    *oauthSessionState
+	server   string
+	// canAuthorize reports whether a user can be asked in a context; nil
+	// means one always can.
+	canAuthorize func(context.Context) bool
 
 	mu       sync.Mutex
 	hadSaved bool
@@ -212,6 +215,12 @@ func (h *recoveringOAuthHandler) Authorize(ctx context.Context, request *http.Re
 			}
 		}
 	}
+	// Keep a rejected credential, and register no client, when no one could
+	// authorize a replacement.
+	if h.canAuthorize != nil && !h.canAuthorize(ctx) {
+		response.Body.Close()
+		return needsAuthorization(h.server)
+	}
 	if h.hadSaved {
 		if err := h.state.clearRejected(ctx); err != nil {
 			response.Body.Close()
@@ -228,97 +237,66 @@ func (l *Launcher) fetchAuthorizationCode(ctx context.Context, serverName, autho
 		ctx, cancel = context.WithTimeout(ctx, l.oauthTimeout)
 		defer cancel()
 	}
-	select {
-	case oauthFlowSlot <- struct{}{}:
-		defer func() { <-oauthFlowSlot }()
-	case <-ctx.Done():
-		return nil, fmt.Errorf("wait to authorize MCP server %q: %w", serverName, ctx.Err())
-	}
-
-	listener, err := net.Listen("tcp", oauthCallbackAddress)
-	if err != nil {
-		return nil, fmt.Errorf("start MCP OAuth callback for %q: %w", serverName, err)
-	}
-	defer listener.Close()
 	parsedAuthorizationURL, err := url.Parse(authorizationURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse MCP OAuth authorization URL: %w", err)
+	}
+	if parsedAuthorizationURL.Scheme != "https" {
+		return nil, fmt.Errorf("MCP server %q has an authorization page that is not https", serverName)
 	}
 	expectedState := parsedAuthorizationURL.Query().Get("state")
 	if expectedState == "" {
 		return nil, errors.New("MCP OAuth authorization URL is missing state")
 	}
-	result := make(chan oauthCallbackResult, 1)
-	server := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: oauthCallbackHandler(expectedState, result)}
-	serveDone := make(chan error, 1)
-	go func() { serveDone <- server.Serve(listener) }()
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_ = server.Shutdown(shutdownCtx)
-		cancel()
-		<-serveDone
-	}()
-
-	openErr := l.openBrowser(ctx, authorizationURL)
-	if err := l.oauthPrompt(ctx, serverName, authorizationURL, openErr); err != nil {
-		return nil, fmt.Errorf("present MCP OAuth authorization for %q: %w", serverName, err)
+	answer, err := l.authorize(ctx, droidsmcp.AuthorizationRequest{Server: serverName, URL: authorizationURL, RedirectURI: oauthRedirectURL})
+	if errors.Is(err, droidsmcp.ErrNoAuthorizer) {
+		return nil, needsAuthorization(serverName)
 	}
-	select {
-	case callback := <-result:
-		if callback.err != nil {
-			return nil, callback.err
-		}
-		return &sdkauth.AuthorizationResult{Code: callback.code, State: callback.state, Iss: callback.issuer}, nil
-	case <-ctx.Done():
-		return nil, fmt.Errorf("authorize MCP server %q: %w", serverName, ctx.Err())
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
+		return nil, fmt.Errorf("MCP server %q was not authorized within %s", serverName, l.oauthTimeout)
 	}
+	if err != nil {
+		return nil, fmt.Errorf("authorize MCP server %q: %w", serverName, err)
+	}
+	return parseAuthorizationAnswer(answer, expectedState)
 }
 
-type oauthCallbackResult struct {
-	code, state, issuer string
-	err                 error
+// needsAuthorization explains an authorization no user can be asked for.
+func needsAuthorization(serverName string) error {
+	return fmt.Errorf("MCP server %q needs authorization, which only the session's own conversation can ask the user for", serverName)
 }
 
-func oauthCallbackHandler(expectedState string, result chan<- oauthCallbackResult) http.Handler {
-	var once sync.Once
-	complete := func(value oauthCallbackResult) { once.Do(func() { result <- value }) }
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if request.Method != http.MethodGet || request.URL.Path != oauthCallbackPath {
-			http.Error(writer, "Not found.", http.StatusNotFound)
-			return
-		}
-		query := request.URL.Query()
-		if state := query.Get("state"); state == "" || state != expectedState || len(state) > maximumCallbackValueBytes {
-			http.Error(writer, "OAuth authorization failed: invalid state.", http.StatusBadRequest)
-			return
-		}
-		if oauthError := query.Get("error"); oauthError != "" {
-			if len(oauthError) > maximumCallbackValueBytes {
-				http.Error(writer, "OAuth authorization failed: invalid error.", http.StatusBadRequest)
-				complete(oauthCallbackResult{err: errors.New("OAuth authorization failed: oversized error")})
-				return
-			}
-			message := "OAuth authorization failed: " + oauthError
-			http.Error(writer, template.HTMLEscapeString(message), http.StatusBadRequest)
-			complete(oauthCallbackResult{err: errors.New(message)})
-			return
-		}
-		code, state := query.Get("code"), query.Get("state")
-		if code == "" || len(code) > maximumCallbackValueBytes {
-			http.Error(writer, "OAuth authorization failed: invalid callback.", http.StatusBadRequest)
-			complete(oauthCallbackResult{err: errors.New("OAuth authorization failed: invalid callback")})
-			return
-		}
-		issuer := query.Get("iss")
-		if len(issuer) > maximumCallbackValueBytes {
-			http.Error(writer, "OAuth authorization failed: invalid issuer.", http.StatusBadRequest)
-			complete(oauthCallbackResult{err: errors.New("OAuth authorization failed: oversized issuer")})
-			return
-		}
-		_, _ = writer.Write([]byte("<!doctype html><title>Kit MCP login complete</title><h1>Authorization complete</h1><p>You can close this window and return to Kit.</p>"))
-		complete(oauthCallbackResult{code: code, state: state, issuer: issuer})
-	})
+// parseAuthorizationAnswer reads the URL the browser was redirected to after
+// authorization, or its query. A bare code is refused: without the redirect's
+// state and issuer, Kit cannot tell which authorization it belongs to.
+func parseAuthorizationAnswer(answer, expectedState string) (*sdkauth.AuthorizationResult, error) {
+	answer = strings.TrimSpace(answer)
+	if answer == "" || len(answer) > maximumCallbackValueBytes {
+		return nil, errors.New("OAuth authorization failed: invalid answer")
+	}
+	if !strings.Contains(answer, "?") && !strings.Contains(answer, "code=") && !strings.Contains(answer, "error=") {
+		return nil, errors.New("OAuth authorization failed: paste the whole address the browser ended up at, not only the code")
+	}
+	rawQuery := answer
+	if index := strings.Index(answer, "?"); index >= 0 {
+		rawQuery = answer[index+1:]
+	}
+	rawQuery, _, _ = strings.Cut(rawQuery, "#")
+	query, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return nil, errors.New("OAuth authorization failed: invalid redirect")
+	}
+	if state := query.Get("state"); state != expectedState {
+		return nil, errors.New("OAuth authorization failed: the redirect is for a different authorization")
+	}
+	if oauthError := query.Get("error"); oauthError != "" {
+		return nil, errors.New("OAuth authorization failed: " + oauthError)
+	}
+	code := query.Get("code")
+	if code == "" {
+		return nil, errors.New("OAuth authorization failed: the redirect has no code")
+	}
+	return &sdkauth.AuthorizationResult{Code: code, State: expectedState, Iss: query.Get("iss")}, nil
 }
 
 const maximumCallbackValueBytes = 64 << 10

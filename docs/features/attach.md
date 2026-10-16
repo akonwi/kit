@@ -75,6 +75,12 @@ New sessions start with the server's default model, and
 context-window overrides edited in the `/model` picker change the attached
 server's settings. See [Server settings](server-settings.md).
 
+### MCP authorization
+
+An MCP server that needs OAuth asks through the attached client, which opens
+the authorization page on its own machine and relays the browser's redirect
+to the server. See [MCP authorization](mcp-authorization.md).
+
 ## Saved servers
 
 `kit servers` lists this home's server and the saved servers with their status:

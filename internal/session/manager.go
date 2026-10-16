@@ -2584,8 +2584,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 			loaded.events.invalidate()
 		}
 	})
-	bundle.Prompt.Prompt += interactionPromptGuidance
-	bundle.Tools = append(bundle.Tools, interactionTools(record.ID, interactions)...)
+	attachInteractions(&bundle, record.ID, interactions)
 	bundle.Tools = append(bundle.Tools, m.boundSessionTools(record, workspace)...)
 	var store droids.Store
 	closeStore := func() error { return nil }

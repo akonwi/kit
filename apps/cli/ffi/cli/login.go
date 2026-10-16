@@ -133,6 +133,23 @@ func (l serverAPIKeyLogin) Login(ctx context.Context, providerID, apiKey string)
 	return loginError(l.client.SetProviderAPIKey(ctx, providerID, apiKey))
 }
 
+// ReceiveRedirect listens at redirectURI, which must be on this machine's
+// loopback interface, for the browser's redirect after it opens
+// authorizationURL, and sends the redirect's URL to relayed. It returns how
+// to stop listening.
+func ReceiveRedirect(authorizationURL, redirectURI string, relayed chan<- string) (func(), error) {
+	redirect, err := url.Parse(redirectURI)
+	if err != nil {
+		return nil, err
+	}
+	if host := redirect.Hostname(); host != "localhost" {
+		if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+			return nil, errors.New("the redirect is not a loopback HTTP address")
+		}
+	}
+	return relayRedirect(net.Listen, kit.BrowserLoginInstructions{AuthorizationURL: authorizationURL, RedirectURI: redirectURI}, relayed)
+}
+
 // relayRedirect receives the browser's redirect at the address instructions
 // name and relays its URL. It accepts only a redirect carrying the login's
 // state, so other local pages cannot complete the login. A localhost redirect

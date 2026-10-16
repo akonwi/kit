@@ -53,6 +53,13 @@ final class InteractionFlow: Identifiable {
         }
     }
     var plugin: String? { request?.plugin?.pluginId }
+    /// The https page an authorize request asks the user to open. The user
+    /// approves access there and pastes the address the browser ends up at.
+    var authorizationURL: URL? {
+        guard request?.kind.rawValue == "authorize", let raw = request?.url,
+              let url = URL(string: raw), url.scheme?.lowercased() == "https", url.host() != nil else { return nil }
+        return url
+    }
     /// The request's own detail, shown above a guided question.
     var detail: String { request?.detail ?? (guided ? "" : question.detail) }
     /// Plugin confirmations, and any with a default, highlight one answer
@@ -112,7 +119,9 @@ final class InteractionFlow: Identifiable {
     func submitText() -> Bool {
         guard !submitting else { return false }
         let trimmed = answers[step].text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty && authorizationURL != nil { return false }
         if trimmed.isEmpty && request?.plugin == nil { return skip() }
+        if authorizationURL != nil { answers[step].text = trimmed }
         if guided { answers[step].text = trimmed }
         answers[step].skipped = false
         return advance()
@@ -214,6 +223,11 @@ extension InteractionFlow {
             questions = [.init(prompt: request.title, detail: request.detail ?? "", kind: .boolean,
                 options: ["true", "false"], optionLabels: ["true": yes, "false": no])]
         case "input": questions = [.init(prompt: request.title, detail: request.detail ?? "")]
+        case "authorize":
+            guard let raw = request.url, let url = URL(string: raw), url.scheme?.lowercased() == "https", url.host() != nil else {
+                throw ClientError.invalidPayload
+            }
+            questions = [.init(prompt: request.title, detail: request.detail ?? "")]
         case "select":
             let choices = try choices(request.options ?? [])
             guard !choices.ids.isEmpty else { throw ClientError.invalidPayload }
@@ -252,7 +266,7 @@ extension InteractionFlow {
         if !cancelled {
             switch request.kind.rawValue {
             case "confirm": confirmed = answers[0].choices.contains("true")
-            case "input": value = answers[0].text
+            case "input", "authorize": value = answers[0].text
             case "select": selected = questions[0].options.first(where: answers[0].choices.contains)
             case "guided":
                 guided = [:]

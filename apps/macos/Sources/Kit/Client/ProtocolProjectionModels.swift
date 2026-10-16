@@ -263,6 +263,7 @@ enum WireInteractionKind: String, Codable, Sendable {
     case value1 = "input"
     case value2 = "select"
     case value3 = "guided"
+    case value4 = "authorize"
 }
 
 struct WireInteractionOption: Codable, Sendable, Equatable {
@@ -304,8 +305,10 @@ struct WireInteractionRequest: Codable, Sendable, Equatable {
     let `detail`: String?
     let `options`: [WireInteractionOption]?
     let `questions`: [WireInteractionQuestion]?
+    let `url`: String?
+    let `redirectUri`: String?
     let `createdAt`: String
-    init(plugin: WirePluginInteractionOwner? = nil, confirmLabel: String? = nil, cancelLabel: String? = nil, defaultValue: Bool? = nil, placeholder: String? = nil, initialValue: String? = nil, filterable: Bool? = nil, id: String, sessionId: String, turnId: String? = nil, toolCallId: String? = nil, kind: WireInteractionKind, title: String, detail: String? = nil, options: [WireInteractionOption]? = nil, questions: [WireInteractionQuestion]? = nil, createdAt: String) { self.plugin = plugin; self.confirmLabel = confirmLabel; self.cancelLabel = cancelLabel; self.defaultValue = defaultValue; self.placeholder = placeholder; self.initialValue = initialValue; self.filterable = filterable; self.id = id; self.sessionId = sessionId; self.turnId = turnId; self.toolCallId = toolCallId; self.kind = kind; self.title = title; self.detail = detail; self.options = options; self.questions = questions; self.createdAt = createdAt }
+    init(plugin: WirePluginInteractionOwner? = nil, confirmLabel: String? = nil, cancelLabel: String? = nil, defaultValue: Bool? = nil, placeholder: String? = nil, initialValue: String? = nil, filterable: Bool? = nil, id: String, sessionId: String, turnId: String? = nil, toolCallId: String? = nil, kind: WireInteractionKind, title: String, detail: String? = nil, options: [WireInteractionOption]? = nil, questions: [WireInteractionQuestion]? = nil, url: String? = nil, redirectUri: String? = nil, createdAt: String) { self.plugin = plugin; self.confirmLabel = confirmLabel; self.cancelLabel = cancelLabel; self.defaultValue = defaultValue; self.placeholder = placeholder; self.initialValue = initialValue; self.filterable = filterable; self.id = id; self.sessionId = sessionId; self.turnId = turnId; self.toolCallId = toolCallId; self.kind = kind; self.title = title; self.detail = detail; self.options = options; self.questions = questions; self.url = url; self.redirectUri = redirectUri; self.createdAt = createdAt }
 }
 
 enum WireAnnotationStaleReason: String, Codable, Sendable {

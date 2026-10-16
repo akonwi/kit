@@ -11,7 +11,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -33,8 +32,8 @@ type Launcher struct {
 	httpClient     *http.Client
 	httpCloseGrace time.Duration
 	oauthStore     MCPAuthStore
-	openBrowser    func(context.Context, string) error
-	oauthPrompt    func(context.Context, string, string, error) error
+	authorize      func(context.Context, mcp.AuthorizationRequest) (string, error)
+	canAuthorize   func(context.Context) bool
 	oauthTimeout   time.Duration
 }
 
@@ -75,25 +74,6 @@ func WithMCPAuthStore(store MCPAuthStore) Option {
 	return func(l *Launcher) { l.oauthStore = store }
 }
 
-// WithOAuthBrowser and WithOAuthPrompt override interactive OAuth side effects.
-// Prompt is called after browser launch is attempted and can surface a manual
-// authorization URL while the callback listener remains active.
-func WithOAuthBrowser(open func(context.Context, string) error) Option {
-	return func(l *Launcher) {
-		if open != nil {
-			l.openBrowser = open
-		}
-	}
-}
-
-func WithOAuthPrompt(prompt func(context.Context, string, string, error) error) Option {
-	return func(l *Launcher) {
-		if prompt != nil {
-			l.oauthPrompt = prompt
-		}
-	}
-}
-
 // NewLauncher constructs a launcher bound to a runtime lifetime.
 //
 // The lifetime must outlive individual tool calls. The agent core invokes a
@@ -108,18 +88,9 @@ func NewLauncher(lifetime context.Context, opts ...Option) (*Launcher, error) {
 		lifetime:       lifetime,
 		lookupEnv:      os.LookupEnv,
 		httpCloseGrace: 4 * time.Second,
-		oauthTimeout:   time.Minute,
-		openBrowser:    openOAuthBrowser,
-		oauthPrompt: func(ctx context.Context, server, authorizationURL string, openErr error) error {
-			message := "Authorize the " + server + " MCP server in your browser: " + authorizationURL
-			if openErr != nil {
-				message = "Browser opening failed; open this MCP authorization URL manually: " + authorizationURL
-			}
-			if !mcp.PublishAuthorizationProgress(ctx, message) {
-				slog.Warn("MCP OAuth authorization required", "server", server, "browser_error", openErr, "authorization_url", authorizationURL)
-			}
-			return nil
-		},
+		oauthTimeout:   oauthAuthorizationTimeout,
+		authorize:      mcp.Authorize,
+		canAuthorize:   mcp.CanAuthorize,
 	}
 	for _, opt := range opts {
 		opt(launcher)

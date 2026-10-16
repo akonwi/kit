@@ -4902,6 +4902,8 @@ extension Components {
             internal var plugin: Components.Schemas.PluginInteractionOwner?
             /// - Remark: Generated from `#/components/schemas/InteractionRequest/questions`.
             internal var questions: [Components.Schemas.InteractionQuestion]?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/redirectUri`.
+            internal var redirectUri: Swift.String?
             /// - Remark: Generated from `#/components/schemas/InteractionRequest/sessionId`.
             internal var sessionId: Swift.String
             /// - Remark: Generated from `#/components/schemas/InteractionRequest/title`.
@@ -4910,6 +4912,8 @@ extension Components {
             internal var toolCallId: Swift.String?
             /// - Remark: Generated from `#/components/schemas/InteractionRequest/turnId`.
             internal var turnId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/url`.
+            internal var url: Swift.String?
             /// Creates a new `InteractionRequest`.
             ///
             /// - Parameters:
@@ -4926,10 +4930,12 @@ extension Components {
             ///   - placeholder:
             ///   - plugin:
             ///   - questions:
+            ///   - redirectUri:
             ///   - sessionId:
             ///   - title:
             ///   - toolCallId:
             ///   - turnId:
+            ///   - url:
             internal init(
                 cancelLabel: Swift.String? = nil,
                 confirmLabel: Swift.String? = nil,
@@ -4944,10 +4950,12 @@ extension Components {
                 placeholder: Swift.String? = nil,
                 plugin: Components.Schemas.PluginInteractionOwner? = nil,
                 questions: [Components.Schemas.InteractionQuestion]? = nil,
+                redirectUri: Swift.String? = nil,
                 sessionId: Swift.String,
                 title: Swift.String,
                 toolCallId: Swift.String? = nil,
-                turnId: Swift.String? = nil
+                turnId: Swift.String? = nil,
+                url: Swift.String? = nil
             ) {
                 self.cancelLabel = cancelLabel
                 self.confirmLabel = confirmLabel
@@ -4962,10 +4970,12 @@ extension Components {
                 self.placeholder = placeholder
                 self.plugin = plugin
                 self.questions = questions
+                self.redirectUri = redirectUri
                 self.sessionId = sessionId
                 self.title = title
                 self.toolCallId = toolCallId
                 self.turnId = turnId
+                self.url = url
             }
             internal enum CodingKeys: String, CodingKey {
                 case cancelLabel
@@ -4981,10 +4991,12 @@ extension Components {
                 case placeholder
                 case plugin
                 case questions
+                case redirectUri
                 case sessionId
                 case title
                 case toolCallId
                 case turnId
+                case url
             }
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -5040,6 +5052,10 @@ extension Components {
                     [Components.Schemas.InteractionQuestion].self,
                     forKey: .questions
                 )
+                self.redirectUri = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .redirectUri
+                )
                 self.sessionId = try container.decode(
                     Swift.String.self,
                     forKey: .sessionId
@@ -5056,6 +5072,10 @@ extension Components {
                     Swift.String.self,
                     forKey: .turnId
                 )
+                self.url = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .url
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "cancelLabel",
                     "confirmLabel",
@@ -5070,10 +5090,12 @@ extension Components {
                     "placeholder",
                     "plugin",
                     "questions",
+                    "redirectUri",
                     "sessionId",
                     "title",
                     "toolCallId",
-                    "turnId"
+                    "turnId",
+                    "url"
                 ])
             }
         }

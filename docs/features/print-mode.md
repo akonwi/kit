@@ -35,7 +35,9 @@ requests cannot display a terminal dialog; they fail or return cancellation.
 Sub-agent conversations created during a `--temp` run will also use in-memory
 storage when subagent support is restored. MCP servers that require a new OAuth
 login must be authenticated through interactive Kit before they can be used in
-print mode.
+print mode; print mode cannot answer the authorization, which waits for an
+interactive client for up to five minutes and then fails the tool call. See
+[MCP authorization](mcp-authorization.md).
 
 Prefix option-like prompt text with `--`, for example
 `kit print -- "--summarize this"`.
