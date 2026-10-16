@@ -99,17 +99,24 @@ private struct SessionCommands: Commands {
                 store?.ui.palette = true
             }.disabled(store?.selected == nil)
             Divider()
-            Button("Show Previous Tab") { window?.selectAdjacent(-1) }
+            let navigable = window?.navigableTabs(placement).count ?? 0
+            Button("Show Previous Tab") { window?.selectAdjacent(-1, in: placement) }
                 .keyboardShortcut("[", modifiers: [.command, .shift])
-                .disabled((window?.tabs.count ?? 0) < 2)
-            Button("Show Next Tab") { window?.selectAdjacent(1) }
+                .disabled(navigable < 2)
+            Button("Show Next Tab") { window?.selectAdjacent(1, in: placement) }
                 .keyboardShortcut("]", modifiers: [.command, .shift])
-                .disabled((window?.tabs.count ?? 0) < 2)
+                .disabled(navigable < 2)
             Divider()
+            let numbered = window?.numberedRows(placement).count ?? 0
             ForEach(1...9, id: \.self) { number in
-                Button("Show Tab \(number)") { window?.select(index: number - 1) }
-                    .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
-                    .disabled((window?.tabs.count ?? 0) < number)
+                Button("Show Tab \(number)") {
+                    // A closed parent opens as clicking its row does.
+                    if let window, let parent = window.select(index: number - 1, in: placement) {
+                        windows.open(parent, from: window)
+                    }
+                }
+                .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
+                .disabled(numbered < number)
             }
             Divider()
             Picker("Session Tabs", selection: $placement) {

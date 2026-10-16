@@ -2,8 +2,8 @@ import Foundation
 import Observation
 
 /// Restoration intent only: which windows were open, their session tabs in
-/// order, each window's selected session, and each open session's tile
-/// layout. Server data, credentials, and drafts have separate owners.
+/// order, each window's selected session, each open session's tile layout,
+/// and the sidebar's collapsed families. Server data, credentials, and drafts have separate owners.
 @MainActor @Observable
 final class WindowRestorationStore {
     struct Window: Codable, Equatable, Identifiable {
@@ -13,20 +13,24 @@ final class WindowRestorationStore {
         /// Tile layouts of open session tabs. Tabs with the default layout
         /// have none.
         var layouts: [SessionIdentity: TileArrangement] = [:]
+        /// Sessions whose children the sidebar hides, which may include a
+        /// closed parent of an open tab.
+        var collapsed: Set<String> = []
 
         init(id: UUID, sessions: [SessionIdentity], selected: SessionIdentity?,
-             layouts: [SessionIdentity: TileArrangement] = [:]) {
+             layouts: [SessionIdentity: TileArrangement] = [:], collapsed: Set<String> = []) {
             self.id = id
             self.sessions = sessions
             self.selected = selected
             self.layouts = layouts
+            self.collapsed = collapsed
         }
 
         private struct Layout: Codable {
             var session: SessionIdentity
             var arrangement: TileArrangement
         }
-        private enum CodingKeys: String, CodingKey { case id, sessions, selected, layouts }
+        private enum CodingKeys: String, CodingKey { case id, sessions, selected, layouts, collapsed }
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -36,6 +40,7 @@ final class WindowRestorationStore {
             // Windows saved before layouts existed have none.
             let saved = try container.decodeIfPresent([Layout].self, forKey: .layouts) ?? []
             layouts = Dictionary(saved.map { ($0.session, $0.arrangement) }) { first, _ in first }
+            collapsed = Set(try container.decodeIfPresent([String].self, forKey: .collapsed) ?? [])
         }
 
         func encode(to encoder: any Encoder) throws {
@@ -46,6 +51,7 @@ final class WindowRestorationStore {
             // Tab order keeps the file stable between saves.
             let saved = sessions.compactMap { session in layouts[session].map { Layout(session: session, arrangement: $0) } }
             if !saved.isEmpty { try container.encode(saved, forKey: .layouts) }
+            if !collapsed.isEmpty { try container.encode(collapsed.sorted(), forKey: .collapsed) }
         }
     }
     /// Version 1 saved one session per window, grouped by native window tabs.
@@ -129,7 +135,8 @@ final class WindowRestorationStore {
             guard !members.isEmpty else { return nil }
             let selected = window.selected.flatMap { members.contains($0) ? $0 : nil } ?? members.first
             let layouts = window.layouts.filter { members.contains($0.key) && !$0.value.isDefault }
-            return Window(id: window.id, sessions: members, selected: selected, layouts: layouts)
+            let collapsed = Set(window.collapsed.filter { !$0.isEmpty }.sorted().prefix(maximumSessions))
+            return Window(id: window.id, sessions: members, selected: selected, layouts: layouts, collapsed: collapsed)
         }
     }
 
@@ -148,8 +155,9 @@ final class WindowRestorationStore {
     func save() {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            // Layouts are an optional field of version 2, which earlier
-            // builds ignore, so downgrading keeps windows and tabs.
+            // Layouts and collapsed families are optional fields of version
+            // 2, which earlier builds ignore, so downgrading keeps windows
+            // and tabs.
             try JSONEncoder().encode(Manifest(version: 2, windows: windows)).write(to: url, options: .atomic)
             error = nil
         } catch { self.error = "Could not save open windows: " + error.localizedDescription }

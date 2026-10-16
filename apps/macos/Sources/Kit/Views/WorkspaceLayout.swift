@@ -302,7 +302,11 @@ private struct TabDragOverlay: View {
             }
         }
         .allowsHitTesting(false)
-        .background(TabDragCancellation(workspace: workspace, active: workspace.tabDrag != nil))
+        .background(DragCancellation(active: workspace.tabDrag != nil) { [workspace] in
+            guard workspace.tabDrag != nil else { return false }
+            workspace.cancelTabDrag()
+            return true
+        })
     }
 
     /// The x position of the gap before tab `index`, or after the last tab.
@@ -310,35 +314,6 @@ private struct TabDragOverlay: View {
         let tabs = (workspace.tiles[tile]?.panes ?? []).compactMap { tabFrames.frames[$0] }
         let x = index < tabs.count ? tabs[index].minX : (tabs.last?.maxX ?? frame.minX + 6)
         return min(max(x, frame.minX + 2), frame.maxX - 2)
-    }
-}
-
-/// Esc cancels a tab drag. The mouse is held during a drag, so the key goes
-/// to the window rather than any SwiftUI focus; a local monitor catches it
-/// only while a drag is in progress.
-private struct TabDragCancellation: View {
-    let workspace: WorkspaceState
-    let active: Bool
-    @State private var monitor: Any?
-
-    var body: some View {
-        Color.clear
-            .onChange(of: active, initial: true) {
-                if active, monitor == nil {
-                    monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [workspace] event in
-                        guard event.keyCode == 53, workspace.tabDrag != nil else { return event }
-                        workspace.cancelTabDrag()
-                        return nil
-                    }
-                } else if !active, let monitor {
-                    NSEvent.removeMonitor(monitor)
-                    self.monitor = nil
-                }
-            }
-            .onDisappear {
-                if let monitor { NSEvent.removeMonitor(monitor) }
-                monitor = nil
-            }
     }
 }
 

@@ -54,9 +54,14 @@ final class SessionTab: Identifiable {
     /// Whether the tab's marker calls for attention; idle tabs recede.
     var needsAttention: Bool { status != .idle || finished }
     var statusLabel: String? { status.label ?? (finished ? "Finished" : nil) }
-    /// The session's working directory, for grouping tabs by project.
+    /// The session's working directory, which names its project on a top tab.
     var directory: String { session?.cwd ?? session?.workspace ?? "" }
+    /// The session this one came from, as a fork or an agent's work.
+    var parentSessionID: String? { isLauncher ? nil : session?.parentSessionID }
 }
+
+/// A row of the sidebar's session tree.
+typealias SessionTreeRow = SessionTree<SessionTab>.Row
 
 /// A window's session tabs and the connection they share.
 @MainActor @Observable
@@ -65,6 +70,8 @@ final class SessionWindowModel: Identifiable {
     let app = AppModel()
     private(set) var tabs: [SessionTab]
     private(set) var selectedTabID: UUID
+    /// Sessions whose children the sidebar hides.
+    private(set) var collapsed: Set<String>
     @ObservationIgnored weak var window: NSWindow?
     /// Keeps the window's traffic lights in the chrome row while it is open.
     @ObservationIgnored var trafficLights: TrafficLightPlacement?
@@ -79,8 +86,9 @@ final class SessionWindowModel: Identifiable {
     static let defaultServer = "local-v2"
 
     init(id: UUID, sessions: [SessionIdentity] = [], selected: SessionIdentity? = nil,
-         layouts: [SessionIdentity: TileArrangement] = [:]) {
+         layouts: [SessionIdentity: TileArrangement] = [:], collapsed: Set<String> = []) {
         self.id = id
+        self.collapsed = collapsed
         let app = app
         let tabs = sessions.isEmpty
             ? [SessionTab(identity: Self.launcherIdentity, catalog: app)]
@@ -98,10 +106,81 @@ final class SessionWindowModel: Identifiable {
     var selectedTab: SessionTab { tabs.first { $0.id == selectedTabID } ?? tabs[0] }
     var selectedIndex: Int { tabs.firstIndex { $0.id == selectedTabID } ?? 0 }
 
-    /// Tabs grouped by project, as the tab list shows them.
-    var groups: [SessionTabGroup<SessionTab>] { SessionTabGroup.grouped(tabs, directory: \.directory) }
-    /// Tabs in display order, which ⌘1–⌘9 and next/previous follow.
-    var displayedTabs: [SessionTab] { groups.flatMap(\.tabs) }
+    /// The sidebar's session tree, with collapsed families folded.
+    var rows: [SessionTreeRow] { tree(collapsed: collapsed) }
+    /// Every tab in family order, as the top tabs show them.
+    var familyOrder: [SessionTab] { tree(collapsed: []).compactMap(\.tab) }
+
+    /// The tabs next/previous follow: the sidebar's visible tab rows, or
+    /// every top tab.
+    func navigableTabs(_ placement: SessionTabPlacement) -> [SessionTab] {
+        placement == .side ? rows.compactMap(\.tab) : familyOrder
+    }
+
+    /// What ⌘1–⌘9 reach: each visible sidebar row, including closed
+    /// parents, or every top tab.
+    func numberedRows(_ placement: SessionTabPlacement) -> [SessionTreeRow.Content] {
+        placement == .side ? rows.map(\.content) : familyOrder.map { .tab($0) }
+    }
+
+    /// The parent's title for a tab whose session came from another.
+    func parentTitle(of tab: SessionTab) -> String? {
+        guard let parent = tab.parentSessionID else { return nil }
+        return tabs.first { !$0.isLauncher && $0.identity.session == parent }?.title
+            ?? app.sessions.first { $0.id == parent }?.title
+            ?? tab.session?.parentSessionName
+    }
+
+    private func tree(collapsed: Set<String>) -> [SessionTreeRow] {
+        let catalog = Dictionary(app.sessions.map { ($0.id, $0) }) { first, _ in first }
+        return SessionTree.rows(tabs, session: { $0.isLauncher ? nil : $0.identity.session },
+                                parent: \.parentSessionID,
+                                catalog: { id in
+                                    if let session = catalog[id] { return .init(title: session.title, parent: session.parentSessionID) }
+                                    // Outside the catalog, a child may still know its parent's name.
+                                    let name = self.tabs.lazy.compactMap { $0.parentSessionID == id ? $0.session?.parentSessionName : nil }.first
+                                    return name.map { .init(title: $0, parent: nil) }
+                                },
+                                collapsed: collapsed)
+    }
+
+    /// Shows or hides a session's children in the sidebar.
+    func toggleCollapsed(_ session: String) {
+        if collapsed.remove(session) == nil { collapsed.insert(session) }
+        onChange(self)
+    }
+
+    /// Moves a family before or after a sibling family.
+    func move(_ id: String, beside target: String, after: Bool) {
+        guard let order = SessionTree.order(moving: id, beside: target, after: after, in: tree(collapsed: [])),
+              order.count == tabs.count, !zip(order, tabs).allSatisfy({ $0 === $1 }) else { return }
+        tabs = order
+        onChange(self)
+    }
+
+    /// Expands the families that hide a tab, so a selected tab is visible.
+    private func reveal(_ tab: SessionTab) {
+        guard !collapsed.isEmpty else { return }
+        let all = tree(collapsed: [])
+        guard var index = all.firstIndex(where: { $0.tab === tab }) else { return }
+        var depth = all[index].depth
+        var ancestors: [String] = []
+        while index > 0, depth > 0 {
+            index -= 1
+            if all[index].depth < depth {
+                ancestors.append(all[index].id)
+                depth = all[index].depth
+            }
+        }
+        collapsed.subtract(ancestors)
+    }
+
+    /// Forgets collapsed families that no longer appear.
+    private func pruneCollapsed() {
+        guard !collapsed.isEmpty else { return }
+        let parents = Set(tree(collapsed: []).filter(\.hasChildren).map(\.id))
+        collapsed.formIntersection(parents)
+    }
 
     /// Session identities to restore, in tab order; launcher tabs are not intent.
     var sessions: [SessionIdentity] { tabs.filter { !$0.isLauncher }.map(\.identity) }
@@ -132,7 +211,13 @@ final class SessionWindowModel: Identifiable {
     }
 
     func select(_ tab: SessionTab) {
-        guard tabs.contains(where: { $0 === tab }), selectedTabID != tab.id else { return }
+        guard tabs.contains(where: { $0 === tab }) else { return }
+        let folded = collapsed
+        reveal(tab)
+        guard selectedTabID != tab.id else {
+            if collapsed != folded { onChange(self) }
+            return
+        }
         selectedTabID = tab.id
         if isFocused { tab.finished = false }
         onChange(self)
@@ -155,15 +240,23 @@ final class SessionWindowModel: Identifiable {
         }
     }
 
-    /// Selects the tab at a display position.
-    func select(index: Int) {
-        let displayed = displayedTabs
-        guard displayed.indices.contains(index) else { return }
-        select(displayed[index])
+    /// Selects the tab at a numbered position. A closed parent there isn't
+    /// a tab of this window, so its identity is returned for the caller to
+    /// open, which may focus another window that has it.
+    func select(index: Int, in placement: SessionTabPlacement) -> SessionIdentity? {
+        let numbered = numberedRows(placement)
+        guard numbered.indices.contains(index) else { return nil }
+        switch numbered[index] {
+        case .tab(let tab):
+            select(tab)
+            return nil
+        case .closedParent(let session, _):
+            return SessionIdentity(server: app.client?.serverID ?? Self.defaultServer, session: session)
+        }
     }
 
-    func selectAdjacent(_ offset: Int) {
-        let displayed = displayedTabs
+    func selectAdjacent(_ offset: Int, in placement: SessionTabPlacement) {
+        let displayed = navigableTabs(placement)
         guard displayed.count > 1, let current = displayed.firstIndex(where: { $0.id == selectedTabID }) else { return }
         select(displayed[(current + offset + displayed.count) % displayed.count])
     }
@@ -183,6 +276,7 @@ final class SessionWindowModel: Identifiable {
         let tab = SessionTab(identity: identity, catalog: app)
         tabs.insert(tab, at: selectedIndex + 1)
         selectedTabID = tab.id
+        reveal(tab)
         onChange(self)
         return tab
     }
@@ -207,18 +301,30 @@ final class SessionWindowModel: Identifiable {
         if tab.store?.selectedID != identity.session { release(tab) }
         tab.identity = identity
         tab.savedArrangement = nil
+        reveal(tab)
+        pruneCollapsed()
         onChange(self)
     }
 
     /// Closes a tab. Closing the last tab leaves a launcher in its place.
+    /// Closing the selected tab selects the next tab in family order.
     func close(_ tab: SessionTab) {
+        guard tabs.contains(where: { $0 === tab }) else { return }
+        // Tabs take their family order first, so a family whose parent
+        // closes stays where it was.
+        let order = familyOrder
+        if order.count == tabs.count { tabs = order }
         guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
+        let position = order.firstIndex { $0 === tab } ?? 0
         release(tab)
         tabs.remove(at: index)
         if tabs.isEmpty { tabs = [SessionTab(identity: Self.launcherIdentity, catalog: app)] }
         if selectedTabID == tab.id {
-            selectedTabID = tabs[min(index, tabs.count - 1)].id
+            let next = order[(position + 1)...].first ?? order[..<position].last ?? tabs[0]
+            selectedTabID = next.id
+            reveal(next)
         }
+        pruneCollapsed()
         onChange(self)
     }
 
