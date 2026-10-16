@@ -83,9 +83,11 @@ Kit's command line and server); see `apps/cli/README.md`. A release candidate
    KIT_HOME="$out/home" "$out/extracted/kit" version
    KIT_HOME="$out/home" "$out/extracted/kit" --help
    ```
-   Assert version output is exactly `kit X.Y.Z (<full commit SHA>)` and the
-   tarball contains only `kit`. The output must not carry a channel-home line:
-   naming a channel is what binds a build to an isolated
+   Assert the first line of version output is exactly
+   `kit X.Y.Z (<full commit SHA>)` and the tarball contains only `kit`. With
+   `KIT_HOME` set, a second line names that home (`home: <KIT_HOME>`); any
+   other home is a channel home, which a release must not have: naming a
+   channel is what binds a build to an isolated
    `~/.local/state/kit/<channel>/home`, and a release names none (ADR 0047).
    Remove the temporary directory when done.
    This validates only the host platform, not all four release targets.
