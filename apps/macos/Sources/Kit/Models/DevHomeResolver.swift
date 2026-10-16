@@ -4,12 +4,12 @@ import Foundation
 /// precedence order.
 ///
 /// `KIT_HOME` wins when set. A launched GUI app does not inherit its launching
-/// shell's environment, so a development bundle carries its isolated home in
-/// `Info.plist` instead (`build_and_run.sh` writes `KitDevHome`); the app
-/// prefers it over the shared `~/.kit`. A release bundle carries no key and
-/// keeps resolving `~/.kit`.
+/// shell's environment, so a development bundle bound to a channel carries its
+/// isolated home in `Info.plist` instead (`build_and_run.sh` writes
+/// `KitDevHome` when `KIT_MACOS_CHANNEL` is set); the app prefers it over the
+/// shared `~/.kit`. Any other bundle carries no key and resolves `~/.kit`.
 enum DevHomeResolver {
-    /// Info.plist key carrying a development build's isolated Kit home.
+    /// Info.plist key carrying a channel-bound build's isolated Kit home.
     static let infoKey = "KitDevHome"
 
     /// Resolves the home from process state.

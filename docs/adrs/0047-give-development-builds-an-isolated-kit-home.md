@@ -39,9 +39,10 @@ build bound to a channel receives an isolated home instead:
 The layout is identical on macOS and Linux; Kit's supported systems are
 single-user developer machines, and one path keeps the home predictable when
 moving between them. A channel is the namespace, so a worktree that needs its own
-state names one at build time (`--define channel=NAME`), and `dev` is simply the
-channel an ordinary development build picks. Channels are validated as a single
-path segment so a channel can never escape the state directory.
+state names one at build time (`--define channel=NAME`); `dev` is the usual name
+for everyday isolated development. A build that names no channel is unbound.
+Channels are validated as a single path segment so a channel can never escape
+the state directory.
 
 The resolved home is a derived path, never created by resolution: `Resolve`
 selects, and a directory appears only when a command needs it, exactly as `~/.kit`
@@ -54,10 +55,13 @@ nobody has to guess which state a binary owns.
 The macOS client follows the same rule. `SharedSettingsStore.home` and daemon
 discovery resolve through one `DevHomeResolver`, whose precedence is `KIT_HOME`,
 then a development bundle's home, then `~/.kit`. A launched GUI app does not
-inherit its launching shell's environment, so `build_and_run.sh` writes the
-development home into the bundle's `Info.plist`. Development bundles keep their
-own bundle identifier, so development preferences and window restoration also
-stay separate. Release bundles carry no home and keep resolving `~/.kit`.
+inherit its launching shell's environment, so a development bundle is bound to a
+channel at build time (`KIT_MACOS_CHANNEL=NAME build_and_run.sh`), which writes
+the channel's home into the bundle's `Info.plist`. A bundle built without a
+channel carries no home and resolves `~/.kit`, like an unbound CLI build; a
+release bundle never names one. Development bundles keep their own bundle
+identifier, so development preferences and window restoration also stay
+separate.
 
 ## Consequences
 
