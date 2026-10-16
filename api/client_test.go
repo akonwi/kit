@@ -45,6 +45,9 @@ func (f *fakeClientBackend) DisposeTemporarySession(context.Context, string) err
 func (f *fakeClientBackend) ListSessions(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
 	return f.list(ctx, cwd)
 }
+func (f *fakeClientBackend) GetSessionActivity(context.Context) ([]protocol.SessionActivityEntry, error) {
+	return nil, errors.New("unexpected GetSessionActivity")
+}
 func (f *fakeClientBackend) ListModels(context.Context) (protocol.ModelCatalog, error) {
 	return protocol.ModelCatalog{}, errors.New("unexpected ListModels")
 }

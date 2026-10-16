@@ -59,6 +59,9 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/sessions`.
     /// - Remark: Generated from `#/paths//v1/sessions/post(createSession)`.
     func createSession(_ input: Operations.CreateSession.Input) async throws -> Operations.CreateSession.Output
+    /// - Remark: HTTP `GET /v1/sessions/activity`.
+    /// - Remark: Generated from `#/paths//v1/sessions/activity/get(getSessionActivity)`.
+    func getSessionActivity(_ input: Operations.GetSessionActivity.Input) async throws -> Operations.GetSessionActivity.Output
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/get(getSession)`.
     func getSession(_ input: Operations.GetSession.Input) async throws -> Operations.GetSession.Output
@@ -373,6 +376,11 @@ extension APIProtocol {
             headers: headers,
             body: body
         ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/activity`.
+    /// - Remark: Generated from `#/paths//v1/sessions/activity/get(getSessionActivity)`.
+    internal func getSessionActivity(headers: Operations.GetSessionActivity.Input.Headers) async throws -> Operations.GetSessionActivity.Output {
+        try await getSessionActivity(Operations.GetSessionActivity.Input(headers: headers))
     }
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/get(getSession)`.

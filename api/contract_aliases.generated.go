@@ -151,6 +151,9 @@ type (
 	ScratchpadErrorDetails            = contract.ScratchpadErrorDetails
 	ScratchpadRevision                = contract.ScratchpadRevision
 	ServerSettings                    = contract.ServerSettings
+	SessionActivity                   = contract.SessionActivity
+	SessionActivityEntry              = contract.SessionActivityEntry
+	SessionActivityList               = contract.SessionActivityList
 	SessionCWDChangedEvent            = contract.SessionCWDChangedEvent
 	SessionEvent                      = contract.SessionEvent
 	SessionEventBatch                 = contract.SessionEventBatch
@@ -390,6 +393,8 @@ const (
 	ScratchpadTooLarge                    = contract.ScratchpadTooLarge
 	ScratchpadUnavailable                 = contract.ScratchpadUnavailable
 	ScratchpadUnsupported                 = contract.ScratchpadUnsupported
+	SessionActivityAwaitingResponse       = contract.SessionActivityAwaitingResponse
+	SessionActivityRunning                = contract.SessionActivityRunning
 	SessionEventAnnotationCreated         = contract.SessionEventAnnotationCreated
 	SessionEventAnnotationDeleted         = contract.SessionEventAnnotationDeleted
 	SessionEventAnnotationSubmitted       = contract.SessionEventAnnotationSubmitted

@@ -410,6 +410,25 @@ func (list SessionList) Validate() error {
 	return nil
 }
 
+// Validate checks a session activity report received across a transport boundary.
+func (list SessionActivityList) Validate() error {
+	if list.Sessions == nil {
+		return fmt.Errorf("session activity list is null")
+	}
+	for index, entry := range list.Sessions {
+		if !identifier.Valid(entry.SessionID, "session_") {
+			return fmt.Errorf("session activity %d has a non-canonical session id", index)
+		}
+		if !entry.Status.Valid() {
+			return fmt.Errorf("session activity %d has unsupported status %q", index, entry.Status)
+		}
+		if index > 0 && list.Sessions[index-1].SessionID >= entry.SessionID {
+			return fmt.Errorf("session activity %d is duplicated or out of order", index)
+		}
+	}
+	return nil
+}
+
 // Validate checks a session projection received across a transport boundary.
 func (session SessionInfo) Validate() error {
 	if session.ID == "" {

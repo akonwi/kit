@@ -439,3 +439,27 @@ func TestSanitizeErrorMessage(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionActivityListValidateRequiresOrderedReportedSessions(t *testing.T) {
+	t.Parallel()
+
+	first := SessionActivityEntry{SessionID: "session_0123456789abcdef0123456789abcdef", Status: SessionActivityRunning}
+	second := SessionActivityEntry{SessionID: "session_abcdef0123456789abcdef0123456789", Status: SessionActivityAwaitingResponse}
+	if err := (SessionActivityList{Sessions: []SessionActivityEntry{}}).Validate(); err != nil {
+		t.Fatalf("Validate() empty report error = %v", err)
+	}
+	if err := (SessionActivityList{Sessions: []SessionActivityEntry{first, second}}).Validate(); err != nil {
+		t.Fatalf("Validate() ordered report error = %v", err)
+	}
+	for name, list := range map[string]SessionActivityList{
+		"null sessions":      {},
+		"idle is not stated": {Sessions: []SessionActivityEntry{{SessionID: first.SessionID, Status: "idle"}}},
+		"non-canonical id":   {Sessions: []SessionActivityEntry{{SessionID: "abc", Status: SessionActivityRunning}}},
+		"duplicated session": {Sessions: []SessionActivityEntry{first, first}},
+		"out of order":       {Sessions: []SessionActivityEntry{second, first}},
+	} {
+		if err := list.Validate(); err == nil {
+			t.Errorf("Validate() accepted %s", name)
+		}
+	}
+}

@@ -244,6 +244,34 @@ func (s *Store) QueuedSessions(ctx context.Context) ([]string, error) {
 	return owners, rows.Err()
 }
 
+// WorkingSessions returns the owners of non-dismissed conversations with a
+// queued or running task, ordered by session ID.
+func (s *Store) WorkingSessions(ctx context.Context) ([]string, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("store is closed")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT t.owner_session_id
+		FROM subagent_tasks t
+		JOIN subagent_conversations c ON c.id = t.conversation_id
+		JOIN sessions s ON s.id = t.owner_session_id
+		WHERE t.state IN ('queued', 'running') AND c.dismissed_at IS NULL AND s.archived_at IS NULL
+		ORDER BY t.owner_session_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var owners []string
+	for rows.Next() {
+		var owner string
+		if err := rows.Scan(&owner); err != nil {
+			return nil, err
+		}
+		owners = append(owners, owner)
+	}
+	return owners, rows.Err()
+}
+
 // ClaimNext transactionally claims the oldest eligible task for one owner.
 func (s *Store) ClaimNext(ctx context.Context, ownerSessionID string, limits subagent.Limits, startedAt time.Time) (subagent.Claim, error) {
 	if s == nil || s.db == nil {

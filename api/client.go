@@ -84,6 +84,7 @@ type operationTransport interface {
 	DeleteSession(context.Context, string) error
 	DisposeTemporarySession(context.Context, string) error
 	ListSessions(context.Context, string) ([]SessionInfo, error)
+	GetSessionActivity(context.Context) ([]SessionActivityEntry, error)
 	ListModels(context.Context) (ModelCatalog, error)
 	RefreshModels(context.Context) (ModelCatalog, error)
 }
@@ -253,6 +254,18 @@ func (c *Client) ListSessions(ctx context.Context, options ListSessionsOptions) 
 	}
 	defer cancel()
 	return projectResult(c.transport.ListSessions(operation, options.CWD))
+}
+
+// SessionActivity reports the saved sessions that are working or waiting on
+// their user, ordered by session ID. It is a point-in-time snapshot taken
+// separately from ListSessions; a session it omits is idle.
+func (c *Client) SessionActivity(ctx context.Context) ([]SessionActivityEntry, error) {
+	operation, cancel, err := c.operationContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	return projectResult(c.transport.GetSessionActivity(operation))
 }
 
 // CreateSession creates one persisted or temporary session.

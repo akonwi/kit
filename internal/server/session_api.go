@@ -108,6 +108,7 @@ type sessionService interface {
 	Delete(context.Context, string) error
 	DisposeTemporary(context.Context, string) error
 	List(context.Context, string) ([]protocol.SessionInfo, error)
+	Activity(context.Context) (protocol.SessionActivityList, error)
 	Models(context.Context) (protocol.ModelCatalog, error)
 	RefreshModels(context.Context) (protocol.ModelCatalog, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
@@ -310,6 +311,18 @@ func (s runtimeSessionService) List(ctx context.Context, cwd string) ([]protocol
 	result := make([]protocol.SessionInfo, 0, len(records))
 	for _, record := range records {
 		result = append(result, s.projectSession(record))
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) Activity(ctx context.Context) (protocol.SessionActivityList, error) {
+	entries, err := s.manager.Activity(ctx)
+	if err != nil {
+		return protocol.SessionActivityList{}, err
+	}
+	result := protocol.SessionActivityList{Sessions: make([]protocol.SessionActivityEntry, 0, len(entries))}
+	for _, entry := range entries {
+		result.Sessions = append(result.Sessions, protocol.SessionActivityEntry{SessionID: entry.SessionID, Status: protocol.SessionActivity(entry.Status)})
 	}
 	return result, nil
 }
@@ -1930,6 +1943,16 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 		result := protocol.SessionList{Sessions: records}
 		if err := result.Validate(); err != nil {
 			return protocol.SessionList{}, internalAPIError()
+		}
+		return result, nil
+	})
+	httpapi.Handle(mux, httpOptions, httpapi.GetSessionActivity, func(ctx context.Context, _ httpapi.ServerPath, _ httpapi.NoBody) (protocol.SessionActivityList, error) {
+		result, err := service.Activity(ctx)
+		if err != nil {
+			return protocol.SessionActivityList{}, lifecycleAPIError(err)
+		}
+		if err := result.Validate(); err != nil {
+			return protocol.SessionActivityList{}, internalAPIError()
 		}
 		return result, nil
 	})

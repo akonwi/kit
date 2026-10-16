@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -260,6 +261,43 @@ func TestPluginDialogRemainsAnswerableByAnotherClient(t *testing.T) {
 	}
 	if len(snapshot.PendingInteractions) != 0 {
 		t.Fatalf("cancelled dialog still pending: %#v", snapshot.PendingInteractions)
+	}
+}
+
+func TestPendingPluginDialogReportsSessionAwaitingResponse(t *testing.T) {
+	client, id, command := pluginDialogClient(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- client.ExecutePluginCommand(ctx, id, protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance})
+	}()
+	request := nextPluginInteraction(t, client, id, "")
+	activity, err := client.GetSessionActivity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []protocol.SessionActivityEntry{{SessionID: id, Status: protocol.SessionActivityAwaitingResponse}}
+	if !reflect.DeepEqual(activity, want) {
+		t.Fatalf("activity with a pending dialog = %#v, want %#v", activity, want)
+	}
+	if err := client.RespondInteraction(ctx, id, protocol.InteractionResponse{RequestID: request.ID, Cancelled: true}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("cancelled dialog did not release command")
+	}
+	activity, err = client.GetSessionActivity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(activity, []protocol.SessionActivityEntry{}) {
+		t.Fatalf("activity after the dialog settled = %#v, want none", activity)
 	}
 }
 

@@ -8756,6 +8756,69 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/SessionActivityEntry`.
+        internal struct SessionActivityEntry: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionActivityEntry/sessionId`.
+            internal var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionActivityEntry/status`.
+            internal var status: Swift.String
+            /// Creates a new `SessionActivityEntry`.
+            ///
+            /// - Parameters:
+            ///   - sessionId:
+            ///   - status:
+            internal init(
+                sessionId: Swift.String,
+                status: Swift.String
+            ) {
+                self.sessionId = sessionId
+                self.status = status
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case sessionId
+                case status
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.status = try container.decode(
+                    Swift.String.self,
+                    forKey: .status
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "sessionId",
+                    "status"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SessionActivityList`.
+        internal struct SessionActivityList: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionActivityList/sessions`.
+            internal var sessions: [Components.Schemas.SessionActivityEntry]
+            /// Creates a new `SessionActivityList`.
+            ///
+            /// - Parameters:
+            ///   - sessions:
+            internal init(sessions: [Components.Schemas.SessionActivityEntry]) {
+                self.sessions = sessions
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case sessions
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.sessions = try container.decode(
+                    [Components.Schemas.SessionActivityEntry].self,
+                    forKey: .sessions
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "sessions"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/SessionEvent`.
         internal struct SessionEvent: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/SessionEvent/sequence`.

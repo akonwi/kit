@@ -95,6 +95,9 @@ type Recovery struct {
 type Repository interface {
 	Admit(context.Context, Admission, Limits) (Conversation, Task, error)
 	QueuedSessions(context.Context) ([]string, error)
+	// WorkingSessions returns the owners of non-dismissed conversations with
+	// a queued or running task.
+	WorkingSessions(context.Context) ([]string, error)
 	ClaimNext(context.Context, string, Limits, time.Time) (Claim, error)
 	MarkConversationInitialized(context.Context, ConversationID, time.Time) error
 	ConfigureConversation(context.Context, ConversationID, uint64, Configuration, bool, time.Time) (Conversation, error)
