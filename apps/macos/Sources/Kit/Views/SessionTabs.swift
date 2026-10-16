@@ -44,14 +44,17 @@ enum SessionChrome {
     static let compactRowHeight: CGFloat = 32
 }
 
-/// Side-tab layout: session tabs grouped by project.
+/// Side-tab layout: session tabs as a tree of families, each session under
+/// the session it came from.
 struct SessionSidebar: View {
     @Environment(\.mica) private var theme
     let model: SessionWindowModel
     @Binding var placement: SessionTabPlacement
+    @State private var drag = SessionTreeDrag()
 
     var body: some View {
-        let groups = model.groups
+        let rows = model.rows
+        let dragged = drag.family(in: rows)
         VStack(spacing: 0) {
             HStack {
                 Spacer()
@@ -61,32 +64,19 @@ struct SessionSidebar: View {
             .frame(height: SessionChrome.rowHeight)
             .background(WindowTitlebarRegion())
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    ForEach(groups) { group in
-                        VStack(alignment: .leading, spacing: 2) {
-                            if let name = group.name {
-                                HStack(spacing: 8) {
-                                    Text(name.uppercased())
-                                        .font(.kit(size: 10, weight: .medium)).tracking(1.2)
-                                        .foregroundStyle(theme.muted).lineLimit(1)
-                                    Spacer(minLength: 0)
-                                    Text(WorkspaceLocation.homeRelative(group.directory))
-                                        .font(.kit(size: 10, design: .monospaced))
-                                        .foregroundStyle(theme.strongBorder)
-                                        .lineLimit(1).truncationMode(.head)
-                                }
-                                .padding(.horizontal, 8).frame(height: 24)
-                                .help(group.directory)
-                            }
-                            ForEach(group.tabs) { tab in
-                                SessionSidebarRow(tab: tab,
-                                                  selected: tab.id == model.selectedTabID,
-                                                  select: { model.select(tab) },
-                                                  close: { model.close(tab) })
-                            }
-                        }
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        let next = rows.indices.contains(index + 1) ? rows[index + 1] : nil
+                        SessionTreeRowView(row: row,
+                                           rails: SessionTreeRails(depth: row.depth, next: next?.depth),
+                                           selected: row.tab?.id == model.selectedTabID,
+                                           model: model, drag: drag)
+                        .opacity(dragged.contains(row.id) ? 0.4 : 1)
                     }
-                }.padding(.top, 8)
+                }
+                .coordinateSpace(.named(SessionTreeDrag.space))
+                .overlay(alignment: .topLeading) { SessionTreeDropMarker(drag: drag, rows: rows) }
+                .padding(.top, 8)
             }
             .scrollIndicators(.never)
             HStack {
@@ -98,8 +88,188 @@ struct SessionSidebar: View {
         }
         .padding(.horizontal, 8).padding(.bottom, 10)
         .frame(width: 248)
+        .background(DragCancellation(active: drag.id != nil) { drag.cancel() })
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Session tabs")
+    }
+}
+
+/// A family being dragged among its siblings in the sidebar.
+@MainActor @Observable
+final class SessionTreeDrag {
+    struct Target: Equatable {
+        let id: String
+        let after: Bool
+    }
+
+    static let space = "SessionSidebar"
+    /// The dragged row.
+    private(set) var id: String?
+    private(set) var target: Target?
+    /// Where each visible row sits in the list. Not observed: geometry
+    /// changes shouldn't re-render the list.
+    @ObservationIgnored var frames: [String: CGRect] = [:]
+    /// A row whose drag was cancelled with Esc; its gesture ignores the rest
+    /// of the drag.
+    @ObservationIgnored private var cancelled: String?
+
+    /// The dragged family's row IDs.
+    func family(in rows: [SessionTreeRow]) -> Set<String> {
+        guard let id, let index = rows.firstIndex(where: { $0.id == id }) else { return [] }
+        return Set(SessionTree.family(index, in: rows).map { rows[$0].id })
+    }
+
+    func update(_ id: String, y: CGFloat, rows: [SessionTreeRow]) {
+        guard cancelled != id else { return }
+        self.id = id
+        let next = resolve(id, y: y, rows: rows)
+        if target != next { target = next }
+    }
+
+    /// Ends the drag, returning where to drop.
+    func end(_ id: String, y: CGFloat, rows: [SessionTreeRow]) -> Target? {
+        defer { self.id = nil; target = nil; cancelled = nil }
+        guard cancelled != id else { return nil }
+        return resolve(id, y: y, rows: rows)
+    }
+
+    func cancel() -> Bool {
+        guard let id else { return false }
+        cancelled = id
+        self.id = nil
+        target = nil
+        return true
+    }
+
+    /// The sibling family under the pointer, and which half of it.
+    func resolve(_ id: String, y: CGFloat, rows: [SessionTreeRow]) -> Target? {
+        guard let index = rows.firstIndex(where: { $0.id == id }) else { return nil }
+        let parent = SessionTree.parent(of: index, in: rows)
+        let spans: [(id: String, span: ClosedRange<CGFloat>)] = rows.indices.compactMap { sibling in
+            guard rows[sibling].depth == rows[index].depth, !SessionTree<SessionTab>.isLauncher(rows[sibling].id),
+                  SessionTree.parent(of: sibling, in: rows) == parent else { return nil }
+            let family = SessionTree.family(sibling, in: rows)
+            guard let top = frames[rows[sibling].id], let bottom = frames[rows[family.upperBound - 1].id] else { return nil }
+            return (rows[sibling].id, top.minY...bottom.maxY)
+        }
+        guard let first = spans.first, let last = spans.last else { return nil }
+        let hit = spans.first { $0.span.contains(y) }
+            ?? (y < first.span.lowerBound ? first : last)
+        guard hit.id != id else { return nil }
+        return Target(id: hit.id, after: y > (hit.span.lowerBound + hit.span.upperBound) / 2)
+    }
+
+    /// Where the marker for a target goes: the family's leading edge, and
+    /// the gap before or after it.
+    func marker(for target: Target, rows: [SessionTreeRow]) -> CGPoint? {
+        guard let index = rows.firstIndex(where: { $0.id == target.id }), let top = frames[target.id] else { return nil }
+        let family = SessionTree.family(index, in: rows)
+        guard let bottom = frames[rows[family.upperBound - 1].id] else { return nil }
+        return CGPoint(x: top.minX, y: target.after ? bottom.maxY + 1 : top.minY - 1)
+    }
+}
+
+/// The line where a dragged family will land.
+private struct SessionTreeDropMarker: View {
+    @Environment(\.mica) private var theme
+    let drag: SessionTreeDrag
+    let rows: [SessionTreeRow]
+
+    var body: some View {
+        GeometryReader { proxy in
+            if let target = drag.target, let point = drag.marker(for: target, rows: rows) {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(theme.accent)
+                    .frame(width: max(proxy.size.width - point.x, 0), height: 2)
+                    .offset(x: point.x, y: point.y - 1)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// A tree row's indentation: one rail per level, under the parent's title,
+/// with the space below the row. Indentation stops after three levels, so
+/// deeper rows share the third level's rail.
+struct SessionTreeRails: Equatable {
+    static let maximumLevel = 2
+    /// A row's leading padding, status column, and spacing, so a child
+    /// starts where its parent's title does.
+    static let indent: CGFloat = 32
+    static let rowHeight: CGFloat = 32
+    /// Space between rows of a family.
+    static let rowGap: CGFloat = 2
+    /// Space between families.
+    static let familyGap: CGFloat = 8
+
+    /// The row's indentation level.
+    let level: Int
+    /// Space below the row.
+    let gap: CGFloat
+    /// The deepest rail that continues to the next row.
+    let continuing: Int
+
+    init(depth: Int, next: Int?) {
+        level = min(depth, Self.maximumLevel)
+        let nextLevel = next.map { min($0, Self.maximumLevel) }
+        gap = switch nextLevel {
+        case nil: 0
+        case 0: Self.familyGap
+        default: Self.rowGap
+        }
+        continuing = min(level, nextLevel ?? 0)
+    }
+}
+
+private struct SessionTreeRowView: View {
+    @Environment(\.mica) private var theme
+    let row: SessionTreeRow
+    let rails: SessionTreeRails
+    let selected: Bool
+    let model: SessionWindowModel
+    let drag: SessionTreeDrag
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(0..<rails.level, id: \.self) { _ in
+                Color.clear.frame(width: SessionTreeRails.indent)
+            }
+            content
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(SessionTreeDrag.space)) } action: {
+                    drag.frames[row.id] = $0
+                }
+                .onDisappear { drag.frames[row.id] = nil }
+        }
+        .padding(.bottom, rails.gap)
+        .simultaneousGesture(reorder, isEnabled: !SessionTree<SessionTab>.isLauncher(row.id))
+        .overlay(alignment: .topLeading) {
+            ForEach(1..<(rails.level + 1), id: \.self) { level in
+                Rectangle().fill(theme.border)
+                    .frame(width: 1, height: SessionTreeRails.rowHeight + (level <= rails.continuing ? rails.gap : 0))
+                    .offset(x: CGFloat(level) * SessionTreeRails.indent - 1)
+            }
+        }
+    }
+
+    /// Dragging a row moves its family among its siblings.
+    private var reorder: some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named(SessionTreeDrag.space))
+            .onChanged { value in drag.update(row.id, y: value.location.y, rows: model.rows) }
+            .onEnded { value in
+                // Resolve at release so the drop matches the pointer.
+                if let target = drag.end(row.id, y: value.location.y, rows: model.rows) {
+                    model.move(row.id, beside: target.id, after: target.after)
+                }
+            }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch row.content {
+        case .tab(let tab):
+            SessionSidebarRow(tab: tab, selected: selected, row: row, model: model)
+        case .closedParent(let session, let title):
+            ClosedParentRow(session: session, title: title, row: row, model: model)
+        }
     }
 }
 
@@ -107,12 +277,12 @@ private struct SessionSidebarRow: View {
     @Environment(\.mica) private var theme
     let tab: SessionTab
     let selected: Bool
-    let select: () -> Void
-    let close: () -> Void
+    let row: SessionTreeRow
+    let model: SessionWindowModel
     @State private var hovering = false
 
     var body: some View {
-        Button(action: select) {
+        Button { model.select(tab) } label: {
             HStack(spacing: 10) {
                 SessionTabStatusMarker(status: tab.status, finished: tab.finished).frame(width: 14)
                 Text(tab.title)
@@ -120,12 +290,15 @@ private struct SessionSidebarRow: View {
                     .foregroundStyle(SessionTabStatusMarker.titleProminent(tab, selected: selected) ? theme.text : theme.muted)
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if hovering {
-                    ChromeIconButton(icon: .x, size: 10, frame: 18, help: "Close tab", action: close)
+                HStack(spacing: 0) {
+                    SessionTreeDisclosure(row: row, model: model)
+                    if hovering {
+                        ChromeIconButton(icon: .x, size: 10, frame: 18, help: "Close tab") { model.close(tab) }
+                    }
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 32)
+            .padding(.leading, 8).padding(.trailing, 4)
+            .frame(height: SessionTreeRails.rowHeight)
             .background(selected || hovering ? theme.frameHover : .clear, in: RoundedRectangle(cornerRadius: 3))
             .contentShape(Rectangle())
         }
@@ -135,13 +308,119 @@ private struct SessionSidebarRow: View {
         .accessibilityLabel(tab.title)
         .accessibilityValue(tab.statusLabel ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .contextMenu { Button("Close Tab", action: close) }
+        .sessionTreeDisclosureAction(row: row, model: model)
+        .contextMenu { Button("Close Tab") { model.close(tab) } }
     }
 }
 
-/// Top-tab layout: traffic lights, session tabs, new tab, and placement.
-/// Tabs that do not fit scroll; faded edges and a count show what is hidden,
-/// and the selected tab scrolls into view.
+/// A parent whose tab is closed, kept while its children are open.
+/// Choosing it opens its tab again.
+private struct ClosedParentRow: View {
+    @Environment(\.mica) private var theme
+    @Environment(\.sessionNavigation) private var navigation
+    let session: String
+    let title: String
+    let row: SessionTreeRow
+    let model: SessionWindowModel
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: reopen) {
+            HStack(spacing: 10) {
+                Color.clear.frame(width: 14, height: 14)
+                Text(title)
+                    .font(.kit(size: 13))
+                    .foregroundStyle(theme.muted)
+                    .lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                SessionTreeDisclosure(row: row, model: model)
+            }
+            .padding(.leading, 8).padding(.trailing, 4)
+            .frame(height: SessionTreeRails.rowHeight)
+            .background(hovering ? theme.frameHover : .clear, in: RoundedRectangle(cornerRadius: 3))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("\(title) — Closed")
+        .accessibilityLabel(title)
+        .accessibilityValue("Closed")
+        .sessionTreeDisclosureAction(row: row, model: model)
+        .contextMenu { Button("Open Tab", action: reopen) }
+    }
+
+    private func reopen() { navigation.openSession(session) }
+}
+
+/// A family's caret. A collapsed family also shows how many tabs it hides
+/// and the most urgent of their markers.
+private struct SessionTreeDisclosure: View {
+    @Environment(\.mica) private var theme
+    let row: SessionTreeRow
+    let model: SessionWindowModel
+
+    var body: some View {
+        if row.hasChildren {
+            HStack(spacing: 6) {
+                if row.collapsed {
+                    if let urgent = SessionTreeRollUp(row.hiddenTabs).marker {
+                        SessionTabStatusMarker(status: urgent.status, finished: urgent.finished)
+                            .frame(width: 12)
+                    }
+                    Text("\(row.hiddenTabs.count)")
+                        .font(.kit(size: 11, design: .monospaced))
+                        .foregroundStyle(theme.muted)
+                }
+                Button { model.toggleCollapsed(row.id) } label: {
+                    IconView(row.collapsed ? .caretRight : .caretDown, size: 10)
+                        .foregroundStyle(theme.muted)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(row.collapsed ? "Show sessions from this one" : "Hide sessions from this one")
+                .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
+/// The marker a collapsed family shows for the tabs it hides: input ahead
+/// of work, and work ahead of a finished turn.
+struct SessionTreeRollUp {
+    let marker: (status: SessionTabStatus, finished: Bool)?
+
+    @MainActor init(_ tabs: [SessionTab]) {
+        self.init(tabs.map { ($0.status, $0.finished) })
+    }
+
+    init(_ markers: [(status: SessionTabStatus, finished: Bool)]) {
+        if markers.contains(where: { $0.status == .awaitingResponse }) {
+            marker = (.awaitingResponse, false)
+        } else if markers.contains(where: { $0.status == .running }) {
+            marker = (.running, false)
+        } else if markers.contains(where: \.finished) {
+            marker = (.idle, true)
+        } else {
+            marker = nil
+        }
+    }
+}
+
+private extension View {
+    /// Lets assistive technology expand or collapse a family.
+    @ViewBuilder func sessionTreeDisclosureAction(row: SessionTreeRow, model: SessionWindowModel) -> some View {
+        if row.hasChildren {
+            accessibilityAction(named: row.collapsed ? "Expand" : "Collapse") { model.toggleCollapsed(row.id) }
+        } else {
+            self
+        }
+    }
+}
+
+/// Top-tab layout: traffic lights, session tabs in family order, new tab,
+/// and placement. Tabs that do not fit scroll; faded edges and a count show
+/// what is hidden, and the selected tab scrolls into view.
 struct SessionTopTabs: View {
     @Environment(\.mica) private var theme
     let model: SessionWindowModel
@@ -152,7 +431,7 @@ struct SessionTopTabs: View {
 
     var body: some View {
         let selectedDirectory = model.selectedTab.directory
-        let tabs = model.displayedTabs
+        let tabs = model.familyOrder
         let overflow = SessionTabOverflow(frames: frames, offset: offset, viewport: viewportWidth)
         let hidden = tabs.filter { overflow.hides($0.id) }
         HStack(spacing: 6) {
@@ -165,6 +444,7 @@ struct SessionTopTabs: View {
                             SessionTopTab(tab: tab, selected: tab.id == model.selectedTabID,
                                           project: tab.directory != selectedDirectory && !tab.directory.isEmpty
                                             ? URL(fileURLWithPath: tab.directory).lastPathComponent : nil,
+                                          parent: model.parentTitle(of: tab),
                                           select: { model.select(tab) },
                                           close: { model.close(tab) })
                             .id(tab.id)
@@ -260,6 +540,8 @@ private struct SessionTopTab: View {
     let tab: SessionTab
     let selected: Bool
     let project: String?
+    /// The title of the session this one came from.
+    let parent: String?
     let select: () -> Void
     let close: () -> Void
     @State private var hovering = false
@@ -287,11 +569,16 @@ private struct SessionTopTab: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(tab.statusLabel.map { "\(tab.title) — \($0)" } ?? tab.title)
+        .help(help)
         .accessibilityLabel(tab.title)
         .accessibilityValue(tab.statusLabel ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .contextMenu { Button("Close Tab", action: close) }
+    }
+
+    private var help: String {
+        let title = tab.statusLabel.map { "\(tab.title) — \($0)" } ?? tab.title
+        return parent.map { "\(title)\nFrom \($0)" } ?? title
     }
 
     /// The selected tab is raised in the tiles' surface so it stands apart

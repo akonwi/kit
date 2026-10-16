@@ -20,7 +20,8 @@ keys, and Return open a session without a pointer. The transcript, composer, and
 workspace panes stay hidden until a session is explicitly chosen.
 
 Relaunch restores only intentionally opened sessions: each window's session tabs,
-its selected session, and each tab's tile arrangement. Closing a session removes
+its selected session, each tab's tile arrangement, and the sidebar's collapsed
+families. Closing a session removes
 it, and its arrangement, from restoration intent; quitting keeps the open
 sessions for the next launch. Layout changes are recorded half a second after
 they settle, and immediately when the app quits.
@@ -30,6 +31,35 @@ knows are dropped, a tile left without tabs collapses into its sibling, the
 Agent tab returns to the first tile if missing, ratios are clamped, and zoom
 needs more than one tile. Arrangements are stored as an optional field of the
 version 2 window manifest, so an earlier build still restores windows and tabs.
+
+### Session tabs
+
+The sidebar lists a window's session tabs as a tree. Each session sits under the
+session it came from, whether a fork or an agent's work, so a family reads as
+one unit. Families keep the order of their tabs: a family sits where its
+earliest tab is, and siblings follow the same rule. Launcher tabs follow every
+family. The working directory isn't in the sidebar; the session bar shows it.
+
+- A parent whose tab is closed stays as a dimmed row while any child is open.
+  Choosing it opens its tab again, or focuses the window that has it. The row
+  leaves once its last open child closes. Closed ancestors between an open tab
+  and its nearest open ancestor appear the same way. A session whose parent the
+  catalog doesn't know, as when the parent was deleted, sits at the top level.
+- A caret after the title collapses a family. A collapsed row shows how many
+  open tabs it hides and the most urgent of their markers: input, then work,
+  then a finished turn. Hovering adds the close button after the caret.
+- Selecting a hidden tab, by shortcut, palette, or link, expands its family.
+- Dragging a row moves it, with its descendants, among its siblings; at the top
+  level that moves whole families. A line marks where it will land, and Esc
+  cancels the drag.
+- ⌘1–⌘9 and next/previous follow the visible tab rows, skipping dimmed parents
+  and collapsed children. With top tabs they follow the strip.
+- Each level indents 32 pt, so a child's row starts at its parent's title and
+  the family's rail runs under that title. Indentation stops after three
+  levels; deeper sessions share the third level's rail.
+- Top tabs stay flat, in family order. A tab's tooltip names its parent.
+- Closing the selected tab selects the next tab in family order. A family keeps
+  its place when its parent closes.
 
 ### Composer
 

@@ -99,17 +99,18 @@ private struct SessionCommands: Commands {
                 store?.ui.palette = true
             }.disabled(store?.selected == nil)
             Divider()
-            Button("Show Previous Tab") { window?.selectAdjacent(-1) }
+            let navigable = window?.navigableTabs(placement).count ?? 0
+            Button("Show Previous Tab") { window?.selectAdjacent(-1, in: placement) }
                 .keyboardShortcut("[", modifiers: [.command, .shift])
-                .disabled((window?.tabs.count ?? 0) < 2)
-            Button("Show Next Tab") { window?.selectAdjacent(1) }
+                .disabled(navigable < 2)
+            Button("Show Next Tab") { window?.selectAdjacent(1, in: placement) }
                 .keyboardShortcut("]", modifiers: [.command, .shift])
-                .disabled((window?.tabs.count ?? 0) < 2)
+                .disabled(navigable < 2)
             Divider()
             ForEach(1...9, id: \.self) { number in
-                Button("Show Tab \(number)") { window?.select(index: number - 1) }
+                Button("Show Tab \(number)") { window?.select(index: number - 1, in: placement) }
                     .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
-                    .disabled((window?.tabs.count ?? 0) < number)
+                    .disabled(navigable < number)
             }
             Divider()
             Picker("Session Tabs", selection: $placement) {

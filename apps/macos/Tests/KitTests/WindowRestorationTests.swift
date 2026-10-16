@@ -130,13 +130,13 @@ import Testing
 
     @Test func numberedAndAdjacentSelectionFollowDisplayOrder() {
         let model = SessionWindowModel(id: UUID(), sessions: [id("a"), id("b"), id("c")], selected: id("a"))
-        model.select(index: 2)
+        model.select(index: 2, in: .side)
         #expect(model.selectedSession == id("c"))
-        model.select(index: 8)
+        model.select(index: 8, in: .side)
         #expect(model.selectedSession == id("c"))
-        model.selectAdjacent(1)
+        model.selectAdjacent(1, in: .side)
         #expect(model.selectedSession == id("a"))
-        model.selectAdjacent(-1)
+        model.selectAdjacent(-1, in: .side)
         #expect(model.selectedSession == id("c"))
     }
 
@@ -151,15 +151,6 @@ import Testing
         model.app.recordCreated(session)
         #expect(tab.title == "Release notes")
         #expect(tab.directory == "/work/kit/apps")
-    }
-
-    @Test func tabsGroupByProjectInFirstAppearanceOrder() {
-        let groups = SessionTabGroup.grouped(["kit/a", "", "ard/b", "kit/c"]) { tab in
-            tab.isEmpty ? "" : "/Users/me/" + tab.split(separator: "/")[0]
-        }
-        #expect(groups.map(\.directory) == ["/Users/me/kit", "/Users/me/ard", ""])
-        #expect(groups.map(\.tabs) == [["kit/a", "kit/c"], ["ard/b"], [""]])
-        #expect(groups.map(\.name) == ["kit", "ard", nil])
     }
 
     @Test func registryCapturesTabsAndForgetsClosedWindows() {
