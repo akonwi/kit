@@ -270,10 +270,11 @@ Server-owned, exposed through the session API:
   context windows, prompt cache retention, and whether Claude configuration
   files are read are read and written through the API. New sessions start at
   their model's default thinking level.
-- **Workspace selection.** New-session working directories are server paths,
-  validated by the server. Choosing one uses a server directory listing that
-  does not require an existing session and a recent-workspaces view derived
-  from the server's sessions.
+- **Working directories.** New-session working directories are server paths,
+  validated by the server. On a server that shares the client's machine, a
+  new session uses the client's working directory. Otherwise it starts in the
+  server user's home directory, or in a path the user names: absolute, or
+  starting with `~/` for the server user's home.
 - **Path presentation.** Clients abbreviate server paths relative to the
   server-reported `home`.
 
@@ -326,8 +327,7 @@ terminals.
    networks, public exposure, and reverse proxies. This enables serving a
    workstation or VPS behind a tunnel or proxy.
 2. **Ownership.** Server-side provider login with callback relay, server
-   settings API, server workspace selection, client-routed open requests,
-   and same-machine gating.
+   settings API, client-routed open requests, and same-machine gating.
 3. **Server-hosted terminals.**
 4. **SSH.** SSH connector, `kit attach` for SSH destinations, the macOS
    tunnel helper and askpass bridge.
@@ -338,6 +338,7 @@ terminals.
 - A hosted tunnel or relay service.
 - TLS termination in Kit.
 - Serving more than one session protocol version.
+- Browsing the server's filesystem to choose a working directory.
 - Installing or upgrading Kit on remote hosts.
 - Several servers in one TUI process.
 - Browser clients and cookie sessions.
