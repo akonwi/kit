@@ -11,6 +11,10 @@ import SwiftUI
 ///   editor, or transcript) focuses that tile.
 /// - Opening an overlay remembers the first responder, and closing it
 ///   returns focus there unless the overlay moved focus itself.
+/// - With focus following the pointer, moving the pointer into a tile
+///   focuses it, unless an overlay, sheet, or tab drag is in the way. Only
+///   movement counts: a tile that moves under a still pointer stays put, and
+///   a held button sends drags, not moves.
 ///
 /// Hidden tabs stay mounted at zero opacity with hit testing off. SwiftUI
 /// keeps their AppKit views out of hit testing but not out of the view tree,
@@ -57,6 +61,31 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
 
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        /// Reports pointer moves over the tiles. The area is geometric, so
+        /// it sees moves even though the tiles cover this view.
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+                                           owner: self, userInfo: nil))
+        }
+
+        override func mouseMoved(with event: NSEvent) {
+            super.mouseMoved(with: event)
+            guard WorkspacePreferences.focusFollowsPointer else { return }
+            pointerMoved(to: convert(event.locationInWindow, from: nil))
+        }
+
+        /// Focuses the visible tile under `point`, in this view's coordinates.
+        /// Tracking runs only in the key window.
+        func pointerMoved(to point: NSPoint) {
+            guard let window, let workspace, window.attachedSheet == nil,
+                  !overlayOpen(), workspace.tabDrag == nil, Self.isVisible(self),
+                  let tile = workspace.visibleTiles.first(where: { frames[$0]?.contains(point) == true }),
+                  tile != workspace.focusedTile else { return }
+            workspace.focus(tile: tile)
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()

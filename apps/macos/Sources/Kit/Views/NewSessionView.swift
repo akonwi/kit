@@ -411,32 +411,48 @@ struct FormButtonStyle: ButtonStyle {
 }
 
 /// A 36 × 20 pt switch: the accent track with a white knob on the right when
-/// on, the strong border track with a text-coloured knob when off.
+/// on, the strong border track with a text-coloured knob when off. The
+/// switch leads its label, or trails it as in a settings row.
 struct FormSwitchStyle: ToggleStyle {
-    func makeBody(configuration: Configuration) -> some View { FormSwitch(configuration: configuration) }
+    var trailing = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        FormSwitch(configuration: configuration, trailing: trailing)
+    }
 
     private struct FormSwitch: View {
         @Environment(\.mica) private var theme
         @Environment(\.isEnabled) private var enabled
         let configuration: Configuration
+        let trailing: Bool
 
         var body: some View {
             Button { configuration.isOn.toggle() } label: {
-                HStack(spacing: 10) {
-                    ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-                        RoundedRectangle(cornerRadius: 3).fill(configuration.isOn ? theme.accent : theme.strongBorder)
-                        RoundedRectangle(cornerRadius: 2).fill(configuration.isOn ? Color.white : theme.text)
-                            .frame(width: 14, height: 14).padding(3)
+                HStack(spacing: trailing ? 12 : 10) {
+                    if trailing {
+                        configuration.label
+                        Spacer(minLength: 0)
+                        track
+                    } else {
+                        track
+                        configuration.label
+                        Spacer(minLength: 0)
                     }
-                    .frame(width: 36, height: 20)
-                    configuration.label
-                    Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .opacity(enabled ? 1 : 0.45)
             .accessibilityRepresentation { Toggle(isOn: configuration.$isOn) { configuration.label } }
+        }
+
+        private var track: some View {
+            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                RoundedRectangle(cornerRadius: 3).fill(configuration.isOn ? theme.accent : theme.strongBorder)
+                RoundedRectangle(cornerRadius: 2).fill(configuration.isOn ? Color.white : theme.text)
+                    .frame(width: 14, height: 14).padding(3)
+            }
+            .frame(width: 36, height: 20)
         }
     }
 }

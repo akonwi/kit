@@ -14,6 +14,7 @@ struct SettingsView: View {
         HStack(spacing: 0) {
             VStack(spacing: 6) {
                 section("Appearance", icon: .circleHalf, id: "appearance", theme: theme)
+                section("Workspace", icon: .squareSplitHorizontal, id: "workspace", theme: theme)
                 section("Models", icon: .stack, id: "models", theme: theme)
                 section("Providers", icon: .plugsConnected, id: "providers", theme: theme)
                 Spacer()
@@ -29,6 +30,8 @@ struct SettingsView: View {
                         ThemeSettingsView(library: themeLibrary)
                         Divider()
                         TypographySettingsView()
+                    } else if selection == "workspace" {
+                        WorkspaceSettingsView()
                     } else if selection == "providers" {
                         ProviderSettingsView()
                     } else {

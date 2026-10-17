@@ -107,6 +107,17 @@ private struct FocusHarness: View {
     }
 
     var responder: String? { (window.firstResponder as? ProbeTextView)?.name }
+
+    var bridge: WorkspaceFocusBridge.BridgeView {
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        return all(host).compactMap { $0 as? WorkspaceFocusBridge.BridgeView }.first!
+    }
+
+    /// Moves the pointer to the center of `tile`, as the bridge's tracking reports it.
+    func movePointer(into tile: UUID) {
+        let frame = workspace.root.layout(in: bridge.bounds, gap: tileGap).tiles[tile]!
+        bridge.pointerMoved(to: NSPoint(x: frame.midX, y: frame.midY))
+    }
 }
 
 @MainActor struct WorkspaceFocusBridgeTests {
@@ -210,6 +221,39 @@ private struct FocusHarness: View {
         fixture.overlay.open = false
         try await fixture.settle()
         #expect(fixture.responder == "scratchpad")
+    }
+
+    @Test func movingThePointerIntoATileFocusesItAndMovesTheKeyboard() async throws {
+        let fixture = try await Fixture()
+        fixture.window.makeKeyAndOrderFront(nil)
+        fixture.workspace.select(.scratchpad)
+        try await fixture.settle()
+        #expect(fixture.responder == "scratchpad")
+
+        fixture.movePointer(into: fixture.right)
+        try await fixture.settle()
+        #expect(fixture.workspace.focusedTile == fixture.right)
+        #expect(fixture.responder == "file:a.swift")
+        fixture.window.orderOut(nil)
+    }
+
+    @Test func thePointerDoesNotFocusUnderAnOverlayOrDuringATabDrag() async throws {
+        let fixture = try await Fixture()
+        fixture.window.makeKeyAndOrderFront(nil)
+        fixture.workspace.select(.scratchpad)
+        try await fixture.settle()
+
+        fixture.overlay.open = true
+        try await fixture.settle()
+        fixture.movePointer(into: fixture.right)
+        #expect(fixture.workspace.focusedTile == fixture.left)
+        fixture.overlay.open = false
+        try await fixture.settle()
+
+        fixture.workspace.tabDrag = .init(pane: .scratchpad, location: .zero, target: nil)
+        fixture.movePointer(into: fixture.right)
+        #expect(fixture.workspace.focusedTile == fixture.left)
+        fixture.window.orderOut(nil)
     }
 
     @Test func anOpenedPaneReceivesTheKeyboard() async throws {
