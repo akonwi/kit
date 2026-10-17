@@ -23,22 +23,28 @@ type OpenCodeGo struct {
 	APIKeySource APIKeySource
 	BaseURL      string
 	HTTPClient   *http.Client
+	// ErrorReporter receives raw provider transport and stream failures.
+	ErrorReporter ProviderErrorReporter
 }
 
 func (c OpenCodeGo) build() (providerEntry, error) {
-	if c.APIKey != "" && c.APIKeySource != nil {
-		return providerEntry{}, fmt.Errorf("droids: OpenCode Go requires at most one API key source")
+	return buildOpenCodeProvider("opencode-go", "opencode-go", "OpenCode Go", defaultOpenCodeGoBaseURL,
+		c.APIKey, c.APIKeySource, c.BaseURL, c.HTTPClient, c.ErrorReporter, openCodeGoImagePolicy)
+}
+
+func buildOpenCodeProvider(id, catalogID, name, defaultBaseURL, apiKey string, apiKeySource APIKeySource, configuredBaseURL string, httpClient *http.Client, errorReporter ProviderErrorReporter, imagePolicy func(Model) ImagePolicy) (providerEntry, error) {
+	if apiKey != "" && apiKeySource != nil {
+		return providerEntry{}, fmt.Errorf("droids: %s requires at most one API key source", name)
 	}
-	baseURL := strings.TrimRight(c.BaseURL, "/")
+	baseURL := strings.TrimRight(configuredBaseURL, "/")
 	if baseURL == "" {
-		baseURL = defaultOpenCodeGoBaseURL
+		baseURL = defaultBaseURL
 	}
-	source := c.APIKeySource
-	if c.APIKey != "" {
-		source = func(context.Context) (string, error) { return c.APIKey, nil }
+	source := apiKeySource
+	if apiKey != "" {
+		source = func(context.Context) (string, error) { return apiKey, nil }
 	}
 	headers := map[string]string{"User-Agent": "kit/1.0"}
-	httpClient := c.HTTPClient
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -48,8 +54,8 @@ func (c OpenCodeGo) build() (providerEntry, error) {
 		transport = http.DefaultTransport
 	}
 	wrappedClient.Transport = openCodeSessionTransport{base: transport}
-	openAIEntry, err := (OpenAI{APIKeySource: source, BaseURL: baseURL, ID: "opencode-go", Headers: headers,
-		Options: []openaioption.RequestOption{openaioption.WithHTTPClient(&wrappedClient)}}).build()
+	openAIEntry, err := (OpenAI{APIKeySource: source, BaseURL: baseURL, ID: id, Headers: headers,
+		Options: []openaioption.RequestOption{openaioption.WithHTTPClient(&wrappedClient)}, ErrorReporter: errorReporter}).build()
 	if err != nil {
 		return providerEntry{}, err
 	}
@@ -57,24 +63,24 @@ func (c OpenCodeGo) build() (providerEntry, error) {
 	// directly beneath the advertised /v1 base URL.
 	anthropicBaseURL := strings.TrimSuffix(baseURL, "/v1")
 	// Upstream vendors behind the gateway do not all accept cache_control.
-	anthropicEntry, err := (Anthropic{APIKeySource: source, BaseURL: anthropicBaseURL, ID: "opencode-go", Headers: headers,
+	anthropicEntry, err := (Anthropic{APIKeySource: source, BaseURL: anthropicBaseURL, ID: id, Headers: headers,
 		Options:              []anthropicoption.RequestOption{anthropicoption.WithoutEnvironmentDefaults(), anthropicoption.WithHTTPClient(&wrappedClient)},
 		DisablePromptCaching: true}).build()
 	if err != nil {
 		return providerEntry{}, err
 	}
 	models := map[string]Model{}
-	for _, model := range catalogModels(builtinModelCatalog, "opencode-go", "opencode-go") {
+	for _, model := range catalogModels(builtinModelCatalog, catalogID, id) {
 		model.BaseURL = baseURL
 		models[model.ID] = model
 	}
-	impl := &openCodeGoProvider{baseURL: baseURL, keySource: source, client: &wrappedClient,
-		responses: openAIEntry.stream, messages: anthropicEntry.stream}
+	impl := &openCodeGoProvider{name: name, baseURL: baseURL, keySource: source, client: &wrappedClient,
+		responses: openAIEntry.stream, messages: anthropicEntry.stream, errorReporter: errorReporter}
 	if impl.client == nil {
 		impl.client = http.DefaultClient
 	}
-	return providerEntry{id: "opencode-go", catalogID: "opencode-go", baseURL: baseURL, models: models,
-		stream: impl.stream, validateReplay: impl.validateReplay, imagePolicy: openCodeGoImagePolicy}, nil
+	return providerEntry{id: id, catalogID: catalogID, baseURL: baseURL, models: models,
+		stream: impl.stream, validateReplay: impl.validateReplay, imagePolicy: imagePolicy}, nil
 }
 
 // OpenCode Go image envelope (ADR 0037). The gateway forwards requests to one
@@ -144,11 +150,13 @@ func openCodeGoImagePolicy(model Model) ImagePolicy {
 }
 
 type openCodeGoProvider struct {
-	baseURL   string
-	keySource APIKeySource
-	client    *http.Client
-	responses streamFn
-	messages  streamFn
+	name          string
+	baseURL       string
+	keySource     APIKeySource
+	client        *http.Client
+	responses     streamFn
+	messages      streamFn
+	errorReporter ProviderErrorReporter
 }
 
 func (p *openCodeGoProvider) validateReplay(ctx context.Context, model Model, messages []Message) error {
@@ -159,10 +167,10 @@ func (p *openCodeGoProvider) validateReplay(ctx context.Context, model Model, me
 	case ModelAPIAnthropicMessages:
 		return validateAnthropicContent(model, messages)
 	case ModelAPIOpenAIChat:
-		_, err := openCodeChatMessages("", messages)
+		_, err := openCodeChatMessagesForProvider(p.name, "", messages)
 		return err
 	default:
-		return fmt.Errorf("droids: unsupported OpenCode Go API %q", model.API)
+		return fmt.Errorf("droids: unsupported %s API %q", p.name, model.API)
 	}
 }
 
@@ -194,7 +202,7 @@ func (p *openCodeGoProvider) stream(ctx context.Context, model Model, req Reques
 		s := newPipeStream()
 		go func() {
 			defer s.finish()
-			final := responseErrorMessage(model, ctx, fmt.Sprintf("unsupported OpenCode Go API %q", model.API))
+			final := responseErrorMessage(model, ctx, fmt.Sprintf("unsupported %s API %q", p.name, model.API))
 			final.ErrorKind = ErrorProtocol
 			s.final = final
 			s.emit(StreamError{Message: final})
@@ -212,10 +220,10 @@ func (p *openCodeGoProvider) runChat(ctx context.Context, model Model, request R
 		key, err = p.keySource(ctx)
 	}
 	if err != nil || key == "" {
-		p.chatError(ctx, model, s, ErrorAuthentication, "OpenCode Go credentials are unavailable")
+		p.chatError(ctx, model, s, ErrorAuthentication, p.name+" credentials are unavailable")
 		return
 	}
-	messages, err := openCodeChatMessages(request.SystemPrompt, request.Messages)
+	messages, err := openCodeChatMessagesForProvider(p.name, request.SystemPrompt, request.Messages)
 	if err != nil {
 		p.chatError(ctx, model, s, ErrorProtocol, err.Error())
 		return
@@ -255,19 +263,26 @@ func (p *openCodeGoProvider) runChat(ctx context.Context, model Model, request R
 	}
 	response, err := p.client.Do(httpRequest)
 	if err != nil {
+		p.reportError(ctx, model, err)
 		p.chatError(ctx, model, s, ErrorTransport, err.Error())
 		return
 	}
 	defer response.Body.Close()
 	if response.StatusCode/100 != 2 {
 		data, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-		kind := ErrorTransport
-		if response.StatusCode == 401 || response.StatusCode == 403 {
+		message := strings.TrimSpace(string(data))
+		p.reportError(ctx, model, fmt.Errorf("%s returned HTTP %d: %s", p.name, response.StatusCode, boundedDiagnostic(message)))
+		kind := ProviderInvalidRequest
+		if response.StatusCode == 401 {
 			kind = ErrorAuthentication
+		} else if response.StatusCode == 403 {
+			kind = ErrorEntitlement
 		} else if response.StatusCode == 429 {
 			kind = ErrorRateLimit
+		} else if response.StatusCode >= 500 {
+			kind = ProviderInternal
 		}
-		p.chatError(ctx, model, s, kind, strings.TrimSpace(string(data)))
+		p.chatError(ctx, model, s, kind, message)
 		return
 	}
 	p.consumeChat(ctx, model, response.Body, s)
@@ -322,7 +337,7 @@ func (p *openCodeGoProvider) consumeChat(ctx context.Context, model Model, body 
 		}
 		var chunk openCodeChatChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			p.chatError(ctx, model, s, ErrorProtocol, "invalid OpenCode Go stream event")
+			p.chatError(ctx, model, s, ErrorProtocol, "invalid "+p.name+" stream event")
 			return
 		}
 		if chunk.ID != "" {
@@ -389,6 +404,7 @@ func (p *openCodeGoProvider) consumeChat(ctx context.Context, model Model, body 
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		p.reportError(ctx, model, err)
 		p.chatError(ctx, model, s, ErrorTransport, err.Error())
 		return
 	}
@@ -403,9 +419,15 @@ func (p *openCodeGoProvider) consumeChat(ctx context.Context, model Model, body 
 	s.emit(StreamDone{Message: final})
 }
 
+func (p *openCodeGoProvider) reportError(ctx context.Context, model Model, err error) {
+	if p.errorReporter != nil {
+		p.errorReporter(ctx, model, err)
+	}
+}
+
 func (p *openCodeGoProvider) chatError(ctx context.Context, model Model, s *pipeStream, kind ErrorKind, message string) {
 	if message == "" {
-		message = "OpenCode Go request failed"
+		message = p.name + " request failed"
 	}
 	final := responseErrorMessage(model, ctx, message)
 	if final.StopReason != StopReasonAborted {
@@ -416,6 +438,10 @@ func (p *openCodeGoProvider) chatError(ctx context.Context, model Model, s *pipe
 }
 
 func openCodeChatMessages(system string, messages []Message) ([]any, error) {
+	return openCodeChatMessagesForProvider("OpenCode Go", system, messages)
+}
+
+func openCodeChatMessagesForProvider(providerName, system string, messages []Message) ([]any, error) {
 	result := []any{}
 	if system != "" {
 		result = append(result, map[string]any{"role": "system", "content": system})
@@ -434,7 +460,7 @@ func openCodeChatMessages(system string, messages []Message) ([]any, error) {
 					parts = append(parts, map[string]any{"type": "text", "text": item.Text})
 				case FileInput:
 					if !strings.HasPrefix(strings.ToLower(item.MediaType), "image/") {
-						return nil, fmt.Errorf("droids: OpenCode Go Chat Completions supports only text and image input")
+						return nil, fmt.Errorf("droids: %s Chat Completions supports only text and image input", providerName)
 					}
 					parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": item.URL}})
 				}
@@ -448,7 +474,7 @@ func openCodeChatMessages(system string, messages []Message) ([]any, error) {
 					text = append(text, item.Text)
 				case FileInput:
 					// Image preparation replaces context images with a placeholder.
-					return nil, fmt.Errorf("droids: OpenCode Go Chat Completions cannot send %s files in context messages", item.MediaType)
+					return nil, fmt.Errorf("droids: %s Chat Completions cannot send %s files in context messages", providerName, item.MediaType)
 				}
 			}
 			result = append(result, map[string]any{"role": "user", "content": strings.Join(text, "\n")})
@@ -477,7 +503,7 @@ func openCodeChatMessages(system string, messages []Message) ([]any, error) {
 					text = append(text, item.Text)
 				case FileContent:
 					// Image preparation replaces tool-result images with a placeholder.
-					return nil, fmt.Errorf("droids: OpenCode Go Chat Completions cannot send %s files in tool results", item.MediaType)
+					return nil, fmt.Errorf("droids: %s Chat Completions cannot send %s files in tool results", providerName, item.MediaType)
 				}
 			}
 			result = append(result, map[string]any{"role": "tool", "tool_call_id": value.ProviderCallID, "content": strings.Join(text, "\n")})

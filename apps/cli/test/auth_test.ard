@@ -209,11 +209,14 @@ test fn api_key_provider_submits_its_store_id_and_reports_success() Void!Str {
   press(terminal, "down")
   press(terminal, "down")
   try testing::assert(
-    strings::HasPrefix(selected_row(terminal), "OpenCode Go"),
-    "selection reaches OpenCode Go: {selected_row(terminal)}",
+    strings::HasPrefix(selected_row(terminal), "OpenCode Zen"),
+    "selection reaches OpenCode Zen: {selected_row(terminal)}",
   )
   press(terminal, "return")
-  try testing::assert(wait_for_text(terminal, "Connect OpenCode Go"), "activation opens the API-key step")
+  try testing::assert(
+    wait_for_text(terminal, "Connect OpenCode Zen"),
+    "activation opens the API-key step",
+  )
 
   // The key field owns focus on its first render.
   type_text(terminal, "sk-test")
@@ -226,7 +229,7 @@ test fn api_key_provider_submits_its_store_id_and_reports_success() Void!Str {
   }
   try testing::assert(model.authenticated == 1, "an installed credential is reported once")
   try testing::assert(
-    model.api_provider == "opencode-go",
+    model.api_provider == "opencode",
     "the store provider ID is submitted: {model.api_provider}",
   )
   testing::assert(model.api_key == "sk-test", "the entered key is submitted: {model.api_key}")
@@ -349,6 +352,7 @@ test fn a_browser_login_without_the_redirect_takes_one_pasted_code() Void!Str {
   defer renderer.destroy()
   terminal.flush()
 
+  press(terminal, "down")
   press(terminal, "down")
   press(terminal, "down")
   press(terminal, "down")

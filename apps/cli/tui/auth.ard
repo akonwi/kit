@@ -141,6 +141,15 @@ fn provider_catalog() [palette::Item] {
     },
     palette::Item{
       key: "opencode",
+      label: "OpenCode Zen",
+      description: "API key",
+      hint: "",
+      meta: "",
+      search_terms: ["api key"],
+      disabled_reason: "",
+    },
+    palette::Item{
+      key: "opencode-go",
       label: "OpenCode Go",
       description: "API key",
       hint: "",
@@ -164,7 +173,8 @@ fn provider_label(key: Str) Str {
   match key {
     "anthropic" => "Anthropic",
     "openai" => "OpenAI",
-    "opencode" => "OpenCode Go",
+    "opencode" => "OpenCode Zen",
+    "opencode-go" => "OpenCode Go",
     "codex" => "OpenAI Codex",
     "claude" => "Claude",
     _ => "provider",
@@ -173,10 +183,7 @@ fn provider_label(key: Str) Str {
 
 // provider_id maps a catalog key to its credential-store provider ID.
 fn provider_id(key: Str) Str {
-  match key {
-    "opencode" => "opencode-go",
-    _ => key,
-  }
+  key
 }
 
 private fn device_remaining_seconds(expires_at_ms: Int64) Int64 {

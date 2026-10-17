@@ -159,6 +159,10 @@ func (p *adaptedProvider) ImagePolicy(model Model) ImagePolicy {
 	return p.imagePolicy(model).clone()
 }
 
+// ProviderErrorReporter receives the original provider or transport error before
+// it is normalized for durable state and user-facing presentation.
+type ProviderErrorReporter func(context.Context, Model, error)
+
 // ProviderConfig constructs one provider capability for NewProviders.
 type ProviderConfig interface {
 	build() (providerEntry, error)

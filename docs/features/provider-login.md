@@ -14,11 +14,12 @@ attached by URL.
 | OpenAI Codex (ChatGPT plan) | `openai-codex` | device code |
 | Anthropic | `anthropic` | Claude Pro or Max in a browser, or an API key |
 | OpenAI | `openai` | API key |
+| OpenCode Zen | `opencode` | API key |
 | OpenCode Go | `opencode-go` | API key |
 
 Environment variables in the server's environment take precedence over saved
 credentials: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` or `ANTHROPIC_OAUTH_TOKEN`,
-`OPENCODE_API_KEY`, and the `OPENAI_CODEX_*` variables. The server reads them
+`OPENCODE_API_KEY` (for both OpenCode providers), and the `OPENAI_CODEX_*` variables. The server reads them
 when it starts, and logins, API keys, and logout for such a provider are
 refused, since they would have no effect.
 

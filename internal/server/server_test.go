@@ -35,8 +35,9 @@ func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
 	}
 	t.Setenv("OPENAI_CODEX_ACCESS_TOKEN", "test-access")
 	t.Setenv("OPENAI_CODEX_ACCOUNT_ID", "test-account")
+	t.Setenv("OPENCODE_API_KEY", "test-opencode")
 
-	providers, sources, err := providersFromEnvironment(context.Background(), apphome.FromHome(filepath.Join(t.TempDir(), "kit")))
+	providers, sources, err := providersFromEnvironment(context.Background(), apphome.FromHome(filepath.Join(t.TempDir(), "kit")), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,20 @@ func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
 		t.Fatalf("Codex model = %#v, %v", model, ok)
 	}
 	if source := sources[auth.OpenAICodexProviderID]; source != localdiscovery.CredentialSourceEnvironment {
-		t.Fatalf("credential source = %q", source)
+		t.Fatalf("Codex credential source = %q", source)
+	}
+	for _, providerID := range []string{auth.OpenCodeProviderID, auth.OpenCodeGoProviderID} {
+		if source := sources[providerID]; source != localdiscovery.CredentialSourceEnvironment {
+			t.Fatalf("credential source for %s = %q", providerID, source)
+		}
+	}
+	available := availableProviderIDs(t.Context(), apphome.FromHome(filepath.Join(t.TempDir(), "kit")), sources)
+	if !slices.Contains(available, auth.OpenCodeProviderID) || !slices.Contains(available, auth.OpenCodeGoProviderID) {
+		t.Fatalf("OpenCode providers unavailable with OPENCODE_API_KEY: %v", available)
+	}
+	ids := droids.ProviderIDs(providers)
+	if slices.Index(ids, auth.OpenCodeGoProviderID) > slices.Index(ids, auth.OpenCodeProviderID) {
+		t.Fatalf("provider order reroutes bare selectors to Zen: %v", ids)
 	}
 }
 
@@ -57,14 +71,14 @@ func TestProvidersFromEnvironmentUsesCredentialStoreByDefault(t *testing.T) {
 	} {
 		t.Setenv(name, "")
 	}
-	providers, sources, err := providersFromEnvironment(context.Background(), apphome.FromHome(filepath.Join(t.TempDir(), "kit")))
+	providers, sources, err := providersFromEnvironment(context.Background(), apphome.FromHome(filepath.Join(t.TempDir(), "kit")), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := providers.Model("openai-codex/gpt-5.6-sol"); !ok {
 		t.Fatal("stored-credential Codex provider was not registered")
 	}
-	for _, providerID := range []string{auth.OpenAIProviderID, auth.AnthropicProviderID, auth.OpenCodeGoProviderID, auth.OpenAICodexProviderID} {
+	for _, providerID := range []string{auth.OpenAIProviderID, auth.AnthropicProviderID, auth.OpenCodeProviderID, auth.OpenCodeGoProviderID, auth.OpenAICodexProviderID} {
 		if source := sources[providerID]; source != localdiscovery.CredentialSourceStore {
 			t.Fatalf("credential source for %s = %q", providerID, source)
 		}
@@ -87,15 +101,18 @@ func TestProvidersFromEnvironmentLoadsStoredAPIKeys(t *testing.T) {
 	if err := store.ReplaceAPIKey(context.Background(), auth.AnthropicProviderID, "anthropic-secret"); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.ReplaceAPIKey(context.Background(), auth.OpenCodeProviderID, "opencode-secret"); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.ReplaceAPIKey(context.Background(), auth.OpenCodeGoProviderID, "opencode-go-secret"); err != nil {
 		t.Fatal(err)
 	}
-	_, sources, err := providersFromEnvironment(context.Background(), paths)
+	_, sources, err := providersFromEnvironment(context.Background(), paths, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := availableProviderIDs(context.Background(), paths, sources)
-	if want := []string{auth.AnthropicProviderID, auth.OpenAIProviderID, auth.OpenCodeGoProviderID}; !slices.Equal(got, want) {
+	if want := []string{auth.AnthropicProviderID, auth.OpenAIProviderID, auth.OpenCodeProviderID, auth.OpenCodeGoProviderID}; !slices.Equal(got, want) {
 		t.Fatalf("available providers = %v, want %v", got, want)
 	}
 }
@@ -111,7 +128,7 @@ func TestProvidersFromEnvironmentDiscoversStoredAnthropicOAuth(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, sources, err := providersFromEnvironment(context.Background(), paths)
+	_, sources, err := providersFromEnvironment(context.Background(), paths, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +140,7 @@ func TestProvidersFromEnvironmentDiscoversStoredAnthropicOAuth(t *testing.T) {
 func TestProvidersFromEnvironmentRejectsInvalidCodexMetadata(t *testing.T) {
 	t.Setenv("OPENAI_CODEX_ACCESS_TOKEN", "test-access")
 	t.Setenv("OPENAI_CODEX_FEDRAMP", "not-a-bool")
-	if _, _, err := providersFromEnvironment(context.Background(), apphome.FromHome(filepath.Join(t.TempDir(), "kit"))); err == nil {
+	if _, _, err := providersFromEnvironment(context.Background(), apphome.FromHome(filepath.Join(t.TempDir(), "kit")), nil); err == nil {
 		t.Fatal("invalid OPENAI_CODEX_FEDRAMP was accepted")
 	}
 }

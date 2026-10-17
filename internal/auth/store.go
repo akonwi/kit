@@ -27,6 +27,8 @@ const (
 	OpenAIProviderID = "openai"
 	// AnthropicProviderID is the canonical auth-file key for the Anthropic API.
 	AnthropicProviderID = "anthropic"
+	// OpenCodeProviderID is the canonical auth-file key for OpenCode Zen.
+	OpenCodeProviderID = "opencode"
 	// OpenCodeGoProviderID is the canonical auth-file key for OpenCode Go.
 	OpenCodeGoProviderID = "opencode-go"
 	// OpenAICodexProviderID is the canonical auth-file key for ChatGPT Codex.
@@ -564,7 +566,7 @@ func encodeAPIKeyCredential(apiKey, revision string) (json.RawMessage, error) {
 }
 
 func supportedAPIKeyProvider(providerID string) bool {
-	return providerID == OpenAIProviderID || providerID == AnthropicProviderID || providerID == OpenCodeGoProviderID
+	return providerID == OpenAIProviderID || providerID == AnthropicProviderID || providerID == OpenCodeProviderID || providerID == OpenCodeGoProviderID
 }
 
 func validateAPIKey(apiKey string) error {
