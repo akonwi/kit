@@ -157,7 +157,7 @@ struct PaletteCommand: Identifiable {
 
     /// The TUI's built-in commands, then the Mac's tile commands. Optional
     /// rows appear only where they apply.
-    static func builtIns(dark: Bool, scratchpad: Bool = true, temporary: Bool = false) -> [Self] {
+    static func builtIns(scratchpad: Bool = true, temporary: Bool = false) -> [Self] {
         var rows: [Self] = [
             .init(id: "cd", name: "cd", hint: "[path]", description: "Change working directory", searchTerms: ["cwd", "directory", "folder"]),
             .init(id: "compact", name: "compact", description: "Compact session context", searchTerms: ["summarize", "shrink"]),
@@ -178,7 +178,6 @@ struct PaletteCommand: Identifiable {
             .init(id: "tabs", name: "tabs", description: "Open a workspace tab", searchTerms: ["panes", "workspace"]),
             .init(id: "theme", name: "theme", description: "Choose UI colors", searchTerms: ["appearance", "colors"]),
             .init(id: "thinking", name: "thinking", description: "Change reasoning effort", searchTerms: ["reasoning", "effort"]),
-            .init(id: "appearance", name: "appearance", description: "Switch to \(dark ? "light" : "dark") appearance", searchTerms: ["dark", "light", "mode"]),
             .init(id: "browser", name: "browser", hint: "[url]", description: "Open a web page in a browser tab", searchTerms: ["web", "url", "page", "localhost"]),
             .init(id: "split-right", name: "split-right", description: "Move the selected tab into a new tile on the right", searchTerms: ["tile"]),
             .init(id: "split-down", name: "split-down", description: "Move the selected tab into a new tile below", searchTerms: ["tile"]),

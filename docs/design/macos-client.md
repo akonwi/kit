@@ -133,7 +133,7 @@ The palette opens with ⌘P, or by typing / into an empty composer. It sits
 a quarter of the window's height below its top, like the TUI's pickers,
 centred on the window, with no scrim, so the
 workspace stays readable behind it. It lists the TUI's catalog (built-in,
-prompt, and plugin commands) plus the Mac's appearance and tile commands, sorted
+prompt, and plugin commands) plus the Mac's browser and tile commands, sorted
 by name, in the TUI's row layout: monospace name, argument hint, description,
 and the prompt's source or the command's plugin on the right. Plugin commands
 show their name within the plugin. A command that can't run now stays listed,

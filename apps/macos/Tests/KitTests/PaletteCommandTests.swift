@@ -5,18 +5,18 @@ import Testing
 
 struct PaletteCommandTests {
     @Test func catalogListsTheTUICommandsThenTileCommands() {
-        let names = PaletteCommand.builtIns(dark: true).map(\.name)
+        let names = PaletteCommand.builtIns().map(\.name)
         #expect(names == [
             "cd", "compact", "debug", "diff", "files", "fork", "login", "mcp", "model", "name", "new", "quit",
             "refresh-models", "reload", "sessions", "subagents", "tabs", "theme", "thinking",
-            "appearance", "browser", "split-right", "split-down", "zoom", "equalize", "join-tabs", "scratchpad"
+            "browser", "split-right", "split-down", "zoom", "equalize", "join-tabs", "scratchpad"
         ])
-        #expect(PaletteCommand.builtIns(dark: true, scratchpad: false).contains { $0.name == "scratchpad" } == false)
-        #expect(PaletteCommand.builtIns(dark: true, temporary: true).last?.name == "dispose")
+        #expect(PaletteCommand.builtIns(scratchpad: false).contains { $0.name == "scratchpad" } == false)
+        #expect(PaletteCommand.builtIns(temporary: true).last?.name == "dispose")
     }
 
     @Test func builtInsCarryTheTUIArgumentHintsAndDescriptions() {
-        let rows = Dictionary(uniqueKeysWithValues: PaletteCommand.builtIns(dark: false).map { ($0.name, $0) })
+        let rows = Dictionary(uniqueKeysWithValues: PaletteCommand.builtIns().map { ($0.name, $0) })
         #expect(rows["cd"]?.hint == "[path]")
         #expect(rows["fork"]?.hint == "[message]")
         #expect(rows["name"]?.hint == "[name]")
@@ -24,7 +24,6 @@ struct PaletteCommandTests {
         #expect(rows["diff"]?.description == "Review working-tree changes")
         #expect(rows["scratchpad"]?.description == "Open shared working notes")
         #expect(rows["subagents"]?.description == "Inspect delegated work")
-        #expect(rows["appearance"]?.description == "Switch to dark appearance")
     }
 
     @Test func builtInsPromptsAndPluginsSortTogetherIgnoringCase() {
@@ -35,7 +34,7 @@ struct PaletteCommandTests {
             PromptCommand(name: "diff", description: "Shadow", source: "project", location: "/repo/diff.md")
         ]
         let plugin = PluginCommand(id: "demo.echo", instance: "host:1", description: "Echo", argName: nil)
-        let rows = PaletteCommand.catalog(builtIns: PaletteCommand.builtIns(dark: true), prompts: prompts, plugins: [plugin])
+        let rows = PaletteCommand.catalog(builtIns: PaletteCommand.builtIns(), prompts: prompts, plugins: [plugin])
         #expect(rows.map { $0.name.lowercased() } == rows.map { $0.name.lowercased() }.sorted())
         #expect(rows.filter { ["alpha", "cd", "echo", "reload", "Review"].contains($0.name) }.map(\.name)
                 == ["alpha", "cd", "echo", "reload", "Review"])
@@ -77,7 +76,7 @@ struct PaletteCommandTests {
     @Test func filteringRanksNamesFirstAndIgnoresArguments() {
         let review = PromptCommand(name: "review", description: "Review recent changes", source: "project",
                                    location: "/repo/review.md", argumentHint: "<scope>")
-        let rows = PaletteCommand.catalog(builtIns: PaletteCommand.builtIns(dark: true), prompts: [review])
+        let rows = PaletteCommand.catalog(builtIns: PaletteCommand.builtIns(), prompts: [review])
         // Board 8: the exact name, then the built-in whose description starts with it.
         #expect(PaletteCommand.filter(rows, query: "review auth module").map(\.name) == ["review", "diff"])
         #expect(PaletteCommand.filter(rows, query: "rel").first?.name == "reload")
@@ -118,7 +117,7 @@ struct PaletteCommandTests {
             PluginCommand(id: "jj.status", instance: "host:1", description: "Jujutsu status", argName: nil),
             PluginCommand(id: "git.diff", instance: "host:1", description: "Git diff", argName: nil)
         ]
-        let catalog = PaletteCommand.catalog(builtIns: PaletteCommand.builtIns(dark: true), plugins: plugins)
+        let catalog = PaletteCommand.catalog(builtIns: PaletteCommand.builtIns(), plugins: plugins)
         for id in ["plugin:jj.status:host:1", "plugin:git.diff:host:1", "diff"] {
             let row = catalog.first { $0.id == id }!
             let query = row.name + " "

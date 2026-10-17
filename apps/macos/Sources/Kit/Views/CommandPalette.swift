@@ -7,7 +7,6 @@ struct CommandPalette: View {
     @Environment(\.mica) private var theme
     @Environment(\.sessionNavigation) private var navigation
     @Environment(\.openSettings) private var openSettings
-    @AppStorage("appearance") private var appearance = "system"
     @Bindable var state: SessionStore
     let openFork: (String) -> Void
     @State private var screen = Screen.commands
@@ -27,7 +26,7 @@ struct CommandPalette: View {
 
     private var catalog: [PaletteCommand] {
         PaletteCommand.catalog(
-            builtIns: PaletteCommand.builtIns(dark: theme.dark, scratchpad: state.canOpenScratchpad,
+            builtIns: PaletteCommand.builtIns(scratchpad: state.canOpenScratchpad,
                                               temporary: state.isTemporary),
             prompts: state.selected?.promptCommands ?? [],
             plugins: state.pluginCommands
@@ -197,7 +196,6 @@ struct CommandPalette: View {
             case "quit": NSApp.terminate(nil)
             case "theme": openSettings()
             case "login": close(); SettingsSection.providers.open(with: openSettings)
-            case "appearance": appearance = theme.dark ? "light" : "dark"
             case "split-right": workspace.split(workspace.selected, .right)
             case "split-down": workspace.split(workspace.selected, .bottom)
             case "zoom": workspace.toggleZoom()

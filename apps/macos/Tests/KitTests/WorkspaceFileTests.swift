@@ -44,7 +44,7 @@ struct WorkspaceFileTests {
         #expect(WorkspaceFileError.response(415).errorDescription == "Binary files cannot be previewed.")
     }
     @MainActor @Test func filesCommandOpensAndReusesRetainedTabs() throws {
-        let command = try #require(PaletteCommand.builtIns(dark: false).first { $0.name == "files" })
+        let command = try #require(PaletteCommand.builtIns().first { $0.name == "files" })
         #expect(command.description == "Open a workspace file")
         let workspace = WorkspaceState(demo: false)
         workspace.open(.file("main.swift"))
