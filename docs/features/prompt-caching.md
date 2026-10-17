@@ -32,8 +32,8 @@ Anthropic's API:
 - API-key requests to a custom `ANTHROPIC_BASE_URL`, because gateways and
   proxies may reject it. Claude subscription requests always go to Anthropic's
   API and are cached regardless.
-- OpenCode Go models that use the Messages API (such as MiniMax M3), because
-  not every upstream vendor behind the gateway accepts it.
+- OpenCode Zen and Go models that use the Messages API, because not every
+  upstream vendor behind the gateways accepts it.
 
 ### Retention
 
@@ -64,7 +64,7 @@ setting for every request, so a change applies to the next request.
 
 Prompt caching is endpoint-specific. Kit sends cache controls only to the
 public Responses API (`https://api.openai.com/v1`). A custom `OPENAI_BASE_URL`,
-OpenCode Go, and the ChatGPT Codex endpoint keep their existing requests:
+OpenCode Zen and Go, and the ChatGPT Codex endpoint keep their existing requests:
 Codex and gateways are not sent `prompt_cache_options` or
 `prompt_cache_retention`, because those fields are not verified there and a
 gateway may reject them. Implicit provider caching can still happen, and Kit

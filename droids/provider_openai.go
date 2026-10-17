@@ -42,6 +42,8 @@ type OpenAI struct {
 	ID string
 	// Options are extra SDK request options, applied after the built-ins.
 	Options []option.RequestOption
+	// ErrorReporter receives raw response-stream failures before normalization.
+	ErrorReporter ProviderErrorReporter
 	// PromptCacheRetention returns the cache lifetime for each request.
 	// Nil, or any value other than PromptCacheLong, selects PromptCacheShort.
 	// Only the public Responses endpoint maps it, and only for models whose
@@ -84,7 +86,7 @@ func (c OpenAI) build() (providerEntry, error) {
 		models[model.ID] = model
 	}
 
-	impl := &openAIProvider{client: &client, apiKeySource: c.APIKeySource, options: opts, promptCacheRetention: c.PromptCacheRetention}
+	impl := &openAIProvider{client: &client, apiKeySource: c.APIKeySource, options: opts, errorReporter: c.ErrorReporter, promptCacheRetention: c.PromptCacheRetention}
 	return providerEntry{
 		id:          id,
 		catalogID:   "openai",
@@ -112,6 +114,7 @@ type openAIProvider struct {
 	client               *openai.Client
 	apiKeySource         APIKeySource
 	options              []option.RequestOption
+	errorReporter        ProviderErrorReporter
 	promptCacheRetention func() PromptCacheRetention
 }
 
@@ -152,7 +155,7 @@ func (p *openAIProvider) run(ctx context.Context, model Model, req Request, s *p
 	var response *http.Response
 	stream := client.Responses.NewStreaming(ctx, params, option.WithResponseInto(&response), option.WithMaxRetries(0))
 	defer stream.Close()
-	consumeOpenAIResponseStream(ctx, model, stream, s, openAIResponsesProfile{name: "OpenAI", classify: classifyOpenAIError, requestID: func() string {
+	consumeOpenAIResponseStream(ctx, model, stream, s, openAIResponsesProfile{name: "OpenAI", classify: classifyOpenAIError, reportError: p.errorReporter, requestID: func() string {
 		if response != nil {
 			return response.Header.Get("x-request-id")
 		}
@@ -262,6 +265,7 @@ type openAIResponseStream interface {
 
 type openAIResponsesProfile struct {
 	name          string
+	reportError   ProviderErrorReporter
 	requestID     func() string
 	providerScope string
 	classify      func(status int, code, message string) ErrorKind
@@ -420,6 +424,9 @@ func consumeOpenAIResponseStream(ctx context.Context, model Model, stream openAI
 	}
 
 	if err := stream.Err(); err != nil {
+		if profile.reportError != nil {
+			profile.reportError(ctx, model, err)
+		}
 		status, code, message, fallbackKind := openAIStreamError(err)
 		final := profile.errorMessage(model, ctx, status, code, message)
 		retainPolicyOutput(&final)

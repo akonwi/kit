@@ -35,7 +35,7 @@ func main() {
 		fatal(err)
 	}
 	selected := map[string]json.RawMessage{}
-	for _, provider := range []string{"anthropic", "openai", "opencode-go"} {
+	for _, provider := range []string{"anthropic", "openai", "opencode", "opencode-go"} {
 		entry, ok := catalog[provider]
 		if !ok {
 			fatal(fmt.Errorf("models.dev catalog has no %q provider", provider))

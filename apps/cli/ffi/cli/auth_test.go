@@ -92,6 +92,7 @@ func TestAuthCommandsLogTheServerInAndOut(t *testing.T) {
 	if got := status(); got != "openai-codex  OpenAI Codex  not logged in\n"+
 		"anthropic     Anthropic     not logged in\n"+
 		"openai        OpenAI        not logged in\n"+
+		"opencode      OpenCode Zen  not logged in\n"+
 		"opencode-go   OpenCode Go   not logged in\n" {
 		t.Fatalf("status before login =\n%s", got)
 	}

@@ -99,6 +99,20 @@ func OpenAIModel(id string) (Model, bool) {
 	return model, ok
 }
 
+// OpenCodeModels returns a fresh copy of the built-in OpenCode Zen catalog.
+func OpenCodeModels() []Model {
+	models := catalogModels(builtinModelCatalog, "opencode", "opencode")
+	setModelBaseURL(models, defaultOpenCodeBaseURL)
+	return models
+}
+
+// OpenCodeModel returns one model from the built-in OpenCode Zen catalog.
+func OpenCodeModel(id string) (Model, bool) {
+	model, ok := catalogModel(builtinModelCatalog, "opencode", "opencode", id)
+	model.BaseURL = defaultOpenCodeBaseURL
+	return model, ok
+}
+
 // OpenCodeGoModels returns a fresh copy of the built-in OpenCode Go catalog.
 func OpenCodeGoModels() []Model {
 	models := catalogModels(builtinModelCatalog, "opencode-go", "opencode-go")
@@ -198,7 +212,7 @@ func modelFromCatalog(provider modelsDevProvider, catalogID, providerID string, 
 	case "anthropic":
 		api = ModelAPIAnthropicMessages
 		reasoningMode, reasoningLevels = catalogAnthropicReasoning(source.ReasoningOptions)
-	case "opencode-go":
+	case "opencode", "opencode-go":
 		npm := catalogProviderNPM(provider, source)
 		switch npm {
 		case "@ai-sdk/openai":
@@ -215,6 +229,11 @@ func modelFromCatalog(provider modelsDevProvider, catalogID, providerID string, 
 		}
 	default:
 		return Model{}, false
+	}
+	// Some gateway Responses models always reason but expose no configurable
+	// effort. Treat them as fixed rather than dropping an otherwise usable model.
+	if catalogID == "opencode" && api == ModelAPIOpenAIResponses && source.Reasoning && len(reasoningLevels) == 0 {
+		source.Reasoning = false
 	}
 	contextWindow := source.Limit.Context
 	input := []string{"text"}

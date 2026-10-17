@@ -82,6 +82,7 @@ func TestProvidersListTheirMethodsAndCredentialSources(t *testing.T) {
 		{ID: "openai-codex", Name: "OpenAI Codex", Methods: []protocol.LoginMethod{"device"}, Source: "store"},
 		{ID: "anthropic", Name: "Anthropic", Methods: []protocol.LoginMethod{"browser", "apiKey"}, Source: "environment"},
 		{ID: "openai", Name: "OpenAI", Methods: []protocol.LoginMethod{"apiKey"}, Configured: true, Source: "store"},
+		{ID: "opencode", Name: "OpenCode Zen", Methods: []protocol.LoginMethod{"apiKey"}, Source: "store"},
 		{ID: "opencode-go", Name: "OpenCode Go", Methods: []protocol.LoginMethod{"apiKey"}, Source: "store"},
 	}
 	if len(list.Providers) != len(want) {
@@ -176,16 +177,16 @@ func TestCredentialsFromTheEnvironmentCannotBeChanged(t *testing.T) {
 
 func TestAPIKeysAndLogoutChangeTheServerStore(t *testing.T) {
 	harness := newProviderHarness(t, nil)
-	if status, code := harness.do(http.MethodPut, "/v1/providers/opencode-go/api-key", "test", protocol.ProviderAPIKeyInput{APIKey: "oc-key"}, nil); status != http.StatusNoContent {
+	if status, code := harness.do(http.MethodPut, "/v1/providers/opencode/api-key", "test", protocol.ProviderAPIKeyInput{APIKey: "oc-key"}, nil); status != http.StatusNoContent {
 		t.Fatalf("set = %d %s", status, code)
 	}
-	if record, err := harness.store.LoadAPIKey(t.Context(), auth.OpenCodeGoProviderID); err != nil || record.APIKey != "oc-key" {
+	if record, err := harness.store.LoadAPIKey(t.Context(), auth.OpenCodeProviderID); err != nil || record.APIKey != "oc-key" {
 		t.Fatalf("stored = %+v, %v", record, err)
 	}
-	if status, code := harness.do(http.MethodDelete, "/v1/providers/opencode-go/credentials", "test", nil, nil); status != http.StatusNoContent {
+	if status, code := harness.do(http.MethodDelete, "/v1/providers/opencode/credentials", "test", nil, nil); status != http.StatusNoContent {
 		t.Fatalf("logout = %d %s", status, code)
 	}
-	if record, err := harness.store.LoadAPIKey(t.Context(), auth.OpenCodeGoProviderID); err != nil || record.APIKey != "" {
+	if record, err := harness.store.LoadAPIKey(t.Context(), auth.OpenCodeProviderID); err != nil || record.APIKey != "" {
 		t.Fatalf("after logout = %+v, %v", record, err)
 	}
 	for _, request := range []struct {

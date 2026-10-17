@@ -14,7 +14,7 @@ import (
 
 // fallbackModels are tried, in order, after the default model setting when a
 // new session's request names no model.
-var fallbackModels = []string{"openai-codex/gpt-5.6-sol", "openai/gpt-5.6-sol", "anthropic/claude-sonnet-4-6"}
+var fallbackModels = []string{"openai-codex/gpt-5.6-sol", "openai/gpt-5.6-sol", "anthropic/claude-sonnet-4-6", "opencode-go/kimi-k2.7-code", "opencode/gpt-5.6-sol"}
 
 // errNoModel reports that a new session has no model to start with.
 func errNoModel() error {

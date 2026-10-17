@@ -28,7 +28,10 @@ func (p catalogProviders) Model(selector string) (droids.Model, bool) {
 
 func TestSessionDefaultsChooseAModel(t *testing.T) {
 	catalog := catalogProviders{models: []droids.Model{
+		{Provider: "opencode", ID: "beam-free"},
+		{Provider: "opencode", ID: "gpt-5.6-sol"},
 		{Provider: "opencode-go", ID: "kimi"},
+		{Provider: "opencode-go", ID: "kimi-k2.7-code"},
 		{Provider: "anthropic", ID: "claude-opus-4-7"},
 		{Provider: "anthropic", ID: "claude-sonnet-4-6"},
 		{Provider: "openai-codex", ID: "gpt-5.5"},
@@ -42,10 +45,10 @@ func TestSessionDefaultsChooseAModel(t *testing.T) {
 		{name: "the configured default", configured: "anthropic/claude-opus-4-7", available: []string{"anthropic", "openai-codex"}, want: "anthropic/claude-opus-4-7"},
 		{name: "a fallback model", available: []string{"anthropic", "openai-codex"}, want: "anthropic/claude-sonnet-4-6"},
 		{name: "a default whose provider has no credentials", configured: "opencode-go/kimi", available: []string{"anthropic"}, want: "anthropic/claude-sonnet-4-6"},
-		// The fallback model is gone from the catalog, so another model of
-		// its provider is preferred to catalog order.
-		{name: "another model of a fallback provider", available: []string{"opencode-go", "openai-codex"}, want: "openai-codex/gpt-5.5"},
-		{name: "any model with credentials", available: []string{"opencode-go"}, want: "opencode-go/kimi"},
+		{name: "OpenCode Go fallback is preferred when Codex's exact fallback is gone", available: []string{"opencode-go", "openai-codex"}, want: "opencode-go/kimi-k2.7-code"},
+		{name: "OpenCode Go stays preferred when an environment key enables both", available: []string{"opencode", "opencode-go"}, want: "opencode-go/kimi-k2.7-code"},
+		{name: "OpenCode Zen uses its preferred model", available: []string{"opencode"}, want: "opencode/gpt-5.6-sol"},
+		{name: "OpenCode Go uses its preferred model", available: []string{"opencode-go"}, want: "opencode-go/kimi-k2.7-code"},
 	} {
 		defaults := sessionDefaults{
 			providers:          catalog,

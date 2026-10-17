@@ -52,6 +52,7 @@ var Providers = []Provider{
 	{ID: "openai-codex", Name: "OpenAI Codex", Methods: []Method{MethodDevice}},
 	{ID: "anthropic", Name: "Anthropic", Methods: []Method{MethodBrowser, MethodAPIKey}},
 	{ID: "openai", Name: "OpenAI", Methods: []Method{MethodAPIKey}},
+	{ID: "opencode", Name: "OpenCode Zen", Methods: []Method{MethodAPIKey}},
 	{ID: "opencode-go", Name: "OpenCode Go", Methods: []Method{MethodAPIKey}},
 }
 

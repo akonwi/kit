@@ -153,7 +153,7 @@ returned handle, snapshots, and event subscriptions; they do not drive
 individual model or tool cycles.
 
 The SDK includes providers for OpenAI Responses, OpenAI Codex, Anthropic,
-Cloudflare AI Gateway, and OpenCode Go. Custom providers can implement
+Cloudflare AI Gateway, OpenCode Zen, and OpenCode Go. Custom providers can implement
 `Provider` directly or use `AdaptProvider`.
 
 The module is pre-1.0. Consumers should pin a version when depending on its
