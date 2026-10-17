@@ -10,7 +10,7 @@ struct SettingsView: View {
     var body: some View {
         let scheme = SystemAppearance.shared.resolve(appearance)
         let dark = scheme == .dark
-        let theme = ThemeConfiguration.decode(storedConfiguration).theme(dark: dark, installed: installedThemes)
+        let theme = ThemeConfiguration.decode(storedConfiguration).resolved(dark: dark, installed: installedThemes)
         HStack(spacing: 0) {
             VStack(spacing: 6) {
                 section("Appearance", icon: .circleHalf, id: "appearance", theme: theme)
@@ -43,7 +43,7 @@ struct SettingsView: View {
         .font(.kit(size: 13)).foregroundStyle(theme.text).tint(theme.accent)
         .environment(\.mica, theme)
         .frame(width: 800, height: 690)
-        .preferredColorScheme(scheme)
+        .preferredColorScheme(theme.dark ? .dark : .light)
     }
 
     private func section(_ title: String, icon: Icon, id: String, theme: MicaTheme) -> some View {

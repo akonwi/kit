@@ -152,10 +152,17 @@ are typed inline and Return runs it. `cd path`, `name title`, and
 `fork message` run directly, and their form stays open to show progress or a
 failure to retry; without an argument they open the form. A fork that finishes
 after the palette closes offers to open it from a toast. Prompt and plugin
-commands receive their arguments literally. `model`, `thinking`, and
-`tabs` open a list in the same style, and `debug`, `mcp`, `sessions`, and
+commands receive their arguments literally. `model`, `thinking`, `tabs`, and
+`theme` open a list in the same style, and `debug`, `mcp`, `sessions`, and
 `subagents` open nested screens with a 48 pt title row. Esc closes the palette
 from any screen. The footer shows only the tab complete hint.
+
+`theme` picks the theme for the appearance in use from every theme: Kit
+dark, Kit light, then each installed theme, re-read from `$KIT_HOME/themes` each time
+the list opens. Moving through the list
+previews each theme on the whole app; Return saves it for that mode only,
+and Esc or clicking away restores the saved theme. Settings › Appearance
+still sets both modes.
 
 ### Toasts
 
@@ -304,9 +311,10 @@ Appearance is **System**, **Light**, or **Dark**, with a theme assigned to Light
 and another to Dark. System follows macOS and activates the matching
 assignment; forced modes use their assignment consistently. Settings previews
 both assignments so the pair can be judged without switching the whole
-application's appearance. The active appearance applies to window chrome as
-well as content: native controls keep system drawing with readable contrast
-over the theme's surfaces.
+application's appearance. Either mode may use any theme, including Kit dark
+or Kit light. Window chrome follows the theme in use, light or dark, as well
+as content: native controls keep system drawing with readable contrast over
+the theme's surfaces.
 
 Imports read Kit's `tokens` and `syntaxPalette` JSON structure. An import copies
 theme data into application preferences, validates the whole batch before

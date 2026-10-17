@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftUI
 
 /// App-local light and dark selections. Theme definitions only come from the shared themes directory.
@@ -11,12 +12,40 @@ struct ThemeConfiguration: Codable {
     }
     var json: String { String(decoding: (try? JSONEncoder().encode(self)) ?? Data(), as: UTF8.self) }
 
+    /// Kit's own theme in either variant. "mica" is Kit's theme in the
+    /// variant of the mode it's assigned to.
+    static let kitDark = "mica-dark", kitLight = "mica-light"
+
     func theme(dark isDark: Bool, installed: [InstalledTheme] = []) -> MicaTheme {
         let id = isDark ? dark : light
+        if id == Self.kitDark { return MicaTheme(dark: true, palette: "mica", customJSON: "") }
+        if id == Self.kitLight { return MicaTheme(dark: false, palette: "mica", customJSON: "") }
         if let item = installed.first(where: { $0.id == id }) {
             return MicaTheme(dark: isDark, palette: "custom", customJSON: item.definition.json)
         }
         return MicaTheme(dark: isDark, palette: id, customJSON: "")
+    }
+
+    /// The theme for one mode, showing a picker's preview in its place.
+    @MainActor func resolved(dark isDark: Bool, installed: [InstalledTheme] = []) -> MicaTheme {
+        var shown = self
+        if let preview = ThemePreview.shared.choice, preview.dark == isDark {
+            if isDark { shown.dark = preview.id } else { shown.light = preview.id }
+        }
+        return shown.theme(dark: isDark, installed: installed)
+    }
+
+    /// The themes offered for either mode: Kit's dark and light, then every
+    /// installed theme.
+    static func choices(installed: [InstalledTheme]) -> [(id: String, name: String)] {
+        [(kitDark, "Kit dark"), (kitLight, "Kit light")] + installed.map { ($0.id, $0.name) }
+    }
+
+    /// The choice a mode's saved theme appears as: "mica" is the variant of
+    /// that mode.
+    func choice(dark isDark: Bool) -> String {
+        let id = isDark ? dark : light
+        return id == "mica" ? (isDark ? Self.kitDark : Self.kitLight) : id
     }
 
     mutating func assign(_ item: InstalledTheme, fallbackDark: Bool) {
@@ -30,7 +59,7 @@ struct ThemeConfiguration: Codable {
     /// that may be temporarily unavailable or malformed.
     @discardableResult
     mutating func normalize(installed: [InstalledTheme]) -> Bool {
-        let valid = Set(["mica"] + installed.map(\.id))
+        let valid = Set(["mica", Self.kitDark, Self.kitLight] + installed.map(\.id))
         let previous = self
         if !valid.contains(light), !light.hasPrefix("global:") { light = "mica" }
         if !valid.contains(dark), !dark.hasPrefix("global:") { dark = "mica" }
@@ -46,4 +75,17 @@ struct ThemeConfiguration: Codable {
         defaults.removeObject(forKey: "customThemeName")
         defaults.removeObject(forKey: "themePalette")
     }
+}
+
+/// A theme shown in place of one mode's saved theme while the palette's
+/// theme picker moves through the list. Nothing is saved until a theme is
+/// chosen.
+@MainActor @Observable
+final class ThemePreview {
+    static let shared = ThemePreview()
+    struct Choice: Equatable {
+        let id: String
+        let dark: Bool
+    }
+    var choice: Choice?
 }

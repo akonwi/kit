@@ -41,15 +41,14 @@ struct ThemeSettingsView: View {
                 if activeDark == dark { Text("Active").font(.kit(size: 10, weight: .medium)).foregroundStyle(.secondary) }
             }
             Picker(dark ? "Dark theme" : "Light theme", selection: Binding(
-                get: { dark ? configuration.dark : configuration.light },
+                get: { configuration.choice(dark: dark) },
                 set: { id in
                     var updated = configuration
                     if dark { updated.dark = id } else { updated.light = id }
                     storedConfiguration = updated.json
                 })) {
-                Text("Kit").tag("mica")
-                ForEach(library.themes.filter { $0.definition.preferredColorScheme == nil || $0.definition.preferredColorScheme == (dark ? .dark : .light) }) { item in
-                    Text(item.name).tag(item.id)
+                ForEach(ThemeConfiguration.choices(installed: library.themes), id: \.id) { choice in
+                    Text(choice.name).tag(choice.id)
                 }
             }.labelsHidden().frame(maxWidth: .infinity)
             preview(theme: theme)

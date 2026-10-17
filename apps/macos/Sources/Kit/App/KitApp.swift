@@ -52,6 +52,7 @@ struct KitApp: App {
         WindowGroup("Kit", id: "session", for: SessionWindowRequest.self) { $request in
             SessionWindowRoot(request: $request, windows: windows)
                 .environment(\.installedThemes, themeLibrary.themes)
+                .environment(\.reloadThemes, { [themeLibrary] in themeLibrary.reload() })
         }
         defaultValue: { windows.defaultRequest() }
 

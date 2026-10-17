@@ -106,6 +106,9 @@ private struct InstalledThemesKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    /// Re-reads the shared themes folder, as a theme list does when it opens.
+    @Entry var reloadThemes: @MainActor () -> Void = {}
+
     var installedThemes: [InstalledTheme] {
         get { self[InstalledThemesKey.self] }
         set { self[InstalledThemesKey.self] = newValue }

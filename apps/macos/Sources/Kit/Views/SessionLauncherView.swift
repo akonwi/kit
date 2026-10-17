@@ -20,7 +20,7 @@ struct SessionLauncherView: View {
     var body: some View {
         let scheme = SystemAppearance.shared.resolve(appearance)
         let dark = scheme == .dark
-        let theme = ThemeConfiguration.decode(themeConfiguration).theme(dark: dark, installed: installedThemes)
+        let theme = ThemeConfiguration.decode(themeConfiguration).resolved(dark: dark, installed: installedThemes)
         SessionLauncherContent(sessions: app.sessions, connecting: app.connecting,
                                connected: app.client != nil, error: app.error, open: open, refresh: { refreshRequest += 1 },
                                create: create, focusRequest: target == nil, activity: activity,
@@ -32,7 +32,7 @@ struct SessionLauncherView: View {
         .foregroundStyle(theme.text)
         .background(theme.surface)
         .tint(theme.accent)
-        .preferredColorScheme(scheme)
+        .preferredColorScheme(theme.dark ? .dark : .light)
         .frame(minWidth: 680, minHeight: 540)
         .onReceive(NotificationCenter.default.publisher(for: .kitSessionDeleted)) { notification in
             if let identity = notification.object as? SessionIdentity { app.sessionDeleted(identity) }

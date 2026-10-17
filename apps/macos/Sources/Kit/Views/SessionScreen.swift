@@ -24,7 +24,7 @@ struct SessionScreen: View {
         @Bindable var ui = state.ui
         let windowScheme = SystemAppearance.shared.resolve(appearance)
         let isDark = windowScheme == .dark
-        let theme = ThemeConfiguration.decode(themeConfiguration).theme(dark: isDark, installed: installedThemes)
+        let theme = ThemeConfiguration.decode(themeConfiguration).resolved(dark: isDark, installed: installedThemes)
         let serverID = state.serverID
         // An open session's tiles sit on the window frame; anything else
         // fills the window's single tile.
@@ -89,7 +89,7 @@ struct SessionScreen: View {
             cwd: state.selected?.cwd, servers: (state.selected?.mcpServers ?? []).map(\.name)))
         .font(.kit(size: 13))
         .tint(theme.accent)
-        .preferredColorScheme(windowScheme)
+        .preferredColorScheme(theme.dark ? .dark : .light)
         .frame(minWidth: 800, minHeight: 640)
         .overlay(alignment: .topTrailing) {
             if state.selected != nil {
@@ -117,7 +117,7 @@ struct SessionScreen: View {
                             }
                             .environment(\.mica, theme)
                             .font(.kit(size: 13))
-                            .preferredColorScheme(windowScheme)
+                            .preferredColorScheme(theme.dark ? .dark : .light)
                             .clipShape(RoundedRectangle(cornerRadius: 4))
                             .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border, lineWidth: 1))
                             .shadow(color: .black.opacity(theme.dark ? 0.5 : 0.18), radius: 24, y: 18)

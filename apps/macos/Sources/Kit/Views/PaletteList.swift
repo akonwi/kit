@@ -46,6 +46,8 @@ struct PaletteListScreen: View {
     var initialSelection: String? = nil
     /// Tab: the query to complete the selected row into, or nil to ignore.
     var complete: ((PaletteCommand) -> String?)? = nil
+    /// Reports the selected row as it changes, for lists that preview it.
+    var selectionChanged: ((PaletteCommand?) -> Void)? = nil
     let activate: (PaletteCommand) -> Void
     let dismiss: () -> Void
     @State private var selectedID: String?
@@ -82,6 +84,9 @@ struct PaletteListScreen: View {
             scrollRequest += 1
         }
         .onChange(of: key) { reselect(for: key) }
+        .onChange(of: selectedID, initial: true) {
+            selectionChanged?(selectedID.flatMap { id in catalog.first { $0.id == id } })
+        }
         .onChange(of: catalog.map(\.id)) {
             // A row that left the catalog stays unselected until the pointer
             // or an arrow picks again, so Return never runs a different command.

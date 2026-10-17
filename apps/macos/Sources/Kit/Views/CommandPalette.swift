@@ -7,6 +7,8 @@ struct CommandPalette: View {
     @Environment(\.mica) private var theme
     @Environment(\.sessionNavigation) private var navigation
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.installedThemes) private var installedThemes
+    @Environment(\.reloadThemes) private var reloadThemes
     @Bindable var state: SessionStore
     let openFork: (String) -> Void
     @State private var screen = Screen.commands
@@ -17,7 +19,7 @@ struct CommandPalette: View {
 
     /// A nested screen the palette shows in place of the command list.
     enum Screen {
-        case commands, details, mcp, sessions, model, thinking, tabs
+        case commands, details, mcp, sessions, model, thinking, tabs, theme
         case directory(path: String, submit: Bool)
         case fork(message: String, submit: Bool)
         case rename(name: String, submit: Bool)
@@ -54,6 +56,9 @@ struct CommandPalette: View {
                 case .model: PaletteChoices.model(state: state, close: close)
                 case .thinking: PaletteChoices.thinking(state: state, close: close)
                 case .tabs: PaletteChoices.tabs(state: state, close: close)
+                case .theme:
+                    PaletteChoices.theme(dark: theme.dark, installed: installedThemes, close: close)
+                        .onAppear(perform: reloadThemes)
                 case let .directory(path, submit):
                     ChangeDirectoryView(state: state, initialPath: path, submitImmediately: submit, back: back)
                 case let .fork(message, submit):
@@ -166,6 +171,7 @@ struct CommandPalette: View {
         case "model": screen = .model
         case "thinking": screen = .thinking
         case "tabs": screen = .tabs
+        case "theme": screen = .theme
         case "fork": screen = .fork(message: trimmed, submit: !trimmed.isEmpty)
         case "name":
             screen = .rename(name: trimmed.isEmpty ? state.selected?.title ?? "" : trimmed, submit: !trimmed.isEmpty)
@@ -194,7 +200,6 @@ struct CommandPalette: View {
             case "files": state.showFiles(intent: "open")
             case "new": navigation.openLauncher()
             case "quit": NSApp.terminate(nil)
-            case "theme": openSettings()
             case "login": close(); SettingsSection.providers.open(with: openSettings)
             case "split-right": workspace.split(workspace.selected, .right)
             case "split-down": workspace.split(workspace.selected, .bottom)
@@ -230,13 +235,15 @@ struct PaletteChoices: View {
     let rows: [PaletteCommand]
     let empty: String
     var current: String? = nil
+    var preview: ((PaletteCommand?) -> Void)? = nil
     let choose: (PaletteCommand) -> Void
     let close: () -> Void
 
     var body: some View {
         PaletteListScreen(query: $query, placeholder: placeholder, catalog: rows, wholeQuery: true,
                           emptyMessage: { $0.isEmpty ? empty : "Nothing matches “\($0)”" },
-                          initialSelection: current, activate: { close(); choose($0) }, dismiss: close)
+                          initialSelection: current, selectionChanged: preview,
+                          activate: { close(); choose($0) }, dismiss: close)
     }
 
     static func model(state: SessionStore, close: @escaping () -> Void) -> Self {
@@ -248,6 +255,28 @@ struct PaletteChoices: View {
         }
         return .init(placeholder: "Search models…", rows: rows, empty: "No models available",
                      current: state.model, choose: { row in Task { await state.configure(model: row.id) } }, close: close)
+    }
+
+    /// The theme for the current mode, from every theme. Moving through the list previews
+    /// each theme; choosing one saves it for this mode, and closing the list
+    /// any other way restores the saved theme.
+    static func theme(dark: Bool, installed: [InstalledTheme], close: @escaping () -> Void) -> some View {
+        let configuration = ThemeConfiguration.decode(UserDefaults.standard.string(forKey: "themeConfiguration") ?? "")
+        let current = configuration.choice(dark: dark)
+        let rows = ThemeConfiguration.choices(installed: installed).map { choice in
+            PaletteCommand(id: choice.id, name: choice.name, description: "", meta: choice.id == current ? "current" : "")
+        }
+        let preview = ThemePreview.shared
+        return Self(placeholder: "Search themes…", rows: rows,
+                    empty: "No themes", current: current,
+                    preview: { row in preview.choice = row.map { .init(id: $0.id, dark: dark) } },
+                    choose: { row in
+                        var updated = ThemeConfiguration.decode(UserDefaults.standard.string(forKey: "themeConfiguration") ?? "")
+                        if dark { updated.dark = row.id } else { updated.light = row.id }
+                        UserDefaults.standard.set(updated.json, forKey: "themeConfiguration")
+                        preview.choice = nil
+                    }, close: close)
+            .onDisappear { preview.choice = nil }
     }
 
     static func thinking(state: SessionStore, close: @escaping () -> Void) -> Self {

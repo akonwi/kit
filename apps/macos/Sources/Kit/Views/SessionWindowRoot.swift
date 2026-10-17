@@ -22,7 +22,7 @@ struct SessionWindowRoot: View {
         let model = windows.model(for: request)
         let app = model.app
         let scheme = SystemAppearance.shared.resolve(appearance)
-        let theme = ThemeConfiguration.decode(themeConfiguration).theme(dark: scheme == .dark, installed: installedThemes)
+        let theme = ThemeConfiguration.decode(themeConfiguration).resolved(dark: scheme == .dark, installed: installedThemes)
         let tab = model.selectedTab
         Group {
             if firstRun, let signIn {
@@ -38,7 +38,7 @@ struct SessionWindowRoot: View {
         .foregroundStyle(theme.text)
         .background(theme.frame)
         .tint(theme.accent)
-        .preferredColorScheme(scheme)
+        .preferredColorScheme(theme.dark ? .dark : .light)
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 820, minHeight: 540)
         .environment(\.sessionNavigation, SessionNavigation(
