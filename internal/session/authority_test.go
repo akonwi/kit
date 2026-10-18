@@ -550,8 +550,8 @@ func TestCompletedBashBecomesPendingThenConsumedDroidBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pending.Boundaries) != 1 || pending.Boundaries[0].ID != bash.ID || len(pending.Boundaries[0].Details) == 0 {
-		t.Fatalf("pending boundaries = %+v", pending.Boundaries)
+	if len(boundaryRecords(pending)) != 1 || boundaryRecords(pending)[0].ID != bash.ID || len(boundaryRecords(pending)[0].Details) == 0 {
+		t.Fatalf("pending boundaries = %+v", boundaryRecords(pending))
 	}
 	if _, err := manager.RunPrompt(t.Context(), created.ID, "consume boundary"); err != nil {
 		t.Fatal(err)
@@ -560,8 +560,8 @@ func TestCompletedBashBecomesPendingThenConsumedDroidBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(consumed.Boundaries) != 0 {
-		t.Fatalf("pending after prompt = %+v", consumed.Boundaries)
+	if len(boundaryRecords(consumed)) != 0 {
+		t.Fatalf("pending after prompt = %+v", boundaryRecords(consumed))
 	}
 	found := false
 	for _, message := range consumed.Messages {
@@ -604,8 +604,8 @@ func TestExcludedBashIsDurableWithoutEnteringDroidHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.Boundaries) != 0 {
-		t.Fatalf("excluded bash reached droid: %+v", snapshot.Boundaries)
+	if len(boundaryRecords(snapshot)) != 0 {
+		t.Fatalf("excluded bash reached droid: %+v", boundaryRecords(snapshot))
 	}
 	if err := manager.Shutdown(t.Context()); err != nil {
 		t.Fatal(err)
@@ -636,8 +636,8 @@ func TestExcludedBashIsDurableWithoutEnteringDroidHistory(t *testing.T) {
 		restoredHistory.Entries[0].Command != "printf private" || !restoredHistory.Entries[0].ExcludeFromContext {
 		t.Fatalf("reopened excluded bash history = %+v", restoredHistory.Entries)
 	}
-	if len(restoredSnapshot.Boundaries) != 0 {
-		t.Fatalf("reopened excluded bash reached droid: %+v", restoredSnapshot.Boundaries)
+	if len(boundaryRecords(restoredSnapshot)) != 0 {
+		t.Fatalf("reopened excluded bash reached droid: %+v", boundaryRecords(restoredSnapshot))
 	}
 }
 

@@ -1005,8 +1005,11 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("completed bash = %+v", bash)
 	}
 	bashSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
-	if err != nil || len(bashSnapshot.PendingBoundaries) != 1 || bashSnapshot.PendingBoundaries[0].ID != bashID {
+	if err != nil || len(bashSnapshot.Messages) == 0 {
 		t.Fatalf("bash snapshot = %+v, %v", bashSnapshot, err)
+	}
+	if record := bashSnapshot.Messages[len(bashSnapshot.Messages)-1]; record.TurnID != "" || record.Sequence != 0 || record.Role != "context" || record.BoundaryID != bashID || record.BoundaryKind != "bash" {
+		t.Fatalf("bash record = %+v", record)
 	}
 	bashHistory, err := client.GetBashHistory(context.Background(), created.ID, 0, 10)
 	if err != nil {

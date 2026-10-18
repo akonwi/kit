@@ -157,8 +157,8 @@ func TestReloadSessionPreservesPersistentPendingBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(before.Boundaries) != 1 || before.Boundaries[0].ID != bash.ID {
-		t.Fatalf("pending boundaries before reload = %+v", before.Boundaries)
+	if len(boundaryRecords(before)) != 1 || boundaryRecords(before)[0].ID != bash.ID {
+		t.Fatalf("pending boundaries before reload = %+v", boundaryRecords(before))
 	}
 	if _, err := manager.ReloadSession(t.Context(), record.ID); err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func TestReloadSessionPreservesPersistentPendingBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(after.Boundaries) != 1 || after.Boundaries[0].ID != before.Boundaries[0].ID || !reflectStringsEqual(transcriptIDs(after), transcriptIDs(before)) {
+	if len(boundaryRecords(after)) != 1 || boundaryRecords(after)[0].ID != boundaryRecords(before)[0].ID || !reflectStringsEqual(transcriptIDs(after), transcriptIDs(before)) {
 		t.Fatalf("persistent state changed across reload: before=%+v after=%+v", before, after)
 	}
 }
@@ -537,4 +537,16 @@ func (b *scriptedRuntimeBundleBuilder) Build(ctx context.Context, record session
 		bundle.Tools = append(bundle.Tools, bundle.Tools[0])
 	}
 	return bundle, err
+}
+
+// boundaryRecords returns the snapshot's boundaries that have not joined a
+// completed turn: the context records listed without a turn.
+func boundaryRecords(snapshot session.Snapshot) []session.TranscriptMessage {
+	var records []session.TranscriptMessage
+	for _, message := range snapshot.Messages {
+		if message.TurnID == "" {
+			records = append(records, message)
+		}
+	}
+	return records
 }

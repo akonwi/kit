@@ -48,6 +48,7 @@ const (
 	SessionEventAnnotationDeleted      SessionEventKind = "annotation.deleted"
 	SessionEventAnnotationSubmitted    SessionEventKind = "annotation.submitted"
 	SessionEventScratchpadChanged      SessionEventKind = "scratchpad.changed"
+	SessionEventBoundaryCreated        SessionEventKind = "boundary.created"
 )
 
 // SessionEvent is one ordered update in a loaded runtime stream.
@@ -118,6 +119,10 @@ func (event sessionEventWire) validate() error {
 		if event.TurnID != "" || event.Scratchpad == nil {
 			return fmt.Errorf("scratchpad event requires a record without parent turn identity")
 		}
+	} else if event.Kind == SessionEventBoundaryCreated {
+		if event.TurnID != "" {
+			return fmt.Errorf("boundary event cannot carry parent turn identity")
+		}
 	} else if event.Kind == SessionEventSessionNameChanged || event.Kind == SessionEventSessionCWDChanged {
 		if event.TurnID != "" {
 			return fmt.Errorf("session rename event cannot carry parent turn identity")
@@ -170,7 +175,7 @@ func (event sessionEventWire) validate() error {
 	if len(event.Content) > maxSessionEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxSessionEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8 + len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource) + len(event.CreatedAt)
 	if event.Scratchpad != nil {
 		payloadBytes += len(event.Scratchpad.OwnerSessionID) + len(event.Scratchpad.Content) + 64
 	}
@@ -284,6 +289,22 @@ func (event sessionEventWire) validate() error {
 	case SessionEventScratchpadChanged:
 		if err := event.Scratchpad.Validate(); err != nil {
 			return fmt.Errorf("scratchpad event record: %w", err)
+		}
+	case SessionEventBoundaryCreated:
+		if !validRendererText(event.BoundaryID, 256) || !validRendererText(event.BoundaryKind, 128) ||
+			(event.BoundarySource != "" && !validRendererText(event.BoundarySource, 256)) {
+			return fmt.Errorf("boundary event requires identity and kind")
+		}
+		if len(event.Content) == 0 && !event.ContentTruncated {
+			return fmt.Errorf("boundary event requires content")
+		}
+		if _, err := time.Parse(time.RFC3339Nano, event.CreatedAt); err != nil {
+			return fmt.Errorf("boundary event createdAt is invalid: %w", err)
+		}
+		if !event.DetailsOmitted {
+			if err := validateBoundaryDetails(event.BoundaryKind, event.BoundarySource, event.Details); err != nil {
+				return fmt.Errorf("boundary event: %w", err)
+			}
 		}
 	case SessionEventSubagentChanged:
 		if !validRendererText(event.SubagentConversationID, 128) ||
@@ -406,8 +427,16 @@ func (event sessionEventWire) validate() error {
 	if !isAnnotation && (event.AnnotationID != 0 || event.Annotation != nil || len(event.AnnotationIDs) > 0 || event.AcceptedMessageID != "") {
 		return fmt.Errorf("event kind %q cannot carry annotation data", event.Kind)
 	}
+	isBoundary := event.Kind == SessionEventBoundaryCreated
+	if !isBoundary && (event.BoundaryID != "" || event.BoundaryKind != "" || event.BoundarySource != "" || event.CreatedAt != "") {
+		return fmt.Errorf("event kind %q cannot carry boundary data", event.Kind)
+	}
 	isTool := event.Kind == SessionEventToolPlanned || event.Kind == SessionEventToolStarted || event.Kind == SessionEventToolOutputDelta || event.Kind == SessionEventToolCompleted
-	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {
+	carriesRecord := isTool || isBoundary
+	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || event.IsError) {
+		return fmt.Errorf("event kind %q cannot carry tool data", event.Kind)
+	}
+	if !carriesRecord && (len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted) {
 		return fmt.Errorf("event kind %q cannot carry tool data", event.Kind)
 	}
 	if isTool && (event.Text != "" || event.Thinking != "" || event.Delta != "") {
@@ -416,7 +445,7 @@ func (event sessionEventWire) validate() error {
 	if event.Kind != SessionEventToolPlanned && event.Kind != SessionEventToolStarted && (event.Arguments != "" || event.ArgumentsTruncated) {
 		return fmt.Errorf("event kind %q cannot carry tool arguments", event.Kind)
 	}
-	if event.Kind != SessionEventToolOutputDelta && event.Kind != SessionEventToolCompleted && (len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted) {
+	if event.Kind != SessionEventToolOutputDelta && event.Kind != SessionEventToolCompleted && !isBoundary && (len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted) {
 		return fmt.Errorf("event kind %q cannot carry tool result data", event.Kind)
 	}
 	if event.DetailsOmitted && len(event.Details) > 0 {
@@ -429,8 +458,8 @@ func (event sessionEventWire) validate() error {
 		if err := block.validate(); err != nil {
 			return fmt.Errorf("tool content block %d: %w", index, err)
 		}
-		if !contentAllowedForRole("tool", block.Kind()) {
-			return fmt.Errorf("tool content block %d kind %q is invalid", index, block.Kind())
+		if !contentAllowedForRole("tool", block.Kind()) || isBoundary && !contentAllowedForRole("context", block.Kind()) {
+			return fmt.Errorf("content block %d kind %q is invalid", index, block.Kind())
 		}
 	}
 	carriesMessageID := event.Kind == SessionEventAssistantStarted || event.Kind == SessionEventAssistantTextDelta ||

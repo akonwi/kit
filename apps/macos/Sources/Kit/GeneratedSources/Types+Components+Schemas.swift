@@ -6077,88 +6077,6 @@ extension Components {
                 ])
             }
         }
-        /// - Remark: Generated from `#/components/schemas/PendingBoundary`.
-        internal struct PendingBoundary: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/PendingBoundary/acceptedAt`.
-            internal var acceptedAt: Swift.String
-            /// - Remark: Generated from `#/components/schemas/PendingBoundary/content`.
-            internal var content: [Components.Schemas.TranscriptContent]
-            /// - Remark: Generated from `#/components/schemas/PendingBoundary/details`.
-            internal var details: OpenAPIRuntime.OpenAPIValueContainer?
-            /// - Remark: Generated from `#/components/schemas/PendingBoundary/id`.
-            internal var id: Swift.String
-            /// - Remark: Generated from `#/components/schemas/PendingBoundary/kind`.
-            internal var kind: Swift.String
-            /// - Remark: Generated from `#/components/schemas/PendingBoundary/source`.
-            internal var source: Swift.String?
-            /// Creates a new `PendingBoundary`.
-            ///
-            /// - Parameters:
-            ///   - acceptedAt:
-            ///   - content:
-            ///   - details:
-            ///   - id:
-            ///   - kind:
-            ///   - source:
-            internal init(
-                acceptedAt: Swift.String,
-                content: [Components.Schemas.TranscriptContent],
-                details: OpenAPIRuntime.OpenAPIValueContainer? = nil,
-                id: Swift.String,
-                kind: Swift.String,
-                source: Swift.String? = nil
-            ) {
-                self.acceptedAt = acceptedAt
-                self.content = content
-                self.details = details
-                self.id = id
-                self.kind = kind
-                self.source = source
-            }
-            internal enum CodingKeys: String, CodingKey {
-                case acceptedAt
-                case content
-                case details
-                case id
-                case kind
-                case source
-            }
-            internal init(from decoder: any Swift.Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.acceptedAt = try container.decode(
-                    Swift.String.self,
-                    forKey: .acceptedAt
-                )
-                self.content = try container.decode(
-                    [Components.Schemas.TranscriptContent].self,
-                    forKey: .content
-                )
-                self.details = try container.decodeIfPresent(
-                    OpenAPIRuntime.OpenAPIValueContainer.self,
-                    forKey: .details
-                )
-                self.id = try container.decode(
-                    Swift.String.self,
-                    forKey: .id
-                )
-                self.kind = try container.decode(
-                    Swift.String.self,
-                    forKey: .kind
-                )
-                self.source = try container.decodeIfPresent(
-                    Swift.String.self,
-                    forKey: .source
-                )
-                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                    "acceptedAt",
-                    "content",
-                    "details",
-                    "id",
-                    "kind",
-                    "source"
-                ])
-            }
-        }
         /// - Remark: Generated from `#/components/schemas/PinnedDiffTarget`.
         internal struct PinnedDiffTarget: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/PinnedDiffTarget/base`.
@@ -9226,8 +9144,6 @@ extension Components {
             internal var mcpWarnings: [Swift.String]?
             /// - Remark: Generated from `#/components/schemas/SessionSnapshot/messages`.
             internal var messages: [Components.Schemas.TranscriptMessage]
-            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/pendingBoundaries`.
-            internal var pendingBoundaries: [Components.Schemas.PendingBoundary]?
             /// - Remark: Generated from `#/components/schemas/SessionSnapshot/pendingInteractions`.
             internal var pendingInteractions: [Components.Schemas.InteractionRequest]?
             /// - Remark: Generated from `#/components/schemas/SessionSnapshot/pluginCommands`.
@@ -9276,7 +9192,6 @@ extension Components {
             ///   - mcpServers:
             ///   - mcpWarnings:
             ///   - messages:
-            ///   - pendingBoundaries:
             ///   - pendingInteractions:
             ///   - pluginCommands:
             ///   - pluginFooter:
@@ -9308,7 +9223,6 @@ extension Components {
                 mcpServers: [Components.Schemas.MCPServerStatus]? = nil,
                 mcpWarnings: [Swift.String]? = nil,
                 messages: [Components.Schemas.TranscriptMessage],
-                pendingBoundaries: [Components.Schemas.PendingBoundary]? = nil,
                 pendingInteractions: [Components.Schemas.InteractionRequest]? = nil,
                 pluginCommands: [Components.Schemas.PluginCommand]? = nil,
                 pluginFooter: Components.Schemas.PluginFooter? = nil,
@@ -9340,7 +9254,6 @@ extension Components {
                 self.mcpServers = mcpServers
                 self.mcpWarnings = mcpWarnings
                 self.messages = messages
-                self.pendingBoundaries = pendingBoundaries
                 self.pendingInteractions = pendingInteractions
                 self.pluginCommands = pluginCommands
                 self.pluginFooter = pluginFooter
@@ -9373,7 +9286,6 @@ extension Components {
                 case mcpServers
                 case mcpWarnings
                 case messages
-                case pendingBoundaries
                 case pendingInteractions
                 case pluginCommands
                 case pluginFooter
@@ -9452,10 +9364,6 @@ extension Components {
                     [Components.Schemas.TranscriptMessage].self,
                     forKey: .messages
                 )
-                self.pendingBoundaries = try container.decodeIfPresent(
-                    [Components.Schemas.PendingBoundary].self,
-                    forKey: .pendingBoundaries
-                )
                 self.pendingInteractions = try container.decodeIfPresent(
                     [Components.Schemas.InteractionRequest].self,
                     forKey: .pendingInteractions
@@ -9532,7 +9440,6 @@ extension Components {
                     "mcpServers",
                     "mcpWarnings",
                     "messages",
-                    "pendingBoundaries",
                     "pendingInteractions",
                     "pluginCommands",
                     "pluginFooter",
@@ -9917,6 +9824,114 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/SubagentBoundaryCreatedEvent`.
+        internal struct SubagentBoundaryCreatedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubagentBoundaryCreatedEvent/boundaryId`.
+            internal var boundaryId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentBoundaryCreatedEvent/boundaryKind`.
+            internal var boundaryKind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentBoundaryCreatedEvent/boundarySource`.
+            internal var boundarySource: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubagentBoundaryCreatedEvent/createdAt`.
+            internal var createdAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentBoundaryCreatedEvent/details`.
+            internal var details: OpenAPIRuntime.OpenAPIValueContainer?
+            /// - Remark: Generated from `#/components/schemas/SubagentBoundaryCreatedEvent/kind`.
+            internal enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case boundary_created = "boundary.created"
+            }
+            /// - Remark: Generated from `#/components/schemas/SubagentBoundaryCreatedEvent/kind`.
+            internal var kind: Components.Schemas.SubagentBoundaryCreatedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/SubagentBoundaryCreatedEvent/sequence`.
+            internal var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/SubagentBoundaryCreatedEvent/text`.
+            internal var text: Swift.String?
+            /// Creates a new `SubagentBoundaryCreatedEvent`.
+            ///
+            /// - Parameters:
+            ///   - boundaryId:
+            ///   - boundaryKind:
+            ///   - boundarySource:
+            ///   - createdAt:
+            ///   - details:
+            ///   - kind:
+            ///   - sequence:
+            ///   - text:
+            internal init(
+                boundaryId: Swift.String,
+                boundaryKind: Swift.String,
+                boundarySource: Swift.String? = nil,
+                createdAt: Swift.String,
+                details: OpenAPIRuntime.OpenAPIValueContainer? = nil,
+                kind: Components.Schemas.SubagentBoundaryCreatedEvent.KindPayload,
+                sequence: Swift.Int64,
+                text: Swift.String? = nil
+            ) {
+                self.boundaryId = boundaryId
+                self.boundaryKind = boundaryKind
+                self.boundarySource = boundarySource
+                self.createdAt = createdAt
+                self.details = details
+                self.kind = kind
+                self.sequence = sequence
+                self.text = text
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case boundaryId
+                case boundaryKind
+                case boundarySource
+                case createdAt
+                case details
+                case kind
+                case sequence
+                case text
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.boundaryId = try container.decode(
+                    Swift.String.self,
+                    forKey: .boundaryId
+                )
+                self.boundaryKind = try container.decode(
+                    Swift.String.self,
+                    forKey: .boundaryKind
+                )
+                self.boundarySource = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .boundarySource
+                )
+                self.createdAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .createdAt
+                )
+                self.details = try container.decodeIfPresent(
+                    OpenAPIRuntime.OpenAPIValueContainer.self,
+                    forKey: .details
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.SubagentBoundaryCreatedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.text = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .text
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "boundaryId",
+                    "boundaryKind",
+                    "boundarySource",
+                    "createdAt",
+                    "details",
+                    "kind",
+                    "sequence",
+                    "text"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/SubagentConversation`.
         internal struct SubagentConversation: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/SubagentConversation/activeTaskId`.
@@ -10187,6 +10202,8 @@ extension Components {
         }
         /// - Remark: Generated from `#/components/schemas/SubagentLiveEvent`.
         internal enum SubagentLiveEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubagentLiveEvent/SubagentBoundaryCreatedEvent`.
+            case boundary_created(Components.Schemas.SubagentBoundaryCreatedEvent)
             /// - Remark: Generated from `#/components/schemas/SubagentLiveEvent/SubagentMessageCompletedEvent`.
             case message_completed(Components.Schemas.SubagentMessageCompletedEvent)
             /// - Remark: Generated from `#/components/schemas/SubagentLiveEvent/SubagentMessageTextDeltaEvent`.
@@ -10215,6 +10232,8 @@ extension Components {
                     forKey: .kind
                 )
                 switch discriminator {
+                case "boundary.created":
+                    self = .boundary_created(try .init(from: decoder))
                 case "message.completed":
                     self = .message_completed(try .init(from: decoder))
                 case "message.text.delta":
@@ -10243,6 +10262,8 @@ extension Components {
             }
             internal func encode(to encoder: any Swift.Encoder) throws {
                 switch self {
+                case let .boundary_created(value):
+                    try value.encode(to: encoder)
                 case let .message_completed(value):
                     try value.encode(to: encoder)
                 case let .message_text_delta(value):

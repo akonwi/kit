@@ -54,13 +54,23 @@ messages, subagent tasks, and plugin notifications are keyed by that turn.
 | Shared state | `scratchpad.changed`, `subagent.changed`, `peer_query.changed` |
 | Interactions | `interaction.requested`, `interaction.resolved` |
 | Annotations | `annotation.created`, `annotation.updated`, `annotation.deleted`, `annotation.submitted` |
+| Context records (boundaries) | `boundary.created` |
+
+A boundary is a context record the session adds to the conversation, such as a
+working-directory change, a fork notice, a composer `!` command, or a subagent
+request. `boundary.created` carries the record when the session creates it,
+keyed by `boundaryId`; it has no turn. Snapshots list the same record: in its
+turn once it joins a completed turn, otherwise as a context record without a
+turn at the end of the transcript. Whether the model has seen a boundary yet is
+not part of the record.
 
 ### Subagent live event kinds
 
 Subagent live events use a closed subset of the session vocabulary:
 `turn.started`, `turn.completed`, `assistant.started`, `assistant.text.delta`,
 `assistant.thinking.delta`, `assistant.completed`, `tool.planned`,
-`tool.started`, `tool.output.delta`, and `tool.completed`. The server projects
+`tool.started`, `tool.output.delta`, `tool.completed`, and `boundary.created`
+for context records created in the child conversation. The server projects
 the agent core's lifecycle into exactly one `turn.started` and one
 `turn.completed` per child turn and does not forward other agent-core lifecycle
 kinds. With a closed vocabulary, subagent live events are discriminated unions

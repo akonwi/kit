@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
+	"unicode/utf8"
 
 	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/droids/sqlitestore"
@@ -477,10 +479,14 @@ func (r *childRuntime) Run(ctx context.Context, task subagent.Task, admitted fun
 		if encodeErr != nil {
 			err = encodeErr
 		} else {
-			err = r.droid.Inform(ctx, droids.BoundaryMessage{
+			boundary := droids.BoundaryMessage{
 				ID: boundaryID, Kind: "subagent_inbox", Source: "subagent",
 				Content: []droids.InputContent{droids.TextInput{Text: task.Message}}, Details: details,
-			})
+			}
+			err = r.droid.Inform(ctx, boundary)
+			if err == nil && emit != nil {
+				emit(childBoundaryEvent(boundary, time.Now()))
+			}
 			if err != nil {
 				if received, reconcileErr := r.droid.BoundaryReceived(context.Background(), boundaryID); reconcileErr == nil && received {
 					err = nil
@@ -581,6 +587,58 @@ func projectChildLiveEvent(envelope droids.EventEnvelope) (subagent.LiveEvent, b
 		return subagent.LiveEvent{}, false
 	}
 	return result, result.Kind != ""
+}
+
+// Child live events are bounded to 16 KiB; the child transcript carries the
+// full record.
+const (
+	maxChildBoundaryTextBytes    = 8 << 10
+	maxChildBoundaryDetailsBytes = 6 << 10
+)
+
+// childBoundaryEvent announces a context record created in the child
+// conversation. Text is the record's text without the model-facing source
+// line. Details too large for the event lose their copy of the message text,
+// which Text carries.
+func childBoundaryEvent(message droids.BoundaryMessage, createdAt time.Time) subagent.LiveEvent {
+	var parts []string
+	for _, block := range message.Content {
+		if text, ok := block.(droids.TextInput); ok && text.Text != "" {
+			parts = append(parts, text.Text)
+		}
+	}
+	return subagent.LiveEvent{
+		Kind: "boundary.created", BoundaryID: message.ID, BoundaryKind: message.Kind, BoundarySource: message.Source,
+		Text: truncateUTF8(strings.Join(parts, "\n"), maxChildBoundaryTextBytes), Details: boundedChildDetails(message.Details),
+		CreatedAt: createdAt.UTC(),
+	}
+}
+
+func boundedChildDetails(details json.RawMessage) json.RawMessage {
+	if len(details) <= maxChildBoundaryDetailsBytes {
+		return append(json.RawMessage(nil), details...)
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(details, &fields) != nil {
+		return nil
+	}
+	delete(fields, "message")
+	shortened, err := json.Marshal(fields)
+	if err != nil || len(shortened) > maxChildBoundaryDetailsBytes {
+		return nil
+	}
+	return shortened
+}
+
+func truncateUTF8(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	end := limit
+	for end > 0 && !utf8.RuneStart(value[end]) {
+		end--
+	}
+	return value[:end]
 }
 
 func childResultText(content []droids.ResultContent) string {

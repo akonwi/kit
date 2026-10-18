@@ -248,7 +248,7 @@ fn parse_bash(value: Str) Admission? {
 private fn lists_bash(messages: [transcript::Message], id: Str) Bool {
   mut found = false
   for message in messages {
-    if message.role == transcript::Role::bash and message.id == id {
+    if transcript::shows_bash(message, id) {
       found = true
     }
   }
@@ -665,20 +665,17 @@ impl Controller {
       // content and must not replace it.
       if snapshot.ActiveTurnID == "" or not self.live.blocks_snapshot_replacement() {
         let running = self.running_bash()
-        let projected = mut List::new<transcript::Message>()
-        for message in transcript::project(snapshot.Messages) {
-          projected.push(message)
-        }
-        // Finished runs the model has not seen yet follow the transcript.
-        for run in sessionbridge::PendingBash(mut snapshot.PendingBoundaries) {
-          projected.push(transcript::bash_message(run))
-        }
-        let merged = transcript::merge_snapshot(self.messages, projected.@)
+        // Finished runs the model has not seen yet are records at the end of
+        // the snapshot transcript.
+        let merged = transcript::merge_snapshot(
+          self.messages,
+          transcript::project(snapshot.Messages),
+        )
         self.messages = merged.messages
         // A running command is not in the snapshot until it settles.
         match running {
           row => {
-            if not lists_bash(self.messages, row.id) {
+            if not lists_bash(self.messages, self.bash_id) {
               self.messages.push(row)
             }
           },
@@ -766,6 +763,11 @@ impl Controller {
       }
       if event.Kind == "subagent.changed" {
         self.reload_subagents()
+      }
+      // A finished composer command is a record from creation, including one
+      // another client ran.
+      if event.Kind == "boundary.created" and not unsafe::is_nil(event.Bash) {
+        self.show_bash(event.Bash.@)
       }
       if event.Kind == "session.cwd.changed" and event.CWD != "" {
         self.follow_cwd(event.CWD)
@@ -1271,7 +1273,7 @@ impl Controller {
     mut found = Maybe::new<transcript::Message>()
     if self.bash_id != "" {
       for message in self.transcript_messages() {
-        if message.role == transcript::Role::bash and message.id == self.bash_id {
+        if transcript::shows_bash(message, self.bash_id) {
           found = Maybe::new(message)
         }
       }
@@ -1284,15 +1286,20 @@ impl Controller {
   fn mut show_bash(run: sessionbridge::Bash) {
     let row = transcript::bash_message(run)
     mut replaced = false
+    // A shown row keeps its own identity, which may be a history message ID.
     for message, index in self.messages {
-      if message.role == transcript::Role::bash and message.id == run.ID {
-        self.messages.set(index, row)
+      if transcript::shows_bash(message, run.ID) {
+        let kept = mut transcript::bash_message(run)
+        kept.id = message.id
+        self.messages.set(index, kept.@)
         replaced = true
       }
     }
     for message, index in self.live.messages {
-      if message.role == transcript::Role::bash and message.id == run.ID {
-        self.live.messages.set(index, row)
+      if transcript::shows_bash(message, run.ID) {
+        let kept = mut transcript::bash_message(run)
+        kept.id = message.id
+        self.live.messages.set(index, kept.@)
         replaced = true
       }
     }
@@ -4351,6 +4358,25 @@ test fn a_snapshot_keeps_the_running_command_and_replaces_finished_ones() Void!S
   // keep, as with `!!`, is gone.
   testing::assert(
     shown(subject) == "a bash_2" and subject.messages.at(1).expect("row").pending,
+    "got {shown(subject)}",
+  )
+}
+
+test fn a_command_row_from_the_transcript_is_settled_in_place() Void!Str {
+  let effects = mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  // A run that joined a turn's history keeps its execution ID under a
+  // history message ID.
+  let row = mut transcript::bash_message(run("bash_2", "running"))
+  row.id = "message_9"
+  subject.messages.push(row.@)
+  subject.show_bash(run("bash_2", "completed"))
+  testing::assert(
+    shown(subject) == "message_9" and not subject.messages.at(0).expect("row").pending,
     "got {shown(subject)}",
   )
 }

@@ -77,10 +77,21 @@ type bashDetails struct {
 // bashBoundary projects a persisted bash boundary: its details record the
 // run, and its text is what the model read, "[bash command: <command>]" with
 // any nonzero exit code, then the output and its notices on later lines.
-func bashBoundary(id, kind string, content []protocol.TranscriptContent, raw json.RawMessage) (Bash, bool) {
+func bashBoundary(id, kind, source string, content []protocol.TranscriptContent, raw json.RawMessage) (Bash, bool) {
 	var details bashDetails
 	if kind != "bash" || len(raw) == 0 || json.Unmarshal(raw, &details) != nil || details.Version != 1 || strings.TrimSpace(details.Command) == "" {
 		return Bash{}, false
+	}
+	// A boundary in the conversation leads with its model-facing source line.
+	framing := "[" + kind
+	if source != "" {
+		framing += " from " + source
+	}
+	framing += "]"
+	if len(content) > 0 {
+		if value, ok := content[0].Payload.(protocol.TextContent); ok && value.Text == framing {
+			content = content[1:]
+		}
 	}
 	var text strings.Builder
 	for _, block := range content {
@@ -111,16 +122,4 @@ func bashBoundary(id, kind string, content []protocol.TranscriptContent, raw jso
 		projected.ExitCode, projected.HasExitCode = *details.ExitCode, true
 	}
 	return projected, true
-}
-
-// PendingBash projects the bash runs that have finished but are not yet part
-// of the transcript, in the order they were accepted.
-func PendingBash(boundaries []protocol.PendingBoundary) []Bash {
-	result := make([]Bash, 0, len(boundaries))
-	for _, boundary := range boundaries {
-		if projected, ok := bashBoundary(boundary.ID, boundary.Kind, boundary.Content, boundary.Details); ok {
-			result = append(result, projected)
-		}
-	}
-	return result
 }

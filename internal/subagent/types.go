@@ -137,6 +137,12 @@ type LiveEvent struct {
 	ToolCallID   string
 	ToolName     string
 	IsError      bool
+	// Boundary record fields, set only for boundary.created.
+	BoundaryID     string
+	BoundaryKind   string
+	BoundarySource string
+	Details        json.RawMessage
+	CreatedAt      time.Time
 }
 
 // LiveEventPage is a runtime-local child stream page.

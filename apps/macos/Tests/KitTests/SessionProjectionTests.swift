@@ -111,7 +111,8 @@ struct SessionProjectionTests {
                     details: ["version": 1, "previousCwd": "/repo", "cwd": "/repo-terminal"]),
             message("reply", content: [["kind": "text", "text": "Review complete"]])
         ])
-        #expect(rows.map(\.id) == ["user", "tools-review", "compact", "forked", "moved", "reply"])
+        // A boundary's row is keyed by its boundary ID, which it keeps from creation.
+        #expect(rows.map(\.id) == ["user", "tools-review", "compact", "session-fork:" + fork, "cwd:mutation_1", "reply"])
         #expect(rows.map(\.role) == ["user", "tools", "marker", "marker", "marker", "assistant"])
         #expect(rows.map(\.marker) == [nil, nil, .compaction(summary: "## Goal\nShip it."), .fork(sessionID: fork),
                                        .workingDirectory(path: "/repo-terminal", previous: "/repo"), nil])

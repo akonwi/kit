@@ -810,8 +810,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		Usage:                 projectSessionUsage(snapshot.Usage),
 		Messages:              make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
 		PreviousMessageCursor: previousCursor, HasMoreMessages: snapshot.HasMoreMessages,
-		PendingBoundaries: make([]protocol.PendingBoundary, 0, len(snapshot.Boundaries)),
-		PromptCommands:    make([]protocol.PromptCommand, 0, len(snapshot.PromptCommands)),
+		PromptCommands: make([]protocol.PromptCommand, 0, len(snapshot.PromptCommands)),
 		FollowUps: protocol.FollowUpQueue{
 			Count: snapshot.FollowUps.Count, Previews: append([]string(nil), snapshot.FollowUps.Previews...), AnnotationIDs: append([]uint64(nil), snapshot.FollowUps.AnnotationIDs...),
 		},
@@ -913,14 +912,6 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		})
 	}
 	result.Messages = append(result.Messages, projectTranscriptMessages(snapshot.Messages)...)
-	for _, boundary := range snapshot.Boundaries {
-		result.PendingBoundaries = append(result.PendingBoundaries, protocol.PendingBoundary{
-			ID: boundary.ID, Kind: boundary.Kind, Source: boundary.Source,
-			Content:    projectTranscriptContent(boundary.Content),
-			Details:    append(json.RawMessage(nil), boundary.Details...),
-			AcceptedAt: boundary.AcceptedAt.Format(time.RFC3339Nano),
-		})
-	}
 	return result, nil
 }
 
@@ -1020,12 +1011,18 @@ func (s runtimeSessionService) SubagentEvents(ctx context.Context, sessionID, co
 		Events: make([]protocol.SubagentLiveEvent, 0, len(page.Events)),
 	}
 	for _, event := range page.Events {
-		result.Events = append(result.Events, protocol.SubagentLiveEvent{
+		projected := protocol.SubagentLiveEvent{
 			Sequence: event.Sequence, Kind: event.Kind, TurnID: event.TurnID,
 			MessageID: event.MessageID, ContentIndex: event.ContentIndex,
 			Delta: event.Delta, Text: event.Text, ToolCallID: event.ToolCallID,
 			ToolName: event.ToolName, IsError: event.IsError,
-		})
+			BoundaryID: event.BoundaryID, BoundaryKind: event.BoundaryKind, BoundarySource: event.BoundarySource,
+			Details: append(json.RawMessage(nil), event.Details...),
+		}
+		if !event.CreatedAt.IsZero() {
+			projected.CreatedAt = event.CreatedAt.UTC().Format(time.RFC3339Nano)
+		}
+		result.Events = append(result.Events, projected)
 	}
 	return result, nil
 }
@@ -1551,6 +1548,13 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 		return protocol.AnnotationSubmittedEvent{AnnotationIDs: append([]uint64(nil), event.AnnotationIDs...), AcceptedMessageID: event.AcceptedMessageID}
 	case kitsession.EventScratchpadChanged:
 		return protocol.ScratchpadChangedEvent{Scratchpad: scratchpad()}
+	case kitsession.EventBoundaryCreated:
+		return protocol.BoundaryCreatedEvent{
+			BoundaryID: event.BoundaryID, BoundaryKind: event.BoundaryKind, BoundarySource: event.BoundarySource,
+			Content: protocol.ContextContent(content), ContentTruncated: event.ContentTruncated,
+			Details: append(json.RawMessage(nil), event.Details...), DetailsOmitted: event.DetailsOmitted,
+			CreatedAt: event.CreatedAt.UTC().Format(time.RFC3339Nano),
+		}
 	default:
 		return nil
 	}

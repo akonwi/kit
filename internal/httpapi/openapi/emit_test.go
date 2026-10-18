@@ -35,8 +35,8 @@ func TestNestedSubagentLiveEventIsDiscriminatedUnion(t *testing.T) {
 	schema := components["SubagentLiveEvent"].(map[string]any)
 	discriminator, _ := schema["discriminator"].(map[string]any)
 	variants, _ := schema["oneOf"].([]any)
-	if discriminator["propertyName"] != "kind" || len(variants) != 9 {
-		t.Fatalf("SubagentLiveEvent schema = %#v, want closed nine-variant kind union", schema)
+	if discriminator["propertyName"] != "kind" || len(variants) != 10 {
+		t.Fatalf("SubagentLiveEvent schema = %#v, want closed ten-variant kind union", schema)
 	}
 }
 

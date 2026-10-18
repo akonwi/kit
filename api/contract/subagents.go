@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -219,6 +220,7 @@ const (
 	SubagentEventToolStarted          SubagentLiveEventKind = "tool.started"
 	SubagentEventToolOutputDelta      SubagentLiveEventKind = "tool.output.delta"
 	SubagentEventToolCompleted        SubagentLiveEventKind = "tool.completed"
+	SubagentEventBoundaryCreated      SubagentLiveEventKind = "boundary.created"
 )
 
 // Named payload schemas publish SubagentLiveEvent as a discriminated union.
@@ -279,7 +281,20 @@ type SubagentToolCompletedEvent struct {
 	IsError    bool   `json:"isError,omitempty"`
 }
 
-// SubagentLiveEvent is one bounded child delta or tool update.
+// SubagentBoundaryCreatedEvent carries a context record created in the child
+// conversation, such as a request or reply from another subagent. Text is the
+// record's bounded text; the child transcript carries the full record.
+type SubagentBoundaryCreatedEvent struct {
+	Sequence       int64           `json:"sequence"`
+	BoundaryID     string          `json:"boundaryId"`
+	BoundaryKind   string          `json:"boundaryKind"`
+	BoundarySource string          `json:"boundarySource,omitempty"`
+	Text           string          `json:"text,omitempty"`
+	Details        json.RawMessage `json:"details,omitempty"`
+	CreatedAt      string          `json:"createdAt"`
+}
+
+// SubagentLiveEvent is one bounded child delta, tool update, or context record.
 type SubagentLiveEvent struct {
 	Sequence     int64  `json:"sequence"`
 	Kind         string `json:"kind"`
@@ -291,6 +306,12 @@ type SubagentLiveEvent struct {
 	ToolCallID   string `json:"toolCallId,omitempty"`
 	ToolName     string `json:"toolName,omitempty"`
 	IsError      bool   `json:"isError,omitempty"`
+	// Boundary record fields, carried only by boundary.created.
+	BoundaryID     string          `json:"boundaryId,omitempty"`
+	BoundaryKind   string          `json:"boundaryKind,omitempty"`
+	BoundarySource string          `json:"boundarySource,omitempty"`
+	Details        json.RawMessage `json:"details,omitempty"`
+	CreatedAt      string          `json:"createdAt,omitempty"`
 }
 
 // UnionVariants declares the closed ADR 0033 event vocabulary.
@@ -305,6 +326,7 @@ func (SubagentLiveEvent) UnionVariants() []UnionVariant {
 		{Kind: string(SubagentEventToolStarted), Payload: SubagentToolStartedEvent{}},
 		{Kind: string(SubagentEventToolOutputDelta), Payload: SubagentToolOutputDeltaEvent{}},
 		{Kind: string(SubagentEventToolCompleted), Payload: SubagentToolCompletedEvent{}},
+		{Kind: string(SubagentEventBoundaryCreated), Payload: SubagentBoundaryCreatedEvent{}},
 	}
 }
 
@@ -331,7 +353,12 @@ func (page SubagentLiveEventPage) Validate() error {
 	}
 	previous, aggregate := int64(0), 0
 	for index, event := range page.Events {
-		aggregate += len(event.Kind) + len(event.TurnID) + len(event.MessageID) + len(event.Delta) + len(event.Text) + len(event.ToolCallID) + len(event.ToolName)
+		aggregate += len(event.Kind) + len(event.TurnID) + len(event.MessageID) + len(event.Delta) + len(event.Text) + len(event.ToolCallID) + len(event.ToolName) +
+			len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource) + len(event.Details) + len(event.CreatedAt)
+		isBoundary := event.Kind == string(SubagentEventBoundaryCreated)
+		if !isBoundary && (event.BoundaryID != "" || event.BoundaryKind != "" || event.BoundarySource != "" || len(event.Details) > 0 || event.CreatedAt != "") {
+			return fmt.Errorf("subagent event %d carries boundary fields", index)
+		}
 		if event.Sequence < 1 || index > 0 && event.Sequence != previous+1 || event.Sequence < page.FirstSequence || event.Sequence > page.LastSequence ||
 			len(event.Delta)+len(event.Text) > 16<<10 || !validSubagentText(event.Kind, 128) || event.ContentIndex < 0 {
 			return fmt.Errorf("subagent event %d is invalid", index)
@@ -348,6 +375,16 @@ func (page SubagentLiveEventPage) Validate() error {
 		case "message.completed", "turn.started", "turn.settled":
 			if event.Delta != "" || event.Text != "" || event.ToolCallID != "" || event.ToolName != "" || event.IsError {
 				return fmt.Errorf("subagent message event %d has invalid fields", index)
+			}
+		case "boundary.created":
+			if event.BoundaryID == "" || event.BoundaryKind == "" || !validSubagentText(event.BoundaryID, 256) || !validSubagentText(event.BoundaryKind, 128) ||
+				event.BoundarySource != "" && !validSubagentText(event.BoundarySource, 256) ||
+				event.TurnID != "" || event.MessageID != "" || event.Delta != "" || event.ToolCallID != "" || event.ToolName != "" || event.IsError || event.ContentIndex != 0 ||
+				len(event.Details) > 16<<10 || len(event.Details) > 0 && !json.Valid(event.Details) {
+				return fmt.Errorf("subagent boundary event %d has invalid fields", index)
+			}
+			if _, err := time.Parse(time.RFC3339Nano, event.CreatedAt); err != nil {
+				return fmt.Errorf("subagent boundary event %d createdAt is invalid", index)
 			}
 		default:
 			return fmt.Errorf("subagent event %d has unknown kind", index)

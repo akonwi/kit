@@ -2558,37 +2558,6 @@
         ],
         "type": "object"
       },
-      "PendingBoundary": {
-        "additionalProperties": false,
-        "properties": {
-          "acceptedAt": {
-            "type": "string"
-          },
-          "content": {
-            "items": {
-              "$ref": "#/components/schemas/TranscriptContent"
-            },
-            "type": "array"
-          },
-          "details": {},
-          "id": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "source": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "kind",
-          "content",
-          "acceptedAt"
-        ],
-        "type": "object"
-      },
       "PinnedDiffTarget": {
         "additionalProperties": false,
         "properties": {
@@ -3958,12 +3927,6 @@
             },
             "type": "array"
           },
-          "pendingBoundaries": {
-            "items": {
-              "$ref": "#/components/schemas/PendingBoundary"
-            },
-            "type": "array"
-          },
           "pendingInteractions": {
             "items": {
               "$ref": "#/components/schemas/InteractionRequest"
@@ -4200,6 +4163,45 @@
         ],
         "type": "object"
       },
+      "SubagentBoundaryCreatedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "boundaryId": {
+            "type": "string"
+          },
+          "boundaryKind": {
+            "type": "string"
+          },
+          "boundarySource": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "details": {},
+          "kind": {
+            "enum": [
+              "boundary.created"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "boundaryId",
+          "boundaryKind",
+          "createdAt",
+          "kind"
+        ],
+        "type": "object"
+      },
       "SubagentConversation": {
         "additionalProperties": false,
         "properties": {
@@ -4307,6 +4309,7 @@
       "SubagentLiveEvent": {
         "discriminator": {
           "mapping": {
+            "boundary.created": "#/components/schemas/SubagentBoundaryCreatedEvent",
             "message.completed": "#/components/schemas/SubagentMessageCompletedEvent",
             "message.text.delta": "#/components/schemas/SubagentMessageTextDeltaEvent",
             "message.thinking.delta": "#/components/schemas/SubagentMessageThinkingDeltaEvent",
@@ -4346,6 +4349,9 @@
           },
           {
             "$ref": "#/components/schemas/SubagentToolCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SubagentBoundaryCreatedEvent"
           }
         ]
       },
@@ -6117,7 +6123,7 @@
   },
   "info": {
     "title": "Kit Session API",
-    "version": "47"
+    "version": "48"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -8230,7 +8236,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -8483,7 +8489,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -10141,7 +10147,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -10458,7 +10464,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -10812,7 +10818,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -11094,7 +11100,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -11437,7 +11443,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -11783,7 +11789,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -12174,7 +12180,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -12546,7 +12552,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -12915,7 +12921,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -13326,7 +13332,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -13739,7 +13745,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -14097,7 +14103,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -14455,7 +14461,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -14831,7 +14837,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -15193,7 +15199,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -15553,7 +15559,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -15913,7 +15919,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -16281,7 +16287,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -16701,7 +16707,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -17121,7 +17127,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -17512,7 +17518,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -17964,7 +17970,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -18416,7 +18422,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -18860,7 +18866,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -19312,7 +19318,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -19653,7 +19659,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -20079,7 +20085,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -20521,7 +20527,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -20975,7 +20981,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -21366,7 +21372,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -21794,7 +21800,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -22231,7 +22237,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -22619,7 +22625,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -22982,7 +22988,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -23334,7 +23340,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -23688,7 +23694,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -24099,7 +24105,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -24475,7 +24481,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -24878,7 +24884,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -25258,7 +25264,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -25634,7 +25640,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -26052,7 +26058,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -26462,7 +26468,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -26872,7 +26878,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -27292,7 +27298,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -27712,7 +27718,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -28132,7 +28138,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -28552,7 +28558,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -28972,7 +28978,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -29390,7 +29396,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -29808,7 +29814,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -30160,7 +30166,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -30523,7 +30529,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -30969,7 +30975,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }
@@ -31425,7 +31431,7 @@
             "required": true,
             "schema": {
               "enum": [
-                47
+                48
               ],
               "type": "integer"
             }

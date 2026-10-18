@@ -54,8 +54,8 @@ func TestForkContextSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pending.Boundaries) != 1 || pending.Boundaries[0].ID != "session-fork:"+childID {
-		t.Fatalf("boundaries = %+v", pending.Boundaries)
+	if len(boundaryRecords(pending)) != 1 || boundaryRecords(pending)[0].ID != "session-fork:"+childID {
+		t.Fatalf("boundaries = %+v", boundaryRecords(pending))
 	}
 	providers.mu.Lock()
 	calls := len(providers.requests)
@@ -139,8 +139,8 @@ func TestForkNotificationSurvivesPublicationCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.Boundaries) != 1 || snapshot.Boundaries[0].ID != "session-fork:"+fork.Session.ID {
-		t.Fatalf("notice = %+v", snapshot.Boundaries)
+	if len(boundaryRecords(snapshot)) != 1 || boundaryRecords(snapshot)[0].ID != "session-fork:"+fork.Session.ID {
+		t.Fatalf("notice = %+v", boundaryRecords(snapshot))
 	}
 }
 

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/droids"
@@ -202,5 +204,29 @@ func TestProjectChildTranscriptMessageOmitsEmptyThinking(t *testing.T) {
 	}
 	if err := transcript.Validate(); err != nil {
 		t.Fatalf("projected transcript validation: %v", err)
+	}
+}
+
+func TestChildBoundaryEventCarriesTheFramedRecord(t *testing.T) {
+	createdAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	message := droids.BoundaryMessage{
+		ID: "inbox_task_1", Kind: "subagent_inbox", Source: "subagent",
+		Content: []droids.InputContent{droids.TextInput{Text: "Please review the diff."}},
+		Details: json.RawMessage(`{"version":1,"from":"scout"}`),
+	}
+	got := childBoundaryEvent(message, createdAt)
+	want := subagent.LiveEvent{
+		Kind: "boundary.created", BoundaryID: "inbox_task_1", BoundaryKind: "subagent_inbox", BoundarySource: "subagent",
+		Text: "Please review the diff.", Details: json.RawMessage(`{"version":1,"from":"scout"}`), CreatedAt: createdAt,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("childBoundaryEvent() = %+v, want %+v", got, want)
+	}
+
+	message.Content = []droids.InputContent{droids.TextInput{Text: strings.Repeat("é", maxChildBoundaryTextBytes)}}
+	message.Details = json.RawMessage(`{"version":1,"message":"` + strings.Repeat("x", maxChildBoundaryDetailsBytes) + `"}`)
+	bounded := childBoundaryEvent(message, createdAt)
+	if len(bounded.Text) > maxChildBoundaryTextBytes || !utf8.ValidString(bounded.Text) || string(bounded.Details) != `{"version":1}` {
+		t.Fatalf("bounded event text = %d bytes (valid %v), details = %d bytes", len(bounded.Text), utf8.ValidString(bounded.Text), len(bounded.Details))
 	}
 }

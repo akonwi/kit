@@ -574,7 +574,8 @@ func (s *Supervisor) publishChildEvent(owner string, conversationID Conversation
 }
 
 func liveEventBytes(event LiveEvent) int {
-	return len(event.Kind) + len(event.TurnID) + len(event.MessageID) + len(event.Delta) + len(event.Text) + len(event.ToolCallID) + len(event.ToolName) + 64
+	return len(event.Kind) + len(event.TurnID) + len(event.MessageID) + len(event.Delta) + len(event.Text) + len(event.ToolCallID) + len(event.ToolName) +
+		len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource) + len(event.Details) + 64
 }
 
 func totalLiveEventBytes(journals map[ConversationID]*liveEventJournal) int {

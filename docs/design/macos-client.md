@@ -477,6 +477,10 @@ results in the parent (the tool card and tile show them), pull request status
 app does not recognise. Composer commands and plugin messages keep their own
 rows.
 
+A marker appears when the server creates the record (`boundary.created`), not
+when a turn later consumes it, and keeps its row, keyed by boundary ID, when
+the record joins a turn.
+
 ## Editors and highlighting
 
 Swift Markdown parses blocks and inline content. SwiftTreeSitter highlights code

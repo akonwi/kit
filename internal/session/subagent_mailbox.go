@@ -264,7 +264,7 @@ func (m *Manager) deliverSubagentMailboxAutonomously(ctx context.Context, loaded
 		return err
 	}
 	if snapshot.Active != nil {
-		if err := m.informSubagentMailboxItems(ctx, loaded.droid, []subagent.MailboxItem{item}); err != nil {
+		if err := m.informSubagentMailboxItems(ctx, loaded.droid, loaded.events, []subagent.MailboxItem{item}); err != nil {
 			loaded.mu.Unlock()
 			return err
 		}
@@ -337,7 +337,7 @@ func (m *Manager) deliverSubagentMailboxAutonomously(ctx context.Context, loaded
 		release()
 		return err
 	}
-	if err := m.informSubagentMailboxItems(ctx, loaded.droid, []subagent.MailboxItem{item}); err != nil {
+	if err := m.informSubagentMailboxItems(ctx, loaded.droid, loaded.events, []subagent.MailboxItem{item}); err != nil {
 		subscription.Close()
 		release()
 		return err
@@ -371,7 +371,7 @@ func (m *Manager) deliverSubagentMailboxAutonomously(ctx context.Context, loaded
 	return m.markSubagentMailboxDelivered(ctx, []subagent.MailboxItem{item})
 }
 
-func (m *Manager) informPendingSubagentMailbox(ctx context.Context, sessionID string, droid *droids.Droid) ([]subagent.MailboxItem, error) {
+func (m *Manager) informPendingSubagentMailbox(ctx context.Context, sessionID string, droid *droids.Droid, events *eventLog) ([]subagent.MailboxItem, error) {
 	if m.mailbox == nil {
 		return nil, nil
 	}
@@ -385,7 +385,7 @@ func (m *Manager) informPendingSubagentMailbox(ctx context.Context, sessionID st
 		for end < len(items) && end-start < maxMailboxDeliveryBatch && items[end].Kind == items[start].Kind {
 			end++
 		}
-		if err := m.informSubagentMailboxItems(ctx, droid, items[start:end]); err != nil {
+		if err := m.informSubagentMailboxItems(ctx, droid, events, items[start:end]); err != nil {
 			return nil, err
 		}
 		start = end
@@ -409,12 +409,12 @@ func (m *Manager) acknowledgeConsumedSubagentMailbox(ctx context.Context, droid 
 	return m.markSubagentMailboxDelivered(ctx, items)
 }
 
-func (m *Manager) informSubagentMailboxItems(ctx context.Context, droid *droids.Droid, items []subagent.MailboxItem) error {
+func (m *Manager) informSubagentMailboxItems(ctx context.Context, droid *droids.Droid, events *eventLog, items []subagent.MailboxItem) error {
 	message, err := mailboxBoundary(items)
 	if err != nil {
 		return err
 	}
-	if err := droid.Inform(ctx, message); err != nil {
+	if err := informBoundary(ctx, droid, events, items[0].OwnerSessionID, message); err != nil {
 		received, reconcileErr := droid.BoundaryReceived(context.Background(), items[0].ID)
 		if reconcileErr != nil || !received {
 			return fmt.Errorf("deliver subagent mailbox item %q: %w", items[0].ID, errors.Join(err, reconcileErr))

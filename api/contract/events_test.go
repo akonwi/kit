@@ -92,3 +92,39 @@ func TestSessionEventRejectsMissingPayload(t *testing.T) {
 		t.Fatal("missing payload was valid")
 	}
 }
+
+func TestBoundaryCreatedEventIsASessionScopedRecord(t *testing.T) {
+	valid := BoundaryCreatedEvent{
+		BoundaryID: "bash_1", BoundaryKind: "bash", BoundarySource: "composer",
+		Content:   ContextContent{TextBlock("[bash from composer]\n[bash command: ls]")},
+		Details:   json.RawMessage(`{"version":1,"command":"ls","status":"completed","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:00:01Z"}`),
+		CreatedAt: "2026-01-01T00:00:01Z",
+	}
+	event := SessionEvent{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Payload: valid}
+	if err := event.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	omitted := valid
+	omitted.Details, omitted.DetailsOmitted = nil, true
+	if err := (SessionEvent{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Payload: omitted}).Validate(); err != nil {
+		t.Fatalf("omitted details: %v", err)
+	}
+	for name, payload := range map[string]BoundaryCreatedEvent{
+		"missing identity": func() BoundaryCreatedEvent { value := valid; value.BoundaryID = ""; return value }(),
+		"missing kind":     func() BoundaryCreatedEvent { value := valid; value.BoundaryKind = ""; return value }(),
+		"missing content":  func() BoundaryCreatedEvent { value := valid; value.Content = nil; return value }(),
+		"invalid time":     func() BoundaryCreatedEvent { value := valid; value.CreatedAt = "yesterday"; return value }(),
+		"invalid details": func() BoundaryCreatedEvent {
+			value := valid
+			value.Details = json.RawMessage(`{"version":2}`)
+			return value
+		}(),
+	} {
+		if err := (SessionEvent{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Payload: payload}).Validate(); err == nil {
+			t.Errorf("%s: Validate() accepted %+v", name, payload)
+		}
+	}
+	if err := eventForTest(1, valid).Validate(); err == nil {
+		t.Fatal("boundary event accepted a turn identity")
+	}
+}

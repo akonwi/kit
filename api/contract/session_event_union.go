@@ -48,6 +48,10 @@ type sessionEventWire struct {
 	AnnotationIDs          []uint64            `json:"annotationIds,omitempty"`
 	AcceptedMessageID      string              `json:"acceptedMessageId,omitempty"`
 	Scratchpad             *Scratchpad         `json:"scratchpad,omitempty"`
+	BoundaryID             string              `json:"boundaryId,omitempty"`
+	BoundaryKind           string              `json:"boundaryKind,omitempty"`
+	BoundarySource         string              `json:"boundarySource,omitempty"`
+	CreatedAt              string              `json:"createdAt,omitempty"`
 }
 
 var sessionEventCodec = newUnionCodec[SessionEvent, sessionEventWire](sessionEventVariants())

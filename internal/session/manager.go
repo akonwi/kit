@@ -850,21 +850,37 @@ func (m *Manager) fork(ctx context.Context, sourceSessionID string, input ForkIn
 	child.ParentSessionName = record.Name
 	published = true
 	// The fork is published; a best-effort notification must not fail it.
-	informDroidOfFork(ctx, source, childID)
+	informDroidOfFork(ctx, sourceSessionID, source, childID)
 	return ForkResult{Session: child, Point: forked.Point}, nil
 }
 
 // Callers hold the parent's transition lock, at least shared, to keep its droid stable.
 // Inform is safe during an active run; do not wait for its admission lock.
-func informDroidOfFork(ctx context.Context, parent *runtime, childID string) {
+func informDroidOfFork(ctx context.Context, parentSessionID string, parent *runtime, childID string) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
-	if err := parent.droid.Inform(ctx, droids.BoundaryMessage{
+	message := droids.BoundaryMessage{
 		ID: "session-fork:" + childID, Kind: "session_forked", Source: "session-manager",
 		Content: []droids.InputContent{droids.TextInput{Text: "This session was forked into session " + childID + ". The fork has independent state."}},
-	}); err != nil {
-		slog.WarnContext(ctx, "Could not notify parent of session fork", "child_session_id", childID, "error", err)
 	}
+	redelivered := boundaryReceived(ctx, parent.droid, message)
+	if err := parent.droid.Inform(ctx, message); err != nil {
+		slog.WarnContext(ctx, "Could not notify parent of session fork", "child_session_id", childID, "error", err)
+		return
+	}
+	if redelivered {
+		return
+	}
+	// The announcement needs the parent's mu, so a snapshot or a turn's stream
+	// reset cannot fall between the recording and the announcement, but a
+	// fork must not wait for work that holds mu, such as compaction. The
+	// goroutine ends once it has published under mu.
+	createdAt := time.Now()
+	go func() {
+		parent.mu.Lock()
+		defer parent.mu.Unlock()
+		publishBoundary(parent.events, parentSessionID, message, createdAt)
+	}()
 }
 
 func forkSessionName(parent string) string {
@@ -2012,7 +2028,7 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 		release()
 		return RunReservation{}, err
 	}
-	pendingMailbox, err := m.informPendingSubagentMailbox(ctx, sessionID, loaded.droid)
+	pendingMailbox, err := m.informPendingSubagentMailbox(ctx, sessionID, loaded.droid, loaded.events)
 	if err != nil {
 		subscription.Close()
 		if prepared != nil {
@@ -2701,7 +2717,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 			})
 		}
 		if host, ok := loaded.plugins.(PullRequestStatusHost); ok {
-			if err := startPullRequestInformer(loaded, host); err != nil {
+			if err := startPullRequestInformer(record.ID, loaded, host); err != nil {
 				_ = loaded.close(context.Background(), "unavailable")
 				return nil, fmt.Errorf("subscribe to pull request status: %w", err)
 			}

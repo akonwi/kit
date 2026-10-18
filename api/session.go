@@ -1558,7 +1558,7 @@ func isSessionScopedEvent(kind protocol.SessionEventKind) bool {
 	switch kind {
 	case protocol.SessionEventAnnotationCreated, protocol.SessionEventAnnotationUpdated,
 		protocol.SessionEventAnnotationDeleted, protocol.SessionEventAnnotationSubmitted,
-		protocol.SessionEventScratchpadChanged:
+		protocol.SessionEventScratchpadChanged, protocol.SessionEventBoundaryCreated:
 		return true
 	default:
 		return false

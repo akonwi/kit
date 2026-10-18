@@ -137,6 +137,22 @@ struct SessionEventProjection {
             // Sorted so an unchanged set never reads as changed session metadata.
             session.observedTurns = Set((session.observedTurns ?? []) + [event.turnId]).sorted()
             lastTurn = event.turnId
+        case "boundary.created":
+            guard let record = event.boundaryRecord else { throw ClientError.invalidPayload }
+            // A boundary is a record from creation. Its snapshot form, before
+            // or after it joins a turn, shares the row's identity.
+            let row: TranscriptMessage?
+            switch record.boundaryKind {
+            case "bash": row = try BashExecution.boundary(record)?.message
+            case "plugin_message": row = nil
+            default: row = SessionProjection.contextRow(record)
+            }
+            guard let row else { return }
+            if let index = session.messages.firstIndex(where: { $0.id == row.id }) {
+                session.messages[index] = row
+            } else {
+                session.messages.append(row)
+            }
         case "plugin.message.added":
             guard let plugin = event.pluginId, !plugin.isEmpty, let value = event.text, !value.isEmpty,
                   !event.turnId.isEmpty else { throw ClientError.invalidPayload }

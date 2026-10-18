@@ -63,6 +63,7 @@ const (
 	EventAnnotationDeleted      EventKind = "annotation.deleted"
 	EventAnnotationSubmitted    EventKind = "annotation.submitted"
 	EventScratchpadChanged      EventKind = "scratchpad.changed"
+	EventBoundaryCreated        EventKind = "boundary.created"
 )
 
 // NewEvent is a live session update awaiting a runtime-local stream sequence.
@@ -107,6 +108,10 @@ type NewEvent struct {
 	AnnotationIDs          []uint64
 	AcceptedMessageID      string
 	Scratchpad             *scratchpad.Record
+	BoundaryID             string
+	BoundaryKind           string
+	BoundarySource         string
+	CreatedAt              time.Time
 }
 
 // Event is one ordered live update retained by a loaded runtime.
@@ -157,6 +162,10 @@ func (event NewEvent) Validate() error {
 	if event.Kind == EventScratchpadChanged {
 		if event.TurnID != "" || event.RunID != "" || event.Scratchpad == nil {
 			return fmt.Errorf("scratchpad event requires a record without parent turn identity")
+		}
+	} else if event.Kind == EventBoundaryCreated {
+		if event.TurnID != "" || event.RunID != "" {
+			return fmt.Errorf("boundary event cannot carry parent turn identity")
 		}
 	} else if event.Kind == EventSessionRenamed || event.Kind == EventSessionCWDChanged {
 		if event.TurnID != "" || event.RunID != "" {
@@ -216,7 +225,7 @@ func (event NewEvent) Validate() error {
 	if len(event.Content) > maxLiveEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxLiveEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8 + len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource)
 	if event.Scratchpad != nil {
 		payloadBytes += len(event.Scratchpad.OwnerSessionID) + len(event.Scratchpad.Content) + 64
 	}
@@ -332,6 +341,10 @@ func (event NewEvent) Validate() error {
 			return err
 		}
 	case EventSubagentChanged, EventPeerQueryChanged, EventAnnotationDeleted, EventAnnotationSubmitted:
+	case EventBoundaryCreated:
+		if event.BoundaryID == "" || event.BoundaryKind == "" || event.CreatedAt.IsZero() || len(event.Content) == 0 && !event.ContentTruncated {
+			return fmt.Errorf("boundary event requires identity, kind, content, and creation time")
+		}
 	case EventInteractionRequested:
 		if event.Interaction == nil || event.InteractionID != "" || event.Interaction.ID == "" || event.Interaction.SessionID != event.SessionID || event.Interaction.RunID != event.RunID {
 			return fmt.Errorf("interaction request event is invalid")
@@ -442,8 +455,15 @@ func (event NewEvent) Validate() error {
 	if !isAnnotation && (event.AnnotationID != 0 || event.Annotation != nil || len(event.AnnotationIDs) > 0 || event.AcceptedMessageID != "") {
 		return fmt.Errorf("event kind %q cannot carry annotation data", event.Kind)
 	}
+	isBoundary := event.Kind == EventBoundaryCreated
+	if !isBoundary && (event.BoundaryID != "" || event.BoundaryKind != "" || event.BoundarySource != "" || !event.CreatedAt.IsZero()) {
+		return fmt.Errorf("event kind %q cannot carry boundary data", event.Kind)
+	}
 	isTool := event.Kind == EventToolPlanned || event.Kind == EventToolStarted || event.Kind == EventToolUpdated || event.Kind == EventToolCompleted
-	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {
+	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || event.IsError) {
+		return fmt.Errorf("event kind %q cannot carry tool data", event.Kind)
+	}
+	if !isTool && !isBoundary && (len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted) {
 		return fmt.Errorf("event kind %q cannot carry tool data", event.Kind)
 	}
 	if isTool && (event.Text != "" || event.Thinking != "" || event.Delta != "") {
@@ -452,7 +472,7 @@ func (event NewEvent) Validate() error {
 	if event.Kind != EventToolPlanned && event.Kind != EventToolStarted && (event.Arguments != "" || event.ArgumentsTruncated) {
 		return fmt.Errorf("event kind %q cannot carry tool arguments", event.Kind)
 	}
-	if event.Kind != EventToolUpdated && event.Kind != EventToolCompleted && (len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted) {
+	if event.Kind != EventToolUpdated && event.Kind != EventToolCompleted && !isBoundary && (len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted) {
 		return fmt.Errorf("event kind %q cannot carry tool result data", event.Kind)
 	}
 	if event.DetailsOmitted && len(event.Details) > 0 {
@@ -520,6 +540,18 @@ func newEventLog() (*eventLog, error) {
 		return nil, err
 	}
 	return &eventLog{streamID: id, next: 1, replayAvailable: true, changed: make(chan struct{})}, nil
+}
+
+// boundaryIDsLocked returns the boundaries the retained stream has announced.
+// Callers hold log.mu.
+func (log *eventLog) boundaryIDsLocked() map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, event := range log.events {
+		if event.Kind == EventBoundaryCreated {
+			ids[event.BoundaryID] = struct{}{}
+		}
+	}
+	return ids
 }
 
 func (log *eventLog) reset() error {
@@ -941,6 +973,12 @@ func boundedLiveToolContent(content []droids.ResultContent) ([]TranscriptContent
 	if err != nil {
 		return nil, true
 	}
+	return boundLiveContent(projected)
+}
+
+// boundLiveContent keeps the leading content that fits one live event and
+// reports whether any was dropped.
+func boundLiveContent(projected []TranscriptContent) ([]TranscriptContent, bool) {
 	result := make([]TranscriptContent, 0, min(len(projected), maxLiveEventContentBlocks))
 	remaining := maxLiveEventContentBytes
 	truncated := false

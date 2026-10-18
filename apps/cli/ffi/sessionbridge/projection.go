@@ -48,6 +48,9 @@ type Event struct {
 	// SubagentConversationID names the conversation a subagent.changed
 	// event reports.
 	SubagentConversationID string
+	// Bash is the run a boundary.created event records when the boundary is
+	// a composer command.
+	Bash *Bash
 }
 
 // Content is the client-owned flat projection of transcript content.
@@ -154,6 +157,10 @@ func Events(source []protocol.SessionEvent) []Event {
 			projected.Status, projected.ErrorMessage = string(payload.Status), payload.ErrorMessage
 		case protocol.SubagentChangedEvent:
 			projected.SubagentConversationID = payload.SubagentConversationID
+		case protocol.BoundaryCreatedEvent:
+			if bash, ok := bashBoundary(payload.BoundaryID, payload.BoundaryKind, payload.BoundarySource, payload.Content, payload.Details); ok {
+				projected.Bash = &bash
+			}
 		}
 		result = append(result, projected)
 	}
@@ -173,7 +180,7 @@ func Messages(source []protocol.TranscriptMessage) []Message {
 			projected.Details = string(message.Details)
 		}
 		if message.Role == "context" {
-			if bash, ok := bashBoundary(message.BoundaryID, message.BoundaryKind, message.Content, message.Details); ok {
+			if bash, ok := bashBoundary(message.BoundaryID, message.BoundaryKind, message.BoundarySource, message.Content, message.Details); ok {
 				projected.Role, projected.Bash = "bash", &bash
 			} else if message.BoundaryKind == protocol.PluginMessageBoundaryKind {
 				projected.Role, projected.PluginID = "plugin", message.BoundarySource

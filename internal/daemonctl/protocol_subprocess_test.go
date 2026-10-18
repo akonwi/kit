@@ -303,7 +303,7 @@ func TestProtocolClientHelper(t *testing.T) {
 		t.Fatalf("active work outcome: %+v", bash)
 	}
 	settled, err := client.transport.GetSessionSnapshot(ctx, created.ID)
-	if err != nil || len(settled.Messages) != 0 || len(settled.PendingBoundaries) != 1 || settled.PendingBoundaries[0].ID != bashID {
+	if err != nil || len(settled.Messages) != 1 || settled.Messages[0].TurnID != "" || settled.Messages[0].BoundaryID != bashID || settled.Messages[0].BoundaryKind != "bash" {
 		t.Fatalf("protocol-42 direct-bash context boundary: %+v, %v", settled, err)
 	}
 	history, err := client.transport.GetBashHistory(ctx, created.ID, 0, 10)

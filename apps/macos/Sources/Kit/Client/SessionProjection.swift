@@ -19,15 +19,13 @@ enum SessionProjection {
     static func snapshot(_ snapshot: WireSessionSnapshot) throws -> SessionExcerpt {
         // A snapshot holds every result of the calls it holds, so a settled
         // turn's call without one never ran.
+        // Boundaries that have not joined a completed turn follow the turns as
+        // records without a turn or history sequence.
+        let history = (snapshot.messages ?? []).filter { !$0.turnId.isEmpty }
         var session = try summary(snapshot.session, messages: transcript(snapshot.messages ?? [],
             settled: { $0 != snapshot.activeTurnId }))
-        for boundary in snapshot.pendingBoundaries ?? [] where boundary.kind == "bash" {
-            guard let details = boundary.details else { throw ClientError.invalidPayload }
-            let execution = try BashExecution.boundary(id: boundary.id, details: details, content: boundary.content ?? [])
-            if !session.messages.contains(where: { $0.id == execution.id }) { session.messages.append(execution.message) }
-        }
         session.historyCursor = try TranscriptHistoryPage.cursor(snapshot.previousMessageCursor,
-            hasMore: snapshot.hasMoreMessages, firstSequence: snapshot.messages?.first?.sequence)
+            hasMore: snapshot.hasMoreMessages, firstSequence: history.first?.sequence)
         session.annotations = try (snapshot.annotations ?? []).map(FileAnnotation.init)
         guard session.annotations!.count <= 128, Set(session.annotations!.map(\.id)).count == session.annotations!.count else { throw ClientError.invalidPayload }
         session.usage = SessionUsage(snapshot.usage)
@@ -47,12 +45,12 @@ enum SessionProjection {
         session.activeCompactionID = snapshot.activeCompaction?.id
         session.activeBashID = snapshot.activeBashExecutionId
         session.activeRunID = snapshot.activeTurnId
-        session.observedTurns = Set((snapshot.messages ?? []).map(\.turnId)).sorted()
+        session.observedTurns = Set(history.map(\.turnId)).sorted()
         session.followUps = try FollowUpState(snapshot.followUps)
         session.providerRetryAt = snapshot.providerRetry?.retryAt
         session.providerRetryCount = snapshot.providerRetry?.count
         session.terminalError = snapshot.activeTurnId == nil ? snapshot.messages?.last(where: { $0.role == "assistant" })?.errorMessage : nil
-        session.historyStart = snapshot.messages?.first?.sequence
+        session.historyStart = history.first?.sequence
         return session
     }
 

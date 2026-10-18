@@ -24,10 +24,14 @@ struct SubagentInboxMessage: Decodable, Sendable, Equatable {
 
 extension SessionProjection {
     /// The row for a context message other than a composer command or a
-    /// plugin message, or nil when the context is only for the model.
+    /// plugin message, or nil when the context is only for the model. The
+    /// row's ID is the boundary ID, so a record keeps its row from creation.
     static func contextRow(_ message: WireTranscriptMessage) -> TranscriptMessage? {
         guard let kind = message.boundaryKind else { return nil }
         let content = boundaryContent(message.content ?? [], kind: kind, source: message.boundarySource)
+        // A boundary keeps one row from creation, before and after it joins a
+        // turn's history under a new message ID.
+        let id = message.boundaryId.flatMap { $0.isEmpty ? nil : $0 } ?? message.id
         let details = message.details.flatMap { try? JSONEncoder().encode($0) }
         switch kind {
         case "summary":
@@ -35,17 +39,17 @@ extension SessionProjection {
             if summary.hasPrefix(compactionPrefix) { summary.removeFirst(compactionPrefix.count) }
             summary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !summary.isEmpty else { return nil }
-            return TranscriptMessage(id: message.id, role: "marker", text: "", tools: [], marker: .compaction(summary: summary))
+            return TranscriptMessage(id: id, role: "marker", text: "", tools: [], marker: .compaction(summary: summary))
         case "session_forked":
             guard let id = message.boundaryId, id.hasPrefix(forkPrefix) else { return nil }
             let session = String(id.dropFirst(forkPrefix.count))
             guard PeerSessionPresentation.validSessionID(session) else { return nil }
-            return TranscriptMessage(id: message.id, role: "marker", text: "", tools: [], marker: .fork(sessionID: session))
+            return TranscriptMessage(id: id, role: "marker", text: "", tools: [], marker: .fork(sessionID: session))
         case "cwd":
             struct Details: Decodable { let version: Int; let previousCwd: String?; let cwd: String }
             guard let details, let value = try? JSONDecoder().decode(Details.self, from: details),
                   value.version == 1, !value.cwd.isEmpty else { return nil }
-            return TranscriptMessage(id: message.id, role: "marker", text: "", tools: [],
+            return TranscriptMessage(id: id, role: "marker", text: "", tools: [],
                                      marker: .workingDirectory(path: value.cwd, previous: value.previousCwd))
         case "subagent_inbox":
             struct Details: Decodable {
@@ -69,7 +73,7 @@ extension SessionProjection {
                 guard !text.isEmpty else { return nil }
                 inbox = .init(kind: inboxKind, from: from, text: text, failed: false)
             }
-            return TranscriptMessage(id: message.id, role: "inbox", text: inbox.text, tools: [], inbox: inbox)
+            return TranscriptMessage(id: id, role: "inbox", text: inbox.text, tools: [], inbox: inbox)
         default:
             return nil
         }

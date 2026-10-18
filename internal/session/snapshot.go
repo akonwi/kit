@@ -65,15 +65,6 @@ type TranscriptMessage struct {
 	CreatedAt      time.Time
 }
 
-type PendingBoundary struct {
-	ID         string
-	Kind       string
-	Source     string
-	Content    []TranscriptContent
-	Details    json.RawMessage
-	AcceptedAt time.Time
-}
-
 type PromptCommand struct {
 	ArgumentHint string
 	Name         string
@@ -181,7 +172,6 @@ type Snapshot struct {
 	Messages              []TranscriptMessage
 	PreviousMessageCursor uint64
 	HasMoreMessages       bool
-	Boundaries            []PendingBoundary
 	ActiveRunID           string
 	ProviderRetry         *ProviderRetry
 	ActiveCompaction      *ActiveCompaction
@@ -228,6 +218,9 @@ type TranscriptPage struct {
 	Messages              []TranscriptMessage
 	PreviousMessageCursor uint64
 	HasMoreMessages       bool
+	// activeBoundaries are the external boundaries in an omitted running
+	// turn's history, newest first.
+	activeBoundaries []droids.MessageEnvelope
 }
 
 // Snapshot projects canonical droid history directly. While a turn is active,
@@ -601,25 +594,83 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 		result.ActiveBashExecutionID = active.id
 	}
 	m.bashMu.Unlock()
-	for _, pending := range droidSnapshot.Pending.Boundaries {
-		content, err := projectDroidContent(pending.Message.Content)
-		if err != nil {
-			return Snapshot{}, err
-		}
-		result.Boundaries = append(result.Boundaries, PendingBoundary{
-			ID: pending.Message.ID, Kind: pending.Message.Kind, Source: pending.Message.Source,
-			Content: content, Details: append(json.RawMessage(nil), pending.Message.Details...),
-			AcceptedAt: pending.AcceptedAt,
-		})
-	}
 	page, err := projectTranscriptPage(ctx, loaded.droid, 0, activeRunID, completeActiveStream)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	result.Messages = page.Messages
+	records, err := projectBoundaryRecords(loaded, droidSnapshot, page.activeBoundaries, completeActiveStream)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	result.Messages = append(page.Messages, records...)
 	result.PreviousMessageCursor = page.PreviousMessageCursor
 	result.HasMoreMessages = page.HasMoreMessages
 	return result, nil
+}
+
+// projectBoundaryRecords lists boundaries that have not joined a completed
+// turn as context records without a turn, in creation order. They follow the
+// transcript because that is where they join history.
+//
+// When the snapshot omits a running turn that clients replay from the live
+// stream, it lists the boundaries that joined the turn at its start; the
+// stream's boundary.created events carry those created during the turn, so
+// they are left out here. Plugin messages are left out because they start a
+// turn whose plugin.message.added event presents them.
+func projectBoundaryRecords(loaded *runtime, droidSnapshot droids.Snapshot, activeBoundaries []droids.MessageEnvelope, omitActive bool) ([]TranscriptMessage, error) {
+	streamed := map[string]struct{}{}
+	if omitActive {
+		streamed = loaded.events.boundaryIDsLocked()
+	}
+	listed := make(map[string]struct{})
+	var records []TranscriptMessage
+	add := func(record TranscriptMessage) {
+		if record.BoundaryKind == PluginMessageBoundaryKind {
+			return
+		}
+		if _, skip := streamed[record.BoundaryID]; skip {
+			return
+		}
+		if _, duplicate := listed[record.BoundaryID]; duplicate {
+			return
+		}
+		listed[record.BoundaryID] = struct{}{}
+		records = append(records, record)
+	}
+	for index := len(activeBoundaries) - 1; index >= 0; index-- {
+		envelope := activeBoundaries[index]
+		message, err := projectTranscriptMessage(envelope, int64(envelope.Sequence))
+		if err != nil {
+			return nil, fmt.Errorf("project message %q: %w", envelope.ID, err)
+		}
+		message.ID, message.TurnID, message.Sequence = message.BoundaryID, "", 0
+		add(message)
+	}
+	for _, pending := range droidSnapshot.Pending.Boundaries {
+		if pending.Message.ID == "" {
+			continue
+		}
+		record, err := boundaryRecord(pending.Message, pending.AcceptedAt)
+		if err != nil {
+			return nil, err
+		}
+		add(record)
+	}
+	return records, nil
+}
+
+// boundaryRecord projects a boundary as the context record it becomes when it
+// joins a turn, including the source line that frames it for the model.
+func boundaryRecord(message droids.BoundaryMessage, createdAt time.Time) (TranscriptMessage, error) {
+	content, err := projectDroidContent(append([]droids.InputContent{droids.TextInput{Text: droids.BoundaryFraming(message.Kind, message.Source)}}, message.Content...))
+	if err != nil {
+		return TranscriptMessage{}, fmt.Errorf("project boundary %q: %w", message.ID, err)
+	}
+	return TranscriptMessage{
+		ID: message.ID, Role: "context", Content: content,
+		BoundaryID: message.ID, BoundaryKind: message.Kind, BoundarySource: message.Source,
+		Details: append(json.RawMessage(nil), message.Details...), CreatedAt: createdAt.UTC(),
+	}, nil
 }
 
 // sessionRecordAtWorkspace reads a record at a stable workspace publication.
@@ -667,8 +718,16 @@ func projectTranscriptPage(ctx context.Context, droid *droids.Droid, before uint
 	var selected []droids.MessageEnvelope
 	var candidate []droids.MessageEnvelope
 	var candidateTurn string
+	var activeBoundaries []droids.MessageEnvelope
 	cursor := before
 	turns := 0
+	// The running turn is the newest, so its history is read before any
+	// page can stop.
+	finish := func(hasMore bool) (TranscriptPage, error) {
+		page, err := projectSelectedTranscript(selected, hasMore)
+		page.activeBoundaries = activeBoundaries
+		return page, err
+	}
 
 	includeCandidate := func() bool {
 		if len(candidate) == 0 {
@@ -695,6 +754,9 @@ func projectTranscriptPage(ctx context.Context, droid *droids.Droid, before uint
 		}
 		for _, envelope := range page.Messages {
 			if omitActive && string(envelope.TurnID) == activeRunID {
+				if boundary, ok := envelope.Message.(droids.ContextMessage); ok && boundary.BoundaryID != "" {
+					activeBoundaries = append(activeBoundaries, envelope)
+				}
 				continue
 			}
 			turnID := string(envelope.TurnID)
@@ -703,7 +765,7 @@ func projectTranscriptPage(ctx context.Context, droid *droids.Droid, before uint
 			}
 			if len(candidate) > 0 && turnID != candidateTurn {
 				if !includeCandidate() {
-					return projectSelectedTranscript(selected, true)
+					return finish(true)
 				}
 			}
 			if len(candidate) == 0 {
@@ -713,9 +775,9 @@ func projectTranscriptPage(ctx context.Context, droid *droids.Droid, before uint
 		}
 		if !page.HasMore {
 			if !includeCandidate() {
-				return projectSelectedTranscript(selected, true)
+				return finish(true)
 			}
-			return projectSelectedTranscript(selected, false)
+			return finish(false)
 		}
 		cursor = page.Next
 	}
