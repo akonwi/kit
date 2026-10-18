@@ -77,10 +77,14 @@ struct SessionLauncherTests {
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = host
+            // SwiftUI focuses a text field only in the active app, and a test
+            // runner such as CI's does not start active.
+            NSApp.activate()
             window.makeKeyAndOrderFront(nil)
             defer { window.close() }
             for _ in 0..<100 {
                 if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor { break }
+                if !window.isKeyWindow { window.makeKey() }
                 try await Task.sleep(for: .milliseconds(20))
             }
             #expect((window.firstResponder as? NSTextView)?.isFieldEditor == true)
