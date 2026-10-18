@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -151,6 +152,24 @@ func childTranscriptHistory(t *testing.T, messages []droids.MessageEnvelope) fun
 			page.Next = selected[len(selected)-1].Sequence
 		}
 		return page, nil
+	}
+}
+
+func TestProjectChildTranscriptMessageKeepsBoundaryDetails(t *testing.T) {
+	t.Parallel()
+	details := json.RawMessage(`{"version":1,"receipt":"subrequest_1","kind":"reply","from":"tester","message":"Yes."}`)
+	message, err := projectChildTranscriptMessage(droids.MessageEnvelope{
+		ID: "message_test", ConversationID: "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TurnID: "turn_test", CreatedAt: time.Now(),
+		Message: droids.ContextMessage{
+			BoundaryID: "inbox_task_1", Kind: "subagent_inbox", Source: "subagent", Details: details,
+			Content: []droids.InputContent{droids.TextInput{Text: "Subagent reply to subrequest_1 from tester:\nYes."}},
+		},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Role != "context" || message.BoundaryKind != "subagent_inbox" || string(message.Details) != string(details) {
+		t.Fatalf("projected message = %+v", message)
 	}
 }
 

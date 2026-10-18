@@ -85,10 +85,11 @@ enum SessionProjection {
             // Results enrich the original call; they do not create transcript rows.
             if message.role == "tool", let id = message.toolCallId, calls.contains(id) { continue }
             if turnID != message.turnId { flush(); turnID = message.turnId }
-            // Agent-to-agent context remains in server history, but is not a user-facing row.
-            if message.role == "context", let kind = message.boundaryKind,
-               ["subagent_result", "peer_query", "peer_result"].contains(kind) {
+            // Context the user should notice becomes a marker; context meant
+            // only for the model stays in server history without a row.
+            if message.role == "context", !["bash", "plugin_message"].contains(message.boundaryKind) {
                 flush()
+                if let row = contextRow(message) { messages.append(row) }
                 continue
             }
             if message.role == "context", message.boundaryKind == "plugin_message" {

@@ -297,6 +297,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	}
 	childFactory.PluginInterceptors = sessionManager.PluginInterceptors
 	childFactory.MCPTools = sessionManager.MCPTools
+	childFactory.InboxRequests = store
 	childFactory.SiblingTools = &subagent.SiblingToolService{
 		Repository: store, Supervisor: subagents,
 		ResolveRecipient: subagentTools.ResolveConfiguredRecipient,

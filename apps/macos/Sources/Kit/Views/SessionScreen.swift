@@ -3,6 +3,8 @@ import SwiftUI
 /// Requests that open sessions as tabs of the current window.
 struct SessionNavigation {
     var openSession: (String) -> Void = { _ in }
+    /// The title of a session on this window's server, when the app knows it.
+    var sessionTitle: (String) -> String? = { _ in nil }
     var openLauncher: () -> Void = {}
 }
 
@@ -82,7 +84,7 @@ struct SessionScreen: View {
         .foregroundStyle(theme.text)
         .background(tiled ? .clear : theme.surface)
         .environment(\.mica, theme)
-        .environment(\.transcriptSessionLink, TranscriptSessionLink(serverID: serverID) { id in
+        .environment(\.transcriptSessionLink, TranscriptSessionLink(serverID: serverID, title: { navigation.sessionTitle($0) }) { id in
             navigation.openSession(id)
         })
         .environment(\.transcriptToolContext, TranscriptToolContext(

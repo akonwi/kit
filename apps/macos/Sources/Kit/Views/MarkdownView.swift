@@ -7,9 +7,12 @@ struct MarkdownView: View {
     var onSections: (([TranscriptReadingSection]) -> Void)? = nil
     /// Body text size; the transcript reads at 14 pt, docked details at 12.
     var size: CGFloat = 14
+    /// Draws headings at the body size, for summaries inside a detail well.
+    var compactHeadings = false
 
     var body: some View {
-        MarkdownBlocks(blocks: MarkdownContentCache.shared.content(for: source).blocks, measureSections: onSections != nil)
+        MarkdownBlocks(blocks: MarkdownContentCache.shared.content(for: source).blocks, measureSections: onSections != nil,
+                       compactHeadings: compactHeadings, size: size)
             .coordinateSpace(name: "markdownSections")
             .onPreferenceChange(MarkdownSectionFrames.self) { frames in
                 guard onSections != nil else { return }
@@ -31,6 +34,8 @@ private struct MarkdownBlocks: View {
     @Environment(\.mica) private var theme
     let blocks: [MarkdownContent.Block]
     var measureSections = false
+    var compactHeadings = false
+    var size: CGFloat = 14
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -40,11 +45,11 @@ private struct MarkdownBlocks: View {
                     case .paragraph(let value): MarkdownInline(value: value).lineSpacing(5)
                     case .heading(let level, let value):
                         MarkdownInline(value: value)
-                            .font(.kit(size: level == 1 ? 20 : level == 2 ? 17 : 15, weight: .semibold))
-                            .padding(.top, 4)
+                            .font(.kit(size: compactHeadings ? size : level == 1 ? 20 : level == 2 ? 17 : 15, weight: .semibold))
+                            .padding(.top, compactHeadings ? 2 : 4)
                     case .code(let language, let value): CodeBlock(language: language, source: value)
                     case .quote(let children):
-                        MarkdownBlocks(blocks: children)
+                        MarkdownBlocks(blocks: children, compactHeadings: compactHeadings, size: size)
                             .padding(.leading, 14)
                             .overlay(alignment: .leading) { Rectangle().fill(theme.border).frame(width: 2) }
                     case .list(let items):
@@ -53,7 +58,7 @@ private struct MarkdownBlocks: View {
                                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                                     Text(item.marker).foregroundStyle(theme.muted)
                                         .frame(minWidth: 18, alignment: .trailing)
-                                    MarkdownBlocks(blocks: item.blocks)
+                                    MarkdownBlocks(blocks: item.blocks, compactHeadings: compactHeadings, size: size)
                                 }
                             }
                         }

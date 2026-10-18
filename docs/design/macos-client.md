@@ -454,6 +454,29 @@ Save As. Pinching zooms and scrolling or dragging pans; ⌘+ and ⌘− step the
 tabs restore with the layout; images in workspace files are not shown, since
 the server reads only text files.
 
+### Context markers
+
+Context Kit adds to a conversation that the user caused or should notice
+appears as a one-line marker in the tool-row lane: a muted icon, muted words,
+and the subject in text colour. The model-facing `[kind from source]` line is
+never shown.
+
+- **Working directory** (`cwd`): "Working directory changed to" and the new
+  path in mono, home-relative and truncated in the middle. The tooltip gives
+  the previous path.
+- **Fork** (`session_forked`): "Forked into" and the fork's current title,
+  which underlines on hover and opens or selects the fork's tab.
+- **Compaction** (`summary`): "Context compacted" behaves like a tool row,
+  collapsed by default. Open, it becomes a raised block with the summary as
+  Markdown in a well under a divider, at the title inset and body-size
+  headings, capped at 14 lines and scrolling.
+
+Context meant only for the model has no row: subagent results and request
+results in the parent (the tool card and tile show them), pull request status
+(the session bar shows it), `peer_query` and `peer_result`, and any kind the
+app does not recognise. Composer commands and plugin messages keep their own
+rows.
+
 ## Editors and highlighting
 
 Swift Markdown parses blocks and inline content. SwiftTreeSitter highlights code
@@ -548,8 +571,12 @@ the originating server identity and focus already-open sessions. Recorded initia
 run IDs do not establish current run status, and peer wait timeouts do not imply
 cancellation.
 
-`peer_query`, `peer_result`, and `subagent_result` context records are intentionally
-hidden from the transcript until a dedicated presentation is chosen.
+A request or reply from another subagent shows in the receiving subagent's
+pane as an outlined card headed "Request from ‹name›" or "Reply from ‹name›",
+followed by the message. A failed request reads "Request to ‹name› failed"
+with the reason in danger colour. The receipt and reply instructions are for
+the model and are not shown. The name and message come from the boundary's
+details; an older delivery without them shows its text under a generic heading.
 
 ## File annotations
 

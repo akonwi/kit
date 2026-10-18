@@ -313,10 +313,11 @@ struct NativeTranscript: NSViewRepresentable {
 
     private static let headerID = "native-transcript-header"
 
+    /// The table row for a message: the same content under a row identity.
     static func row(from message: TranscriptMessage) -> TranscriptMessage {
-        TranscriptMessage(id: "message:" + message.id, role: message.role, text: message.text,
-            tools: message.tools, attachments: message.attachments, annotations: message.annotations, bash: message.bash,
-            plugin: message.plugin)
+        var row = message
+        row.id = "message:" + message.id
+        return row
     }
 
     private var header: some View {
@@ -679,6 +680,11 @@ private struct NativeMessageRow: View {
         } else if let origin = message.plugin {
             PluginMessageRow(message: message, origin: origin,
                              state: presentation.drawer(for: "plugin:" + origin.turnID), onExpand: onExpand)
+        } else if let marker = message.marker {
+            TranscriptMarkerRow(marker: marker, state: presentation.drawer(for: String(message.id.dropFirst("message:".count))),
+                                onExpand: onExpand)
+        } else if let inbox = message.inbox {
+            SubagentInboxRow(message: inbox)
         } else if message.role == "tools" {
             VStack(alignment: .leading, spacing: 12) {
                 ToolActivityView(tools: message.tools, workspace: workspace,
@@ -689,9 +695,8 @@ private struct NativeMessageRow: View {
             }
         } else {
                                 VStack(alignment: .leading, spacing: 12) {
-                                    if message.role != "assistant" && message.role != "user" {
-                                        Text(message.role == "preview" ? "Preview" : "Compacted context")
-                                            .font(.kit(size: 12, weight: .semibold))
+                                    if message.role == "preview" {
+                                        Text("Preview").font(.kit(size: 12, weight: .semibold))
                                     }
                                     if !message.text.isEmpty { MarkdownView(source: message.text, onSections: message.role == "assistant" ? onSections : nil) }
                                     TranscriptAnnotations(annotations: message.annotations ?? [])
