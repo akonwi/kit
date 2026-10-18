@@ -322,6 +322,17 @@ final class SessionWindowModel: Identifiable {
         onChange(self)
     }
 
+    /// Closes a tab, first asking if that would end commands running in its
+    /// terminals.
+    func requestClose(_ tab: SessionTab) {
+        TerminalCloseConfirmation.confirm(tab.store?.busyTerminals ?? [], scope: .sessionTab, in: window) { [weak self, weak tab] in
+            if let self, let tab { self.close(tab) }
+        }
+    }
+
+    /// Terminals in this window whose commands are still running.
+    var busyTerminals: [TerminalTab] { tabs.flatMap { $0.store?.busyTerminals ?? [] } }
+
     /// Closes a tab. Closing the last tab leaves a launcher in its place.
     /// Closing the selected tab selects the next tab in family order.
     func close(_ tab: SessionTab) {

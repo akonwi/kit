@@ -9,8 +9,9 @@ struct PaletteCommandTests {
         #expect(names == [
             "cd", "compact", "debug", "diff", "files", "fork", "login", "mcp", "model", "name", "new", "quit",
             "refresh-models", "reload", "sessions", "subagents", "tabs", "theme", "thinking",
-            "browser", "split-right", "split-down", "zoom", "equalize", "join-tabs", "scratchpad"
+            "browser", "split-right", "split-down", "zoom", "equalize", "join-tabs", "terminal", "scratchpad"
         ])
+        #expect(PaletteCommand.builtIns(terminal: false).contains { $0.name == "terminal" } == false)
         #expect(PaletteCommand.builtIns(scratchpad: false).contains { $0.name == "scratchpad" } == false)
         #expect(PaletteCommand.builtIns(temporary: true).last?.name == "dispose")
     }

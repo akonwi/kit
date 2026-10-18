@@ -21,6 +21,8 @@ enum WorkspacePane: Hashable, Identifiable {
     case image(id: String, filename: String)
     /// A browser tab. Each is its own instance; the workspace holds its page.
     case browser(UUID)
+    /// A terminal tab. Each is its own instance; the workspace holds its shell.
+    case terminal(UUID)
     var id: String {
         switch self {
         case .conversation: "conversation"
@@ -30,9 +32,11 @@ enum WorkspacePane: Hashable, Identifiable {
         case .file(let path): "file:" + path
         case .image(let id, let filename): "image:" + id + ":" + filename
         case .browser(let id): "browser:" + id.uuidString.lowercased()
+        case .terminal(let id): "terminal:" + id.uuidString.lowercased()
         }
     }
-    /// The pane's name. A browser tab's is its page's; see `WorkspaceState.title(of:)`.
+    /// The pane's name. A browser tab's is its page's and a terminal's its
+    /// shell's; see `WorkspaceState.title(of:)`.
     var title: String {
         switch self {
         case .conversation: "Agent"
@@ -42,6 +46,7 @@ enum WorkspacePane: Hashable, Identifiable {
         case .file(let path): URL(fileURLWithPath: path).lastPathComponent
         case .image(_, let filename): filename
         case .browser: "Browser"
+        case .terminal: "Terminal"
         }
     }
     var closable: Bool { self != .conversation }
@@ -58,6 +63,10 @@ enum WorkspacePane: Hashable, Identifiable {
             else if id.hasPrefix("browser:") {
                 guard let uuid = UUID(uuidString: String(id.dropFirst(8))) else { return nil }
                 self = .browser(uuid)
+            }
+            else if id.hasPrefix("terminal:") {
+                guard let uuid = UUID(uuidString: String(id.dropFirst(9))) else { return nil }
+                self = .terminal(uuid)
             }
             else if id.hasPrefix("image:") {
                 // Attachment IDs never contain a colon; filenames may.
@@ -101,6 +110,8 @@ final class WorkspaceState {
     @ObservationIgnored var bounds = CGRect(x: 0, y: 0, width: 1000, height: 1000)
     /// Open browser tabs' pages, by pane.
     private(set) var browsers: [UUID: BrowserTab] = [:]
+    /// Open terminal tabs' shells, by pane.
+    private(set) var terminals: [UUID: TerminalTab] = [:]
     /// Makes the engine behind each browser tab.
     @ObservationIgnored var makeBrowserEngine: @MainActor () -> any BrowserEngine = WebKitBrowserEngine.make
     /// Where browser downloads are reported.
@@ -137,6 +148,7 @@ final class WorkspaceState {
     func select(_ pane: WorkspacePane) {
         guard let tile = tile(containing: pane) else { return }
         tiles[tile]?.selected = pane
+        terminal(pane)?.bell = false
         if let zoomedTile, zoomedTile != tile { self.zoomedTile = nil }
         focus(tile: tile)
     }
@@ -144,6 +156,7 @@ final class WorkspaceState {
     /// Opens a pane as a tab in the focused tile, or selects it if it is open.
     func open(_ pane: WorkspacePane) {
         if case .browser(let id) = pane, browsers[id] == nil { return }
+        if case .terminal(let id) = pane, terminals[id] == nil { return }
         if !panes.contains(pane) {
             panes.append(pane)
             tiles[focusedTile]?.panes.append(pane)
@@ -157,6 +170,7 @@ final class WorkspaceState {
     /// A pane that is already open is selected where it is.
     func open(_ pane: WorkspacePane, beside anchor: WorkspacePane) {
         if case .browser(let id) = pane, browsers[id] == nil { return }
+        if case .terminal(let id) = pane, terminals[id] == nil { return }
         guard !panes.contains(pane) else { select(pane); return }
         guard let home = tile(containing: anchor) else { open(pane); return }
         let neighbor = [TileDirection.right, .down, .left, .up].lazy
@@ -180,6 +194,7 @@ final class WorkspaceState {
               let index = tile.panes.firstIndex(of: pane) else { return }
         if case .file(let path) = pane { filePreviews.remove(path) }
         if case .browser(let id) = pane { browsers.removeValue(forKey: id)?.close() }
+        if case .terminal(let id) = pane { terminals.removeValue(forKey: id)?.close() }
         panes.removeAll { $0 == pane }
         tile.panes.remove(at: index)
         if tile.panes.isEmpty {
@@ -293,8 +308,14 @@ final class WorkspaceState {
                 addresses[pane.id] = BrowserAddress.withoutCredentials(url).absoluteString
             }
         }
+        // Each terminal's working directory, so relaunch starts a shell there.
+        var directories: [String: String] = [:]
+        for pane in panes {
+            if case .terminal(let id) = pane, let tab = terminals[id] { directories[pane.id] = tab.directory }
+        }
         return TileArrangement(root: node(root), focused: root.tiles.firstIndex(of: focusedTile) ?? 0,
-                               zoomed: zoomedTile != nil, browsers: addresses.isEmpty ? nil : addresses)
+                               zoomed: zoomedTile != nil, browsers: addresses.isEmpty ? nil : addresses,
+                               terminals: directories.isEmpty ? nil : directories)
     }
 
     /// Replaces the layout with a saved one. Unknown and repeated panes are
@@ -341,6 +362,14 @@ final class WorkspaceState {
             // A saved address that isn't a web address restores a blank tab.
             let url = arrangement.browsers?[pane.id].flatMap(URL.init(string:)).flatMap { BrowserAddress.isWeb($0) ? $0 : nil }
             adopt(BrowserTab(id: id, url: url, makeEngine: makeBrowserEngine))
+        }
+        for tab in terminals.values { tab.close() }
+        terminals = [:]
+        for pane in panes {
+            guard case .terminal(let id) = pane else { continue }
+            // A terminal starts a new shell in its last directory, or in the
+            // home directory when that wasn't saved.
+            adopt(TerminalTab(id: id, directory: arrangement.terminals?[pane.id] ?? ""))
         }
         let order = tree.tiles
         focusedTile = order[min(max(arrangement.focused, 0), order.count - 1)]
@@ -438,6 +467,7 @@ final class WorkspaceState {
     /// The name a pane's tab shows.
     func title(of pane: WorkspacePane) -> String {
         if case .browser(let id) = pane, let tab = browsers[id] { return tab.title }
+        if case .terminal(let id) = pane, let tab = terminals[id] { return tab.title }
         return pane.title
     }
 
@@ -464,9 +494,66 @@ final class WorkspaceState {
         return tab
     }
 
-    /// Stops every page when the session tab closes.
-    func closeBrowsers() {
+    /// Stops every page and ends every shell when the session tab closes.
+    func closeLiveTabs() {
         for tab in browsers.values { tab.close() }
+        for tab in terminals.values { tab.close() }
+    }
+
+    // MARK: Terminal tabs
+
+    func terminal(_ pane: WorkspacePane) -> TerminalTab? {
+        guard case .terminal(let id) = pane else { return nil }
+        return terminals[id]
+    }
+
+    /// Terminals whose commands are still running, which closing would end.
+    var busyTerminals: [TerminalTab] {
+        panes.compactMap { terminal($0) }.filter(\.needsConfirmClose)
+    }
+
+    /// Opens a terminal in `tile`, or in the focused tile, starting in
+    /// `directory`: the session's working directory.
+    @discardableResult
+    func openTerminal(in tile: UUID? = nil, directory: String) -> TerminalTab {
+        let tab = TerminalTab(directory: directory)
+        adopt(tab)
+        if let tile { focus(tile: tile) }
+        open(.terminal(tab.id))
+        return tab
+    }
+
+    private func adopt(_ tab: TerminalTab) {
+        terminals[tab.id] = tab
+        tab.onRequest = { [weak self, weak tab] request in
+            guard let self, let tab else { return }
+            self.handle(request, from: tab)
+        }
+    }
+
+    private func handle(_ request: TerminalTabRequest, from tab: TerminalTab) {
+        let pane = WorkspacePane.terminal(tab.id)
+        switch request {
+        case .close:
+            close(pane)
+        case .bell:
+            // Only a terminal that isn't on screen keeps a mark.
+            if !isVisible(pane) { tab.bell = true }
+        case .notification(let title, let body):
+            let heading = title.isEmpty ? body : title
+            let detail = (title.isEmpty ? [] : [body]) + [tab.title]
+            feedback?.show(title: heading.isEmpty ? "Terminal" : heading,
+                           detail: detail.filter { !$0.isEmpty }.joined(separator: " · "),
+                           icon: .terminalWindow, actionTitle: "Show") { [weak self] in
+                self?.select(pane)
+            }
+        case .openURL(let url):
+            if BrowserAddress.isWeb(url) {
+                openBrowser(url, beside: pane)
+            } else {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
 
     private func adopt(_ tab: BrowserTab) {

@@ -265,4 +265,15 @@ private struct FocusHarness: View {
         try await fixture.settle()
         #expect(fixture.responder == "file:b.swift")
     }
+
+    /// A removed view that held the keyboard, such as a closed terminal,
+    /// leaves the window holding it.
+    @Test func theWindowTakingTheKeyboardReturnsItToTheFocusedPane() async throws {
+        let fixture = try await Fixture()
+        #expect(fixture.responder == "file:a.swift")
+
+        fixture.window.makeFirstResponder(nil)
+        try await fixture.settle()
+        #expect(fixture.responder == "file:a.swift")
+    }
 }

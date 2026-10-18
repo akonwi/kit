@@ -24,8 +24,21 @@ let package = Package(
             .product(name: "CodeEditLanguages", package: "CodeEditLanguages"),
             .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
-            .product(name: "HTTPTypesFoundation", package: "swift-http-types")
-        ], exclude: ["openapi-generator-config.yaml"], resources: [.process("Resources")]),
+            .product(name: "HTTPTypesFoundation", package: "swift-http-types"),
+            "GhosttyKit"
+        ], exclude: ["openapi-generator-config.yaml"], resources: [.process("Resources")],
+        linkerSettings: [
+            .linkedFramework("Carbon"),
+            .linkedFramework("CoreText"),
+            .linkedFramework("CoreVideo"),
+            .linkedFramework("IOSurface"),
+            .linkedFramework("Metal"),
+            .linkedFramework("QuartzCore"),
+            .linkedFramework("UserNotifications"),
+            .linkedLibrary("c++")
+        ]),
+        // libghostty, built by script/build_ghosttykit.sh at a pinned commit.
+        .binaryTarget(name: "GhosttyKit", path: "Vendor/Ghostty/GhosttyKit.xcframework"),
         .testTarget(name: "KitTests", dependencies: ["Kit"])
     ]
 )

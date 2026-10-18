@@ -12,13 +12,36 @@ jobs:
       - name: Verify generated protocol
         run: |
           apps/macos/script/generate_openapi.sh --check
+      - name: Restore libghostty
+        id: ghostty
+        uses: actions/cache@v6
+        with:
+          path: apps/macos/Vendor/Ghostty
+          key: ghostty-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/macos/script/build_ghosttykit.sh', 'apps/macos/ThirdParty/Ghostty/**') }}
+      - name: Read the pinned Zig version
+        if: steps.ghostty.outputs.cache-hit != 'true'
+        id: zig
+        run: echo "version=$(sed -n 's/^ZIG_VERSION=//p' apps/macos/script/build_ghosttykit.sh)" >> "$GITHUB_OUTPUT"
+      - name: Install Zig
+        if: steps.ghostty.outputs.cache-hit != 'true'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ steps.zig.outputs.version }}
+      - name: Build libghostty
+        if: steps.ghostty.outputs.cache-hit != 'true'
+        run: |
+          xcrun -f metal >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
+          apps/macos/script/build_ghosttykit.sh
       - name: Build clean app without private fixtures
         run: apps/macos/script/build_and_run.sh --build
       - name: Test
         working-directory: apps/macos
         run: xcodebuild -scheme Kit -destination 'platform=macOS' -derivedDataPath .build/xcode -skipPackagePluginValidation test
       - name: Validate app packaging scripts
-        run: bash -n apps/macos/script/build_and_run.sh apps/macos/script/package_app.sh
+        run: |
+          for script in build_and_run build_ghosttykit check_terminal_bundle package_app; do
+            bash -n "apps/macos/script/$script.sh"
+          done
       - name: Build Apple Silicon Release staging app (not distributable)
         env:
           KIT_MACOS_APP_BUNDLE: ${{ runner.temp }}/Kit-release-check.app
@@ -35,3 +58,5 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$KIT_MACOS_APP_BUNDLE/Contents/Info.plist")" = "$(git rev-list --count HEAD)"
           test ! -e "$KIT_MACOS_APP_BUNDLE/Contents/Resources/fixture.json"
           test ! -e "$KIT_MACOS_APP_BUNDLE/Contents/Resources/workspace.json"
+          apps/macos/script/check_terminal_bundle.sh "$KIT_MACOS_APP_BUNDLE" \
+            apps/macos/.build/xcode/Build/Products/Release/Kit.dSYM

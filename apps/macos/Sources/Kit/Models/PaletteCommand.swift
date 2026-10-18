@@ -157,7 +157,7 @@ struct PaletteCommand: Identifiable {
 
     /// The TUI's built-in commands, then the Mac's tile commands. Optional
     /// rows appear only where they apply.
-    static func builtIns(scratchpad: Bool = true, temporary: Bool = false) -> [Self] {
+    static func builtIns(scratchpad: Bool = true, temporary: Bool = false, terminal: Bool = true) -> [Self] {
         var rows: [Self] = [
             .init(id: "cd", name: "cd", hint: "[path]", description: "Change working directory", searchTerms: ["cwd", "directory", "folder"]),
             .init(id: "compact", name: "compact", description: "Compact session context", searchTerms: ["summarize", "shrink"]),
@@ -185,6 +185,10 @@ struct PaletteCommand: Identifiable {
             .init(id: "equalize", name: "equalize", description: "Size every tile evenly", searchTerms: ["tile", "balance"]),
             .init(id: "join-tabs", name: "join-tabs", description: "Gather every tab into one tile", searchTerms: ["tile", "merge"])
         ]
+        if terminal {
+            rows.append(.init(id: "terminal", name: "terminal", description: "Open a shell in the session's directory",
+                              searchTerms: ["shell", "console", "command line"]))
+        }
         if scratchpad {
             rows.append(.init(id: "scratchpad", name: "scratchpad", description: "Open shared working notes", searchTerms: ["notes", "memory"]))
         }

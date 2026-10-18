@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -200,6 +201,10 @@ final class SessionStore {
         let workspace = ui.workspace
         if pane == .scratchpad, let client = scratchpadClient {
             Task { await workspace.closeScratchpad(client: client, session: selectedID) }
+        } else if let terminal = workspace.terminal(pane) {
+            // A terminal running a command asks first.
+            TerminalCloseConfirmation.confirm(terminal.needsConfirmClose ? [terminal] : [], scope: .tab,
+                                              in: terminal.window ?? NSApp.keyWindow) { workspace.close(pane) }
         } else { workspace.close(pane) }
     }
 
@@ -584,11 +589,21 @@ final class SessionStore {
         feedback.clearTransientPluginNotifications()
         replica.detach()
     }
-    /// Ends the session tab's work, including its browser pages.
+    /// Ends the session tab's work, including its browser pages and shells.
     func stop() {
         demo?.stop()
-        ui.closeBrowsers()
+        ui.closeLiveTabs()
     }
+
+    /// Where a new terminal starts: the session's working directory. Nil
+    /// unless the server runs on this Mac, since a terminal runs here.
+    var terminalDirectory: String? {
+        guard !isDemo, !unavailable, serverID == SessionWindowModel.defaultServer, let session = selected else { return nil }
+        return session.cwd ?? session.workspace
+    }
+
+    /// Terminals in this session tab whose commands are still running.
+    var busyTerminals: [TerminalTab] { ui.workspaces.flatMap(\.busyTerminals) }
     func replay() { ui.notice = ""; demo?.replay() }
     func previewModel(_ value: String) { demo?.model = value }
     func previewThinking(_ value: String) { demo?.thinking = value }

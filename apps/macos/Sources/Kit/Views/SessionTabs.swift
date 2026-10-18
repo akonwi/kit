@@ -293,7 +293,7 @@ private struct SessionSidebarRow: View {
                 HStack(spacing: 0) {
                     SessionTreeDisclosure(row: row, model: model)
                     if hovering {
-                        ChromeIconButton(icon: .x, size: 10, frame: 18, help: "Close tab") { model.close(tab) }
+                        ChromeIconButton(icon: .x, size: 10, frame: 18, help: "Close tab") { model.requestClose(tab) }
                     }
                 }
             }
@@ -309,7 +309,7 @@ private struct SessionSidebarRow: View {
         .accessibilityValue(tab.statusLabel ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .sessionTreeDisclosureAction(row: row, model: model)
-        .contextMenu { Button("Close Tab") { model.close(tab) } }
+        .contextMenu { Button("Close Tab") { model.requestClose(tab) } }
     }
 }
 
@@ -446,7 +446,7 @@ struct SessionTopTabs: View {
                                             ? URL(fileURLWithPath: tab.directory).lastPathComponent : nil,
                                           parent: model.parentTitle(of: tab),
                                           select: { model.select(tab) },
-                                          close: { model.close(tab) })
+                                          close: { model.requestClose(tab) })
                             .id(tab.id)
                             .onGeometryChange(for: ClosedRange<CGFloat>.self) {
                                 let frame = $0.frame(in: .named(Self.space))

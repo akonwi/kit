@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The + after a tile's tabs. It opens a menu of panes to add to the tile:
-/// Browser, Diff, Scratchpad, then Open file…. Panes already open are dimmed;
-/// choosing one selects it.
+/// Terminal (with a server on this Mac), Browser, Diff, Scratchpad, then
+/// Open file…. Panes already open are dimmed; choosing one selects it.
 struct TileAddButton: View {
     @Environment(\.mica) private var theme
     let state: SessionStore
@@ -40,6 +40,8 @@ struct TileAddButton: View {
             popover.dismiss()
             workspace.focus(tile: tile)
             switch choice {
+            case .terminal:
+                if let directory = state.terminalDirectory { workspace.openTerminal(in: tile, directory: directory) }
             case .browser: workspace.openBrowser(in: tile)
             case .diff: workspace.open(.review)
             case .scratchpad: workspace.open(.scratchpad)
@@ -53,7 +55,11 @@ struct TileAddButton: View {
     }
 
     private var items: [TileAddMenu.Item] {
-        var items: [TileAddMenu.Item] = [.init(choice: .browser, title: "Browser", icon: .browser)]
+        var items: [TileAddMenu.Item] = []
+        if state.terminalDirectory != nil {
+            items.append(.init(choice: .terminal, title: "Terminal", icon: .terminalWindow))
+        }
+        items.append(.init(choice: .browser, title: "Browser", icon: .browser))
         if state.catalogClient is any DiffClient {
             items.append(.init(choice: .diff, title: "Diff", icon: .gitDiff, dimmed: workspace.panes.contains(.review)))
         }
@@ -69,7 +75,7 @@ struct TileAddButton: View {
 }
 
 struct TileAddMenu: View {
-    enum Choice { case browser, diff, scratchpad, file }
+    enum Choice { case terminal, browser, diff, scratchpad, file }
     struct Item: Identifiable {
         var id: Choice { choice }
         let choice: Choice

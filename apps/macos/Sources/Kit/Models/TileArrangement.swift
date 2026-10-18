@@ -32,6 +32,9 @@ struct TileArrangement: Codable, Equatable {
     /// Each browser tab's address, by pane identity. Tabs without one
     /// restore blank. Absent when no browser tab has an address.
     var browsers: [String: String]? = nil
+    /// Each terminal tab's working directory, by pane identity, where its
+    /// new shell starts. Absent when there are no terminal tabs.
+    var terminals: [String: String]? = nil
 
     /// Restore keeps at most this many tiles and panes, and this split depth.
     static let maximumTiles = 32

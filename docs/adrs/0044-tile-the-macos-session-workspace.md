@@ -100,8 +100,11 @@ command palette take focus above native views and return it when dismissed.
 
 ### Terminals
 
-Terminal panes embed libghostty, built at a pinned Ghostty commit and bundled
-with the application. A terminal runs the user's login shell in the session's
+Terminal panes embed libghostty, built from source at a pinned Ghostty commit
+and linked statically into the application, without gettext or crash
+reporting. The application bundles Ghostty's terminfo and shell integration,
+and a notice file with the licenses of libghostty and the code linked with it.
+A terminal runs the user's login shell in the session's
 working directory on the client machine. Since workspace operations belong to
 the server host, terminal panes are offered only when the server is the local
 daemon. The application owns the terminal process. The process ends when its

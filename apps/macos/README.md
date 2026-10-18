@@ -12,7 +12,22 @@ apps/macos/script/build_and_run.sh --verify
 
 The script builds and packages `apps/macos/dist/Kit.app`, then launches it.
 `--build` packages without launching. Xcode is required for the editor dependency's
-resource generation. The development bundle is ad-hoc signed and must not be
+resource generation.
+
+Terminal panes use libghostty. The first build runs `script/build_ghosttykit.sh`,
+which builds it from source at the Ghostty commit pinned in the script into
+`Vendor/Ghostty` (not committed), in about two minutes. Later builds reuse it
+until the pin, build flags, or notices change. It needs the Zig version the
+script names (currently 0.16.0, `brew install zig`) and Xcode's Metal Toolchain
+(`xcodebuild -downloadComponent MetalToolchain`). libghostty is built without
+gettext and Sentry. Its `xterm-ghostty` terminfo, shell integration, and
+`Licenses/Ghostty-Acknowledgements.txt` are bundled in `Contents/Resources`;
+`script/check_terminal_bundle.sh` checks a built app for them and for the
+absence of gettext and Sentry symbols. Release builds strip the binary, so pass
+the build's `Kit.dSYM` as the second argument. Licenses that the
+Ghostty sources don't carry are kept in `ThirdParty/Ghostty`.
+
+The development bundle is ad-hoc signed and must not be
 published. It is named Kit Dev with the bundle identifier `com.akonwi.kit.dev`,
 so its preferences and window restoration stay separate from an installed
 Kit.app, and relaunching it never stops the installed app. The separately signed macOS app release procedure is documented below;

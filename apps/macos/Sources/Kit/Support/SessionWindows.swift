@@ -87,6 +87,11 @@ final class SessionWindowRegistry: NSObject {
         guard model.window !== window else { return }
         model.window = window
         model.trafficLights = TrafficLightPlacement(window: window)
+        // The close button asks first if closing would end running commands.
+        if let close = window.standardWindowButton(.closeButton) {
+            close.target = self
+            close.action = #selector(closeButtonClicked(_:))
+        }
         window.tabbingMode = .disallowed
         NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose(_:)),
                                                name: NSWindow.willCloseNotification, object: window)
@@ -95,6 +100,14 @@ final class SessionWindowRegistry: NSObject {
         }
         model.isFocused = window.isKeyWindow
         capture(model)
+    }
+
+    @objc private func closeButtonClicked(_ sender: NSButton) {
+        guard let window = sender.window else { return }
+        let busy = liveModels.first { $0.window === window }?.busyTerminals ?? []
+        TerminalCloseConfirmation.confirm(busy, scope: .window, in: window) { [weak window] in
+            window?.close()
+        }
     }
 
     @objc private func windowKeyChanged(_ notification: Notification) {

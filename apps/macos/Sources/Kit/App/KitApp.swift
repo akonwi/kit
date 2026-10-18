@@ -19,6 +19,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Quitting ends every shell; ask first if a command is running.
+        let busy = sessionWindows.liveModels.flatMap(\.busyTerminals)
+        if !busy.isEmpty, TerminalCloseConfirmation.makeAlert(busy, scope: .quit).runModal() != .alertFirstButtonReturn {
+            return .terminateCancel
+        }
         sessionWindows.captureLayouts()
         sessionWindows.terminating = true
         return .terminateNow
@@ -145,7 +150,7 @@ private struct SessionCommands: Commands {
         if window.tabs.count == 1, window.selectedTab.isLauncher {
             window.window?.performClose(nil)
         } else {
-            window.close(window.selectedTab)
+            window.requestClose(window.selectedTab)
         }
     }
 }

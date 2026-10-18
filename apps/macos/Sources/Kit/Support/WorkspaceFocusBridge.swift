@@ -170,6 +170,9 @@ struct WorkspaceFocusBridge: NSViewRepresentable {
             // An overlay's own fields sit above the tiles; they don't focus one.
             guard !moving, !overlayOpen(), let window, let workspace, Self.isVisible(self) else { return }
             pendingPane = nil
+            // A removed view (a closed terminal or web page) leaves the
+            // window itself holding the keyboard; return it to the focused pane.
+            if window.firstResponder === window { scheduleSync(); return }
             guard let responder = window.firstResponder as? NSView, responder.window === window else { return }
             let region = region(of: responder)
             if region != .outside, Self.isVisible(responder) { lastResponder = responder }

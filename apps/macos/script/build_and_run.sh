@@ -35,6 +35,8 @@ fi
 # Stop only a previous launch of this bundle, never an installed Kit.app.
 if [[ "$MODE" != --build ]]; then pkill -f "^$APP_BUNDLE/Contents/MacOS/Kit\$" 2>/dev/null || true; fi
 cd "$APP_ROOT"
+# libghostty is built from source at a pinned commit; this is a no-op when current.
+"$APP_ROOT/script/build_ghosttykit.sh"
 # SwiftLintPlugin declares these output directories but does not create them.
 PLUGIN_OUTPUT="$DERIVED_DATA/Build/Intermediates.noindex/BuildToolPluginIntermediates"
 mkdir -p "$PLUGIN_OUTPUT/codeeditsourceeditor.output/CodeEditSourceEditor/SwiftLint/Output" \
@@ -61,6 +63,9 @@ for resource in "$BIN_DIR"/*.bundle; do
   rm -rf "$APP_BUNDLE/$(basename "$resource")"
 done
 cp "$BIN_DIR/Kit" "$APP_BUNDLE/Contents/MacOS/Kit"
+# libghostty finds xterm-ghostty and its shell integration in Contents/Resources.
+rm -rf "$APP_BUNDLE/Contents/Resources/terminfo" "$APP_BUNDLE/Contents/Resources/ghostty" "$APP_BUNDLE/Contents/Resources/Licenses"
+ditto "$APP_ROOT/Vendor/Ghostty/Resources" "$APP_BUNDLE/Contents/Resources"
 # Compile appearance-aware Icon Composer layers for Tahoe and later.
 ICON_OUTPUT="$APP_ROOT/.build/icon"
 mkdir -p "$ICON_OUTPUT"
@@ -93,6 +98,19 @@ $dev_home_entry
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>NSPrincipalClass</key><string>KitApplication</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSAppleEventsUsageDescription</key><string>A program running in a Kit terminal wants to use AppleScript to control other apps.</string>
+<key>NSBluetoothAlwaysUsageDescription</key><string>A program running in a Kit terminal wants to use Bluetooth.</string>
+<key>NSCalendarsUsageDescription</key><string>A program running in a Kit terminal wants to access your calendars.</string>
+<key>NSCalendarsFullAccessUsageDescription</key><string>A program running in a Kit terminal wants to access your calendars.</string>
+<key>NSCameraUsageDescription</key><string>A program running in a Kit terminal wants to use the camera.</string>
+<key>NSContactsUsageDescription</key><string>A program running in a Kit terminal wants to access your contacts.</string>
+<key>NSLocalNetworkUsageDescription</key><string>A program running in a Kit terminal wants to access the local network.</string>
+<key>NSLocationUsageDescription</key><string>A program running in a Kit terminal wants to access your location.</string>
+<key>NSMicrophoneUsageDescription</key><string>A program running in a Kit terminal wants to use the microphone.</string>
+<key>NSAudioCaptureUsageDescription</key><string>A program running in a Kit terminal wants to record your computer's audio.</string>
+<key>NSPhotoLibraryUsageDescription</key><string>A program running in a Kit terminal wants to access your photo library.</string>
+<key>NSRemindersUsageDescription</key><string>A program running in a Kit terminal wants to access your reminders.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>A program running in a Kit terminal wants to use speech recognition.</string>
 </dict></plist>
 PLIST
 # Seal the assembled development bundle after replacing its executable/resources.

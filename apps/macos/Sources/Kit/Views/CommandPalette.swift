@@ -29,7 +29,8 @@ struct CommandPalette: View {
     private var catalog: [PaletteCommand] {
         PaletteCommand.catalog(
             builtIns: PaletteCommand.builtIns(scratchpad: state.canOpenScratchpad,
-                                              temporary: state.isTemporary),
+                                              temporary: state.isTemporary,
+                                              terminal: state.terminalDirectory != nil),
             prompts: state.selected?.promptCommands ?? [],
             plugins: state.pluginCommands
         ).map { row in
@@ -190,6 +191,8 @@ struct CommandPalette: View {
             case "refresh-models": Task { await state.refreshModelCatalog() }
             case "diff": workspace.open(.review)
             case "scratchpad": workspace.open(.scratchpad)
+            case "terminal":
+                if let directory = state.terminalDirectory { workspace.openTerminal(directory: directory) }
             case "browser":
                 if let url = BrowserAddress.url(from: trimmed) {
                     workspace.openBrowser(url)
@@ -309,6 +312,7 @@ struct PaletteChoices: View {
         case .file(let path): path
         case .image: "Transcript image"
         case .browser: workspace.browser(pane)?.url.map { BrowserAddress.withoutCredentials($0).absoluteString } ?? "New browser tab"
+        case .terminal: workspace.terminal(pane).map { ($0.directory as NSString).abbreviatingWithTildeInPath } ?? "Terminal"
         }
     }
 }

@@ -2,3 +2,5 @@
 .local/
 dist/
 __pycache__/
+Vendor/Ghostty/
+Vendor/.ghostty.*/

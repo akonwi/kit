@@ -114,6 +114,8 @@ struct WorkspaceLayout: View {
         case .image(let id, let filename): ImagePane(state: state, id: id, filename: filename)
         case .browser:
             if let tab = state.ui.workspace.browser(pane) { BrowserPane(workspace: state.ui.workspace, tab: tab) }
+        case .terminal:
+            if let tab = state.ui.workspace.terminal(pane) { TerminalPane(workspace: state.ui.workspace, tab: tab) }
         }
     }
 }
@@ -206,6 +208,10 @@ private struct WorkspaceTab: View {
                 HStack(spacing: 8) {
                     if !showsClose { icon.frame(width: 14, height: 14) }
                     title
+                    if workspace.terminal(pane)?.bell == true {
+                        Circle().fill(theme.accent).frame(width: 6, height: 6)
+                            .accessibilityLabel("Bell")
+                    }
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -241,15 +247,15 @@ private struct WorkspaceTab: View {
         }
     }
 
-    /// A browser tab's page title is capped and trails off; other names
-    /// keep both ends.
+    /// Page and shell titles are capped and trail off; other names keep
+    /// both ends.
     @ViewBuilder private var title: some View {
-        let browser = workspace.browser(pane)
+        let capped = workspace.browser(pane) != nil || workspace.terminal(pane) != nil
         Text(workspace.title(of: pane)).lineLimit(1)
-            .truncationMode(browser == nil ? .middle : .tail)
+            .truncationMode(capped ? .tail : .middle)
             .font(.kit(size: 12, weight: selected ? .semibold : .regular))
             .foregroundStyle(selected ? theme.text : theme.muted)
-            .frame(maxWidth: browser == nil ? nil : 180, alignment: .leading)
+            .frame(maxWidth: capped ? 180 : nil, alignment: .leading)
     }
 
     /// Every tab shows its icon so activating one never shifts the strip; a
@@ -275,6 +281,7 @@ private struct WorkspaceTab: View {
                 } else {
                     IconView(.browser).foregroundStyle(tint)
                 }
+            case .terminal: IconView(.terminalWindow).foregroundStyle(tint)
             }
         }
     }

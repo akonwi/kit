@@ -74,6 +74,7 @@ if /usr/libexec/PlistBuddy -c 'Print :KitDevHome' "$app/Contents/Info.plist" >/d
 fi
 [[ "$(lipo -archs "$app/Contents/MacOS/Kit")" == arm64 ]] || { echo "Expected an arm64 app" >&2; exit 1; }
 [[ ! -e "$app/Contents/Resources/fixture.json" && ! -e "$app/Contents/Resources/workspace.json" ]]
+"$APP_ROOT/script/check_terminal_bundle.sh" "$app" "$staging/DerivedData/Build/Products/Release/Kit.dSYM"
 if [[ -n "$(find "$app/Contents" -type d \( -name '*.framework' -o -name '*.appex' -o -name '*.xpc' -o -name '*.app' -o -name '*.plugin' \) -print -quit)" ]]; then
   echo "New nested code bundles require an explicit signing review" >&2
   exit 1
@@ -95,11 +96,16 @@ while IFS= read -r -d '' bundle; do
     exit 1
   }
 done < <(find "$app/Contents/Resources" -type d -name '*.bundle' -print0)
-codesign --force --options runtime --timestamp --sign "$identity" "$app"
+codesign --force --options runtime --timestamp --entitlements "$APP_ROOT/Kit.entitlements" --sign "$identity" "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 signature="$(codesign --display --verbose=4 "$app" 2>&1)"
 [[ "$signature" == *"TeamIdentifier=$expected_team"* && "$signature" == *"Authority=$identity"* && "$signature" == *"flags=0x10000(runtime)"* ]] || {
   echo "Unexpected Developer ID authority, team, or hardened runtime" >&2
+  exit 1
+}
+# Programs run in a terminal can ask for these under Kit's name.
+codesign --display --entitlements - --xml "$app" 2>/dev/null | grep -q 'com.apple.security.automation.apple-events' || {
+  echo "The app is missing its terminal entitlements" >&2
   exit 1
 }
 

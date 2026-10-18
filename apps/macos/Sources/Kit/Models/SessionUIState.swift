@@ -51,11 +51,13 @@ final class SessionUIState {
             previews: saved.previews, workspace: saved.workspace, transcript: saved.transcript)
     }
 
-    /// Stops every browser page this window holds for its sessions.
-    func closeBrowsers() {
-        workspace.closeBrowsers()
-        for saved in drafts.values { saved.workspace.closeBrowsers() }
+    /// Stops every browser page and ends every shell this tab holds for its sessions.
+    func closeLiveTabs() {
+        for workspace in workspaces { workspace.closeLiveTabs() }
     }
+
+    /// The current workspace and those kept for other sessions.
+    var workspaces: [WorkspaceState] { [workspace] + drafts.values.map(\.workspace) }
 
     func switchSession(from old: SessionIdentity, to new: SessionIdentity, demo: Bool) {
         drafts[old] = DraftState(uploads: uploads, text: draft, selection: composerSelection, serverAttachmentIDs: serverAttachmentIDs, attachments: attachments, previews: attachmentPreviews, workspace: workspace, transcript: transcript)
