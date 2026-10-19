@@ -197,7 +197,7 @@ editor, or transcript focuses that tile. A request to focus the Agent
 composer while its tab is hidden waits until the tab is shown; quoting a
 selection into it shows the tab.
 
-Settings › Workspace has **Focus follows the pointer**, off by default. When
+Settings › Workspace has **Focus follows the pointer**, on by default. When
 on, moving the pointer into a tile focuses it as a click would, moving the
 keyboard there too. Only pointer movement counts: a tile that moves under a
 still pointer, as when tiles split, close, or resize, doesn't take focus, and

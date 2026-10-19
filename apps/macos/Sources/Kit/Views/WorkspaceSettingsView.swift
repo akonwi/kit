@@ -2,16 +2,20 @@ import SwiftUI
 
 /// App-local preferences for the tiled workspace.
 enum WorkspacePreferences {
-    /// Moving the pointer into a tile focuses it. Off by default.
+    /// Moving the pointer into a tile focuses it. On by default.
     static let focusFollowsPointerKey = "focusFollowsPointer"
+    static let focusFollowsPointerDefault = true
 
-    static var focusFollowsPointer: Bool { UserDefaults.standard.bool(forKey: focusFollowsPointerKey) }
+    static var focusFollowsPointer: Bool {
+        UserDefaults.standard.object(forKey: focusFollowsPointerKey) as? Bool ?? focusFollowsPointerDefault
+    }
 }
 
 /// Settings › Workspace: how tiles behave in this app.
 struct WorkspaceSettingsView: View {
     @Environment(\.mica) private var theme
-    @AppStorage(WorkspacePreferences.focusFollowsPointerKey) private var focusFollowsPointer = false
+    @AppStorage(WorkspacePreferences.focusFollowsPointerKey)
+    private var focusFollowsPointer = WorkspacePreferences.focusFollowsPointerDefault
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
