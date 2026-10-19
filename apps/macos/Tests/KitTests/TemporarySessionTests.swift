@@ -16,6 +16,35 @@ private actor TemporaryCatalogClient: SessionClient {
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {}
 }
 
+/// A server that has restarted: it lists no sessions and no longer has the
+/// remembered temporary session.
+private final class RestartedServerResponse: URLProtocol, @unchecked Sendable {
+    static let temporary = "session_0123456789abcdef0123456789abcdef"
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let url = request.url!
+        let (status, body) = url.path == "/v1/sessions"
+            ? (200, #"{"sessions":[]}"#)
+            : (404, #"{"error":{"code":"not_found","message":"session not found"}}"#)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status,
+            httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+/// Presents the HTTP client as the catalog's session client.
+private struct RestartedServerClient: SessionClient, @unchecked Sendable {
+    let http: HTTPClient
+    var serverID: String { http.serverID }
+    let isDemo = false
+    func sessions() async throws -> [SessionExcerpt] { try await http.sessions() }
+    func snapshot(_ id: String) async throws -> SessionExcerpt { try await http.snapshot(id) }
+    func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {}
+}
+
 @MainActor struct TemporarySessionTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["KIT_TEMPORARY_LIVE_TEST"] == "1"))
     func liveTemporaryLifecycle() async throws {
@@ -58,5 +87,29 @@ private actor TemporaryCatalogClient: SessionClient {
         #expect(try await relaunched.catalog(client: client).isEmpty)
         #expect(relaunched.identities == [SessionIdentity(server: "other", session: "elsewhere")])
         #expect(TemporarySessions(defaults: defaults).identities == relaunched.identities)
+    }
+
+    // Regression: the HTTP client reported a missing session as an invalid
+    // payload, so a temporary session lost in a server restart failed every
+    // catalog load with "The server identity or response does not match local
+    // discovery" instead of being forgotten.
+    @Test func temporarySessionLostInAServerRestartIsForgotten() async throws {
+        let suite = "TemporarySessionTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RestartedServerResponse.self]
+        let http = try HTTPClient(endpoint: URL(string: "http://127.0.0.1:19311")!, token: "test",
+            instance: "test", serverID: "local-v2", configuration: configuration)
+        do {
+            _ = try await http.snapshot(RestartedServerResponse.temporary)
+            Issue.record("A session the server no longer has must be unavailable")
+        } catch ClientError.http(404) {}
+        let references = TemporarySessions(defaults: defaults)
+        references.remember(server: "local-v2", session: RestartedServerResponse.temporary)
+        let catalog = try await references.catalog(client: RestartedServerClient(http: http))
+        #expect(catalog.map(\.id) == [])
+        #expect(references.identities == [])
+        #expect(TemporarySessions(defaults: defaults).identities == [])
     }
 }

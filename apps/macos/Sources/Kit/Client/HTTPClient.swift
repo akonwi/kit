@@ -1017,7 +1017,23 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     private func wireSnapshot(_ id: String, validate: Bool = true) async throws -> WireSessionSnapshot {
         guard Self.validScratchpadSession(id), let version = Operations.GetSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
         let output = try await api.getSession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version))
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let response: Operations.GetSession.Output.Ok
+        switch output {
+        case .ok(let ok): response = ok
+        // A session the server no longer has, such as a temporary session
+        // after a restart, is 404 so callers can forget it.
+        case .notFound: throw ClientError.http(404)
+        case .badRequest: throw ClientError.http(400)
+        case .unauthorized: throw ClientError.http(401)
+        case .forbidden: throw ClientError.http(403)
+        case .conflict: throw ClientError.http(409)
+        case .misdirectedRequest: throw ClientError.http(421)
+        case .upgradeRequired: throw ClientError.http(426)
+        case .tooManyRequests: throw ClientError.http(429)
+        case .internalServerError: throw ClientError.http(500)
+        case .serviceUnavailable: throw ClientError.http(503)
+        case .undocumented(let status, _): throw ClientError.http(status)
+        }
         let snapshot: WireSessionSnapshot = try generated(try response.body.json, as: WireSessionSnapshot.self)
         guard snapshot.session.id == id, (snapshot.eventCursor ?? 0) >= 0 else { throw ClientError.invalidPayload }
         if validate { _ = try SessionProjection.snapshot(snapshot) }
