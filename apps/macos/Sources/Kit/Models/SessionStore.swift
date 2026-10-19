@@ -564,6 +564,35 @@ final class SessionStore {
         return nil
     }
 
+    /// Whether `/new` can create a session from this one. When it can't,
+    /// the command opens the launcher instead.
+    var canCreateSibling: Bool {
+        !isDemo && !unavailable && replica.client is any SessionCreationClient
+            && selected?.cwd?.isEmpty == false && !model.isEmpty
+    }
+    private(set) var siblingCreationPending = false
+    var newSessionUnavailableReason: String? {
+        siblingCreationPending ? "Session creation is already in progress" : nil
+    }
+    /// Creates a session in this session's working directory with its model
+    /// and thinking level, as the TUI's `/new` does. A failure is reported
+    /// as feedback and returns nil.
+    func createSibling() async -> SessionExcerpt? {
+        guard canCreateSibling, !siblingCreationPending,
+              let client = replica.client as? any SessionCreationClient,
+              let cwd = selected?.cwd else { return nil }
+        let model = model, thinking = thinking
+        siblingCreationPending = true
+        defer { siblingCreationPending = false }
+        do {
+            return try await client.createSession(WireCreateSessionInput(id: nil, cwd: cwd, name: nil, model: model,
+                thinkingLevel: thinking.isEmpty ? nil : thinking, temporary: false))
+        } catch {
+            feedback.show(title: "New session failed", detail: error.localizedDescription, tone: .error, persistent: true)
+            return nil
+        }
+    }
+
     var renameUnavailableReason: String? {
         if isDemo || !(replica.client is any SessionNamingClient) { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }

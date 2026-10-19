@@ -114,6 +114,7 @@ struct CommandPalette: View {
         case "cd": state.directoryUnavailableReason
         case "compact": state.compactionUnavailableReason
         case "fork": state.forkUnavailableReason
+        case "new": state.newSessionUnavailableReason
         case "name": state.renameUnavailableReason
         case "refresh-models": modelRefreshUnavailableReason
         case "reload": state.reloadOperation.pending ? state.reloadOperation.progressLabel : state.reloadUnavailableReason
@@ -201,7 +202,7 @@ struct CommandPalette: View {
                     workspace.openBrowser().navigate(trimmed)
                 }
             case "files": state.showFiles(intent: "open")
-            case "new": navigation.openLauncher()
+            case "new": newSession()
             case "quit": NSApp.terminate(nil)
             case "login": close(); SettingsSection.providers.open(with: openSettings)
             case "split-right": workspace.split(workspace.selected, .right)
@@ -211,6 +212,14 @@ struct CommandPalette: View {
             case "join-tabs": workspace.joinTiles(selecting: workspace.selected)
             default: break
             }
+        }
+    }
+
+    private func newSession() {
+        guard state.canCreateSibling else { navigation.openLauncher(); return }
+        let open = navigation.openSession
+        Task {
+            if let session = await state.createSibling() { open(session.id) }
         }
     }
 
