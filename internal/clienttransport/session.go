@@ -1104,6 +1104,9 @@ func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID st
 		if rejectedInstance(response.StatusCode, body) {
 			c.instanceRejected(connection)
 		}
+		if c.credentialRejected(connection, response.StatusCode) {
+			return nil, transportError("open session event stream", errStaleConnection)
+		}
 		return nil, &APIError{StatusCode: response.StatusCode, Message: strings.TrimSpace(string(body))}
 	}
 	if mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type")); err != nil || mediaType != "text/event-stream" {
@@ -1147,6 +1150,16 @@ func (c *Client) DoSessionRequest(ctx context.Context, method, path string, body
 		if err != nil {
 			cleanup()
 			return nil, transportError("call session API", err)
+		}
+		if c.invalidate != nil && response.StatusCode == http.StatusUnauthorized {
+			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+			_ = response.Body.Close()
+			c.credentialRejected(connection, response.StatusCode)
+			if attempt == 0 && (request.Body == nil || request.GetBody != nil) {
+				continue
+			}
+			cleanup()
+			return nil, transportError("call session API", errStaleConnection)
 		}
 		if response.StatusCode == http.StatusConflict {
 			rejected, err := io.ReadAll(io.LimitReader(response.Body, 64<<10))

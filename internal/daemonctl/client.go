@@ -32,26 +32,34 @@ func NewClient(paths apphome.Paths) *Client {
 
 // Probe verifies identity, authentication, and full readiness.
 func (c *Client) Probe(ctx context.Context) (localdiscovery.Registry, Health, error) {
-	return c.probe(ctx, true)
+	registry, _, health, err := c.probe(ctx, true)
+	return registry, health, err
 }
 
 // ProbeLifecycle verifies enough state to manage a local daemon.
 func (c *Client) ProbeLifecycle(ctx context.Context) (localdiscovery.Registry, Health, error) {
+	registry, _, health, err := c.probe(ctx, false)
+	return registry, health, err
+}
+
+// ProbeConnection is ProbeLifecycle that also returns the published
+// connection, including the daemon's local token.
+func (c *Client) ProbeConnection(ctx context.Context) (localdiscovery.Registry, clienttransport.Connection, Health, error) {
 	return c.probe(ctx, false)
 }
 
 // probe reads the publication once and verifies the daemon behind exactly
 // that registry, so the returned registry and health describe one instance.
-func (c *Client) probe(ctx context.Context, requireDatabase bool) (localdiscovery.Registry, Health, error) {
+func (c *Client) probe(ctx context.Context, requireDatabase bool) (localdiscovery.Registry, clienttransport.Connection, Health, error) {
 	registry, connection, err := localdiscovery.Discover(c.paths)
 	if err != nil {
-		return localdiscovery.Registry{}, Health{}, err
+		return localdiscovery.Registry{}, clienttransport.Connection{}, Health{}, err
 	}
 	_, health, err := c.transport.ProbeConnection(ctx, connection, requireDatabase)
 	if err != nil {
-		return localdiscovery.Registry{}, Health{}, err
+		return localdiscovery.Registry{}, clienttransport.Connection{}, Health{}, err
 	}
-	return registry, health, nil
+	return registry, connection, health, nil
 }
 
 // ProbeCompatible authenticates a ready daemon and checks protocol compatibility.

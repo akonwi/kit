@@ -68,6 +68,10 @@ kit attach          # pick from saved servers
 kit servers add vps https://kit.example.ts.net/pair#…
 kit attach vps --cwd ~/src/app
 
+# Attach to a host over SSH; Kit starts its server and forwards a port:
+kit attach me@devbox
+kit servers add devbox me@devbox
+
 # Pair another device with this server, and manage paired devices:
 kit server pair
 kit server devices

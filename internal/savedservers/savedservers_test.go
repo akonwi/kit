@@ -1,6 +1,7 @@
 package savedservers
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -231,5 +232,88 @@ func TestTokensAreSavedPrivately(t *testing.T) {
 	}
 	if _, err := tokens.Get("vps", serverURL); err == nil {
 		t.Fatal("a token file readable by others was accepted")
+	}
+}
+
+func TestSSHServersAreSavedWithTheirDestination(t *testing.T) {
+	t.Parallel()
+	store, path := newTestStore(t)
+	server := Server{Name: "devbox", Kind: KindSSH, Destination: "me@devbox.example.com"}
+	if err := store.Add(server); err != nil {
+		t.Fatal(err)
+	}
+	found, err := store.Find("devbox")
+	if err != nil || found != server || found.Location() != "me@devbox.example.com" {
+		t.Fatalf("Find() = %#v, %v", found, err)
+	}
+	data, _ := os.ReadFile(path)
+	want := "{\n  \"servers\": [\n    {\n      \"name\": \"devbox\",\n      \"kind\": \"ssh\",\n      \"destination\": \"me@devbox.example.com\"\n    }\n  ]\n}\n"
+	if string(data) != want {
+		t.Fatalf("file = %q", data)
+	}
+	for _, invalid := range []Server{
+		{Name: "opt", Kind: KindSSH, Destination: "-oProxyCommand=x"},
+		{Name: "empty", Kind: KindSSH},
+		{Name: "mixed", Kind: KindSSH, Destination: "devbox", URL: "https://kit.example.com"},
+	} {
+		if err := store.Add(invalid); err == nil {
+			t.Fatalf("Add(%#v) accepted it", invalid)
+		}
+	}
+}
+
+// A newer Kit may save kinds this one does not know. They are not listed,
+// keep their names, and survive changes unchanged.
+func TestUnknownKindsAreKeptButNotListed(t *testing.T) {
+	t.Parallel()
+	store, path := newTestStore(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	future := `{"name":"later","kind":"carrier-pigeon","coop":"roof"}`
+	if err := os.WriteFile(path, []byte(`{"servers":[`+future+`]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if servers, err := store.List(); err != nil || len(servers) != 0 {
+		t.Fatalf("List() = %v, %v", servers, err)
+	}
+	if err := store.Add(Server{Name: "later", Kind: KindHome, Home: "/tmp/kit"}); !errors.Is(err, ErrExists) {
+		t.Fatalf("Add() over an unknown entry = %v", err)
+	}
+	if _, err := store.Find("later"); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("Find() of an unknown entry = %v", err)
+	}
+	if err := store.Add(Server{Name: "dev", Kind: KindHome, Home: "/tmp/kit"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Remove("dev"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	var file struct{ Servers []map[string]string }
+	if err := json.Unmarshal(data, &file); err != nil {
+		t.Fatal(err)
+	}
+	if want := []map[string]string{{"name": "later", "kind": "carrier-pigeon", "coop": "roof"}}; !reflect.DeepEqual(file.Servers, want) {
+		t.Fatalf("the unknown entry changed: %s", data)
+	}
+}
+
+func TestUnknownEntriesCanBeRemovedAndNewFieldsSurvive(t *testing.T) {
+	t.Parallel()
+	store, path := newTestStore(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"servers":[{"name":"later","kind":"carrier-pigeon"},{"name":"dev","kind":"home","home":"/tmp/kit","color":"blue"}]}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Remove("later"); err != nil {
+		t.Fatalf("Remove() of an unknown entry = %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), `"color": "blue"`) || strings.Contains(string(data), "later") {
+		t.Fatalf("file = %s", data)
 	}
 }

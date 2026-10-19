@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/securefs"
 	"github.com/akonwi/kit/internal/serverlisten"
@@ -69,6 +70,12 @@ func (m *Manager) Ensure(ctx context.Context) (localdiscovery.Registry, error) {
 // one whose database is not ready.
 func (m *Manager) Status(ctx context.Context) (localdiscovery.Registry, Health, error) {
 	return m.client.ProbeLifecycle(ctx)
+}
+
+// StatusConnection is Status that also returns the published connection,
+// including the daemon's local token.
+func (m *Manager) StatusConnection(ctx context.Context) (localdiscovery.Registry, clienttransport.Connection, Health, error) {
+	return m.client.ProbeConnection(ctx)
 }
 
 // Restart reloads daemon-owned provider configuration from its durable sources.

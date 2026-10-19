@@ -15,15 +15,22 @@ import (
 
 	kit "github.com/akonwi/kit/api"
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/devices"
 	"github.com/akonwi/kit/internal/pairing"
 	"github.com/akonwi/kit/internal/savedservers"
 	"github.com/akonwi/kit/internal/settings"
+	"github.com/akonwi/kit/internal/sshtunnel"
 	kittheme "github.com/akonwi/kit/internal/theme"
+	"github.com/akonwi/kit/internal/version"
 )
 
 // serverProbeTimeout bounds each server's status check in listings.
 const serverProbeTimeout = 2 * time.Second
+
+// sshProbeTimeout bounds an SSH server's status check, which connects over
+// SSH first.
+const sshProbeTimeout = 10 * time.Second
 
 // attachTarget is the server an interactive invocation attaches to. The zero
 // value is this home's own server, which the client may start.
@@ -35,22 +42,30 @@ type attachTarget struct {
 	// URL is the origin of a served server, reached with the device token
 	// saved under Name.
 	URL string
+	// SSH is the destination of a host whose Kit server is reached over SSH.
+	SSH string
 }
 
 // own reports whether the target is this home's own server.
-func (t attachTarget) own() bool { return t.Home == "" && t.URL == "" }
+func (t attachTarget) own() bool { return t.Home == "" && t.URL == "" && t.SSH == "" }
+
+// remote reports whether the target may run on another machine.
+func (t attachTarget) remote() bool { return t.URL != "" || t.SSH != "" }
 
 // ServerChoice is one server offered by the attach picker.
 type ServerChoice struct {
 	// Name is the saved name, or savedservers.LocalName for this home's server.
 	Name string
-	// Location is the server's Kit home or URL for display.
+	// Location is the server's Kit home, URL, or SSH destination for display.
 	Location string
 	// Status is "running", "not running", "needs pairing", "incompatible",
 	// or "unavailable".
 	Status string
 	// Detail explains a status other than running, or is empty.
 	Detail string
+	// Starts reports that attaching starts the server when it is not
+	// running, as for this home's server and an SSH server.
+	Starts bool
 }
 
 // serverStores opens this home's saved servers and device tokens.
@@ -79,18 +94,27 @@ func isHomePath(argument string) bool {
 	return strings.ContainsRune(argument, filepath.Separator) || strings.HasPrefix(argument, ".") || strings.HasPrefix(argument, "~")
 }
 
+func isSSHURL(argument string) bool {
+	return strings.HasPrefix(argument, "ssh://")
+}
+
 func targetFor(server savedservers.Server) attachTarget {
-	if server.Kind == savedservers.KindURL {
+	switch server.Kind {
+	case savedservers.KindURL:
 		return attachTarget{Name: server.Name, URL: server.URL}
+	case savedservers.KindSSH:
+		return attachTarget{Name: server.Name, SSH: server.Destination}
 	}
 	return attachTarget{Name: server.Name, Home: server.Home}
 }
 
 // resolveAttachTarget maps a server argument to a target, in this order:
 // LocalName is this home's server; a pairing link re-pairs the saved server
-// with its URL; an HTTP(S) URL is the saved server with that URL; an argument
-// containing a path separator, or starting with '.' or '~', is a Kit home
-// path; anything else is a saved name.
+// with its URL; an HTTP(S) URL is the saved server with that URL; an ssh://
+// URL is an SSH destination; an argument containing a path separator, or
+// starting with '.' or '~', is a Kit home path; then a saved name; and an
+// unsaved user@host is an SSH destination. A bare host must be saved or
+// written as an ssh:// URL, so a mistyped name never connects anywhere.
 func resolveAttachTarget(ctx context.Context, argument string, stderr io.Writer) (attachTarget, error) {
 	if argument == savedservers.LocalName {
 		return attachTarget{}, nil
@@ -129,6 +153,11 @@ func resolveAttachTarget(ctx context.Context, argument string, stderr io.Writer)
 			return attachTarget{}, err
 		}
 		return targetFor(server), nil
+	case isSSHURL(argument):
+		if err := sshtunnel.ValidateDestination(argument); err != nil {
+			return attachTarget{}, usagef("%v", err)
+		}
+		return attachTarget{Name: argument, SSH: argument}, nil
 	case isHomePath(argument):
 		home, err := resolveServerHome(argument)
 		if err != nil {
@@ -138,7 +167,10 @@ func resolveAttachTarget(ctx context.Context, argument string, stderr io.Writer)
 	}
 	server, err := store.Find(argument)
 	if errors.Is(err, savedservers.ErrNotFound) {
-		return attachTarget{}, usagef("unknown server %q; list saved servers with `kit servers`", argument)
+		if strings.Contains(argument, "@") && sshtunnel.ValidateDestination(argument) == nil {
+			return attachTarget{Name: argument, SSH: argument}, nil
+		}
+		return attachTarget{}, usagef("unknown server %q; list saved servers with `kit servers`, or attach over SSH with USER@HOST or ssh://HOST", argument)
 	}
 	if err != nil {
 		return attachTarget{}, err
@@ -266,11 +298,11 @@ func serverChoices(ctx context.Context) ([]ServerChoice, error) {
 	choices := make([]ServerChoice, len(servers))
 	var wait sync.WaitGroup
 	for index, server := range servers {
-		location := server.URL
+		location := server.Location()
 		if server.Kind == savedservers.KindHome {
 			location = interactiveLocation(ctx, server.Home)
 		}
-		choices[index] = ServerChoice{Name: server.Name, Location: location}
+		choices[index] = ServerChoice{Name: server.Name, Location: location, Starts: server.Name == savedservers.LocalName || server.Kind == savedservers.KindSSH}
 		target := targetFor(server)
 		if server.Name == savedservers.LocalName {
 			target = attachTarget{Name: server.Name, Home: server.Home}
@@ -288,6 +320,9 @@ func serverChoices(ctx context.Context) ([]ServerChoice, error) {
 // serverStatus reports whether a compatible server is running for target,
 // and why not.
 func serverStatus(ctx context.Context, target attachTarget) (status, detail string) {
+	if target.SSH != "" {
+		return sshServerStatus(ctx, target)
+	}
 	probeContext, cancel := context.WithTimeout(ctx, serverProbeTimeout)
 	defer cancel()
 	client, err := connectTarget(probeContext, target)
@@ -304,6 +339,24 @@ func serverStatus(ctx context.Context, target attachTarget) (status, detail stri
 	default:
 		return "unavailable", err.Error()
 	}
+}
+
+// sshServerStatus asks an SSH server's host for its status without starting
+// the server or prompting.
+func sshServerStatus(ctx context.Context, target attachTarget) (status, detail string) {
+	probeContext, cancel := context.WithTimeout(ctx, sshProbeTimeout)
+	defer cancel()
+	report, err := sshtunnel.Query(probeContext, sshtunnel.Options{Destination: target.SSH})
+	switch {
+	case errors.Is(err, sshtunnel.ErrNotRunning):
+		return "not running", ""
+	case err != nil:
+		return "unavailable", err.Error()
+	}
+	if clienttransport.CheckCompatibility(report.ProtocolVersion, report.KitVersion) != nil {
+		return "incompatible", fmt.Sprintf("it runs Kit %s (protocol %d) and this is Kit %s (protocol %d)", report.KitVersion, report.ProtocolVersion, version.Version, version.SessionProtocolVersion)
+	}
+	return "running", ""
 }
 
 // errNoToken reports a URL server whose device token is missing.
@@ -336,9 +389,17 @@ func connectTarget(ctx context.Context, target attachTarget) (*kit.Client, error
 	return kit.Connect(ctx, kit.Endpoint(target.URL, kit.AccessToken(token)))
 }
 
-// connectAttachTarget connects to target's server without starting it,
-// explaining how to recover from the usual failures.
+// connectAttachTarget connects to target's server, explaining how to recover
+// from the usual failures. It starts only an SSH server, and lets ssh prompt
+// on the terminal while it connects.
 func connectAttachTarget(ctx context.Context, target attachTarget) (*kit.Client, error) {
+	if target.SSH != "" {
+		client, err := kit.Connect(ctx, kit.SSH(target.SSH).WithSSHPrompts(os.Stderr))
+		if err != nil {
+			return nil, fmt.Errorf("attach to %s over SSH: %w", target.Name, err)
+		}
+		return client, nil
+	}
 	connectContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	client, err := connectTarget(connectContext, target)
@@ -391,7 +452,7 @@ func runServersCommand(ctx context.Context, args []string, stdout, stderr io.Wri
 			return 1
 		}
 		if len(choices) == 0 {
-			fmt.Fprintln(stdout, "No saved servers. Add one with `kit servers add NAME HOME-OR-LINK`.")
+			fmt.Fprintln(stdout, "No saved servers. Add one with `kit servers add NAME LOCATION`.")
 			return 0
 		}
 		table := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
@@ -428,13 +489,15 @@ func runServersCommand(ctx context.Context, args []string, stdout, stderr io.Wri
 		fmt.Fprintf(stdout, "removed server %q\n", server.Name)
 		return 0
 	default:
-		fmt.Fprintln(stderr, "usage: kit servers <list|add NAME HOME-OR-LINK|remove NAME>")
+		fmt.Fprintln(stderr, "usage: kit servers <list|add NAME LOCATION|remove NAME>\n\nLOCATION is a Kit home path, a pairing link, or an SSH destination such as user@host.")
 		return 2
 	}
 }
 
-// addServer saves a Kit home, or pairs with a pairing link and saves its
-// server with the device token.
+// addServer saves a Kit home or an SSH destination, or pairs with a pairing
+// link and saves its server with the device token. A location that is
+// neither a link, a URL, nor an existing directory or path is an SSH
+// destination.
 func addServer(ctx context.Context, store *savedservers.Store, tokens *savedservers.Tokens, name, location string, stdout, stderr io.Writer) int {
 	if err := savedservers.ValidateName(name); err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
@@ -474,6 +537,14 @@ func addServer(ctx context.Context, store *savedservers.Store, tokens *savedserv
 		fmt.Fprintf(stderr, "kit: a server URL needs pairing; run `kit server pair` on that server and add the link it prints\n")
 		return 2
 	}
+	if isSSHURL(location) || (!isHomePath(location) && !isDirectory(location)) {
+		if err := store.Add(savedservers.Server{Name: name, Kind: savedservers.KindSSH, Destination: location}); err != nil {
+			fmt.Fprintf(stderr, "kit: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "saved server %q: %s over SSH\n", name, location)
+		return 0
+	}
 	home, err := resolveServerHome(location)
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
@@ -485,4 +556,9 @@ func addServer(ctx context.Context, store *savedservers.Store, tokens *savedserv
 	}
 	fmt.Fprintf(stdout, "saved server %q: %s\n", name, home)
 	return 0
+}
+
+func isDirectory(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }

@@ -73,6 +73,10 @@ func runPair(ctx context.Context, server string, extraURLs []string, stdout, std
 			return reportAttachError(stderr, err)
 		}
 	}
+	if target.SSH != "" && len(served) == 0 {
+		fmt.Fprintf(stderr, "kit: server %q is reached over SSH, so Kit does not know a URL that reaches it; pass --url, or run `kit server pair` on the host\n", target.Name)
+		return 1
+	}
 	var client *kit.Client
 	var err error
 	var paths apphome.Paths
@@ -96,7 +100,9 @@ func runPair(ctx context.Context, server string, extraURLs []string, stdout, std
 		return 1
 	}
 	var urls []string
-	if target.URL != "" {
+	if target.SSH != "" {
+		urls = pairing.ServedURLs(nil, nil, "", served...)
+	} else if target.URL != "" {
 		urls = pairing.ServedURLs(nil, nil, "", append([]string{target.URL}, served...)...)
 	} else {
 		urls = homeServedURLs(paths, served)

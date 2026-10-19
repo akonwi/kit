@@ -3,17 +3,21 @@
 `kit` runs the terminal client for the server of its own Kit home, starting the
 server when needed. `kit attach` runs it for another server instead: the
 server of another Kit home on this machine, such as a development worktree's
-isolated home, or a server served at a URL on another machine.
+isolated home, a server served at a URL on another machine, or the server of
+a host you reach over SSH.
 
 ```sh
 kit attach ~/.kit-dev                         # a Kit home path
 kit servers add dev ~/.kit-dev                # save it under a name
 kit servers add vps https://kit.example.ts.net/pair#a3k9…   # pair and save
+kit attach me@devbox                          # a host over SSH
+kit servers add devbox me@devbox              # save it under a name
 kit attach vps --cwd ~/src/app                # attach by name
 kit attach                                    # pick from the saved servers
 ```
 
-Attaching never starts, stops, or replaces a server. When a home's server is
+Attaching never stops or replaces a server, and starts one only on a host
+reached [over SSH](#servers-over-ssh). When a home's server is
 not running, `kit attach` reports how to start it, as with
 `KIT_HOME=~/.kit-dev kit server start`. An incompatible server is refused; the
 client and server must speak the same session protocol version. The client
@@ -81,12 +85,52 @@ An MCP server that needs OAuth asks through the attached client, which opens
 the authorization page on its own machine and relays the browser's redirect
 to the server. See [MCP authorization](mcp-authorization.md).
 
+## Servers over SSH
+
+A host you can reach with `ssh` needs no served URL, pairing, or stored
+secret. `kit attach user@host` and `kit attach ssh://host:2222` attach over
+SSH. A bare host or an alias from `~/.ssh/config` works once saved, as with
+`kit servers add devbox devbox`, or written as `ssh://devbox`; an unsaved bare
+name is reported as an unknown server, so a mistyped name never connects
+anywhere. Kit runs your system `ssh`, so your SSH configuration, agent, and
+jump hosts apply.
+
+1. Kit runs `kit server start` and `kit server status --json` on the host in
+   one SSH command, which starts the server of the host's default Kit home if
+   it isn't running and reports its address and local token.
+2. It checks that the host's Kit speaks the same session protocol, and
+   otherwise says which side to upgrade.
+3. It forwards a free loopback port on this machine to the server and
+   attaches through it.
+
+`kit` must be on the host's `PATH` for commands run over SSH, which read fewer
+shell startup files than a login does. If it isn't, Kit says so; add its
+directory to `PATH` in a file such as `~/.zshenv` or `~/.bashrc`, above any
+line in it that returns early for non-interactive shells. Some SSH servers run
+commands without reading any startup file; on those hosts, install `kit` in or
+link it into a directory already on the system `PATH`, such as
+`/usr/local/bin`.
+
+`ssh` may ask for a password, passphrase, or host key confirmation while Kit
+connects, before the terminal client starts; a password login asks twice, once
+for the status check and once for the port forward. When the connection drops
+or the host's server restarts, Kit connects again without prompting, which
+needs an SSH agent, a key without a passphrase, or connection sharing
+(`ControlMaster`). Otherwise it reports the failure. Reconnecting never starts
+the server, so a server stopped on its host stays stopped.
+
+`kit servers` checks SSH servers without starting them or prompting. Pairing
+another device through an SSH server needs a URL that reaches it:
+`kit pair NAME --url URL`, or `kit server pair` on the host.
+
 ## Saved servers
 
 `kit servers` lists this home's server and the saved servers with their status:
 `running`, `not running`, `needs pairing`, `incompatible`, or `unavailable`,
-followed by the reason where one applies. `kit servers add NAME HOME-OR-LINK`
-saves a Kit home's server, or pairs with a link and saves its server.
+followed by the reason where one applies. `kit servers add NAME LOCATION`
+saves a Kit home's server or an SSH destination, or pairs with a link and
+saves its server. A location that is not a link, a URL, or a path to an
+existing directory is an SSH destination.
 `kit servers remove NAME` forgets a server and its device token. Names are 1
 to 32 lowercase letters, digits, `.`, `-`, or `_`, starting with a letter or
 digit.
@@ -97,6 +141,7 @@ Saved servers are stored in `$KIT_HOME/servers.json`, which holds no secrets:
 {
   "servers": [
     { "name": "dev", "kind": "home", "home": "/Users/me/.kit-dev" },
+    { "name": "devbox", "kind": "ssh", "destination": "me@devbox" },
     { "name": "vps", "kind": "url", "url": "https://kit.example.ts.net" }
   ]
 }

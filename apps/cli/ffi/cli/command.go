@@ -367,16 +367,17 @@ func newServerCommand(deps commandDependencies) *cobra.Command {
 	}
 	for _, action := range []struct {
 		name, description string
-		listen            bool
+		listen, json      bool
 	}{
 		{name: "start", description: "Start or discover the server", listen: true},
-		{name: "status", description: "Inspect server status"},
+		{name: "status", description: "Inspect server status", json: true},
 		{name: "stop", description: "Stop the server"},
 		{name: "restart", description: "Restart the server", listen: true},
 		{name: "run", description: "Run the server in the foreground, logging to stderr", listen: true},
 	} {
 		action := action
 		var listen string
+		var asJSON bool
 		subcommand := &cobra.Command{
 			Use: action.name, Short: action.description, Args: cobra.NoArgs,
 			RunE: func(command *cobra.Command, _ []string) error {
@@ -384,11 +385,17 @@ func newServerCommand(deps commandDependencies) *cobra.Command {
 				if listen != "" {
 					arguments = append(arguments, "--listen", listen)
 				}
+				if asJSON {
+					arguments = append(arguments, "--json")
+				}
 				return resultForCode(deps.server(command.Context(), arguments, command.OutOrStdout(), command.ErrOrStderr()))
 			},
 		}
 		if action.listen {
 			subcommand.Flags().StringVar(&listen, "listen", "", "listen on host:port instead of the server.listen setting")
+		}
+		if action.json {
+			subcommand.Flags().BoolVar(&asJSON, "json", false, "print the status as JSON for programs, including the server's local token")
 		}
 		command.AddCommand(subcommand)
 	}
@@ -472,7 +479,7 @@ func newServersCommand(deps commandDependencies) *cobra.Command {
 			RunE: func(command *cobra.Command, _ []string) error { return run(command, []string{"list"}) },
 		},
 		&cobra.Command{
-			Use: "add NAME HOME-OR-LINK", Short: "Save a Kit home's server, or pair with a link and save its server", Args: cobra.ExactArgs(2),
+			Use: "add NAME LOCATION", Short: "Save a Kit home's server or an SSH destination, or pair with a link and save its server", Args: cobra.ExactArgs(2),
 			RunE: func(command *cobra.Command, arguments []string) error {
 				return run(command, append([]string{"add"}, arguments...))
 			},

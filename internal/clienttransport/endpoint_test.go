@@ -172,3 +172,47 @@ func TestEndpointHandshakesOnceForConcurrentRequests(t *testing.T) {
 		t.Fatalf("health requests = %d, want one handshake", got)
 	}
 }
+
+// A forwarded server that restarted refuses the old token. A resolver that
+// can be invalidated resolves it again, and the request is sent once more.
+func TestInvalidatingResolverRecoversFromARefusedCredential(t *testing.T) {
+	_, server := newRestartableServer(t)
+	var mu sync.Mutex
+	token := "stale"
+	var invalidated []string
+	resolve := func() (Connection, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return Connection{URL: server.URL, Token: token, InstanceID: "instance_one", ProtocolVersion: version.SessionProtocolVersion, KitVersion: version.Version}, nil
+	}
+	client := NewInvalidating(resolve, func(connection Connection) {
+		mu.Lock()
+		defer mu.Unlock()
+		invalidated = append(invalidated, connection.Token)
+		token = "secret"
+	})
+	if _, err := client.ListSessions(t.Context(), ""); err != nil {
+		t.Fatalf("ListSessions() = %v", err)
+	}
+	if strings.Join(invalidated, ",") != "stale" {
+		t.Fatalf("invalidated = %q", invalidated)
+	}
+
+	mu.Lock()
+	token = "stale"
+	mu.Unlock()
+	_, err := client.StreamSessionEvents(t.Context(), "session_1", "", 0)
+	var transport *TransportError
+	if !errors.As(err, &transport) || !errors.Is(err, errStaleConnection) {
+		t.Fatalf("a refused stream = %v, want a transient failure", err)
+	}
+
+	// Without invalidation, a refused credential stays a server error.
+	plain := New(func() (Connection, error) {
+		return Connection{URL: server.URL, Token: "stale", InstanceID: "instance_one", ProtocolVersion: version.SessionProtocolVersion, KitVersion: version.Version}, nil
+	})
+	var refused *APIError
+	if _, err := plain.ListSessions(t.Context(), ""); !errors.As(err, &refused) || refused.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("plain ListSessions() = %v", err)
+	}
+}
