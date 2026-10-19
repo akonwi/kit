@@ -555,12 +555,20 @@ func projectChildLiveEvent(envelope droids.EventEnvelope) (subagent.LiveEvent, b
 			return subagent.LiveEvent{}, false
 		}
 	case droids.MessageDelta:
-		result.MessageID = event.MessageID
+		// Only text and thinking deltas carry message identity; the wire
+		// contract rejects tool events that name a message, and deltas that
+		// lack a message or text.
 		switch delta := event.Stream.(type) {
 		case droids.StreamTextDelta:
-			result.Kind, result.ContentIndex, result.Delta = "message.text.delta", delta.ContentIndex, delta.Delta
+			if event.MessageID == "" || delta.Delta == "" {
+				return subagent.LiveEvent{}, false
+			}
+			result.Kind, result.MessageID, result.ContentIndex, result.Delta = "message.text.delta", event.MessageID, delta.ContentIndex, delta.Delta
 		case droids.StreamThinkingDelta:
-			result.Kind, result.ContentIndex, result.Delta = "message.thinking.delta", delta.ContentIndex, delta.Delta
+			if event.MessageID == "" || delta.Delta == "" {
+				return subagent.LiveEvent{}, false
+			}
+			result.Kind, result.MessageID, result.ContentIndex, result.Delta = "message.thinking.delta", event.MessageID, delta.ContentIndex, delta.Delta
 		case droids.StreamToolCallStart:
 			result.Kind, result.ContentIndex, result.ToolCallID, result.ToolName = "tool.planned", delta.ContentIndex, delta.ID, delta.Name
 		case droids.StreamToolCallEnd:
