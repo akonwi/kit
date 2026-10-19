@@ -181,6 +181,16 @@ fn bash_message(run: sessionbridge::Bash) Message {
   shown.@
 }
 
+// Whether message is the bash row of execution id. A run keeps its execution
+// ID whether its row came from this client, a boundary record that has not
+// joined a turn, or a turn's history.
+fn shows_bash(message: Message, id: Str) Bool {
+  match message.bash {
+    run => message.role == Role::bash and run.ID == id,
+    _ => false,
+  }
+}
+
 // Projects persisted transcript messages into displayable messages, skipping
 // messages with no displayable content.
 fn project(messages: [protocol::TranscriptMessage]) [Message] {

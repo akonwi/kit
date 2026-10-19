@@ -106,7 +106,7 @@ func (m *Manager) changeCWDWithID(ctx context.Context, sessionID, mutationID, ta
 	}
 	informContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := informDroidOfCWDChange(informContext, loaded, mutationID, result); err != nil {
+	if err := informDroidOfCWDChange(informContext, sessionID, loaded, mutationID, result); err != nil {
 		return result, fmt.Errorf("inform droid of cwd change: %w", err)
 	}
 	return result, nil
@@ -292,7 +292,7 @@ type cwdBoundaryDetails struct {
 	CWD         string `json:"cwd"`
 }
 
-func informDroidOfCWDChange(ctx context.Context, loaded *runtime, mutationID string, result ChangeCWDResult) error {
+func informDroidOfCWDChange(ctx context.Context, sessionID string, loaded *runtime, mutationID string, result ChangeCWDResult) error {
 	if loaded.workspace.CWD() != result.CWD {
 		return nil
 	}
@@ -304,7 +304,7 @@ func informDroidOfCWDChange(ctx context.Context, loaded *runtime, mutationID str
 		"The user changed this session's working directory from %s to %s. Relative filesystem operations now resolve from %s. Session context, skills, and prompt commands have not been reloaded.",
 		result.PreviousCWD, result.CWD, result.CWD,
 	)
-	return loaded.droid.Inform(ctx, droids.BoundaryMessage{
+	return informBoundary(ctx, loaded.droid, loaded.events, sessionID, droids.BoundaryMessage{
 		ID: "cwd:" + mutationID, Kind: "cwd", Source: "user",
 		Content: []droids.InputContent{droids.TextInput{Text: message}}, Details: details,
 	})

@@ -226,7 +226,7 @@ func (m *Manager) executeBash(ctx context.Context, execution BashExecution, acti
 			}
 			for attempt := 0; ; attempt++ {
 				active.runtime.mu.Lock()
-				informErr = active.runtime.droid.Inform(context.Background(), boundary)
+				informErr = informBoundary(context.Background(), active.runtime.droid, active.runtime.events, execution.SessionID, boundary)
 				active.runtime.mu.Unlock()
 				if informErr == nil || m.isClosed() {
 					break

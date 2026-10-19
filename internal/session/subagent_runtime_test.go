@@ -2,11 +2,14 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/droids"
@@ -154,6 +157,24 @@ func childTranscriptHistory(t *testing.T, messages []droids.MessageEnvelope) fun
 	}
 }
 
+func TestProjectChildTranscriptMessageKeepsBoundaryDetails(t *testing.T) {
+	t.Parallel()
+	details := json.RawMessage(`{"version":1,"receipt":"subrequest_1","kind":"reply","from":"tester","message":"Yes."}`)
+	message, err := projectChildTranscriptMessage(droids.MessageEnvelope{
+		ID: "message_test", ConversationID: "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TurnID: "turn_test", CreatedAt: time.Now(),
+		Message: droids.ContextMessage{
+			BoundaryID: "inbox_task_1", Kind: "subagent_inbox", Source: "subagent", Details: details,
+			Content: []droids.InputContent{droids.TextInput{Text: "Subagent reply to subrequest_1 from tester:\nYes."}},
+		},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Role != "context" || message.BoundaryKind != "subagent_inbox" || string(message.Details) != string(details) {
+		t.Fatalf("projected message = %+v", message)
+	}
+}
+
 func TestProjectChildTranscriptMessageOmitsEmptyThinking(t *testing.T) {
 	t.Parallel()
 	message, err := projectChildTranscriptMessage(droids.MessageEnvelope{
@@ -183,5 +204,29 @@ func TestProjectChildTranscriptMessageOmitsEmptyThinking(t *testing.T) {
 	}
 	if err := transcript.Validate(); err != nil {
 		t.Fatalf("projected transcript validation: %v", err)
+	}
+}
+
+func TestChildBoundaryEventCarriesTheFramedRecord(t *testing.T) {
+	createdAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	message := droids.BoundaryMessage{
+		ID: "inbox_task_1", Kind: "subagent_inbox", Source: "subagent",
+		Content: []droids.InputContent{droids.TextInput{Text: "Please review the diff."}},
+		Details: json.RawMessage(`{"version":1,"from":"scout"}`),
+	}
+	got := childBoundaryEvent(message, createdAt)
+	want := subagent.LiveEvent{
+		Kind: "boundary.created", BoundaryID: "inbox_task_1", BoundaryKind: "subagent_inbox", BoundarySource: "subagent",
+		Text: "Please review the diff.", Details: json.RawMessage(`{"version":1,"from":"scout"}`), CreatedAt: createdAt,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("childBoundaryEvent() = %+v, want %+v", got, want)
+	}
+
+	message.Content = []droids.InputContent{droids.TextInput{Text: strings.Repeat("é", maxChildBoundaryTextBytes)}}
+	message.Details = json.RawMessage(`{"version":1,"message":"` + strings.Repeat("x", maxChildBoundaryDetailsBytes) + `"}`)
+	bounded := childBoundaryEvent(message, createdAt)
+	if len(bounded.Text) > maxChildBoundaryTextBytes || !utf8.ValidString(bounded.Text) || string(bounded.Details) != `{"version":1}` {
+		t.Fatalf("bounded event text = %d bytes (valid %v), details = %d bytes", len(bounded.Text), utf8.ValidString(bounded.Text), len(bounded.Details))
 	}
 }

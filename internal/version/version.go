@@ -37,5 +37,9 @@ const (
 	// so every operation's error union adds credential_expired (401) and
 	// rate_limited (429). Adds pairing, device, and provider login operations
 	// (ADR 0045).
-	SessionProtocolVersion = 47
+	// 48: Boundaries are transcript records from creation. Snapshots list
+	// boundaries that have not joined a completed turn as context records
+	// without a turn and drop pendingBoundaries; the session and subagent live
+	// streams add boundary.created (ADR 0033).
+	SessionProtocolVersion = 48
 )

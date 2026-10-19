@@ -267,21 +267,46 @@ func TestSessionSnapshotRejectsInvalidStructuredTranscript(t *testing.T) {
 	}
 }
 
-func TestSessionSnapshotAcceptsContextAndPendingBoundaries(t *testing.T) {
+func TestSessionSnapshotAcceptsContextMessagesAndRecordsWithoutATurn(t *testing.T) {
 	snapshot := validTranscriptSnapshot()
 	snapshot.Messages = append(snapshot.Messages, TranscriptMessage{
 		ID: "message_context", TurnID: "turn_context", Sequence: 3,
 		Role: "context", BoundaryID: "bash_test", BoundaryKind: "bash", BoundarySource: "composer",
 		Content: []TranscriptContent{TextBlock("bash output")},
 		Details: json.RawMessage(`{"version":1,"command":"echo ok","status":"completed","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:00:01Z"}`), CreatedAt: "2026-01-01T00:00:03Z",
+	}, TranscriptMessage{
+		ID: "bash_pending", Role: "context", BoundaryID: "bash_pending", BoundaryKind: "bash", BoundarySource: "composer",
+		Content: []TranscriptContent{TextBlock("[bash from composer]\npending output")},
+		Details: json.RawMessage(`{"version":1,"command":"echo ok","status":"completed","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:00:01Z"}`), CreatedAt: "2026-01-01T00:00:04Z",
 	})
-	snapshot.PendingBoundaries = []PendingBoundary{{
-		ID: "bash_pending", Kind: "bash", Source: "composer",
-		Content: []TranscriptContent{TextBlock("pending output")},
-		Details: json.RawMessage(`{"version":1,"command":"echo ok","status":"completed","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:00:01Z"}`), AcceptedAt: "2026-01-01T00:00:04Z",
-	}}
 	if err := snapshot.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSessionSnapshotRejectsInvalidRecordsWithoutATurn(t *testing.T) {
+	record := TranscriptMessage{
+		ID: "cwd:1", Role: "context", BoundaryID: "cwd:1", BoundaryKind: "cwd", BoundarySource: "user",
+		Content: []TranscriptContent{TextBlock("[cwd from user]\nchanged")}, CreatedAt: "2026-01-01T00:00:04Z",
+	}
+	turnMessage := validTranscriptSnapshot().Messages[0]
+	turnMessage.ID, turnMessage.TurnID, turnMessage.Sequence = "message_after", "turn_after", 9
+	tests := map[string][]TranscriptMessage{
+		"user role":         {{ID: "message_user", Role: "user", Content: []TranscriptContent{TextBlock("hi")}, CreatedAt: "2026-01-01T00:00:04Z"}},
+		"missing boundary":  {func() TranscriptMessage { value := record; value.BoundaryID = ""; return value }()},
+		"history sequence":  {func() TranscriptMessage { value := record; value.Sequence = 3; return value }()},
+		"empty content":     {func() TranscriptMessage { value := record; value.Content = nil; return value }()},
+		"followed by turn":  {record, turnMessage},
+		"duplicate records": {record, func() TranscriptMessage { value := record; value.ID = "cwd:other"; return value }()},
+	}
+	for name, records := range tests {
+		t.Run(name, func(t *testing.T) {
+			snapshot := validTranscriptSnapshot()
+			snapshot.Messages = append(snapshot.Messages, records...)
+			if err := snapshot.Validate(); err == nil {
+				t.Fatal("Validate() accepted an invalid record without a turn")
+			}
+		})
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -55,8 +56,8 @@ func TestChangeCWDToolMovesRelativeCodingToolScopeDuringRun(t *testing.T) {
 	if snapshot.Session.CWD != destination {
 		t.Fatalf("session cwd = %q, want %q", snapshot.Session.CWD, destination)
 	}
-	if len(snapshot.Boundaries) != 0 {
-		t.Fatalf("model-initiated cwd change echoed boundaries = %+v", snapshot.Boundaries)
+	if len(boundaryRecords(snapshot)) != 0 {
+		t.Fatalf("model-initiated cwd change echoed boundaries = %+v", boundaryRecords(snapshot))
 	}
 	var changeText, bashText string
 	for _, message := range snapshot.Messages {
@@ -176,9 +177,29 @@ func TestChangeCWDPersistsBeforePublicationAndReloadUsesDestination(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(afterChange.Boundaries) != 1 || afterChange.Boundaries[0].Kind != "cwd" || afterChange.Boundaries[0].Source != "user" ||
-		!strings.Contains(transcriptText(afterChange.Boundaries[0].Content), first) || !strings.Contains(transcriptText(afterChange.Boundaries[0].Content), second) {
-		t.Fatalf("user cwd boundary = %+v", afterChange.Boundaries)
+	if len(boundaryRecords(afterChange)) != 1 || boundaryRecords(afterChange)[0].BoundaryKind != "cwd" || boundaryRecords(afterChange)[0].BoundarySource != "user" ||
+		!strings.Contains(transcriptText(boundaryRecords(afterChange)[0].Content), first) || !strings.Contains(transcriptText(boundaryRecords(afterChange)[0].Content), second) {
+		t.Fatalf("user cwd boundary = %+v", boundaryRecords(afterChange))
+	}
+	if record := boundaryRecords(afterChange)[0]; record.ID != "cwd:"+mutationID || record.BoundaryID != record.ID || record.Sequence != 0 ||
+		len(record.Content) == 0 || record.Content[0].Text != "[cwd from user]" {
+		t.Fatalf("user cwd record = %+v", record)
+	}
+	events, err := manager.Events(t.Context(), record.ID, before.EventStreamID, before.EventCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []session.EventKind
+	for _, event := range events.Events {
+		kinds = append(kinds, event.Kind)
+	}
+	if len(events.Events) != 2 || events.Events[0].Kind != session.EventSessionCWDChanged || events.Events[1].Kind != session.EventBoundaryCreated {
+		t.Fatalf("cwd change events = %v", kinds)
+	}
+	if created := events.Events[1]; created.TurnID != "" || created.BoundaryID != "cwd:"+mutationID || created.BoundaryKind != "cwd" || created.BoundarySource != "user" ||
+		created.CreatedAt.IsZero() || len(created.Details) == 0 || created.DetailsOmitted || created.ContentTruncated ||
+		!reflect.DeepEqual(created.Content, boundaryRecords(afterChange)[0].Content) {
+		t.Fatalf("boundary created event = %+v", created)
 	}
 	execution, err := manager.StartBash(t.Context(), record.ID, "bash_55555555555555555555555555555555", "pwd", true)
 	if err != nil {

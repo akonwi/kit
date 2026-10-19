@@ -30,6 +30,7 @@ type (
 	BashExecutionStatus               = contract.BashExecutionStatus
 	BashHistoryEntry                  = contract.BashHistoryEntry
 	BashHistoryPage                   = contract.BashHistoryPage
+	BoundaryCreatedEvent              = contract.BoundaryCreatedEvent
 	BrowserLoginInstructions          = contract.BrowserLoginInstructions
 	ChangeCWDInput                    = contract.ChangeCWDInput
 	ChangeWorkspaceCWDResult          = contract.ChangeWorkspaceCWDResult
@@ -106,7 +107,6 @@ type (
 	ObserveWorkingTreeInput           = contract.ObserveWorkingTreeInput
 	PairingCode                       = contract.PairingCode
 	PeerQueryChangedEvent             = contract.PeerQueryChangedEvent
-	PendingBoundary                   = contract.PendingBoundary
 	PinnedDiffTarget                  = contract.PinnedDiffTarget
 	PluginCommand                     = contract.PluginCommand
 	PluginCommandError                = contract.PluginCommandError
@@ -169,6 +169,7 @@ type (
 	SessionVCSStatus                  = contract.SessionVCSStatus
 	StartLoginInput                   = contract.StartLoginInput
 	SubagentAction                    = contract.SubagentAction
+	SubagentBoundaryCreatedEvent      = contract.SubagentBoundaryCreatedEvent
 	SubagentChangedEvent              = contract.SubagentChangedEvent
 	SubagentConversation              = contract.SubagentConversation
 	SubagentDefinition                = contract.SubagentDefinition
@@ -402,6 +403,7 @@ const (
 	SessionEventAssistantCompleted        = contract.SessionEventAssistantCompleted
 	SessionEventAssistantStarted          = contract.SessionEventAssistantStarted
 	SessionEventAssistantTextDelta        = contract.SessionEventAssistantTextDelta
+	SessionEventBoundaryCreated           = contract.SessionEventBoundaryCreated
 	SessionEventCompactionCompleted       = contract.SessionEventCompactionCompleted
 	SessionEventCompactionStarted         = contract.SessionEventCompactionStarted
 	SessionEventContextChanged            = contract.SessionEventContextChanged
@@ -426,6 +428,7 @@ const (
 	SessionEventUserMessageAdded          = contract.SessionEventUserMessageAdded
 	SubagentCancel                        = contract.SubagentCancel
 	SubagentDismiss                       = contract.SubagentDismiss
+	SubagentEventBoundaryCreated          = contract.SubagentEventBoundaryCreated
 	SubagentEventMessageCompleted         = contract.SubagentEventMessageCompleted
 	SubagentEventMessageTextDelta         = contract.SubagentEventMessageTextDelta
 	SubagentEventMessageThinkingDelta     = contract.SubagentEventMessageThinkingDelta

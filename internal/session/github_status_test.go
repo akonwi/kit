@@ -78,7 +78,7 @@ func TestPullRequestBoundaryDetailsStayWithinDroidLimit(t *testing.T) {
 func TestPullRequestInformerDeduplicatesConsecutiveStatusAndPreservesTransitions(t *testing.T) {
 	host := newTestPullRequestStatusHost()
 	loaded := &runtime{droid: testStatusDroid(t)}
-	if err := startPullRequestInformer(loaded, host); err != nil {
+	if err := startPullRequestInformer("session_test", loaded, host); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
@@ -119,7 +119,7 @@ func TestPullRequestInformerDeduplicatesConsecutiveStatusAndPreservesTransitions
 func TestPullRequestInformerFencesStaleHeadRevision(t *testing.T) {
 	host := newTestPullRequestStatusHost()
 	loaded := &runtime{droid: testStatusDroid(t)}
-	if err := startPullRequestInformer(loaded, host); err != nil {
+	if err := startPullRequestInformer("session_test", loaded, host); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {

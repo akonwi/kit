@@ -67,6 +67,7 @@ func runModelDrivenSiblingRequest(t *testing.T, reply, unstarted bool) {
 	t.Cleanup(func() { _ = supervisor.Shutdown(context.Background()) })
 	siblings := &subagent.SiblingToolService{Repository: store, Supervisor: supervisor}
 	factory.SiblingTools = siblings
+	factory.InboxRequests = store
 	if unstarted {
 		paths := apphome.FromHome(filepath.Join(root, "home"))
 		if err := paths.Ensure(); err != nil {
@@ -281,6 +282,14 @@ func (p *siblingScriptProviders) Stream(_ context.Context, _ droids.Model, reque
 	case name == "sender" && call == 3:
 		for _, message := range request.Messages {
 			if boundary, ok := message.(droids.ContextMessage); ok && boundary.Kind == "subagent_inbox" {
+				var details struct {
+					Kind    string `json:"kind"`
+					From    string `json:"from"`
+					Message string `json:"message"`
+				}
+				if json.Unmarshal(boundary.Details, &details) != nil || details.Kind != "reply" || details.From != "recipient" || details.Message != "the explicit answer" {
+					event.problem = fmt.Sprintf("reply inbox details = %s", boundary.Details)
+				}
 				for _, content := range boundary.Content {
 					if text, ok := content.(droids.TextInput); ok && strings.Contains(text.Text, "the explicit answer") {
 						event.phase = "sender-reply"
@@ -296,8 +305,12 @@ func (p *siblingScriptProviders) Stream(_ context.Context, _ droids.Model, reque
 			if boundary, ok := message.(droids.ContextMessage); ok && boundary.Kind == "subagent_inbox" {
 				var details struct {
 					Receipt string `json:"receipt"`
+					Kind    string `json:"kind"`
+					From    string `json:"from"`
+					Message string `json:"message"`
 				}
-				if json.Unmarshal(boundary.Details, &details) == nil && strings.Contains(details.Receipt, "subrequest_") {
+				if json.Unmarshal(boundary.Details, &details) == nil && strings.Contains(details.Receipt, "subrequest_") &&
+					details.Kind == "request" && details.From == "sender" && details.Message == "please answer explicitly" {
 					for _, content := range boundary.Content {
 						if text, ok := content.(droids.TextInput); ok && strings.Contains(text.Text, "please answer explicitly") {
 							event.phase, event.receipt = "recipient-inbox", details.Receipt

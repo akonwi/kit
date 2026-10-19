@@ -87,7 +87,7 @@ struct MCPServerStatus: Decodable, Sendable, Equatable, Identifiable {
 }
 
 struct TranscriptMessage: Decodable, Identifiable, Sendable, Equatable {
-    let id: String
+    var id: String
     let role: String
     var text: String
     var tools: [ToolActivity]
@@ -96,6 +96,10 @@ struct TranscriptMessage: Decodable, Identifiable, Sendable, Equatable {
     var bash: BashExecution? = nil
     /// Set on a plugin-submitted message, which presents as a "plugin" row.
     var plugin: PluginMessageOrigin? = nil
+    /// Set on a context marker, which presents as a "marker" row.
+    var marker: TranscriptMarker? = nil
+    /// Set on a message from another subagent, which presents as an "inbox" row.
+    var inbox: SubagentInboxMessage? = nil
 }
 
 /// The plugin that submitted a transcript message and the turn the message

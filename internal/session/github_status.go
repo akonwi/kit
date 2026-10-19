@@ -46,7 +46,7 @@ type pullRequestBoundaryDetails struct {
 	Status  *pullrequest.Status `json:"status"`
 }
 
-func startPullRequestInformer(loaded *runtime, host PullRequestStatusHost) error {
+func startPullRequestInformer(sessionID string, loaded *runtime, host PullRequestStatusHost) error {
 	subscription, err := host.SubscribePullRequestStatus()
 	if err != nil {
 		return err
@@ -55,11 +55,11 @@ func startPullRequestInformer(loaded *runtime, host PullRequestStatusHost) error
 	loaded.pullRequestInformerCancel = cancel
 	loaded.pullRequestInformerSource = subscription
 	loaded.pullRequestInformerDone = make(chan struct{})
-	go runPullRequestInformer(ctx, loaded, host, subscription)
+	go runPullRequestInformer(ctx, sessionID, loaded, host, subscription)
 	return nil
 }
 
-func runPullRequestInformer(ctx context.Context, loaded *runtime, host PullRequestStatusHost, subscription PullRequestStatusSubscription) {
+func runPullRequestInformer(ctx context.Context, sessionID string, loaded *runtime, host PullRequestStatusHost, subscription PullRequestStatusSubscription) {
 	defer close(loaded.pullRequestInformerDone)
 	var previous PullRequestStatusUpdate
 	for {
@@ -91,7 +91,7 @@ func runPullRequestInformer(ctx context.Context, loaded *runtime, host PullReque
 			Content: []droids.InputContent{droids.TextInput{Text: pullRequestStatusSummary(update.Status)}},
 			Details: details,
 		}
-		if !informPullRequestBoundary(ctx, loaded, boundary, update, host) {
+		if !informPullRequestBoundary(ctx, sessionID, loaded, boundary, update, host) {
 			return
 		}
 	}
@@ -111,7 +111,7 @@ func encodePullRequestBoundaryDetails(update PullRequestStatusUpdate) (json.RawM
 	return append(json.RawMessage(nil), details...), nil
 }
 
-func informPullRequestBoundary(ctx context.Context, loaded *runtime, boundary droids.BoundaryMessage, update PullRequestStatusUpdate, host PullRequestStatusHost) bool {
+func informPullRequestBoundary(ctx context.Context, sessionID string, loaded *runtime, boundary droids.BoundaryMessage, update PullRequestStatusUpdate, host PullRequestStatusHost) bool {
 	for {
 		if !samePullRequestIdentity(update, host.CurrentPullRequestStatus()) {
 			return true
@@ -124,7 +124,7 @@ func informPullRequestBoundary(ctx context.Context, loaded *runtime, boundary dr
 			return true
 		}
 		droid := loaded.droid
-		err := droid.Inform(ctx, boundary)
+		err := informBoundary(ctx, droid, loaded.events, sessionID, boundary)
 		if err != nil {
 			received, reconcileErr := droid.BoundaryReceived(context.Background(), boundary.ID)
 			if reconcileErr == nil && received {

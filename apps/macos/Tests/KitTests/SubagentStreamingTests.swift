@@ -48,6 +48,30 @@ struct SubagentStreamingTests {
         #expect(final.activity == nil)
     }
 
+    @Test func requestFromAnotherSubagentShowsAsItsCardBeforeTheTurnIsStored() throws {
+        var state = SubagentStreamProjection()
+        var created = event(1, "boundary.created", fields: [
+            "boundaryId": "inbox_task_1", "boundaryKind": "subagent_inbox", "boundarySource": "subagent",
+            "text": "Please review the diff.", "createdAt": "2026-01-01T00:00:00Z",
+            "details": ["version": 1, "kind": "request", "from": "scout", "message": "Please review the diff."],
+        ])
+        created["turnId"] = nil
+        #expect(try state.accept(page([created, event(2, "turn.started")])))
+        let live = try state.project(history())
+        #expect(live.messages.map(\.id) == ["inbox_task_1"])
+        #expect(live.messages.first?.inbox == SubagentInboxMessage(kind: .request, from: "scout", text: "Please review the diff.", failed: false))
+
+        let stored = try history([["id": "message_inbox", "turnId": "turn", "sequence": 1, "role": "context", "createdAt": "",
+            "boundaryId": "inbox_task_1", "boundaryKind": "subagent_inbox", "boundarySource": "subagent",
+            "details": ["version": 1, "kind": "request", "from": "scout", "message": "Please review the diff."],
+            "content": [["kind": "text", "text": "[subagent_inbox from subagent]"], ["kind": "text", "text": "Please review the diff."]]]])
+        #expect(try state.project(stored).messages.map(\.id) == ["inbox_task_1"])
+
+        var invalid = SubagentStreamProjection()
+        created["boundaryId"] = nil
+        #expect(throws: ClientError.self) { try invalid.accept(page([created])) }
+    }
+
     @Test func proseIsBufferedAndDurableCompletionWins() throws {
         var state = SubagentStreamProjection()
         #expect(try state.accept(page([event(1, "message.text.delta", fields: ["messageId": "m", "delta": "Hello"]) ])))

@@ -103,7 +103,8 @@ struct BashDraft: Equatable {
 extension BashExecution {
     static func boundary(_ message: WireTranscriptMessage) throws -> BashExecution? {
         guard message.boundaryKind == "bash", let details = message.details, let id = message.boundaryId else { return nil }
-        return try boundary(id: id, details: details, content: message.content ?? [], sequence: message.sequence)
+        let content = SessionProjection.boundaryContent(message.content ?? [], kind: "bash", source: message.boundarySource)
+        return try boundary(id: id, details: details, content: content, sequence: message.sequence)
     }
     static func boundary(id: String, details: WireJSON, content: [WireTranscriptContent], sequence: Int64 = 0) throws -> BashExecution {
         struct Details: Decodable {

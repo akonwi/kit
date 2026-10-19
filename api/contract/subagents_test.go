@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +88,39 @@ func TestSubagentLiveEventPageValidation(t *testing.T) {
 	page.Events[1].Sequence = 3
 	if err := page.Validate(); err == nil {
 		t.Fatal("event page accepted a sequence gap")
+	}
+}
+
+func TestSubagentBoundaryEventValidation(t *testing.T) {
+	boundary := protocol.SubagentLiveEvent{
+		Sequence: 1, Kind: "boundary.created", BoundaryID: "inbox_task_1", BoundaryKind: "subagent_inbox", BoundarySource: "subagent",
+		Text: "Please review.", Details: json.RawMessage(`{"version":1}`), CreatedAt: "2026-01-01T00:00:00Z",
+	}
+	page := protocol.SubagentLiveEventPage{
+		StreamID: "substream_dddddddddddddddddddddddddddddddd", FirstSequence: 1, LastSequence: 1,
+		Events: []protocol.SubagentLiveEvent{boundary},
+	}
+	if err := page.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*protocol.SubagentLiveEvent){
+		"missing identity": func(event *protocol.SubagentLiveEvent) { event.BoundaryID = "" },
+		"invalid time":     func(event *protocol.SubagentLiveEvent) { event.CreatedAt = "" },
+		"turn identity":    func(event *protocol.SubagentLiveEvent) { event.TurnID = "turn_1" },
+		"tool fields":      func(event *protocol.SubagentLiveEvent) { event.ToolName = "read" },
+	} {
+		invalid := page
+		event := boundary
+		mutate(&event)
+		invalid.Events = []protocol.SubagentLiveEvent{event}
+		if err := invalid.Validate(); err == nil {
+			t.Errorf("%s: Validate() accepted %+v", name, event)
+		}
+	}
+	tool := protocol.SubagentLiveEvent{Sequence: 1, Kind: "tool.started", ToolCallID: "call_1", ToolName: "read", BoundaryID: "inbox_task_1"}
+	page.Events = []protocol.SubagentLiveEvent{tool}
+	if err := page.Validate(); err == nil {
+		t.Fatal("tool event accepted boundary fields")
 	}
 }
 

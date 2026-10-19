@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
+	"unicode/utf8"
 
 	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/droids/sqlitestore"
@@ -25,13 +27,21 @@ type ChildRuntimeFactory struct {
 	// MCPTools must be set before the supervisor starts. A child borrows its
 	// owning session's MCP namespaces instead of starting duplicate server
 	// processes, and never closes them.
-	MCPTools           func(context.Context, string) ([]droids.AnyTool, error)
-	SiblingTools       *subagent.SiblingToolService
+	MCPTools     func(context.Context, string) ([]droids.AnyTool, error)
+	SiblingTools *subagent.SiblingToolService
+	// InboxRequests reads the request behind a delivered request or reply so
+	// its boundary details can name the other agent. It is optional.
+	InboxRequests      InboxRequestReader
 	providers          droids.Providers
 	bundleBuilder      RuntimeBundleBuilder
 	directory          string
 	modelContextWindow func(string) int
 	compactionModel    func() string
+}
+
+// InboxRequestReader reads a subagent request visible to a child conversation.
+type InboxRequestReader interface {
+	InspectSubagentRequest(ctx context.Context, owner string, caller subagent.ConversationID, receipt string) (subagent.Request, error)
 }
 
 // ChildRuntimeFactoryOption configures child runtime creation.
@@ -231,7 +241,7 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 		return nil, fmt.Errorf("reconcile child reasoning: %w", err)
 	}
 	return &childRuntime{
-		droid: droid, store: store,
+		droid: droid, store: store, requests: f.InboxRequests,
 		requestConfiguration: droids.RequestConfiguration{
 			SystemPrompt: systemPrompt, Reasoning: conversation.ThinkingLevel,
 			ContextWindow: model.ContextWindow, Tools: tools,
@@ -372,8 +382,9 @@ func (r *childTranscriptReader) Close(context.Context) error {
 }
 
 type childRuntime struct {
-	droid *droids.Droid
-	store *sqlitestore.Store
+	droid    *droids.Droid
+	store    *sqlitestore.Store
+	requests InboxRequestReader
 
 	mu                   sync.Mutex
 	closed               bool
@@ -403,6 +414,39 @@ func (r *childRuntime) ConfigureThinking(ctx context.Context, thinking string) e
 	return nil
 }
 
+// inboxBoundaryDetails describes a subagent_inbox boundary for clients. From,
+// Message, and Failure are omitted when the request can no longer be read.
+type inboxBoundaryDetails struct {
+	Version int    `json:"version"`
+	Receipt string `json:"receipt"`
+	Kind    string `json:"kind"`
+	From    string `json:"from,omitempty"`
+	Message string `json:"message,omitempty"`
+	Failure string `json:"failure,omitempty"`
+}
+
+func (r *childRuntime) inboxDetails(ctx context.Context, task subagent.Task) inboxBoundaryDetails {
+	details := inboxBoundaryDetails{Version: 1, Receipt: task.RequestID, Kind: string(task.Origin)}
+	if r.requests == nil {
+		return details
+	}
+	request, err := r.requests.InspectSubagentRequest(ctx, task.OwnerSessionID, task.ConversationID, task.RequestID)
+	if err != nil {
+		return details
+	}
+	delivery := subagent.DeliverToInbox(request, task.Origin)
+	details.From, details.Message, details.Failure = delivery.From, delivery.Message, delivery.Failure
+	// Escaping can inflate a bounded message past the droid's details limit;
+	// the model-facing text still carries it.
+	if encoded, err := json.Marshal(details); err != nil || len(encoded) > maxInboxDetailsBytes {
+		details.Message = ""
+	}
+	return details
+}
+
+// maxInboxDetailsBytes keeps inbox details well inside droids' 64 KiB limit.
+const maxInboxDetailsBytes = 48 << 10
+
 func (r *childRuntime) Run(ctx context.Context, task subagent.Task, admitted func(string) error, emit func(subagent.LiveEvent)) (subagent.ChildOutcome, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -431,18 +475,18 @@ func (r *childRuntime) Run(ctx context.Context, task subagent.Task, admitted fun
 		handle, err = r.droid.Prompt(ctx, droids.Input{Content: []droids.InputContent{droids.TextInput{Text: task.Message}}}, droids.PromptOptions{AdmissionKey: string(task.ID)})
 	} else {
 		boundaryID := "inbox_" + string(task.ID)
-		details, encodeErr := droids.EncodeDetails(struct {
-			Version int    `json:"version"`
-			Receipt string `json:"receipt"`
-			Kind    string `json:"kind"`
-		}{Version: 1, Receipt: task.RequestID, Kind: string(task.Origin)})
+		details, encodeErr := droids.EncodeDetails(r.inboxDetails(ctx, task))
 		if encodeErr != nil {
 			err = encodeErr
 		} else {
-			err = r.droid.Inform(ctx, droids.BoundaryMessage{
+			boundary := droids.BoundaryMessage{
 				ID: boundaryID, Kind: "subagent_inbox", Source: "subagent",
 				Content: []droids.InputContent{droids.TextInput{Text: task.Message}}, Details: details,
-			})
+			}
+			err = r.droid.Inform(ctx, boundary)
+			if err == nil && emit != nil {
+				emit(childBoundaryEvent(boundary, time.Now()))
+			}
 			if err != nil {
 				if received, reconcileErr := r.droid.BoundaryReceived(context.Background(), boundaryID); reconcileErr == nil && received {
 					err = nil
@@ -543,6 +587,58 @@ func projectChildLiveEvent(envelope droids.EventEnvelope) (subagent.LiveEvent, b
 		return subagent.LiveEvent{}, false
 	}
 	return result, result.Kind != ""
+}
+
+// Child live events are bounded to 16 KiB; the child transcript carries the
+// full record.
+const (
+	maxChildBoundaryTextBytes    = 8 << 10
+	maxChildBoundaryDetailsBytes = 6 << 10
+)
+
+// childBoundaryEvent announces a context record created in the child
+// conversation. Text is the record's text without the model-facing source
+// line. Details too large for the event lose their copy of the message text,
+// which Text carries.
+func childBoundaryEvent(message droids.BoundaryMessage, createdAt time.Time) subagent.LiveEvent {
+	var parts []string
+	for _, block := range message.Content {
+		if text, ok := block.(droids.TextInput); ok && text.Text != "" {
+			parts = append(parts, text.Text)
+		}
+	}
+	return subagent.LiveEvent{
+		Kind: "boundary.created", BoundaryID: message.ID, BoundaryKind: message.Kind, BoundarySource: message.Source,
+		Text: truncateUTF8(strings.Join(parts, "\n"), maxChildBoundaryTextBytes), Details: boundedChildDetails(message.Details),
+		CreatedAt: createdAt.UTC(),
+	}
+}
+
+func boundedChildDetails(details json.RawMessage) json.RawMessage {
+	if len(details) <= maxChildBoundaryDetailsBytes {
+		return append(json.RawMessage(nil), details...)
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(details, &fields) != nil {
+		return nil
+	}
+	delete(fields, "message")
+	shortened, err := json.Marshal(fields)
+	if err != nil || len(shortened) > maxChildBoundaryDetailsBytes {
+		return nil
+	}
+	return shortened
+}
+
+func truncateUTF8(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	end := limit
+	for end > 0 && !utf8.RuneStart(value[end]) {
+		end--
+	}
+	return value[:end]
 }
 
 func childResultText(content []droids.ResultContent) string {
@@ -709,6 +805,7 @@ func projectChildTranscriptMessage(envelope droids.MessageEnvelope, sequence int
 	case droids.ContextMessage:
 		message.Role, content = "context", typed.Content
 		message.BoundaryID, message.BoundaryKind, message.BoundarySource = typed.BoundaryID, typed.Kind, typed.Source
+		message.Details = append(json.RawMessage(nil), typed.Details...)
 	default:
 		return subagent.TranscriptMessage{}, fmt.Errorf("unsupported child message %T", envelope.Message)
 	}

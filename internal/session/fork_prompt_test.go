@@ -114,7 +114,7 @@ func forkNotices(t *testing.T, manager *session.Manager, parentID string) []stri
 		t.Fatal(err)
 	}
 	var ids []string
-	for _, boundary := range snapshot.Boundaries {
+	for _, boundary := range boundaryRecords(snapshot) {
 		ids = append(ids, boundary.ID)
 	}
 	return ids

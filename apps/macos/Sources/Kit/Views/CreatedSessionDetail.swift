@@ -2,6 +2,8 @@ import SwiftUI
 
 struct TranscriptSessionLink: Sendable {
     let serverID: String
+    /// The title of a session on the same server, when the app knows it.
+    var title: @MainActor @Sendable (String) -> String? = { _ in nil }
     let open: @MainActor @Sendable (String) -> Void
 }
 private struct TranscriptSessionLinkKey: EnvironmentKey {

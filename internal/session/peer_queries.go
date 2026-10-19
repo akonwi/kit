@@ -169,7 +169,7 @@ func (m *Manager) processOnePeerQuery(ctx context.Context, recipient string) err
 		m.failPeerRequest(request, peer.StateFailed, err)
 		return err
 	}
-	if err = loaded.droid.Inform(ctx, boundary); err != nil {
+	if err = informBoundary(ctx, loaded.droid, loaded.events, request.RecipientSessionID, boundary); err != nil {
 		received, reconcileErr := loaded.droid.BoundaryReceived(context.Background(), request.ID)
 		if reconcileErr != nil || !received {
 			subscription.Close()
@@ -333,7 +333,7 @@ func (m *Manager) deliverPeerResult(request peer.Request) {
 		RequestID string     `json:"requestId"`
 		State     peer.State `json:"state"`
 	}{1, request.ID, request.State})
-	if err := loaded.droid.Inform(context.Background(), droids.BoundaryMessage{ID: request.ID, Kind: "peer_result", Source: request.RecipientSessionID, Content: []droids.InputContent{droids.TextInput{Text: text}}, Details: details}); err != nil {
+	if err := informBoundary(context.Background(), loaded.droid, loaded.events, request.SenderSessionID, droids.BoundaryMessage{ID: request.ID, Kind: "peer_result", Source: request.RecipientSessionID, Content: []droids.InputContent{droids.TextInput{Text: text}}, Details: details}); err != nil {
 		_, _ = loaded.droid.BoundaryReceived(context.Background(), request.ID)
 	}
 	loaded.mu.Unlock()

@@ -59,14 +59,14 @@ func TestPersistedBashRunsBecomeBashMessages(t *testing.T) {
 	}
 }
 
-func TestPendingBashShowsTheFailureInPlaceOfItsNotice(t *testing.T) {
-	pending := PendingBash([]protocol.PendingBoundary{{
-		ID: "bash_2", Kind: "bash", Source: "composer",
-		Content: []protocol.TranscriptContent{protocol.TextBlock("[bash command: make]\n[aborted: aborted by user]")},
+func TestBashRecordsWithoutATurnShowTheFailureInPlaceOfItsNotice(t *testing.T) {
+	messages := Messages([]protocol.TranscriptMessage{{
+		ID: "bash_2", Role: "context", BoundaryID: "bash_2", BoundaryKind: "bash", BoundarySource: "composer",
+		Content: []protocol.TranscriptContent{protocol.TextBlock("[bash from composer]"), protocol.TextBlock("[bash command: make]\n[aborted: aborted by user]")},
 		Details: boundaryDetails(t, map[string]any{"command": "make", "status": "aborted", "errorMessage": "aborted by user"}),
-	}, {ID: "note_1", Kind: "note"}})
-	want := []Bash{{ID: "bash_2", Command: "make", Status: "aborted", Output: "aborted by user"}}
-	if !reflect.DeepEqual(pending, want) {
-		t.Fatalf("pending = %+v, want %+v", pending, want)
+	}})
+	want := Bash{ID: "bash_2", Command: "make", Status: "aborted", Output: "aborted by user"}
+	if len(messages) != 1 || messages[0].Role != "bash" || messages[0].TurnID != "" || messages[0].Bash == nil || !reflect.DeepEqual(*messages[0].Bash, want) {
+		t.Fatalf("messages = %+v, want bash %+v", messages, want)
 	}
 }

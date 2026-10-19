@@ -436,6 +436,11 @@ type SessionVCSStatus struct {
 }
 
 // TranscriptMessage is one ordered persisted message projected for clients.
+//
+// A snapshot also lists boundaries that have not joined a completed turn as
+// context messages with an empty TurnID and a zero Sequence, after every turn
+// message. Their ID is the BoundaryID; clients reconcile a record by
+// BoundaryID when it later appears in its turn with a history ID.
 type TranscriptMessage struct {
 	ID             string              `json:"id"`
 	TurnID         string              `json:"turnId"`
@@ -463,16 +468,6 @@ func (message TranscriptMessage) TextContent() string {
 		}
 	}
 	return strings.Join(parts, "\n")
-}
-
-// PendingBoundary is durable external context awaiting materialization.
-type PendingBoundary struct {
-	ID         string              `json:"id"`
-	Kind       string              `json:"kind"`
-	Source     string              `json:"source,omitempty"`
-	Content    []TranscriptContent `json:"content"`
-	Details    json.RawMessage     `json:"details,omitempty"`
-	AcceptedAt string              `json:"acceptedAt"`
 }
 
 // SessionUsage is the authoritative cumulative provider usage for one session.
@@ -591,7 +586,6 @@ type SessionSnapshot struct {
 	Messages              []TranscriptMessage    `json:"messages"`
 	PreviousMessageCursor string                 `json:"previousMessageCursor,omitempty"`
 	HasMoreMessages       bool                   `json:"hasMoreMessages,omitempty"`
-	PendingBoundaries     []PendingBoundary      `json:"pendingBoundaries,omitempty"`
 	ActiveTurnID          string                 `json:"activeTurnId,omitempty"`
 	ProviderRetry         *ProviderRetry         `json:"providerRetry,omitempty"`
 	ActiveCompaction      *ActiveCompaction      `json:"activeCompaction,omitempty"`

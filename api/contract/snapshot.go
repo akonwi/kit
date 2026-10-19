@@ -402,30 +402,47 @@ func (snapshot SessionSnapshot) Validate() error {
 	currentTurn := ""
 	toolCallsByTurn := make(map[string]map[string]string)
 	toolResultsByTurn := make(map[string]map[string]struct{})
-	for index, boundary := range snapshot.PendingBoundaries {
-		if boundary.ID == "" || boundary.Kind == "" || len(boundary.Content) == 0 {
-			return fmt.Errorf("pending boundary %d requires identity, kind, and content", index)
-		}
-		if err := validateBoundaryDetails(boundary.Kind, boundary.Source, boundary.Details); err != nil {
-			return fmt.Errorf("pending boundary %d: %w", index, err)
-		}
-		if _, err := time.Parse(time.RFC3339Nano, boundary.AcceptedAt); err != nil {
-			return fmt.Errorf("pending boundary %d acceptedAt is invalid: %w", index, err)
-		}
-		for contentIndex, block := range boundary.Content {
-			if err := block.validate(); err != nil || !contentAllowedForRole("context", block.Kind()) {
-				return fmt.Errorf("pending boundary %d content %d is invalid", index, contentIndex)
-			}
-		}
-	}
+	seenBoundaries := make(map[string]struct{})
+	recordsStarted := false
 	for index, message := range snapshot.Messages {
-		if message.ID == "" || message.TurnID == "" {
-			return fmt.Errorf("snapshot message %d requires its message and turn identities", index)
+		if message.ID == "" {
+			return fmt.Errorf("snapshot message %d requires its message identity", index)
 		}
 		if _, duplicate := messageIDs[message.ID]; duplicate {
 			return fmt.Errorf("snapshot message %d duplicates message id %q", index, message.ID)
 		}
 		messageIDs[message.ID] = struct{}{}
+		// A record without a turn is a boundary that has not joined history,
+		// so its boundary appears nowhere else in the snapshot.
+		_, listed := seenBoundaries[message.BoundaryID]
+		if message.TurnID == "" && listed {
+			return fmt.Errorf("snapshot message %d duplicates boundary %q", index, message.BoundaryID)
+		}
+		if message.Role == "context" && message.BoundaryID != "" {
+			seenBoundaries[message.BoundaryID] = struct{}{}
+		}
+		if message.TurnID == "" {
+			// A boundary created since the last completed turn is a context
+			// record that has not joined a turn's history yet. These records
+			// follow every turn message and carry no history sequence.
+			if message.Role != "context" || message.BoundaryID == "" || message.Sequence != 0 {
+				return fmt.Errorf("snapshot message %d without a turn must be a boundary record without a sequence", index)
+			}
+			if _, err := time.Parse(time.RFC3339Nano, message.CreatedAt); err != nil {
+				return fmt.Errorf("snapshot boundary record %d createdAt is invalid: %w", index, err)
+			}
+			if len(message.Content) == 0 {
+				return fmt.Errorf("snapshot boundary record %d requires content", index)
+			}
+			if err := message.validate(); err != nil {
+				return fmt.Errorf("snapshot message %d: %w", index, err)
+			}
+			recordsStarted = true
+			continue
+		}
+		if recordsStarted {
+			return fmt.Errorf("snapshot message %d follows boundary records that have not joined a turn", index)
+		}
 		if message.TurnID != currentTurn {
 			if _, reused := closedTurns[message.TurnID]; reused {
 				return fmt.Errorf("snapshot message %d reopens noncontiguous turn %q", index, message.TurnID)

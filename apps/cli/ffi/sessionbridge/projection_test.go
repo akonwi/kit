@@ -75,6 +75,30 @@ func TestEventsProjectsPluginMessages(t *testing.T) {
 	}
 }
 
+func TestEventsProjectsComposerCommandBoundaries(t *testing.T) {
+	projected := Events([]protocol.SessionEvent{{
+		Sequence: 3, SessionID: "session_1",
+		Payload: protocol.BoundaryCreatedEvent{
+			BoundaryID: "bash_1", BoundaryKind: "bash", BoundarySource: "composer", CreatedAt: "2026-10-09T10:00:01Z",
+			Content: protocol.ContextContent{protocol.TextBlock("[bash from composer]"), protocol.TextBlock("[bash command: ls]\nREADME.md")},
+			Details: boundaryDetails(t, map[string]any{"command": "ls", "status": "completed", "exitCode": 0}),
+		},
+	}, {
+		Sequence: 4, SessionID: "session_1",
+		Payload: protocol.BoundaryCreatedEvent{
+			BoundaryID: "cwd:1", BoundaryKind: "cwd", BoundarySource: "user", CreatedAt: "2026-10-09T10:00:02Z",
+			Content: protocol.ContextContent{protocol.TextBlock("[cwd from user]")},
+		},
+	}})
+	want := Bash{ID: "bash_1", Command: "ls", Status: "completed", HasExitCode: true, Output: "README.md"}
+	if len(projected) != 2 || projected[0].Kind != "boundary.created" || projected[0].Bash == nil || !reflect.DeepEqual(*projected[0].Bash, want) {
+		t.Fatalf("Events() = %+v, want bash %+v", projected, want)
+	}
+	if projected[1].Kind != "boundary.created" || projected[1].Bash != nil {
+		t.Fatalf("other boundary = %+v, want no bash", projected[1])
+	}
+}
+
 func TestMessagesProjectPersistedPluginMessages(t *testing.T) {
 	got := Messages([]protocol.TranscriptMessage{{
 		ID: "pluginmsg_1", TurnID: "turn_1", Sequence: 1, Role: "context",

@@ -127,15 +127,6 @@ struct WireTranscriptMessage: Codable, Sendable {
     let `createdAt`: String
 }
 
-struct WirePendingBoundary: Codable, Sendable {
-    let `id`: String
-    let `kind`: String
-    let `source`: String?
-    let `content`: [WireTranscriptContent]?
-    let `details`: WireJSON?
-    let `acceptedAt`: String
-}
-
 typealias WireProviderRetry = Components.Schemas.ProviderRetry
 
 typealias WireActiveCompaction = Components.Schemas.ActiveCompaction
@@ -343,7 +334,6 @@ struct WireSessionSnapshot: Codable, Sendable {
     let `messages`: [WireTranscriptMessage]?
     let `previousMessageCursor`: String?
     let `hasMoreMessages`: Bool?
-    let `pendingBoundaries`: [WirePendingBoundary]?
     let `activeTurnId`: String?
     let `providerRetry`: WireProviderRetry?
     let `activeCompaction`: WireActiveCompaction?
@@ -401,6 +391,7 @@ enum WireSessionEventKind: String, Codable, Sendable {
     case value26 = "annotation.deleted"
     case value27 = "annotation.submitted"
     case value28 = "scratchpad.changed"
+    case value29 = "boundary.created"
 }
 
 enum WireTurnStatus: String, Codable, Sendable {
@@ -475,6 +466,10 @@ struct WireSessionEvent: Codable, Sendable {
     let `annotationIds`: [UInt64]?
     let `acceptedMessageId`: String?
     let `scratchpad`: WireScratchpad?
+    let `boundaryId`: String?
+    let `boundaryKind`: String?
+    let `boundarySource`: String?
+    let `createdAt`: String?
 }
 
 struct WireSessionEventBatch: Codable, Sendable {
@@ -573,6 +568,11 @@ struct WireSubagentLiveEvent: Codable, Sendable {
     let `toolCallId`: String?
     let `toolName`: String?
     let `isError`: Bool?
+    let `boundaryId`: String?
+    let `boundaryKind`: String?
+    let `boundarySource`: String?
+    let `details`: WireJSON?
+    let `createdAt`: String?
 }
 
 struct WireSubagentLiveEventPage: Codable, Sendable {

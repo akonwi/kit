@@ -54,6 +54,73 @@ struct SessionEventProjectionTests {
         #expect(refreshed.session.messages.first?.plugin == PluginMessageOrigin(pluginID: "autoresearch", turnID: "t"))
     }
 
+    @Test func boundaryRecordsAreRowsFromCreationAndKeepTheirRowWhenTheyJoinATurn() throws {
+        let cwdDetails: [String: Any] = ["version": 1, "previousCwd": "/repo", "cwd": "/repo/app"]
+        let bashDetails: [String: Any] = ["version": 1, "command": "ls", "status": "completed", "exitCode": 0,
+                                          "startedAt": "2026-01-01T00:00:00Z", "completedAt": "2026-01-01T00:00:01Z"]
+        func record(_ id: String, kind: String, source: String, text: String, details: [String: Any]) -> [String: Any] {
+            ["id": id, "turnId": "", "sequence": 0, "role": "context", "createdAt": "2026-01-01T00:00:01Z",
+             "boundaryId": id, "boundaryKind": kind, "boundarySource": source, "details": details,
+             "content": [["kind": "text", "text": "[\(kind) from \(source)]"], ["kind": "text", "text": text]]]
+        }
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot())) as? [String: Any])
+        json["messages"] = [
+            ["id": "message_user", "turnId": "turn_1", "sequence": 4, "role": "user", "createdAt": "",
+             "content": [["kind": "text", "text": "Hello"]]],
+            record("bash_1", kind: "bash", source: "composer", text: "[bash command: ls]\nREADME.md", details: bashDetails),
+        ]
+        let initial = try JSONDecoder().decode(WireSessionSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
+        var state = try SessionEventProjection(initial)
+        #expect(state.session.messages.map(\.id) == ["message_user", "bash_1"])
+        #expect(state.session.messages.map(\.role) == ["user", "bash"])
+        #expect(state.session.messages.last?.bash?.command == "ls")
+        #expect(state.session.messages.last?.bash?.output == "README.md")
+        #expect(state.session.observedTurns == ["turn_1"])
+        #expect(state.session.historyStart == 4)
+
+        let created = try event("boundary.created", [
+            "turnId": "", "boundaryId": "cwd:mutation_1", "boundaryKind": "cwd", "boundarySource": "user",
+            "createdAt": "2026-01-01T00:00:02Z", "details": cwdDetails,
+            "content": [["kind": "text", "text": "[cwd from user]"], ["kind": "text", "text": "The user changed directory."]],
+        ])
+        try state.apply(created)
+        try state.apply(created)
+        #expect(state.session.messages.map(\.id) == ["message_user", "bash_1", "cwd:mutation_1"])
+        #expect(state.session.messages.last?.marker == .workingDirectory(path: "/repo/app", previous: "/repo"))
+
+        // The same record, once it joins a completed turn under a history ID,
+        // keeps its row.
+        json["messages"] = [
+            ["id": "message_user", "turnId": "turn_1", "sequence": 4, "role": "user", "createdAt": "",
+             "content": [["kind": "text", "text": "Hello"]]],
+            ["id": "message_cwd", "turnId": "turn_2", "sequence": 5, "role": "context", "createdAt": "",
+             "boundaryId": "cwd:mutation_1", "boundaryKind": "cwd", "boundarySource": "user", "details": cwdDetails,
+             "content": [["kind": "text", "text": "[cwd from user]"], ["kind": "text", "text": "The user changed directory."]]],
+        ]
+        let joined = try SessionProjection.snapshot(JSONDecoder().decode(WireSessionSnapshot.self,
+            from: JSONSerialization.data(withJSONObject: json)))
+        #expect(joined.messages.map(\.id) == ["message_user", "cwd:mutation_1"])
+        #expect(joined.messages.last?.marker == .workingDirectory(path: "/repo/app", previous: "/repo"))
+    }
+
+    @Test func bashBoundaryEventShowsTheSettledCommandInPlaceOfItsRunningRow() throws {
+        var state = try SessionEventProjection(session: SessionExcerpt(id: "s", title: "Test", sourceTitle: "Kit server", model: "m",
+            thinking: "off", workspace: "tmp", date: "", messages: [
+                TranscriptMessage(id: "bash_1", role: "bash", text: "", tools: []),
+            ]), source: [])
+        try state.apply(event("boundary.created", [
+            "turnId": "", "boundaryId": "bash_1", "boundaryKind": "bash", "boundarySource": "composer",
+            "createdAt": "2026-01-01T00:00:01Z",
+            "details": ["version": 1, "command": "ls", "status": "completed", "exitCode": 0,
+                        "startedAt": "2026-01-01T00:00:00Z", "completedAt": "2026-01-01T00:00:01Z"],
+            "content": [["kind": "text", "text": "[bash from composer]"], ["kind": "text", "text": "[bash command: ls]\nREADME.md"]],
+        ]))
+        #expect(state.session.messages.map(\.id) == ["bash_1"])
+        #expect(state.session.messages.first?.bash?.status == "completed")
+        #expect(state.session.messages.first?.bash?.output == "README.md")
+        #expect(throws: ClientError.self) { try state.apply(event("boundary.created", ["turnId": "", "boundaryKind": "cwd"])) }
+    }
+
     @Test func cumulativeUsageReplacesTotalsWithoutDependingOnLoadedMessages() throws {
         var state = try SessionEventProjection(snapshot())
         #expect(state.session.usage?.formattedCost == "$0.00")

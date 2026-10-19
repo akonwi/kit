@@ -35,6 +35,14 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 			event: SessionEvent{StreamID: "stream_1", Sequence: 3, SessionID: "session_1", TurnID: "turn_1", Payload: ToolCompletedEvent{ToolCallID: "call_1", ToolName: "read", Details: json.RawMessage(`{"lines":2}`)}},
 			want:  `{"streamId":"stream_1","sequence":3,"sessionId":"session_1","turnId":"turn_1","kind":"tool.completed","toolCallId":"call_1","toolName":"read","details":{"lines":2}}`,
 		},
+		{
+			name: "boundary record omits turn identity",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 4, SessionID: "session_1", Payload: BoundaryCreatedEvent{
+				BoundaryID: "cwd:1", BoundaryKind: "cwd", BoundarySource: "user", Content: ContextContent{TextBlock("[cwd from user]")},
+				Details: json.RawMessage(`{"version":1}`), CreatedAt: "2026-01-01T00:00:00Z",
+			}},
+			want: `{"streamId":"stream_1","sequence":4,"sessionId":"session_1","kind":"boundary.created","content":[{"kind":"text","text":"[cwd from user]"}],"details":{"version":1},"boundaryId":"cwd:1","boundaryKind":"cwd","boundarySource":"user","createdAt":"2026-01-01T00:00:00Z"}`,
+		},
 	}
 	for _, test := range cases {
 		got, err := json.Marshal(test.event)
@@ -47,8 +55,8 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 func TestSessionEventPayloadVocabularyIsClosed(t *testing.T) {
 	t.Parallel()
 	variants := sessionEventVariants()
-	if len(variants) != 29 {
-		t.Fatalf("session event variants = %d; want 29", len(variants))
+	if len(variants) != 30 {
+		t.Fatalf("session event variants = %d; want 30", len(variants))
 	}
 	seen := make(map[SessionEventKind]bool, len(variants))
 	for _, variant := range variants {

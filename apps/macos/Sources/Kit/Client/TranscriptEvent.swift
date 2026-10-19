@@ -32,6 +32,13 @@ struct TranscriptEvent {
     var scratchpad: WireScratchpad?
     /// A tool result's structured details as JSON.
     var details: String?
+    /// A boundary record's identity, kind, source, structured details, and
+    /// creation time; set only for boundary.created.
+    var boundaryId: String?
+    var boundaryKind: String?
+    var boundarySource: String?
+    var boundaryDetails: WireJSON?
+    var createdAt: String?
     /// When the app received a new event; nil for replayed events, whose time
     /// says nothing about when the work happened.
     var receivedAt: Date?
@@ -51,6 +58,8 @@ struct TranscriptEvent {
         usage = event.usage
         contextTokens = event.contextTokens; contextWindow = event.contextWindow
         interaction = event.interaction; interactionId = event.interactionId
+        boundaryId = event.boundaryId; boundaryKind = event.boundaryKind; boundarySource = event.boundarySource
+        boundaryDetails = event.kind == .value29 ? event.details : nil; createdAt = event.createdAt
     }
 
     init?(_ event: WireSubagentLiveEvent) {
@@ -62,9 +71,11 @@ struct TranscriptEvent {
             kind = "assistant.completed"
         case "turn.started", "execution.started": kind = "turn.started"
         case "turn.settled", "execution.settled": kind = "turn.completed"
-        case "tool.planned", "tool.started", "tool.output.delta", "tool.completed": kind = event.kind
+        case "tool.planned", "tool.started", "tool.output.delta", "tool.completed", "boundary.created": kind = event.kind
         default: return nil
         }
+        boundaryId = event.boundaryId; boundaryKind = event.boundaryKind; boundarySource = event.boundarySource
+        boundaryDetails = event.details; createdAt = event.createdAt
         turnId = event.turnId ?? ""
         runId = turnId
         messageId = event.messageId; contentIndex = event.contentIndex; delta = event.delta
@@ -74,6 +85,16 @@ struct TranscriptEvent {
             content = [WireTranscriptContent(kind: .value0, text: output, toolCallId: nil, toolName: nil,
                 arguments: nil, argumentsTruncated: nil, filename: nil, mediaType: nil, attachmentId: nil, annotations: nil)]
         }
+    }
+
+    /// The context record a boundary.created event carries, shaped as the
+    /// snapshot lists a boundary that has not joined a completed turn.
+    var boundaryRecord: WireTranscriptMessage? {
+        guard kind == "boundary.created", let id = boundaryId, !id.isEmpty,
+              let boundaryKind, !boundaryKind.isEmpty, let createdAt else { return nil }
+        return WireTranscriptMessage(id: id, turnId: "", sequence: 0, role: "context", content: content ?? [],
+            stopReason: nil, errorMessage: nil, toolCallId: nil, toolName: nil, boundaryId: id,
+            boundaryKind: boundaryKind, boundarySource: boundarySource, details: boundaryDetails, isError: nil, createdAt: createdAt)
     }
 
     static func toolID(turn: String, call: String) -> String { "\(turn.utf8.count):\(turn)\(call)" }

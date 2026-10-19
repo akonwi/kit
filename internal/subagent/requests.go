@@ -51,3 +51,38 @@ type RequestAdmission struct {
 	Now           time.Time
 	Deadline      time.Time
 }
+
+// InboxDelivery is one request or reply delivered to a child conversation's
+// inbox: the model-facing text and the parts a client renders.
+type InboxDelivery struct {
+	// Text is the model-facing message, including the receipt and instructions.
+	Text string
+	// From names the other agent: the sender of a request or the recipient
+	// that replied.
+	From string
+	// Message is the request or reply body, empty when the request failed.
+	Message string
+	// Failure explains why a request failed; it is set only for failed replies.
+	Failure string
+}
+
+// DeliverToInbox describes request delivered to a child as origin, which is
+// TaskOriginRequest for the recipient or TaskOriginReply for the sender.
+func DeliverToInbox(request Request, origin TaskOrigin) InboxDelivery {
+	if origin != TaskOriginReply {
+		return InboxDelivery{
+			Text: "Subagent request " + request.ID + " from " + request.SenderName + ":\n" + request.Message + "\nUse subagent_reply with this receipt to answer.",
+			From: request.SenderName, Message: request.Message,
+		}
+	}
+	if request.State != RequestReplied {
+		return InboxDelivery{
+			Text: "Subagent request " + request.ID + " failed: " + request.Failure,
+			From: request.RecipientName, Failure: request.Failure,
+		}
+	}
+	return InboxDelivery{
+		Text: "Subagent reply to " + request.ID + " from " + request.RecipientName + ":\n" + request.Reply,
+		From: request.RecipientName, Message: request.Reply,
+	}
+}

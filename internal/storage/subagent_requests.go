@@ -344,15 +344,11 @@ func (s *Store) AdmitPendingSubagentDelivery(ctx context.Context, owner string, 
 	if err != nil {
 		return subagent.Task{}, err
 	}
-	message := "Subagent request " + receipt + " from " + request.SenderName + ":\n" + request.Message + "\nUse subagent_reply with this receipt to answer."
 	origin := subagent.TaskOriginRequest
 	if kind == "reply" {
 		origin = subagent.TaskOriginReply
-		message = "Subagent reply to " + receipt + " from " + request.RecipientName + ":\n" + request.Reply
-		if request.State != subagent.RequestReplied {
-			message = "Subagent request " + receipt + " failed: " + request.Failure
-		}
 	}
+	message := subagent.DeliverToInbox(request, origin).Text
 	taskID, err := identifier.New("task_")
 	if err != nil {
 		return subagent.Task{}, err

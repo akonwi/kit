@@ -123,7 +123,8 @@ func TestManagerAssignsScratchpadOwnershipOnlyToSemanticForks(t *testing.T) {
 	}
 	for _, record := range family {
 		page, err := manager.Events(t.Context(), record.ID, before[record.ID].EventStreamID, before[record.ID].EventCursor)
-		if err != nil || len(page.Events) != 1 || page.Events[0].Kind != session.EventScratchpadChanged || page.Events[0].Scratchpad == nil || *page.Events[0].Scratchpad != updated {
+		changes := scratchpadChanges(page)
+		if err != nil || len(changes) != 1 || changes[0].Scratchpad == nil || *changes[0].Scratchpad != updated {
 			t.Fatalf("family events for %q = %+v, %v", record.ID, page, err)
 		}
 		snapshot, err := manager.Snapshot(t.Context(), record.ID)
@@ -132,7 +133,7 @@ func TestManagerAssignsScratchpadOwnershipOnlyToSemanticForks(t *testing.T) {
 		}
 	}
 	peerPage, err := manager.Events(t.Context(), peer.ID, before[peer.ID].EventStreamID, before[peer.ID].EventCursor)
-	if err != nil || len(peerPage.Events) != 0 {
+	if err != nil || len(scratchpadChanges(peerPage)) != 0 {
 		t.Fatalf("independent peer events = %+v, %v", peerPage, err)
 	}
 	if unchanged, err := manager.UpdateScratchpad(t.Context(), owner.ID, updated.Revision, updated.Content); err != nil || unchanged != updated {
@@ -278,4 +279,16 @@ func TestAmbiguousForkPublicationRejectsMismatchedScratchpadOwner(t *testing.T) 
 	if _, err := manager.Fork(t.Context(), parent.ID, session.ForkInput{}); err == nil {
 		t.Fatal("ambiguous fork with mismatched owner reconciled successfully")
 	}
+}
+
+// scratchpadChanges returns a page's scratchpad events. A fork's parent also
+// announces its fork marker, which can land on either side of a snapshot.
+func scratchpadChanges(page session.EventPage) []session.Event {
+	var changes []session.Event
+	for _, event := range page.Events {
+		if event.Kind == session.EventScratchpadChanged {
+			changes = append(changes, event)
+		}
+	}
+	return changes
 }

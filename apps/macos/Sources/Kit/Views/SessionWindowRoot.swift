@@ -46,6 +46,10 @@ struct SessionWindowRoot: View {
                 guard let client = app.client else { return }
                 windows.open(SessionIdentity(server: client.serverID, session: id), from: model)
             },
+            sessionTitle: { id in
+                model.tabs.first { !$0.isLauncher && $0.identity.session == id }?.title
+                    ?? app.sessions.first { $0.id == id }?.title
+            },
             openLauncher: { model.openLauncher() }))
         .focusedSceneValue(\.sessionWindow, model)
         .navigationTitle(tab.title)

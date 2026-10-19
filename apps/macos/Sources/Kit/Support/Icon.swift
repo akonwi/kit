@@ -10,6 +10,7 @@ enum Icon: String, CaseIterable, Sendable {
     case arrowRight = "arrow-right"
     case arrowUp = "arrow-up"
     case arrowUpRight = "arrow-up-right"
+    case arrowsInLineVertical = "arrows-in-line-vertical"
     case arrowsLeftRight = "arrows-left-right"
     case arrowSquareOut = "arrow-square-out"
     case browser
@@ -37,6 +38,7 @@ enum Icon: String, CaseIterable, Sendable {
     case folder
     case folderSimple = "folder-simple"
     case gitBranch = "git-branch"
+    case gitFork = "git-fork"
     case gitDiff = "git-diff"
     case gitPullRequest = "git-pull-request"
     case hash

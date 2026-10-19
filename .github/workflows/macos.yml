@@ -9,9 +9,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Verify generated protocol
-        run: |
-          apps/macos/script/generate_openapi.sh --check
       - name: Restore libghostty
         id: ghostty
         uses: actions/cache@v6
@@ -32,6 +29,10 @@ jobs:
         run: |
           xcrun -f metal >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
           apps/macos/script/build_ghosttykit.sh
+      # Generating builds the package, which needs libghostty.
+      - name: Verify generated protocol
+        run: |
+          apps/macos/script/generate_openapi.sh --check
       - name: Build clean app without private fixtures
         run: apps/macos/script/build_and_run.sh --build
       - name: Test

@@ -33,6 +33,9 @@ struct SubagentStreamProjection {
             case "tool.planned", "tool.started", "tool.output.delta", "tool.completed":
                 guard !(event.toolCallId ?? "").isEmpty, !(event.toolName ?? "").isEmpty,
                       event.delta == nil else { throw ClientError.invalidPayload }
+            case "boundary.created":
+                guard !(event.boundaryId ?? "").isEmpty, !(event.boundaryKind ?? "").isEmpty, event.createdAt != nil,
+                      event.turnId == nil, event.delta == nil, event.toolCallId == nil, event.toolName == nil else { throw ClientError.invalidPayload }
             default:
                 guard event.kind.contains("."), event.delta == nil, event.text == nil,
                       event.toolCallId == nil, event.toolName == nil else { throw ClientError.invalidPayload }
