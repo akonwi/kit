@@ -150,6 +150,8 @@ private struct SessionTabContent: View {
                 connected(connection)
             case .unreachable, .incompatible:
                 ServerStateView(connection: connection)
+            case .needsPairing(let need):
+                ServerPairingView(connection: connection, need: need, servers: model.servers, sessionTab: !tab.isLauncher)
             }
         } else {
             UnknownServerView(name: tab.identity.server) { model.requestClose(tab) }

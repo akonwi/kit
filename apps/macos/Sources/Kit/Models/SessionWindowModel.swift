@@ -55,6 +55,7 @@ final class SessionTab: Identifiable {
         switch connection.status {
         case .unreachable: return "Can’t connect"
         case .incompatible(let mismatch): return mismatch.serverIsOlder ? "Server needs a newer Kit" : "Needs a newer Kit for Mac"
+        case .needsPairing: return "Pair again"
         case .connecting, .connected, .reconnecting: return nil
         }
     }
@@ -513,6 +514,40 @@ final class SessionWindowModel: Identifiable {
         }
         tab.identity = identity
         onChange(self)
+    }
+
+    /// Moves the tabs of a server saved under a new name to that name. Each
+    /// reattaches through the renamed server, keeping its layout and title.
+    func serverRenamed(from name: String, to newName: String) {
+        var changed = false
+        for tab in tabs where tab.identity.server == name {
+            if !tab.isLauncher {
+                tab.savedArrangement = tab.store?.ui.workspace.arrangement ?? tab.savedArrangement
+                tab.savedTitle = tab.session?.title ?? tab.savedTitle
+                release(tab)
+            }
+            tab.identity = SessionIdentity(server: newName, session: tab.identity.session)
+            changed = true
+        }
+        guard changed else { return }
+        collapsed = Set(collapsed.map { key in
+            let identity = Self.identity(treeKey: key)
+            return identity.server == name ? Self.treeKey(SessionIdentity(server: newName, session: identity.session)) : key
+        })
+        onChange(self)
+    }
+
+    /// Closes the tabs of a server that is no longer saved; a launcher on it
+    /// lists this Mac's sessions instead.
+    func serverRemoved(_ name: String) {
+        for tab in tabs where tab.identity.server == name {
+            if tab.isLauncher {
+                tab.identity = Self.launcherIdentity
+                onChange(self)
+            } else {
+                close(tab)
+            }
+        }
     }
 
     /// Detaches every session when the window closes.

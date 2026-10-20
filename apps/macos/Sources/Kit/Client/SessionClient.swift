@@ -51,6 +51,21 @@ enum ClientError: LocalizedError {
     case noDaemon, invalidEndpoint, incompatible, invalidPayload, daemonNotReady, missingSession, http(Int), disconnected, oversized
     case incompatibleDaemon(daemonVersion: String, appProtocol: Int, daemonProtocol: Int,
                             reason: DaemonCompatibility.Mismatch)
+    /// A served server needs this Mac to pair with it again.
+    case needsPairing(PairingNeed)
+    /// The server is reached over SSH, which this app can't do yet.
+    case sshUnsupported
+
+    /// Why a served server needs pairing.
+    enum PairingNeed: Equatable, Sendable {
+        /// This Mac has no device token for the server.
+        case missing
+        /// The server says the device token expired.
+        case expired
+        /// The server refused the token, as when it was revoked.
+        case refused
+    }
+
     var errorDescription: String? {
         switch self {
         case .discovery(let reason): "Couldn’t read Kit’s server discovery files. \(reason)"
@@ -66,6 +81,10 @@ enum ClientError: LocalizedError {
         case .http(let code): "Server request failed (HTTP \(code))."
         case .disconnected: "The server connection closed."
         case .oversized: "The server response exceeded the client limit."
+        case .needsPairing(.missing): "This Mac isn’t paired with the server."
+        case .needsPairing(.expired): "This Mac’s pairing with the server expired."
+        case .needsPairing(.refused): "The server no longer accepts this Mac’s pairing."
+        case .sshUnsupported: "Kit for Mac can’t connect to SSH servers yet. Use kit attach in a terminal."
         }
     }
 }
@@ -100,16 +119,43 @@ indirect enum WireJSON: Codable, Sendable {
 enum ServerConnector: Hashable, Sendable {
     /// The server of a Kit home on this Mac, found through its discovery files.
     case home(URL)
+    /// A server served at an HTTP(S) origin, reached with the device token
+    /// kept for `credential`.
+    case url(String, credential: DeviceCredential)
+    /// The server of a host's default Kit home, reached over SSH.
+    case ssh(String)
 
     /// The server of the Kit home at `path`, normalized so equal paths are equal connectors.
     static func home(path: String) -> ServerConnector {
         .home(URL(fileURLWithPath: path).standardizedFileURL)
     }
 
+    /// How the saved server `server` of the Kit home `home` is reached.
+    static func saved(_ server: SavedServer, home: URL) -> ServerConnector {
+        switch server.kind {
+        case .home: .home(path: server.address)
+        case .url: .url(server.address, credential: DeviceCredential(home: home.path, name: server.name))
+        case .ssh: .ssh(server.address)
+        }
+    }
+
+    /// Whether the server runs on this Mac, judged by how it is reached.
+    /// Phase B replaces this with the server's machine identifier.
+    var isThisMac: Bool {
+        if case .home = self { true } else { false }
+    }
+
     /// Resolves and verifies the server, reporting who it is.
-    func handshake(serverID: String) async throws -> (client: HTTPClient, identity: ServerIdentity) {
+    func handshake(serverID: String, tokens: any DeviceTokenStore = DeviceTokens.standard) async throws -> (client: HTTPClient, identity: ServerIdentity) {
         switch self {
-        case .home(let home): try await HTTPClient.handshake(home: home, serverID: serverID)
+        case .home(let home):
+            return try await HTTPClient.handshake(home: home, serverID: serverID)
+        case .url(let origin, let credential):
+            guard let url = URL(string: origin) else { throw ClientError.invalidEndpoint }
+            guard let token = tokens.token(for: credential, url: origin) else { throw ClientError.needsPairing(.missing) }
+            return try await HTTPClient.handshake(url: url, token: token, serverID: serverID)
+        case .ssh:
+            throw ClientError.sshUnsupported
         }
     }
 }
@@ -153,10 +199,14 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
     let isDemo = false
     /// Fired when resolving the server fails.
     var unreachable: ServerSignal? = nil
+    /// Where a served server's device token is kept.
+    let tokens: any DeviceTokenStore
 
-    init(serverID: String, connector: ServerConnector, unreachable: ServerSignal? = nil) {
+    init(serverID: String, connector: ServerConnector, tokens: any DeviceTokenStore = DeviceTokens.standard,
+         unreachable: ServerSignal? = nil) {
         self.serverID = serverID
         address = ServerAddress(connector)
+        self.tokens = tokens
         self.unreachable = unreachable
     }
 
@@ -172,7 +222,7 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
 
     /// Resolves the server and returns a transport for one operation.
     func resolve() async throws -> HTTPClient {
-        do { return try await connector.handshake(serverID: serverID).client }
+        do { return try await connector.handshake(serverID: serverID, tokens: tokens).client }
         catch {
             // An operation that was cancelled says nothing about the server.
             let cancelled = Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled

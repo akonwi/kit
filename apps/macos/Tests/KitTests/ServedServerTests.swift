@@ -1,0 +1,292 @@
+import Foundation
+import Testing
+@testable import Kit
+
+struct ServedServerConnectionTests {
+    private static let serverID = "server_" + String(repeating: "0123456789abcdef", count: 2)
+    private static let machineID = String(repeating: "ab", count: 32)
+    private static let token = "kit_device_" + String(repeating: "A", count: 43)
+    private static let health = """
+    {"instanceId":"instance_remote","pid":7,"kitVersion":"0.42.0","protocolVersion":\(kitWireVersion),"databaseReady":true,
+     "providers":[],"serverId":"\(serverID)","machineId":"\(machineID)","home":"/home/me"}
+    """
+
+    @Test func aServedServerIsReachedWithItsDeviceToken() async throws {
+        let server = try LoopbackHTTPServer(body: Self.health)
+        let url = try await server.start()
+        defer { server.stop() }
+        let credential = DeviceCredential(home: "/Users/me/.kit", name: "vps")
+        let tokens = MemoryDeviceTokens([credential: (url.absoluteString, Self.token)])
+        let (client, identity) = try await ServerConnector.url(url.absoluteString, credential: credential)
+            .handshake(serverID: "vps", tokens: tokens)
+        #expect(client.serverID == "vps")
+        #expect(identity == ServerIdentity(id: Self.serverID, instance: "instance_remote", kitVersion: "0.42.0",
+                                           protocolVersion: kitWireVersion, machine: Self.machineID, home: "/home/me"))
+        let request = try #require(server.requests.first)
+        #expect(request.hasPrefix("GET /v1/health HTTP/1.1\r\n"))
+        #expect(request.contains("\r\nAuthorization: Bearer \(Self.token)\r\n"))
+    }
+
+    @Test func aServerThatRefusesTheTokenNeedsPairing() async throws {
+        for (code, need) in [("credential_expired", ClientError.PairingNeed.expired), ("unauthorized", .refused)] {
+            let server = try LoopbackHTTPServer(status: "401 Unauthorized", body: #"{"error":{"code":"\#(code)","message":"no"}}"#)
+            let url = try await server.start()
+            defer { server.stop() }
+            let credential = DeviceCredential(home: "/Users/me/.kit", name: "vps")
+            let tokens = MemoryDeviceTokens([credential: (url.absoluteString, Self.token)])
+            await expectClientError(.needsPairing(need)) {
+                _ = try await ServerConnector.url(url.absoluteString, credential: credential).handshake(serverID: "vps", tokens: tokens)
+            }
+        }
+    }
+
+    @Test func aServerWithoutATokenNeedsPairingWithoutBeingAsked() async throws {
+        let server = try LoopbackHTTPServer(body: Self.health)
+        let url = try await server.start()
+        defer { server.stop() }
+        let credential = DeviceCredential(home: "/Users/me/.kit", name: "vps")
+        // A token issued for another URL is never sent here.
+        let tokens = MemoryDeviceTokens([credential: ("https://elsewhere.example", Self.token)])
+        await expectClientError(.needsPairing(.missing)) {
+            _ = try await ServerConnector.url(url.absoluteString, credential: credential).handshake(serverID: "vps", tokens: tokens)
+        }
+        #expect(server.requests.isEmpty)
+    }
+
+    @Test func anSSHServerCantBeReachedYet() async {
+        await expectClientError(.sshUnsupported) {
+            _ = try await ServerConnector.ssh("me@devbox").handshake(serverID: "devbox", tokens: MemoryDeviceTokens())
+        }
+    }
+
+    @Test func redeemingSendsNoCredential() async throws {
+        let server = try LoopbackHTTPServer(status: "201 Created", body: """
+        {"token":"\(Self.token)","device":{"id":"device_0123456789abcdef0123456789abcdef","name":"Mac","createdAt":"2026-03-01T12:00:00Z",
+         "lastUsedAt":"2026-03-01T12:00:00Z","expiresAt":"2026-03-31T12:00:00Z","current":true}}
+        """)
+        let url = try await server.start()
+        defer { server.stop() }
+        let token = try await HTTPClient.redeemPairing(url: url, code: String(repeating: "a", count: 26), deviceName: "Mac")
+        #expect(token == Self.token)
+        let request = try #require(server.requests.first)
+        #expect(request.hasPrefix("POST /v1/pairing/redeem HTTP/1.1\r\n"))
+        #expect(!request.contains("Authorization:"))
+        #expect(!request.contains("X-Kit-Instance-ID:"))
+    }
+
+    @Test func aUsedCodeIsReported() async throws {
+        let server = try LoopbackHTTPServer(status: "401 Unauthorized", body: #"{"error":{"code":"unauthorized","message":"no"}}"#)
+        let url = try await server.start()
+        defer { server.stop() }
+        await #expect(throws: PairingError.codeRefused) {
+            _ = try await HTTPClient.redeemPairing(url: url, code: String(repeating: "a", count: 26), deviceName: "Mac")
+        }
+    }
+
+    @Test func onlyLoopbackEndpointsAreAcceptedUnlessRemote() {
+        let remote = URL(string: "https://kit.example.com")!
+        #expect(throws: ClientError.self) { try HTTPClient(endpoint: remote, token: "t", instance: "i", serverID: "vps") }
+        #expect((try? HTTPClient(endpoint: remote, token: "t", instance: "i", serverID: "vps", remote: true)) != nil)
+        #expect(throws: ClientError.self) {
+            try HTTPClient(endpoint: URL(string: "https://kit.example.com/path")!, token: "t", instance: "i", serverID: "vps", remote: true)
+        }
+    }
+}
+
+/// Expects `body` to fail with `expected`.
+func expectClientError(_ expected: ClientError, _ body: () async throws -> Void) async {
+    do {
+        try await body()
+        Issue.record("Expected \(expected)")
+    } catch {
+        #expect(error.localizedDescription == expected.localizedDescription)
+    }
+}
+
+@MainActor struct ServedServerConnectionStatusTests {
+    @Test func aRefusedTokenAsksForPairingAndKeepsChecking() async throws {
+        let client = ServerClient(serverID: "vps", connector: .ssh("unused"))
+        let server = ServerConnection(client: client, schedule: .init(firstRetry: .milliseconds(10), maximumRetry: .milliseconds(10),
+                                                                       check: .milliseconds(10))) {
+            throw ClientError.needsPairing(.expired)
+        }
+        server.start()
+        defer { server.stop() }
+        try await eventually { server.status == .needsPairing(.expired) }
+    }
+}
+
+struct PairingLinkTests {
+    private let code = String(repeating: "a", count: 26)
+
+    @Test func linksNameAServerAndACode() {
+        #expect(PairingLink("https://Kit.Example.dev/pair#\(code)") == PairingLink(server: "https://kit.example.dev", code: code))
+        #expect(PairingLink(" http://100.64.0.7:4517/pair#\(code) ")?.server == "http://100.64.0.7:4517")
+        for invalid in ["https://kit.example.dev/pair", "https://kit.example.dev/pair#short", "ftp://kit.example.dev/pair#\(code)",
+                        "https://kit.example.dev/other#\(code)", "https://me@kit.example.dev/pair#\(code)",
+                        "https://kit.example.dev/pair?x=1#\(code)", "https://kit.example.dev/pair#\(code.uppercased())"] {
+            #expect(PairingLink(invalid) == nil)
+        }
+        #expect(PairingLink.link(server: "https://kit.example.dev", code: code) == "https://kit.example.dev/pair#\(code)")
+    }
+
+    @Test func locationsAreReadLikeKitServersAdd() {
+        #expect(ServerLocation("https://kit.example.dev/pair#\(code)", userHome: "/Users/me") == .link(PairingLink(server: "https://kit.example.dev", code: code)))
+        #expect(ServerLocation("https://kit.example.dev/pair#nope", userHome: "/Users/me") == nil)
+        #expect(ServerLocation("https://kit.example.dev", userHome: "/Users/me") == nil)
+        #expect(ServerLocation("me@gpu-01.lab", userHome: "/Users/me") == .ssh("me@gpu-01.lab"))
+        #expect(ServerLocation("ssh://me@gpu-01.lab:2222", userHome: "/Users/me") == .ssh("ssh://me@gpu-01.lab:2222"))
+        #expect(ServerLocation("devbox", userHome: "/Users/me") == .ssh("devbox"))
+        #expect(ServerLocation("~/work/kit-home/", userHome: "/Users/me") == .home("/Users/me/work/kit-home"))
+        #expect(ServerLocation("/srv/kit", userHome: "/Users/me") == .home("/srv/kit"))
+        #expect(ServerLocation("-oProxyCommand=x", userHome: "/Users/me") == nil)
+        #expect(ServerLocation("", userHome: "/Users/me") == nil)
+    }
+
+    @Test func deviceNamesFitTheServersLimit() {
+        #expect(DeviceName.clean("Akonwi’s MacBook Pro") == "Akonwi’s MacBook Pro")
+        #expect(DeviceName.clean("  mini.local \n") == "mini")
+        #expect(DeviceName.clean(String(repeating: "é", count: 40)).utf8.count <= 64)
+        #expect(DeviceName.clean("") == "Kit for Mac")
+    }
+
+    @Test func terminalTokensAreReadOnlyWhenPrivate() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let file = home.appendingPathComponent("server-tokens.json")
+        let token = "kit_device_" + String(repeating: "B", count: 43)
+        try Data(#"{"tokens":{"vps":{"url":"https://kit.example.dev","token":"\#(token)"}}}"#.utf8).write(to: file)
+        let credential = DeviceCredential(home: home.path, name: "vps")
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        #expect(TerminalDeviceTokens.token(for: credential, url: "https://kit.example.dev") == nil)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        #expect(TerminalDeviceTokens.token(for: credential, url: "https://kit.example.dev") == token)
+        #expect(TerminalDeviceTokens.token(for: credential, url: "https://other.example.dev") == nil)
+        #expect(TerminalDeviceTokens.token(for: DeviceCredential(home: home.path, name: "other"), url: "https://kit.example.dev") == nil)
+        // The app's own token comes first.
+        let own = "kit_device_" + String(repeating: "C", count: 43)
+        let tokens = DeviceTokens(keychain: MemoryDeviceTokens([credential: ("https://kit.example.dev", own)]))
+        #expect(tokens.token(for: credential, url: "https://kit.example.dev") == own)
+        #expect(DeviceTokens(keychain: MemoryDeviceTokens()).token(for: credential, url: "https://kit.example.dev") == token)
+    }
+}
+
+@MainActor struct ServerDirectoryChangeTests {
+    private let code = String(repeating: "a", count: 26)
+    private let token = "kit_device_" + String(repeating: "D", count: 43)
+
+    private func directory(tokens: MemoryDeviceTokens = MemoryDeviceTokens()) throws -> (ServerDirectory, URL) {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let list = home.appendingPathComponent("servers.json")
+        let servers = ServerDirectory(home: home, tokens: tokens, saved: { (try? SavedServerList.read(list)) ?? [] }) { name, connector in
+            ServerConnection(client: ServerClient(serverID: name, connector: connector)) { throw ClientError.noDaemon }
+        }
+        return (servers, home)
+    }
+
+    @Test func addingALinkSavesTheServerAndItsToken() async throws {
+        let tokens = MemoryDeviceTokens()
+        let (servers, home) = try directory(tokens: tokens)
+        var redeemed: (URL, String, String)?
+        try await servers.add(name: "vps", link: PairingLink(server: "https://kit.example.dev", code: code), deviceName: "Mac") { url, code, name in
+            redeemed = (url, code, name)
+            return token
+        }
+        #expect(redeemed?.0 == URL(string: "https://kit.example.dev"))
+        #expect(redeemed?.1 == code)
+        #expect(redeemed?.2 == "Mac")
+        #expect(servers.savedServers == [SavedServer(name: "vps", kind: .url, address: "https://kit.example.dev")])
+        #expect(servers.connections.map(\.name) == ["local", "vps"])
+        #expect(tokens.token(for: DeviceCredential(home: home.path, name: "vps"), url: "https://kit.example.dev") == token)
+    }
+
+    @Test func aFailedPairingReleasesTheName() async throws {
+        let (servers, _) = try directory()
+        await #expect(throws: PairingError.codeRefused) {
+            try await servers.add(name: "vps", link: PairingLink(server: "https://kit.example.dev", code: code), deviceName: "Mac") { _, _, _ in
+                throw PairingError.codeRefused
+            }
+        }
+        #expect(servers.savedServers.isEmpty)
+        #expect(servers.connections.map(\.name) == ["local"])
+    }
+
+    @Test func aServerIsSavedOnceAndPairedAgainOnlyWithItsOwnLink() async throws {
+        let tokens = MemoryDeviceTokens()
+        let (servers, home) = try directory(tokens: tokens)
+        let link = PairingLink(server: "https://kit.example.dev", code: code)
+        try await servers.add(name: "vps", link: link, deviceName: "Mac") { _, _, _ in token }
+        await #expect(throws: PairingError.alreadySaved(name: "vps", url: "https://kit.example.dev")) {
+            try await servers.add(name: "other", link: link, deviceName: "Mac") { _, _, _ in token }
+        }
+        await #expect(throws: PairingError.otherServer(expected: "https://kit.example.dev", link: "https://elsewhere.dev")) {
+            try await servers.pairAgain("vps", link: PairingLink(server: "https://elsewhere.dev", code: code), deviceName: "Mac") { _, _, _ in token }
+        }
+        let renewed = "kit_device_" + String(repeating: "E", count: 43)
+        try await servers.pairAgain("vps", link: link, deviceName: "Mac") { _, _, _ in renewed }
+        #expect(tokens.token(for: DeviceCredential(home: home.path, name: "vps"), url: "https://kit.example.dev") == renewed)
+    }
+
+    @Test func renamingMovesTheTokenAndTellsWindows() async throws {
+        let tokens = MemoryDeviceTokens()
+        let (servers, home) = try directory(tokens: tokens)
+        try await servers.add(name: "vps", link: PairingLink(server: "https://kit.example.dev", code: code), deviceName: "Mac") { _, _, _ in token }
+        var renamed: (String, String)?
+        servers.serverRenamed = { renamed = ($0, $1) }
+        try servers.rename("vps", to: "cloud")
+        #expect(renamed?.0 == "vps")
+        #expect(renamed?.1 == "cloud")
+        #expect(servers.connections.map(\.name) == ["local", "cloud"])
+        #expect(tokens.token(for: DeviceCredential(home: home.path, name: "cloud"), url: "https://kit.example.dev") == token)
+        #expect(tokens.token(for: DeviceCredential(home: home.path, name: "vps"), url: "https://kit.example.dev") == nil)
+    }
+
+    @Test func removingForgetsTheTokenAndTellsWindows() async throws {
+        let tokens = MemoryDeviceTokens()
+        let (servers, home) = try directory(tokens: tokens)
+        try await servers.add(name: "vps", link: PairingLink(server: "https://kit.example.dev", code: code), deviceName: "Mac") { _, _, _ in token }
+        var removed: String?
+        servers.serverRemoved = { removed = $0 }
+        try servers.remove("vps")
+        #expect(removed == "vps")
+        #expect(servers.connections.map(\.name) == ["local"])
+        #expect(tokens.token(for: DeviceCredential(home: home.path, name: "vps"), url: "https://kit.example.dev") == nil)
+    }
+
+    @Test func homesMustExistAndNamesAreSuggestedFromLocations() throws {
+        let (servers, home) = try directory()
+        #expect(throws: ServerLocationError.noHome("/nowhere/kit")) {
+            try servers.add(SavedServer(name: "gone", kind: .home, address: "/nowhere/kit"))
+        }
+        try servers.add(SavedServer(name: "gpu-01", kind: .ssh, address: "me@gpu-01.lab"))
+        #expect(servers.suggestedName(for: .ssh("me@gpu-01.lab")) == "gpu-01-2")
+        #expect(servers.suggestedName(for: .ssh("ssh://me@devbox.local:2222")) == "devbox")
+        #expect(servers.suggestedName(for: .link(PairingLink(server: "https://staging.example.dev", code: code))) == "staging")
+        #expect(servers.suggestedName(for: .link(PairingLink(server: "http://100.64.0.7:4517", code: code))) == "100.64.0.7")
+        #expect(servers.suggestedName(for: .home("/Users/me/work/Kit Home")) == "kit-home")
+        #expect(servers.suggestedName(for: .home("/Users/devbox/.kit")) == "devbox")
+        #expect(servers.suggestedName(for: .home("/srv/local")) == "local-2")
+        _ = home
+    }
+}
+
+struct ServerPairingPresentationTests {
+    @Test func aTabAsksForANewLinkFromTheServer() {
+        #expect(ServerPairingView.title(name: "staging", need: .expired) == "Pair with staging again")
+        #expect(ServerPairingView.message(name: "staging", need: .refused)
+                == "This Mac’s pairing with staging expired or was revoked. Get a new link by running kit server pair on staging, or with Pair a Device on another paired device, and paste it here.")
+        #expect(ServerPairingView.title(name: "staging", need: .missing) == "Pair with staging")
+        #expect(ServerPairingView.message(name: "staging", need: .missing)
+                == "This Mac isn’t paired with staging. Get a link by running kit server pair on staging, or with Pair a Device on another paired device, and paste it here.")
+        #expect(ServerPairingView.placeholder(.url("https://staging.example.dev", credential: DeviceCredential(home: "/h", name: "staging")))
+                == "https://staging.example.dev/pair#…")
+    }
+
+    @Test func servedAndSSHServersNameTheirAddress() {
+        let credential = DeviceCredential(home: "/h", name: "vps")
+        #expect(ServerStatePresentation.source(name: "vps", connector: .url("https://kit.example.dev", credential: credential)) == "url · https://kit.example.dev")
+        #expect(ServerStatePresentation.source(name: "devbox", connector: .ssh("me@devbox")) == "ssh · me@devbox")
+        #expect(ServerStatePresentation.restartCommand(connector: .url("https://kit.example.dev", credential: credential)) == "kit server restart")
+    }
+}

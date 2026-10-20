@@ -135,21 +135,35 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     /// How long a request may wait for more data before failing.
     static let requestTimeout: TimeInterval = 45
 
-    init(endpoint: URL, token: String, instance: String, serverID: String,
+    /// A client for the server at `endpoint`. Only a loopback HTTP endpoint
+    /// is accepted unless `remote` is set, which allows any HTTP(S) origin,
+    /// as a served server's saved URL is.
+    init(endpoint: URL, token: String, instance: String, serverID: String, remote: Bool = false,
          configuration: URLSessionConfiguration = .ephemeral,
          requestTimeout: TimeInterval = HTTPClient.requestTimeout) throws {
-        guard endpoint.scheme == "http", ["127.0.0.1", "::1", "[::1]"].contains(endpoint.host ?? ""),
-              endpoint.port != nil, endpoint.user == nil, endpoint.password == nil,
-              endpoint.query == nil, endpoint.fragment == nil, endpoint.path.isEmpty || endpoint.path == "/",
+        guard remote ? Self.validOrigin(endpoint) : Self.validLoopback(endpoint),
               !token.isEmpty, !instance.isEmpty else { throw ClientError.invalidEndpoint }
         self.endpoint = endpoint; self.token = token; self.instance = instance; self.serverID = serverID
         let configuration = configuration.copy() as! URLSessionConfiguration
-        configuration.connectionProxyDictionary = [:]
+        // A loopback server is never reached through a proxy.
+        if !remote { configuration.connectionProxyDictionary = [:] }
         configuration.timeoutIntervalForRequest = requestTimeout
         configuration.timeoutIntervalForResource = .infinity
         let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
         self.session = session
         api = Client(serverURL: endpoint, transport: OpenAPITransport(endpoint: endpoint, token: token, instance: instance, session: session))
+    }
+
+    private static func validLoopback(_ endpoint: URL) -> Bool {
+        endpoint.scheme == "http" && ["127.0.0.1", "::1", "[::1]"].contains(endpoint.host ?? "") && endpoint.port != nil
+            && validOrigin(endpoint)
+    }
+
+    /// An HTTP(S) origin: a scheme, a host, and an optional port.
+    static func validOrigin(_ endpoint: URL) -> Bool {
+        ["http", "https"].contains(endpoint.scheme ?? "") && !(endpoint.host ?? "").isEmpty
+            && endpoint.user == nil && endpoint.password == nil && endpoint.query == nil && endpoint.fragment == nil
+            && (endpoint.path.isEmpty || endpoint.path == "/")
     }
 
     // URLSession retains its connections until explicitly invalidated, including
@@ -208,6 +222,81 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         return (client, try validateDiscovery(registry: registry, health: health))
     }
 
+    /// Reaches a served server at its saved URL with a device token,
+    /// verifies it, and reports who it is. A token the server refuses means
+    /// this Mac has to pair with it again.
+    static func handshake(url: URL, token: String, serverID: String) async throws -> (client: HTTPClient, identity: ServerIdentity) {
+        guard validOrigin(url) else { throw ClientError.invalidEndpoint }
+        let health = try await remoteHealth(url: url, token: token)
+        let identity = try validate(health)
+        let client = try HTTPClient(endpoint: url, token: token, instance: health.instanceId, serverID: serverID, remote: true)
+        return (client, identity)
+    }
+
+    /// The health of a served server, which tells this app its instance.
+    private static func remoteHealth(url: URL, token: String) async throws -> LocalDaemonHealth {
+        var request = URLRequest(url: url.appendingPathComponent("v1/health"), timeoutInterval: probeTimeout * 2)
+        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        let session = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let (data, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
+        guard data.count <= 64 * 1024 else { throw ClientError.oversized }
+        if response.statusCode == 401 {
+            let failure = try? JSONDecoder().decode(ErrorEnvelope.self, from: data)
+            throw ClientError.needsPairing(failure?.error.code == "credential_expired" ? .expired : .refused)
+        }
+        guard response.statusCode == 200 else { throw ClientError.http(response.statusCode) }
+        do { return try JSONDecoder().decode(LocalDaemonHealth.self, from: data) }
+        catch { throw ClientError.invalidPayload }
+    }
+
+    private struct ErrorEnvelope: Decodable {
+        struct Body: Decodable { let code: String }
+        let error: Body
+    }
+
+    /// Redeems a pairing code with the server at `url`, an HTTP(S) origin,
+    /// for a device token naming this Mac `deviceName`. It sends no credential.
+    static func redeemPairing(url: URL, code: String, deviceName: String) async throws -> String {
+        guard validOrigin(url) else { throw ClientError.invalidEndpoint }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 30
+        let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let api = Client(serverURL: url, transport: OpenAPITransport(endpoint: url, token: "", instance: "", session: session))
+        let output: Operations.RedeemPairing.Output
+        do { output = try await api.redeemPairing(body: .json(.init(code: code, deviceName: deviceName))) }
+        catch let error as OpenAPIRuntime.ClientError { throw error.underlyingError }
+        switch output {
+        case .created(let response):
+            let result = try response.body.json
+            guard isDeviceToken(result.token) else { throw ClientError.invalidPayload }
+            return result.token
+        case .unauthorized: throw PairingError.codeRefused
+        case .tooManyRequests: throw PairingError.rateLimited
+        case .badRequest: throw PairingError.invalidLink
+        case .forbidden: throw ClientError.http(403)
+        case .conflict: throw ClientError.http(409)
+        case .contentTooLarge: throw ClientError.http(413)
+        case .misdirectedRequest: throw ClientError.http(421)
+        case .upgradeRequired: throw ClientError.http(426)
+        case .internalServerError: throw ClientError.http(500)
+        case .undocumented(let status, _): throw ClientError.http(status)
+        }
+    }
+
+    /// Issues a pairing code another device redeems, with the URLs the
+    /// server says it is served at.
+    func createPairing() async throws -> PairingCode {
+        let output = try await generatedOperation { try await api.createPairing(headers: .init(xKitInstanceID: instance)) }
+        guard case .created(let response) = output else { throw ClientError.invalidPayload }
+        let code = try response.body.json
+        guard PairingLink.validCode(code.code), let expires = PairingCode.date(code.expiresAt) else { throw ClientError.invalidPayload }
+        let urls = (code.urls ?? []).filter { SavedServer.canonicalURL($0) != nil }
+        return PairingCode(code: code.code, expiresAt: expires, urls: urls)
+    }
+
     /// How long a probe waits for a server to answer.
     static let probeTimeout: TimeInterval = 5
 
@@ -248,9 +337,14 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard health.instanceId == registry.instanceId, health.pid == registry.pid,
               health.protocolVersion == registry.protocolVersion,
               health.kitVersion == registry.kitVersion else { throw ClientError.invalidPayload }
-        if let reason = DaemonCompatibility.mismatch(clientProtocol: kitWireVersion, daemonProtocol: registry.protocolVersion) {
-            throw ClientError.incompatibleDaemon(daemonVersion: registry.kitVersion, appProtocol: kitWireVersion,
-                                                 daemonProtocol: registry.protocolVersion, reason: reason)
+        return try validate(health)
+    }
+
+    /// Checks a server's health for compatibility, then its identity fields.
+    static func validate(_ health: LocalDaemonHealth) throws -> ServerIdentity {
+        if let reason = DaemonCompatibility.mismatch(clientProtocol: kitWireVersion, daemonProtocol: health.protocolVersion) {
+            throw ClientError.incompatibleDaemon(daemonVersion: health.kitVersion, appProtocol: kitWireVersion,
+                                                 daemonProtocol: health.protocolVersion, reason: reason)
         }
         guard health.databaseReady else { throw ClientError.daemonNotReady }
         guard let id = health.serverId, ServerIdentity.validID(id),

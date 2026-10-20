@@ -26,6 +26,12 @@ final class SessionWindowRegistry: NSObject {
         self.restoration = restoration
         self.servers = servers
         super.init()
+        servers.serverRenamed = { [weak self] name, newName in
+            for model in self?.liveModels ?? [] { model.serverRenamed(from: name, to: newName) }
+        }
+        servers.serverRemoved = { [weak self] name in
+            for model in self?.liveModels ?? [] { model.serverRemoved(name) }
+        }
     }
 
     var liveModels: [SessionWindowModel] {

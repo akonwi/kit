@@ -59,8 +59,10 @@ final class OpenAPITransport: ClientTransport, @unchecked Sendable {
            urlRequest.value(forHTTPHeaderField: "Content-Type") == "application/json; charset=utf-8" {
             urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        urlRequest.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
-        urlRequest.setValue(instance, forHTTPHeaderField: "X-Kit-Instance-ID")
+        // Redeeming a pairing code is the one operation sent without a
+        // credential or instance.
+        if !token.isEmpty { urlRequest.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
+        if !instance.isEmpty { urlRequest.setValue(instance, forHTTPHeaderField: "X-Kit-Instance-ID") }
         urlRequest.setValue(String(kitWireVersion), forHTTPHeaderField: "X-Kit-Protocol-Version")
         if let body {
             urlRequest.httpBody = try await Data(collecting: body, upTo: maximumRequestBytes)

@@ -7,6 +7,11 @@ final class LoopbackHTTPServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "LoopbackHTTPServer")
     private let response: Data
+    private let received = NSLock()
+    private var receivedRequests: [String] = []
+
+    /// The requests the server received, as text.
+    var requests: [String] { received.withLock { receivedRequests } }
 
     init(status: String = "200 OK", body: String = "{}") throws {
         let parameters = NWParameters.tcp
@@ -35,7 +40,8 @@ final class LoopbackHTTPServer: @unchecked Sendable {
 
     private func serve(_ connection: NWConnection) {
         connection.start(queue: queue)
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [response] _, _, _, _ in
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self, response] data, _, _, _ in
+            if let self, let data { self.received.withLock { self.receivedRequests.append(String(decoding: data, as: UTF8.self)) } }
             connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
         }
     }

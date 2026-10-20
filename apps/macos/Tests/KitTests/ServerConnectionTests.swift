@@ -283,7 +283,7 @@ import Testing
         }
     }
 
-    @Test func localComesFirstThenSavedHomesByName() {
+    @Test func localComesFirstThenSavedServersByName() {
         let saved = Saved()
         saved.servers = [
             SavedServer(name: "beta", kind: .home, address: "/work/beta/home"),
@@ -293,11 +293,14 @@ import Testing
             SavedServer(name: "self", kind: .home, address: "/Users/kit/.kit"),
         ].sorted { $0.name < $1.name }
         let servers = directory(saved)
-        #expect(servers.connections.map(\.name) == ["local", "alpha", "beta"])
+        #expect(servers.connections.map(\.name) == ["local", "alpha", "beta", "mini", "vps"])
         #expect(servers.local.connector == .home(URL(fileURLWithPath: "/Users/kit/.kit")))
         #expect(servers.connection(named: "beta")?.connector == .home(URL(fileURLWithPath: "/work/beta/home")))
+        #expect(servers.connection(named: "vps")?.connector
+                == .url("https://kit.example.com", credential: DeviceCredential(home: "/Users/kit/.kit", name: "vps")))
+        #expect(servers.connection(named: "mini")?.connector == .ssh("akonwi@mini"))
         #expect(servers.client(for: "alpha")?.serverID == "alpha")
-        #expect(servers.connection(named: "vps") == nil)
+        #expect(servers.connection(named: "self") == nil)
     }
 
     @Test func refreshRepointsChangedServersAndFollowsTheSavedList() {
@@ -593,6 +596,27 @@ struct ServerStatePresentationTests {
         #expect((store.catalogClient as? ServerClient)?.connector == .home(path: "/tmp/devbox2"))
         #expect(store.connectionState == .disconnected)
         model.closeAll()
+    }
+
+    @Test func renamingAServerMovesItsTabs() {
+        let servers = servers { Self.identity }
+        let model = SessionWindowModel(id: UUID(), servers: servers,
+                                       sessions: [SessionIdentity(server: "devbox", session: "a"),
+                                                  SessionIdentity(server: "local", session: "b")],
+                                       collapsed: ["devbox/a", "b"], titles: [SessionIdentity(server: "devbox", session: "a"): "Parser"])
+        model.serverRenamed(from: "devbox", to: "box")
+        #expect(model.tabs.map(\.identity) == [SessionIdentity(server: "box", session: "a"), SessionIdentity(server: "local", session: "b")])
+        #expect(model.collapsed == ["box/a", "b"])
+        #expect(model.titles[SessionIdentity(server: "box", session: "a")] == "Parser")
+    }
+
+    @Test func removingAServerClosesItsTabs() {
+        let servers = servers { Self.identity }
+        let model = SessionWindowModel(id: UUID(), servers: servers,
+                                       sessions: [SessionIdentity(server: "devbox", session: "a"),
+                                                  SessionIdentity(server: "local", session: "b")])
+        model.serverRemoved("devbox")
+        #expect(model.tabs.map(\.identity) == [SessionIdentity(server: "local", session: "b")])
     }
 
     @Test func aStoreWhoseWatchGaveUpResumesWhenItsServerIsBack() async throws {
