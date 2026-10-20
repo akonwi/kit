@@ -24,21 +24,23 @@ type TUIOptions struct {
 	ResolveLocation func(context.Context, string) string
 	// Model and Thinking are what the command line named: they select which
 	// session resumes and start a new one. Empty lets the server choose.
-	Model                 string
-	Thinking              string
-	AvailableProviders    map[string]bool
-	Authenticated         bool
-	SessionID             string
-	NewSessionID          string
-	NewSessionName        string
-	TemporarySession      bool
-	Login                 DeviceLogin
-	BrowserLogin          BrowserLogin
-	APIKeyLogin           APIKeyLogin
-	ThemeName             string
-	ThemeDefinition       kittheme.Definition
-	ThemeService          ThemeService
-	DiffWrapLines         bool
+	Model              string
+	Thinking           string
+	AvailableProviders map[string]bool
+	Authenticated      bool
+	SessionID          string
+	NewSessionID       string
+	NewSessionName     string
+	TemporarySession   bool
+	Login              DeviceLogin
+	BrowserLogin       BrowserLogin
+	APIKeyLogin        APIKeyLogin
+	ThemeName          string
+	ThemeDefinition    kittheme.Definition
+	ThemeService       ThemeService
+	DiffWrapLines      bool
+	// DiffLayout is the saved diff layout, "unified" or "split".
+	DiffLayout            string
 	DiffPreferenceService DiffPreferenceService
 }
 
@@ -69,4 +71,6 @@ type ThemeService interface {
 // DiffPreferenceService persists working-tree diff presentation preferences.
 type DiffPreferenceService interface {
 	SetWrapLines(bool) error
+	// SetLayout saves the diff layout, "unified" or "split".
+	SetLayout(string) error
 }

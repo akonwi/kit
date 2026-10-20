@@ -1,0 +1,1026 @@
+use ard/async
+use ard/unsafe
+
+use go:api/contract as protocol
+use go:context
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/ui
+use go:errors
+use go:kit/ffi/cli
+use go:kit/ffi/contextbridge
+use go:kit/ffi/settingsbridge
+use kit/tui/controls
+use kit/tui/modal
+use kit/tui/palette
+use kit/tui/spinner
+use kit/tui/theme
+
+// The settings dialog. It shows two sections: the attached server's settings,
+// read and changed through the session API, and this terminal's own
+// preferences. Each change saves at once; a row shows the shared spinner while
+// it saves and, when saving fails, keeps the last confirmed value with the
+// reason beneath it. Model rows open a model picker in the same frame, and the
+// Theme row hands off to the theme picker, which the shell owns.
+//
+// The dialog owns its loading, selection, hover, per-row saving and failure
+// state, and the generations that discard stale completions. The shell owns
+// the terminal preferences' current values and applies them when the dialog
+// reports one saved.
+
+// Services are the operations the dialog performs. They block, so the dialog
+// runs them off the UI thread, and are injected so tests need no server.
+struct Services {
+  load: fn(context::Context) protocol::ServerSettings!Error,
+  models: fn(context::Context) [protocol::ModelCapability]!Error,
+  set_default_model: fn(context::Context, Str) protocol::ServerSettings!Error,
+  set_compaction_model: fn(context::Context, Str) protocol::ServerSettings!Error,
+  set_prompt_cache: fn(context::Context, Str) protocol::ServerSettings!Error,
+  set_claude_commands: fn(context::Context, Bool) protocol::ServerSettings!Error,
+  save_diff_layout: fn(Str) Void!Error,
+  save_diff_wrap: fn(Bool) Void!Error,
+}
+
+// services adapts the attached server's client and this terminal's settings.
+fn services(options: cli::TUIOptions) Services {
+  let client = options.Client
+  let preferences = options.DiffPreferenceService
+  let unsaved = fn() Void!Error {
+    errors::New("this terminal's preferences can't be saved")
+  }
+  Services{
+    load: fn(ctx: context::Context) protocol::ServerSettings!Error {
+      client.ServerSettings(ctx)
+    },
+    models: fn(ctx: context::Context) [protocol::ModelCapability]!Error {
+      match client.Models(ctx) {
+        ok(catalog) => Result::ok(catalog.Models),
+        err(failure) => Result::err(failure),
+      }
+    },
+    set_default_model: fn(ctx: context::Context, model: Str) protocol::ServerSettings!Error {
+      settingsbridge::SetDefaultModel(ctx, client, model)
+    },
+    set_compaction_model: fn(ctx: context::Context, model: Str) protocol::ServerSettings!Error {
+      settingsbridge::SetCompactionModel(ctx, client, model)
+    },
+    set_prompt_cache: fn(ctx: context::Context, retention: Str) protocol::ServerSettings!Error {
+      settingsbridge::SetPromptCacheRetention(ctx, client, retention)
+    },
+    set_claude_commands: fn(ctx: context::Context, enabled: Bool) protocol::ServerSettings!Error {
+      settingsbridge::SetReadClaudeConfigs(ctx, client, enabled)
+    },
+    save_diff_layout: fn(layout: Str) Void!Error {
+      match unsafe::is_nil(preferences) {
+        true => unsaved(),
+        false => preferences.SetLayout(layout),
+      }
+    },
+    save_diff_wrap: fn(wrap: Bool) Void!Error {
+      match unsafe::is_nil(preferences) {
+        true => unsaved(),
+        false => preferences.SetWrapLines(wrap),
+      }
+    },
+  }
+}
+
+// layout_name is the saved name of a diff layout.
+fn layout_name(split: Bool) Str {
+  match split {
+    true => "split",
+    false => "unified",
+  }
+}
+
+// Props are live parent dependencies and the terminal preferences' current
+// values. The callbacks run off the UI thread or inside the dialog's
+// dispatch, so each must re-enter its owner's context.
+struct Props {
+  themes: theme::Context,
+  lifetime: contextbridge::Cancellation,
+  services: Services,
+  // The attached server's name, or empty for this home's own.
+  server: Str,
+  diff_split: Bool,
+  diff_wrap: Bool,
+  theme_name: Str,
+  dismiss: keymap::SimpleCommand,
+  diff_split_saved: fn(Bool),
+  diff_wrap_saved: fn(Bool),
+  open_theme: fn(),
+}
+
+// The rows, in order.
+let server_rows = ["default_model", "compaction_model", "prompt_cache", "claude_commands"]
+let terminal_rows = ["diff_layout", "diff_wrap", "theme"]
+
+// The model picker's row for no model: the server's choice or the session's.
+let no_model = "__settings_no_model__"
+
+private fn label(key: Str) Str {
+  match key {
+    "default_model" => "Default model",
+    "compaction_model" => "Compaction model",
+    "prompt_cache" => "Prompt cache",
+    "claude_commands" => "Claude Code commands",
+    "diff_layout" => "Diff layout",
+    "diff_wrap" => "Wrap diff lines",
+    _ => "Theme",
+  }
+}
+
+// description says what the row does and when a change takes effect.
+private fn description(key: Str) Str {
+  match key {
+    "default_model" => "New sessions that don't name a model start with this one.",
+    "compaction_model" => "Summarizes context when compacting. Sessions use it after /reload.",
+    "prompt_cache" => "Long asks providers to keep prompt caches for an hour or more.",
+    "claude_commands" => "Offers a project's .claude/commands. Sessions read it after /reload.",
+    "diff_layout" => "Split shows old and new lines side by side where there's room.",
+    "diff_wrap" => "Wraps long diff lines instead of scrolling them sideways.",
+    _ => "The colors Kit uses in this terminal.",
+  }
+}
+
+private fn is_choice(key: Str) Bool {
+  key == "prompt_cache" or key == "diff_layout"
+}
+
+private fn is_toggle(key: Str) Bool {
+  key == "claude_commands" or key == "diff_wrap"
+}
+
+private fn is_link(key: Str) Bool {
+  key == "default_model" or key == "compaction_model" or key == "theme"
+}
+
+// short_model_name names a model by its catalog name, or by its id.
+private fn short_model_name(models: [protocol::ModelCapability], id: Str) Str {
+  mut name = id
+  for model in models {
+    if model.ID == id {
+      name = model.Name
+    }
+  }
+  name
+}
+
+// model_name names a model by its catalog name and provider, or by its id
+// when the catalog does not have it.
+private fn model_name(models: [protocol::ModelCapability], id: Str) Str {
+  mut name = id
+  for model in models {
+    if model.ID == id {
+      name = "{model.Name} · {model.Provider}"
+    }
+  }
+  name
+}
+
+struct Dialog {
+  props: mut Props,
+  context: cui::Context?,
+  selection: Str,
+  hovered: Str,
+  loading: Bool,
+  load_error: Str,
+  settings: protocol::ServerSettings,
+  models: [protocol::ModelCapability],
+  models_error: Str,
+  saving: [Str: Bool],
+  failures: [Str: Str],
+  // Counts loads, so a superseded load is ignored.
+  generation: Int,
+  // Counts each row's saves, so only its latest save settles it.
+  saves: [Str: Int],
+  // The model row whose picker is open, or empty.
+  picking: Str,
+}
+
+fn new(props: mut Props) mut Dialog {
+  (mut Dialog{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    selection: "default_model",
+    hovered: "",
+    loading: true,
+    load_error: "",
+    settings: protocol::ServerSettings{},
+    models: [],
+    models_error: "",
+    saving: [:],
+    failures: [:],
+    generation: 0,
+    saves: [:],
+    picking: "",
+  })
+}
+
+impl cui::Lifecycle for Dialog {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+    self.load(ctx)
+  }
+
+  fn mut unmounting(ctx: cui::Context) {
+    self.generation =+ 1
+  }
+}
+
+impl Dialog {
+  // Runs action in the dialog's context so its change renders.
+  private fn mut update(action: fn()) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(action)
+      },
+      _ => (),
+    }
+  }
+
+  // Reads the server's settings and model catalog. Terminal preferences stay
+  // usable while they load or when they can't be read.
+  private fn mut load(ctx: cui::Context) {
+    self.loading = true
+    self.load_error = ""
+    self.generation =+ 1
+    let generation = self.generation
+    let services = self.props.services
+    let lifetime = self.props.lifetime
+    let dispatch = ctx.dispatch
+    async::start(fn() {
+      let result = services.load(lifetime.Context)
+      let _ = dispatch(fn() {
+        if self.generation == generation {
+          self.loading = false
+          match result {
+            ok(settings) => {
+              self.settings = settings
+              self.failures = [:]
+            },
+            err(failure) => { self.load_error = failure.error() },
+          }
+          self.keep_selection_available()
+        }
+      })
+    })
+    async::start(fn() {
+      let result = services.models(lifetime.Context)
+      let _ = dispatch(fn() {
+        if self.generation == generation {
+          match result {
+            ok(models) => {
+              self.models = models
+              self.models_error = ""
+            },
+            err(failure) => { self.models_error = failure.error() },
+          }
+        }
+      })
+    })
+  }
+
+  private fn server_available() Bool {
+    (not self.loading) and self.load_error == ""
+  }
+
+  // The rows that can be selected now: the server's only once it has
+  // answered.
+  private fn rows() [Str] {
+    let result = mut List::new<Str>()
+    if self.server_available() {
+      for key in server_rows {
+        result.push(key)
+      }
+    }
+    for key in terminal_rows {
+      result.push(key)
+    }
+    result.@
+  }
+
+  private fn mut keep_selection_available() {
+    mut found = false
+    for key in self.rows() {
+      if key == self.selection {
+        found = true
+      }
+    }
+    if not found {
+      self.selection = self.rows().at(0).or("diff_layout")
+    }
+  }
+
+  private fn mut move(delta: Int) {
+    let rows = self.rows()
+    mut index = 0
+    for key, position in rows {
+      if key == self.selection {
+        index = position
+      }
+    }
+    self.selection = rows.at((index + delta + rows.size()) % rows.size()).or(self.selection)
+  }
+
+  private fn is_saving(key: Str) Bool {
+    self.saving.get(key).or(false)
+  }
+
+  // Activates a row: toggles flip, choices advance, and links open.
+  private fn mut activate(key: Str) {
+    match {
+      is_toggle(key) => self.flip(key, Maybe::new<Bool>()),
+      is_choice(key) => self.cycle(key),
+      key == "theme" => self.props.open_theme(),
+      _ => {
+        if self.server_available() {
+          self.picking = key
+        }
+      },
+    }
+  }
+
+  // Sets a toggle to on, or flips it when on is none.
+  private fn mut flip(key: Str, on: Bool?) {
+    let current = match key {
+      "claude_commands" => self.settings.ReadClaudeConfigs,
+      _ => self.props.diff_wrap,
+    }
+    let next = on.or(not current)
+    if next != current {
+      match key {
+        "claude_commands" => {
+          let services = self.props.services
+          self.save_server(key, fn(ctx: context::Context) protocol::ServerSettings!Error {
+            services.set_claude_commands(ctx, next)
+          })
+        },
+        _ => {
+          let services = self.props.services
+          let saved = self.props.diff_wrap_saved
+          self.save_terminal(key, fn() Void!Error {
+            try services.save_diff_wrap(next)
+            saved(next)
+            Result::ok(())
+          })
+        },
+      }
+    }
+  }
+
+  // Advances a two-valued choice to its other value.
+  private fn mut cycle(key: Str) {
+    let services = self.props.services
+    match key {
+      "prompt_cache" => {
+        let next = match "{self.settings.PromptCacheRetention}" == "long" {
+          true => "short",
+          false => "long",
+        }
+        self.save_server(key, fn(ctx: context::Context) protocol::ServerSettings!Error {
+          services.set_prompt_cache(ctx, next)
+        })
+      },
+      _ => {
+        let next = not self.props.diff_split
+        let saved = self.props.diff_split_saved
+        self.save_terminal(key, fn() Void!Error {
+          try services.save_diff_layout(layout_name(next))
+          saved(next)
+          Result::ok(())
+        })
+      },
+    }
+  }
+
+  // Saves a model choice; no_model clears it.
+  private fn mut choose_model(key: Str, chosen: Str) {
+    self.picking = ""
+    let model = match chosen == no_model {
+      true => "",
+      false => chosen,
+    }
+    let services = self.props.services
+    match key {
+      "default_model" => {
+        if model != self.settings.DefaultModel {
+          self.save_server(key, fn(ctx: context::Context) protocol::ServerSettings!Error {
+            services.set_default_model(ctx, model)
+          })
+        }
+      },
+      _ => {
+        if model != self.settings.CompactionModel {
+          self.save_server(key, fn(ctx: context::Context) protocol::ServerSettings!Error {
+            services.set_compaction_model(ctx, model)
+          })
+        }
+      },
+    }
+  }
+
+  // Starts a row's save, which supersedes one in flight.
+  private fn mut begin(key: Str) Int {
+    let save = self.saves.get(key).or(0) + 1
+    self.saves.set(key, save)
+    self.saving.set(key, true)
+    self.failures.set(key, "")
+    save
+  }
+
+  // Settles a row's save unless a later one superseded it.
+  private fn mut settle(key: Str, save: Int, failure: Str) Bool {
+    let latest = self.saves.get(key).or(0) == save
+    if latest {
+      self.saving.set(key, false)
+      self.failures.set(key, failure)
+    }
+    latest
+  }
+
+  // Saves a server setting and shows the settings the server returns.
+  private fn mut save_server(key: Str, run: fn(context::Context) protocol::ServerSettings!Error) {
+    match self.context {
+      context => {
+        let save = self.begin(key)
+        let lifetime = self.props.lifetime
+        let dispatch = context.dispatch
+        async::start(fn() {
+          let result = run(lifetime.Context)
+          let _ = dispatch(fn() {
+            match result {
+              ok(settings) => {
+                if self.settle(key, save, "") {
+                  self.settings = settings
+                }
+              },
+              err(failure) => {
+                let _ = self.settle(key, save, failure.error())
+              },
+            }
+          })
+        })
+      },
+      _ => (),
+    }
+  }
+
+  // Saves a terminal preference. run reports a saved value to the shell
+  // itself, so the shell applies it even if the dialog has closed.
+  private fn mut save_terminal(key: Str, run: fn() Void!Error) {
+    match self.context {
+      context => {
+        let save = self.begin(key)
+        let dispatch = context.dispatch
+        async::start(fn() {
+          let result = run()
+          let _ = dispatch(fn() {
+            let failure = match result {
+              ok(_) => "",
+              err(error) => error.error(),
+            }
+            let _ = self.settle(key, save, failure)
+          })
+        })
+      },
+      _ => (),
+    }
+  }
+
+  // The value a row shows.
+  private fn value(key: Str) Str {
+    match key {
+      "default_model" => {
+        match self.settings.DefaultModel == "" {
+          true => {
+            match self.settings.NewSessionModel == "" {
+              true => "Automatic",
+              false => "Automatic · {short_model_name(self.models, self.settings.NewSessionModel)}",
+            }
+          },
+          false => model_name(self.models, self.settings.DefaultModel),
+        }
+      },
+      "compaction_model" => {
+        match self.settings.CompactionModel == "" {
+          true => "Session's own model",
+          false => model_name(self.models, self.settings.CompactionModel),
+        }
+      },
+      "prompt_cache" => {
+        match "{self.settings.PromptCacheRetention}" == "long" {
+          true => "‹ Long ›",
+          false => "‹ Short ›",
+        }
+      },
+      "claude_commands" => {
+        match self.settings.ReadClaudeConfigs {
+          true => "On",
+          false => "Off",
+        }
+      },
+      "diff_layout" => {
+        match self.props.diff_split {
+          true => "‹ Split ›",
+          false => "‹ Unified ›",
+        }
+      },
+      "diff_wrap" => {
+        match self.props.diff_wrap {
+          true => "On",
+          false => "Off",
+        }
+      },
+      _ => self.props.theme_name,
+    }
+  }
+
+  private fn toggle_state(key: Str) Bool {
+    match key {
+      "claude_commands" => self.settings.ReadClaudeConfigs,
+      _ => self.props.diff_wrap,
+    }
+  }
+
+  private fn heading(text: Str) cui::View {
+    cui::text(
+      text,
+      styles: ui::style(
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+      text_style: ui::text_style(foreground: self.props.themes.current().muted, bold: true),
+      wrap: ui::TextWrap::none,
+    )
+  }
+
+  private fn line(text: Str, color: ui::Color) cui::View {
+    cui::text(
+      text,
+      styles: ui::style(
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(4),
+        },
+      ),
+      text_style: ui::text_style(foreground: color),
+      wrap: ui::TextWrap::none,
+      overflow: ui::TextOverflow::ellipsis,
+    )
+  }
+
+  private fn mut row(key: Str) cui::View {
+    let colors = self.props.themes.current()
+    let active = key == self.selection
+    let fill = match {
+      active => colors.picker_selected,
+      key == self.hovered => colors.picker_hovered,
+      _ => colors.background,
+    }
+    let saving = self.is_saving(key)
+    let failure = self.failures.get(key).or("")
+    let cells = mut List::new<cui::View>()
+    cells.push(
+      cui::text(
+        match active {
+          true => "▌",
+          false => " ",
+        },
+        styles: ui::style(width: ui::cells(3), flex_shrink: 0.0),
+        text_style: ui::text_style(foreground: colors.primary),
+      ),
+    )
+    cells.push(
+      cui::text(
+        label(key),
+        styles: ui::style(width: ui::cells(21), flex_shrink: 0.0),
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+      ),
+    )
+    let value = mut List::new<cui::View>()
+    if saving {
+      value.push(spinner::spinner())
+      value.push(cui::text(" Saving…", text_style: ui::text_style(foreground: colors.muted)))
+    } else {
+      if is_toggle(key) {
+        value.push(controls::toggle(self.props.themes, self.toggle_state(key)))
+        value.push(cui::text(" "))
+      }
+      value.push(
+        cui::text(self.value(key), wrap: ui::TextWrap::none, overflow: ui::TextOverflow::ellipsis),
+      )
+    }
+    cells.push(
+      cui::box(
+        value.@,
+        styles: ui::style(
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+          flex_direction: ui::FlexDirection::row,
+        ),
+      ),
+    )
+    let trailing = match {
+      failure != "" => "✗ not saved",
+      is_link(key) => "›",
+      _ => "",
+    }
+    cells.push(
+      cui::text(
+        trailing,
+        styles: ui::style(
+          flex_shrink: 0.0,
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(1),
+            bottom: ui::cells(0),
+            left: ui::cells(1),
+          },
+        ),
+        text_style: ui::text_style(
+          foreground: match failure != "" {
+            true => colors.danger_text,
+            false => colors.muted,
+          },
+        ),
+      ),
+    )
+    let shown = cui::box(
+      cells.@,
+      key: "settings.row.{key}",
+      styles: ui::style(
+        background: fill,
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+      ),
+      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+        match received.event_type {
+          event::MouseEventType::over => {
+            self.update(fn() {
+              self.hovered = key
+            })
+          },
+          event::MouseEventType::move => {
+            if self.hovered != key {
+              self.update(fn() {
+                self.hovered = key
+              })
+            }
+          },
+          event::MouseEventType::out => {
+            self.update(fn() {
+              if self.hovered == key {
+                self.hovered = ""
+              }
+            })
+          },
+          event::MouseEventType::up => {
+            if received.button == event::MouseButton::left {
+              self.update(fn() {
+                self.selection = key
+                self.activate(key)
+              })
+              received.prevent_default()
+            }
+          },
+          _ => (),
+        }
+      },
+    )
+    match failure == "" {
+      true => shown,
+      false => {
+        cui::box(
+          [shown, self.line(failure, colors.danger_text)],
+          styles: ui::style(flex_direction: ui::FlexDirection::column, flex_shrink: 0.0),
+        )
+      },
+    }
+  }
+
+  private fn mut body() cui::View {
+    let colors = self.props.themes.current()
+    let children = mut List::new<cui::View>()
+    children.push(
+      self.heading(
+        match self.props.server == "" {
+          true => "Server",
+          false => "Server · {self.props.server}",
+        },
+      ),
+    )
+    match {
+      self.loading => {
+        children.push(
+          cui::box(
+            [
+              spinner::spinner(),
+              cui::text(" Loading…", text_style: ui::text_style(foreground: colors.muted)),
+            ],
+            styles: ui::style(
+              height: ui::cells(1),
+              flex_shrink: 0.0,
+              flex_direction: ui::FlexDirection::row,
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(1),
+                bottom: ui::cells(0),
+                left: ui::cells(3),
+              },
+            ),
+          ),
+        )
+      },
+      self.load_error != "" => {
+        children.push(
+          cui::text(
+            "⚠ {self.load_error}",
+            styles: ui::style(
+              flex_shrink: 0.0,
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(1),
+                bottom: ui::cells(0),
+                left: ui::cells(3),
+              },
+            ),
+            text_style: ui::text_style(foreground: colors.warning_text),
+            wrap: ui::TextWrap::word,
+          ),
+        )
+      },
+      _ => {
+        for key in server_rows {
+          children.push(self.row(key))
+        }
+      },
+    }
+    children.push(cui::text(" ", styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)))
+    children.push(self.heading("This terminal"))
+    for key in terminal_rows {
+      children.push(self.row(key))
+    }
+    cui::box(
+      children.@,
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
+        flex_direction: ui::FlexDirection::column,
+        overflow: ui::Overflow::hidden,
+      ),
+    )
+  }
+
+  private fn footer() cui::View {
+    let colors = self.props.themes.current()
+    let hint = match {
+      is_choice(self.selection) => "←→ change",
+      self.load_error != "" => "ctrl+r reload",
+      _ => "",
+    }
+    cui::box(
+      [
+        cui::text(
+          description(self.selection),
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+          text_style: ui::text_style(foreground: colors.muted),
+          wrap: ui::TextWrap::word,
+        ),
+        cui::text(
+          hint,
+          styles: ui::style(
+            flex_shrink: 0.0,
+            padding: ui::Edges{
+              top: ui::cells(0),
+              right: ui::cells(0),
+              bottom: ui::cells(0),
+              left: ui::cells(1),
+            },
+          ),
+          text_style: ui::text_style(foreground: colors.muted),
+        ),
+      ],
+      styles: ui::style(
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+    )
+  }
+
+  // The model picker for the default or compaction model, in the dialog's
+  // frame. Models whose provider has no credentials are shown disabled.
+  private fn mut model_picker() cui::View {
+    let key = self.picking
+    let current = match key {
+      "default_model" => self.settings.DefaultModel,
+      _ => self.settings.CompactionModel,
+    }
+    let catalog = mut List::new<palette::Item>()
+    catalog.push(
+      palette::Item{
+        key: no_model,
+        label: match key {
+          "default_model" => "Automatic",
+          _ => "Session's own model",
+        },
+        hint: "",
+        description: match key == "default_model" and self.settings.NewSessionModel != "" {
+          true => "currently {short_model_name(self.models, self.settings.NewSessionModel)}",
+          false => "",
+        },
+        meta: "",
+        search_terms: [],
+        disabled_reason: "",
+      },
+    )
+    mut listed = current == ""
+    for model in self.models {
+      listed = listed or model.ID == current
+      catalog.push(
+        palette::Item{
+          key: model.ID,
+          label: model.Name,
+          hint: model.Provider,
+          description: "",
+          meta: "",
+          search_terms: [model.ID, model.API],
+          disabled_reason: match model.Available or model.ID == current {
+            true => "",
+            false => "not logged in",
+          },
+        },
+      )
+    }
+    if not listed {
+      catalog.push(
+        palette::Item{
+          key: current,
+          label: current,
+          hint: "",
+          description: "",
+          meta: "",
+          search_terms: [],
+          disabled_reason: "",
+        },
+      )
+    }
+    let back = keymap::simple_command("settings.model.back", "Back", fn() Bool {
+      self.update(fn() {
+        self.picking = ""
+      })
+      true
+    })
+    cui::child(
+      palette::new_picker,
+      palette::PickerProps{
+        themes: self.props.themes,
+        catalog: catalog.@,
+        placeholder: "Search models…",
+        initial_selection: match current == "" {
+          true => no_model,
+          false => current,
+        },
+        title: "Settings › {label(key)}",
+        footer: match key {
+          "default_model" => "Applies to the next new session; existing ones keep theirs.",
+          _ => "Sessions use it after /reload.",
+        },
+        error: match self.models_error == "" {
+          true => "",
+          false => "Couldn't load models: {self.models_error}",
+        },
+        dismiss: back,
+        toggle: Maybe::new<fn(Str, Bool)>(),
+        override: Maybe::new<fn(Str)>(),
+        tree: Maybe::new<[palette::Branch]>(),
+        on_query_change: fn(query: Str) {},
+        on_selection_change: fn(selected: Str) {},
+        on_activate: fn(item: palette::Item) {
+          self.update(fn() {
+            self.choose_model(key, item.key)
+          })
+        },
+      },
+    )
+  }
+
+  private fn mut commands() [keymap::SimpleCommand] {
+    [
+      keymap::simple_command("settings.up", "Previous", fn() Bool {
+        self.update(fn() {
+          self.move(-1)
+        })
+        true
+      }),
+      keymap::simple_command("settings.down", "Next", fn() Bool {
+        self.update(fn() {
+          self.move(1)
+        })
+        true
+      }),
+      keymap::simple_command("settings.activate", "Change", fn() Bool {
+        self.update(fn() {
+          self.activate(self.selection)
+        })
+        true
+      }),
+      keymap::simple_command("settings.previous_value", "Previous value", fn() Bool {
+        self.update(fn() {
+          match {
+            is_choice(self.selection) => self.cycle(self.selection),
+            is_toggle(self.selection) => self.flip(self.selection, Maybe::new(false)),
+            _ => (),
+          }
+        })
+        true
+      }),
+      keymap::simple_command("settings.next_value", "Next value", fn() Bool {
+        self.update(fn() {
+          match {
+            is_choice(self.selection) => self.cycle(self.selection),
+            is_toggle(self.selection) => self.flip(self.selection, Maybe::new(true)),
+            _ => (),
+          }
+        })
+        true
+      }),
+      keymap::simple_command("settings.reload", "Reload", fn() Bool {
+        match self.context {
+          context => {
+            let _ = context.dispatch(fn() {
+              self.load(context)
+            })
+          },
+          _ => (),
+        }
+        true
+      }),
+    ]
+  }
+}
+
+impl cui::Component for Dialog {
+  fn mut render() cui::View {
+    match self.picking != "" {
+      true => self.model_picker(),
+      false => {
+        let commands = self.commands()
+        let up = commands.at(0).expect("up")
+        let down = commands.at(1).expect("down")
+        let activate = commands.at(2).expect("activate")
+        let previous = commands.at(3).expect("previous value")
+        let next = commands.at(4).expect("next value")
+        let reload = commands.at(5).expect("reload")
+        let registered: [keymap::Command] = [up, down, activate, previous, next, reload]
+        modal::dialog(
+          self.props.themes,
+          modal::Dialog{
+            placement: modal::Placement::picker,
+            title: "Settings",
+            meta: match self.props.server == "" {
+              true => "local server",
+              false => self.props.server,
+            },
+            header: [],
+            body: self.body(),
+            footer: Maybe::new(self.footer()),
+            autofocus: true,
+            dismiss: self.props.dismiss,
+            commands: Maybe::new(registered),
+            bindings: Maybe::new(
+              [
+                keymap::binding(keymap::key("up"), up.with(), keymap::Trigger::press_or_repeat),
+                keymap::binding(keymap::key("down"), down.with(), keymap::Trigger::press_or_repeat),
+                keymap::binding(keymap::key("return"), activate.with()),
+                keymap::binding(keymap::key("space"), activate.with()),
+                keymap::binding(keymap::key("left"), previous.with()),
+                keymap::binding(keymap::key("right"), next.with()),
+                keymap::binding(keymap::key("r", ctrl: true), reload.with()),
+              ],
+            ),
+          },
+        )
+      },
+    }
+  }
+}
