@@ -59,6 +59,8 @@ struct SessionLauncherContent: View {
     var activity: [String: SessionTabStatus] = [:]
     var rename: ((SessionExcerpt) -> Void)? = nil
     var delete: ((SessionExcerpt) -> Void)? = nil
+    /// The server to name beside a session from another server.
+    var serverLabel: (SessionExcerpt) -> String? = { _ in nil }
     @Environment(\.mica) private var theme
     @State private var selection = SessionLauncher()
     @FocusState private var searchFocused: Bool
@@ -279,6 +281,10 @@ struct SessionLauncherContent: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(session.title).font(.kit(size: 14, weight: .medium)).lineLimit(1)
+                        if let server = serverLabel(session) {
+                            Text(server).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
+                                .lineLimit(1).fixedSize()
+                        }
                         if session.isTemporary == true {
                             Text("Temporary").font(.kit(size: 11)).foregroundStyle(theme.muted)
                         }

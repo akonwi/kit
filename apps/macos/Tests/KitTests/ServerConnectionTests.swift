@@ -303,3 +303,55 @@ struct ServerStatePresentationTests {
         #expect(presentation.action == .update)
     }
 }
+
+@MainActor struct ServerTabTests {
+    nonisolated private static let identity = ServerIdentity(id: "server_" + String(repeating: "a", count: 32), instance: "i",
+                                                 kitVersion: "0.48.0", protocolVersion: kitWireVersion,
+                                                 machine: String(repeating: "b", count: 64), home: "/Users/kit")
+
+    /// The local server and devbox; devbox answers with `devbox`.
+    private func servers(devbox: @escaping @Sendable () async throws -> ServerIdentity) -> ServerDirectory {
+        ServerDirectory(home: URL(fileURLWithPath: "/tmp/kit-home"),
+                        saved: { [SavedServer(name: "devbox", kind: .home, address: "/tmp/devbox")] }) { name, connector in
+            ServerConnection(client: ServerClient(serverID: name, connector: connector),
+                             catalogClient: FixtureClient(fixture: Fixture(sessions: []))) {
+                if name == "devbox" { return try await devbox() }
+                return Self.identity
+            }
+        }
+    }
+
+    private func excerpt(_ id: String, _ title: String, date: String) -> SessionExcerpt {
+        SessionExcerpt(id: id, title: title, sourceTitle: "", model: "m", thinking: "high", workspace: "/work",
+                       date: date, messages: [])
+    }
+
+    @Test func aTabWhoseServerCantServeItAsksForAttention() async throws {
+        let servers = servers { throw ClientError.noDaemon }
+        servers.start()
+        defer { for connection in servers.connections { connection.stop() } }
+        let model = SessionWindowModel(id: UUID(), servers: servers,
+                                       sessions: [SessionIdentity(server: "local", session: "a"),
+                                                  SessionIdentity(server: "devbox", session: "b"),
+                                                  SessionIdentity(server: "gone", session: "c")])
+        try await eventually { model.tabs[1].serverIssue != nil && servers.local.status.isConnected }
+        #expect(model.tabs.map(\.serverLabel) == [nil, "devbox", "gone"])
+        #expect(model.tabs.map(\.serverIssue) == [nil, "Can’t connect", "Server isn’t saved"])
+        #expect(model.tabs.map(\.statusLabel) == [nil, "Can’t connect", "Server isn’t saved"])
+        #expect(model.tabs.map(\.needsAttention) == [false, true, true])
+    }
+
+    @Test func openSessionListsEveryConnectedServer() async throws {
+        let servers = servers { Self.identity }
+        servers.local.catalog.recordCreated(excerpt("a", "Local A", date: "2026-01-01T00:00:00Z"))
+        servers.connection(named: "devbox")?.catalog.recordCreated(excerpt("a", "Devbox A", date: "2026-01-02T00:00:00Z"))
+        #expect(SessionPickerView.entries(servers.connections).isEmpty)
+        servers.start()
+        defer { for connection in servers.connections { connection.stop() } }
+        try await eventually { servers.connections.allSatisfy(\.status.isConnected) }
+        let entries = SessionPickerView.entries(servers.connections)
+        #expect(entries.map(\.id) == ["a", "devbox/a"])
+        #expect(entries.map(\.title) == ["Local A", "Devbox A"])
+        #expect(entries.map { SessionWindowModel.identity(treeKey: $0.id).serverLabel } == [nil, "devbox"])
+    }
+}

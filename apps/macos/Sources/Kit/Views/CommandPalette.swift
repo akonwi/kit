@@ -9,6 +9,7 @@ struct CommandPalette: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.installedThemes) private var installedThemes
     @Environment(\.reloadThemes) private var reloadThemes
+    @Environment(\.serverDirectory) private var servers
     @Bindable var state: SessionStore
     let openFork: (String) -> Void
     @State private var screen = Screen.commands
@@ -50,9 +51,11 @@ struct CommandPalette: View {
                 case .details: SessionDetailsView(state: state, back: back)
                 case .mcp: MCPStatusView(state: state, back: back)
                 case .sessions:
-                    SessionPickerView(client: state.catalogClient, currentID: state.selectedID, close: close) { session in
+                    SessionPickerView(servers: servers?.connections ?? [],
+                                      current: SessionIdentity(server: state.serverID, session: state.selectedID),
+                                      close: close) { identity in
                         close()
-                        openFork(session.id)
+                        navigation.openSession(identity)
                     }
                 case .model: PaletteChoices.model(state: state, close: close)
                 case .thinking: PaletteChoices.thinking(state: state, close: close)

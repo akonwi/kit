@@ -43,7 +43,17 @@ final class SessionTab: Identifiable {
     /// The connection to the server the tab is bound to, while that server is known.
     var connection: ServerConnection? { servers?.connection(named: identity.server) }
     /// The server's name when it isn't this app's own, to label the tab.
-    var serverLabel: String? { identity.server == ServerClient.localID ? nil : identity.server }
+    var serverLabel: String? { identity.serverLabel }
+    /// What the tab's server needs from the user while it can't serve the tab.
+    var serverIssue: String? {
+        guard !isLauncher, servers != nil else { return nil }
+        guard let connection else { return "Server isn’t saved" }
+        switch connection.status {
+        case .unreachable: return "Can’t connect"
+        case .incompatible(let mismatch): return mismatch.serverIsOlder ? "Server needs a newer Kit" : "Needs a newer Kit for Mac"
+        case .connecting, .connected: return nil
+        }
+    }
     /// The live session once opened; until then, its catalog entry.
     var session: SessionExcerpt? {
         store?.selected ?? connection?.catalog.sessions.first { $0.id == identity.session }
@@ -56,8 +66,8 @@ final class SessionTab: Identifiable {
     /// The last status the window recorded, to detect a finished turn.
     fileprivate var recordedStatus: SessionTabStatus = .idle
     /// Whether the tab's marker calls for attention; idle tabs recede.
-    var needsAttention: Bool { status != .idle || finished }
-    var statusLabel: String? { status.label ?? (finished ? "Finished" : nil) }
+    var needsAttention: Bool { status != .idle || finished || serverIssue != nil }
+    var statusLabel: String? { serverIssue ?? status.label ?? (finished ? "Finished" : nil) }
     /// The session's working directory, which names its project on a top tab.
     var directory: String { session?.cwd ?? session?.workspace ?? "" }
     /// The session this one came from, as a fork or an agent's work.

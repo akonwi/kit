@@ -44,6 +44,7 @@ struct SessionWindowRoot: View {
             openSession: { identity in windows.open(identity, from: model) },
             sessionTitle: { identity in model.tab(for: identity)?.title ?? model.catalogEntry(identity)?.title },
             openLauncher: { model.openLauncher() }))
+        .environment(\.serverDirectory, model.servers)
         .focusedSceneValue(\.sessionWindow, model)
         .navigationTitle(tab.title)
         .background {
@@ -108,7 +109,8 @@ struct SessionWindowRoot: View {
     /// The selected tab's content, inset from the window frame. An open
     /// session draws its own tiles; anything else sits in a single tile.
     private func tile(model: SessionWindowModel, tab: SessionTab, theme: MicaTheme) -> some View {
-        let tiled = tab.store?.selected != nil
+        // A session draws its own tiles only while its server can show it.
+        let tiled = tab.store?.selected != nil && tab.serverIssue == nil
         return VStack(spacing: 0) {
             if let error = windows.restoration.error {
                 HStack {
