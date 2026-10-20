@@ -358,6 +358,93 @@ struct SavedServerListTests {
         #expect(SavedServerList.decode(Data("not json".utf8)) == [])
     }
 
+    private func list(_ contents: String? = nil) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let url = directory.appendingPathComponent("servers.json")
+        if let contents {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data(contents.utf8).write(to: url)
+        }
+        return url
+    }
+
+    @Test func entriesSavedBeforeKindsAreHomes() {
+        let data = Data(#"{"servers":[{"name":"old","home":"/work/old"}]}"#.utf8)
+        #expect(SavedServerList.decode(data) == [SavedServer(name: "old", kind: .home, address: "/work/old")])
+    }
+
+    @Test func changesKeepEntriesAndFieldsThisAppDoesNotKnow() throws {
+        let url = try list("""
+        {"servers":[
+          {"name":"devbox","kind":"home","home":"/work/devbox","future":{"kept":true}},
+          {"name":"cloud","kind":"carrier-pigeon","coop":"roof"}
+        ]}
+        """)
+        try SavedServerList.add(SavedServer(name: "vps", kind: .url, address: "https://kit.example.com"), to: url)
+        try SavedServerList.rename("devbox", to: "box", in: url)
+        try SavedServerList.add(SavedServer(name: "mini", kind: .ssh, address: "me@mini.local"), to: url)
+        try SavedServerList.remove("mini", from: url)
+
+        let written = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: [[String: AnyHashable]]]
+        #expect(written?["servers"] == [
+            ["name": "box", "kind": "home", "home": "/work/devbox", "future": ["kept": true] as [String: AnyHashable]],
+            ["name": "cloud", "kind": "carrier-pigeon", "coop": "roof"],
+            ["name": "vps", "kind": "url", "url": "https://kit.example.com"],
+        ])
+        #expect(try SavedServerList.read(url) == [
+            SavedServer(name: "box", kind: .home, address: "/work/devbox"),
+            SavedServer(name: "vps", kind: .url, address: "https://kit.example.com"),
+        ])
+        let permissions = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
+        #expect(permissions == 0o600)
+        #expect(FileManager.default.fileExists(atPath: url.path + ".lock"))
+    }
+
+    @Test func aMissingListIsCreatedByTheFirstAdd() throws {
+        let url = try list()
+        try SavedServerList.add(SavedServer(name: "devbox", kind: .home, address: "/work/devbox"), to: url)
+        #expect(try SavedServerList.read(url) == [SavedServer(name: "devbox", kind: .home, address: "/work/devbox")])
+    }
+
+    @Test func changesRefuseNamesInUseAndInvalidEntries() throws {
+        let url = try list(#"{"servers":[{"name":"cloud","kind":"carrier-pigeon"},{"name":"devbox","kind":"home","home":"/work/devbox"}]}"#)
+        #expect(throws: SavedServerError.exists("cloud")) {
+            try SavedServerList.add(SavedServer(name: "cloud", kind: .home, address: "/work/cloud"), to: url)
+        }
+        #expect(throws: SavedServerError.exists("devbox")) { try SavedServerList.rename("cloud", to: "devbox", in: url) }
+        #expect(throws: SavedServerError.notFound("gone")) { try SavedServerList.remove("gone", from: url) }
+        for invalid in [
+            SavedServer(name: "local", kind: .home, address: "/work/local"),
+            SavedServer(name: "home", kind: .home, address: "work/relative"),
+            SavedServer(name: "vps", kind: .url, address: "https://kit.example.com/path"),
+            SavedServer(name: "vps", kind: .url, address: "HTTPS://Kit.Example.com"),
+            SavedServer(name: "mini", kind: .ssh, address: "-oProxyCommand=evil"),
+        ] {
+            #expect(throws: SavedServerError.invalid(invalid)) { try SavedServerList.add(invalid, to: url) }
+        }
+    }
+
+    @Test func changesRefuseAListTheyCouldNotKeep() throws {
+        for contents in ["not json", #"{"servers":{}}"#, #"{"servers":[{"kind":"home"}]}"#,
+                         #"{"servers":[{"name":"a","kind":"home","home":"/a"},{"name":"a","kind":"home","home":"/b"}]}"#] {
+            let url = try list(contents)
+            #expect(throws: SavedServerError.self) {
+                try SavedServerList.add(SavedServer(name: "devbox", kind: .home, address: "/work/devbox"), to: url)
+            }
+            #expect(try String(contentsOf: url, encoding: .utf8) == contents)
+        }
+    }
+
+    @Test func serverURLsAreSavedAsLowercaseOrigins() {
+        #expect(SavedServer.canonicalURL("https://Kit.Example.com/") == "https://kit.example.com")
+        #expect(SavedServer.canonicalURL(" http://100.64.0.7:4517 ") == "http://100.64.0.7:4517")
+        #expect(SavedServer.canonicalURL("https://[fd7a::1]:8443") == "https://[fd7a::1]:8443")
+        for invalid in ["kit.example.com", "ftp://kit.example.com", "https://kit.example.com/pair", "https://me@kit.example.com",
+                        "https://kit.example.com?x", "https://kit.example.com#code"] {
+            #expect(SavedServer.canonicalURL(invalid) == nil)
+        }
+    }
+
     @Test func namesFollowKitServersAdd() {
         for name in ["a", "devbox", "dev-box_2.local", String(repeating: "a", count: 32)] { #expect(SavedServer.validName(name)) }
         for name in ["", "local", "Dev", "-dev", ".dev", "dev box", "dev/box", String(repeating: "a", count: 33)] {
