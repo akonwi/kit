@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -52,6 +53,7 @@ func newDeviceHarness(t *testing.T) *deviceHarness {
 		access: serveraccess.NewPolicy([]string{"kit.example.ts.net"}, nil), token: "test",
 		registry: localdiscovery.Registry{InstanceID: "instance_test"}, sessions: scratchpadWireTestService{record: record},
 		devices: harness.devices, pairing: pairing.NewRegistry(func() time.Time { return harness.now }),
+		servedURLs: []string{"https://kit.example.ts.net", "http://127.0.0.1:7777"},
 	})
 	harness.handler = contractConformanceMiddleware(t, next, func(err error) { t.Errorf("contract violation: %v", err) })
 	return harness
@@ -119,6 +121,9 @@ func TestPairingIssuesADeviceTokenThatAuthenticates(t *testing.T) {
 	harness.do(http.MethodPost, "/v1/pairing", "test", nil, &code)
 	if expires, _ := time.Parse(time.RFC3339Nano, code.ExpiresAt); !expires.Equal(harness.now.Add(pairing.CommandLifetime)) {
 		t.Fatalf("code expires %s, want five minutes from now", code.ExpiresAt)
+	}
+	if want := []string{"https://kit.example.ts.net", "http://127.0.0.1:7777"}; !slices.Equal(code.URLs, want) {
+		t.Fatalf("code URLs = %q, want %q", code.URLs, want)
 	}
 
 	var redeemed protocol.RedeemPairingResult

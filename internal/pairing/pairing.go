@@ -128,6 +128,14 @@ func ParseLink(link string) (serverURL, code string, err error) {
 	return parsed.Scheme + "://" + parsed.Host, parsed.Fragment, nil
 }
 
+// ValidServedURL reports whether value is an HTTP(S) origin, as ServedURLs
+// lists: a scheme and host with an optional port, and nothing else.
+func ValidServedURL(value string) bool {
+	parsed, err := url.Parse(value)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" &&
+		parsed.Scheme+"://"+parsed.Host == value
+}
+
 // ServedURLs lists the URLs a server can be reached at, for pairing links:
 // each allowed host as an HTTPS URL, or as the allowed origin naming that host
 // when one exists, then the extra URLs, then the loopback URL. Duplicates are

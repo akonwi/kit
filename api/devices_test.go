@@ -33,7 +33,7 @@ const testDeviceID = "device_0123456789abcdef0123456789abcdef"
 
 func TestClientCreatesPairingsAndManagesDevices(t *testing.T) {
 	fake := &fakeDevices{
-		code: protocol.PairingCode{Code: strings.Repeat("a", 26), ExpiresAt: "2026-03-01T12:05:00Z"},
+		code: protocol.PairingCode{Code: strings.Repeat("a", 26), ExpiresAt: "2026-03-01T12:05:00Z", URLs: []string{"https://kit.example.ts.net"}},
 		list: protocol.DeviceList{Devices: []protocol.DeviceInfo{{ID: testDeviceID, Name: "laptop"}}},
 	}
 	client := newClient(&fakeClientBackend{}, nil)
@@ -41,7 +41,8 @@ func TestClientCreatesPairingsAndManagesDevices(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	pairing, err := client.CreatePairing(t.Context())
-	if err != nil || !pairing.ExpiresAt.Equal(time.Date(2026, 3, 1, 12, 5, 0, 0, time.UTC)) {
+	if err != nil || !pairing.ExpiresAt.Equal(time.Date(2026, 3, 1, 12, 5, 0, 0, time.UTC)) ||
+		len(pairing.URLs) != 1 || pairing.URLs[0] != "https://kit.example.ts.net" {
 		t.Fatalf("CreatePairing() = %+v, %v", pairing, err)
 	}
 	if link := pairing.Link("https://kit.example.ts.net"); link != "https://kit.example.ts.net/pair#"+strings.Repeat("a", 26) {

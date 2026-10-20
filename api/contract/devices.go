@@ -36,10 +36,17 @@ type DeviceList struct {
 	Devices []DeviceInfo `json:"devices"`
 }
 
+// MaxPairingURLs bounds the served URLs a pairing code lists.
+const MaxPairingURLs = 32
+
 // PairingCode is a single-use code another device redeems for a device token.
 type PairingCode struct {
 	Code      string `json:"code"`
 	ExpiresAt string `json:"expiresAt"`
+	// URLs are the HTTP(S) origins the server is served at, each of which
+	// joins the code into a pairing link: allowed hosts first, then its
+	// loopback URL, which only its own machine can reach.
+	URLs []string `json:"urls,omitempty"`
 }
 
 // RedeemPairingInput exchanges a pairing code for a device token for a device
@@ -111,6 +118,16 @@ func (code PairingCode) Validate() error {
 	}
 	if _, err := time.Parse(time.RFC3339Nano, code.ExpiresAt); err != nil {
 		return fmt.Errorf("pairing code expiry is not an RFC 3339 timestamp")
+	}
+	if len(code.URLs) > MaxPairingURLs {
+		return fmt.Errorf("pairing code lists more than %d URLs", MaxPairingURLs)
+	}
+	seen := make(map[string]bool, len(code.URLs))
+	for _, served := range code.URLs {
+		if !pairing.ValidServedURL(served) || seen[served] {
+			return fmt.Errorf("pairing code URL %q is not a distinct HTTP(S) origin", served)
+		}
+		seen[served] = true
 	}
 	return nil
 }

@@ -94,3 +94,19 @@ func TestServedURLs(t *testing.T) {
 		t.Fatalf("ServedURLs() = %q, want %q", got, want)
 	}
 }
+
+func TestValidServedURL(t *testing.T) {
+	for _, valid := range []string{"https://kit.example.ts.net", "http://127.0.0.1:7777", "https://[fd7a::1]", "http://box.local:8080"} {
+		if !ValidServedURL(valid) {
+			t.Errorf("ValidServedURL(%q) = false", valid)
+		}
+	}
+	for _, invalid := range []string{
+		"", "kit.example.ts.net", "ftp://kit.example", "https://", "https://kit.example/", "https://kit.example/pair",
+		"https://kit.example?", "https://kit.example#", "https://user@kit.example", "HTTPS://kit.example", " https://kit.example",
+	} {
+		if ValidServedURL(invalid) {
+			t.Errorf("ValidServedURL(%q) = true", invalid)
+		}
+	}
+}
