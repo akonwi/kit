@@ -1401,12 +1401,15 @@ extension HTTPClient {
             device = .init(userCode: instructions.userCode, verificationURL: url, expiresAt: Self.date(instructions.expiresAt))
         }
         var authorization: URL?
+        var redirect: URL?
         if let browser = login.browser {
             guard let url = URL(string: browser.authorizationUrl), url.scheme?.lowercased() == "https" else { throw ClientError.invalidPayload }
             authorization = url
+            // Any other redirect can't be received here; the user pastes it.
+            redirect = LoopbackRedirect.address(browser.redirectUri)
         }
         return ProviderLogin(id: login.id, provider: login.provider, method: method, state: state, device: device,
-                             authorizationURL: authorization, failure: login.failure.flatMap { $0.isEmpty ? nil : String($0.prefix(2048)) },
+                             authorizationURL: authorization, redirectURI: redirect, failure: login.failure.flatMap { $0.isEmpty ? nil : String($0.prefix(2048)) },
                              expiresAt: Self.date(login.expiresAt))
     }
 

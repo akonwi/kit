@@ -78,6 +78,8 @@ final class ProviderSignIn {
     @ObservationIgnored var loadDefaults: @Sendable () async throws -> SharedSettingsStore.Snapshot = { try await SharedSettingsStore.shared.load() }
     @ObservationIgnored var saveDefault: @Sendable (String) async throws -> Void = { _ = try await SharedSettingsStore.shared.update(.defaultModel($0)) }
     @ObservationIgnored private var polling: Task<Void, Never>?
+    /// Listens for a browser login's redirect while one is pending.
+    @ObservationIgnored private var receiver: LoopbackRedirectReceiver?
 
     /// How long one request waits for a pending sign-in to finish.
     static let wait = 20
@@ -134,6 +136,30 @@ final class ProviderSignIn {
         if let url = login?.authorizationURL { open(url) }
     }
 
+    /// Receives the pending browser login's redirect on this Mac and submits
+    /// it, as the terminal client does, until a redirect arrives, the login
+    /// ends, or the caller is cancelled. The browser step runs it while it
+    /// shows. When the redirect can't be received here, such as when another
+    /// client already listens on its port, it returns and the user pastes
+    /// the code instead. A later call replaces an earlier one.
+    func receiveRedirect() async {
+        stopReceiving()
+        guard let login, login.state == .pending, login.method == .browser,
+              let authorization = login.authorizationURL, let address = login.redirectURI,
+              let redirect = LoopbackRedirect(redirect: address, authorization: authorization),
+              let receiver = try? await LoopbackRedirectReceiver.start(redirect) else { return }
+        defer {
+            receiver.stop()
+            if self.receiver === receiver { self.receiver = nil }
+        }
+        guard !Task.isCancelled, isPending(login) else { return }
+        stopReceiving()
+        self.receiver = receiver
+        guard let url = await receiver.received(),
+              isPending(login) else { return }
+        await submit(authorization: url)
+    }
+
     func submit(authorization: String) async {
         guard let login, login.state == .pending, !pending else { return }
         pending = true; error = nil
@@ -186,6 +212,7 @@ final class ProviderSignIn {
                     guard !Task.isCancelled else { return }
                     self.login = login
                 }
+                self.stopReceiving()
                 switch login.state {
                 case .succeeded: await self.connected(option)
                 case .expired: self.error = login.failure ?? "The sign-in expired."
@@ -193,6 +220,7 @@ final class ProviderSignIn {
                 }
             } catch {
                 guard let self, !Task.isCancelled else { return }
+                self.stopReceiving()
                 self.pending = false
                 self.error = error.localizedDescription
             }
@@ -202,6 +230,17 @@ final class ProviderSignIn {
     private func cancelPolling() {
         polling?.cancel()
         polling = nil
+        stopReceiving()
+    }
+
+    private func stopReceiving() {
+        receiver?.stop()
+        receiver = nil
+    }
+
+    /// Whether `login` is still the pending sign-in.
+    private func isPending(_ login: ProviderLogin) -> Bool {
+        self.login?.id == login.id && self.login?.state == .pending
     }
 
     private func connected(_ option: ProviderOption) async {

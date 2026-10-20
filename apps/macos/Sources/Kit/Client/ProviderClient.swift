@@ -35,6 +35,9 @@ struct ProviderLogin: Equatable, Sendable {
     let state: State
     let device: Device?
     let authorizationURL: URL?
+    /// Where the browser returns after approval, when it is a loopback http
+    /// address this Mac can listen on.
+    let redirectURI: URL?
     let failure: String?
     let expiresAt: Date?
 }

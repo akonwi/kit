@@ -36,8 +36,9 @@ the form says to sign in to a provider and links to Settings › Providers.
 While the server has no provider connected, each window shows first run in
 place of its tabs: Kit's wordmark over one row per sign-in method, browser
 sign-ins last. Choosing one replaces the list with its step in the same column:
-a device code to copy and open, a browser page to approve (or a code to paste
-back), or an API key. Every step ends on Connected, which picks the default
+a device code to copy and open, a browser page to approve (the app receives the
+browser's loopback redirect, or the user pastes the code or final address), or
+an API key. Every step ends on Connected, which picks the default
 model for new sessions; Continue opens the workspace and Add another returns to
 the list. Once a provider is connected, its rows read Connected and a Continue
 below the list opens the workspace; choosing a connected row signs in again. Back cancels a sign-in the server is still waiting on. First run
