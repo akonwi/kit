@@ -1,51 +1,65 @@
 import SwiftUI
 
+/// Settings › Models: the settings the Kit server uses for every session,
+/// read and changed through its settings API.
 struct ModelSettingsView: View {
-    var store: SharedSettingsStore = .shared
     @Environment(\.mica) private var theme
     @Environment(\.scenePhase) private var phase
-    @State private var settings = SharedSettingsStore.Snapshot()
-    @State private var models: [WireModelCapability] = []
-    @State private var loaded = false
-    @State private var saving = false
-    @State private var error: String?
-    @State private var catalogError: String?
+    @State private var editor: ServerSettingsEditor
     @State private var adding = false
     @State private var newModel = ""
     @State private var newTokens = ""
     @FocusState private var addingFocus: Bool
 
+    /// client is the server whose settings these are.
+    init(client: any ServerSettingsClient = LocalClient()) {
+        _editor = State(initialValue: ServerSettingsEditor(client: client))
+    }
+
+    private var settings: ServerSettings { editor.settings }
+    private var models: [WireModelCapability] { editor.models }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Models").font(.kit(size: 23, weight: .semibold))
-                Text("Shared by the Kit app and TUI.").foregroundStyle(theme.muted)
-                Text("Stored in settings.json").font(.kit(size: 11, design: .monospaced))
-                    .foregroundStyle(theme.muted).help(SharedSettingsStore.home.appendingPathComponent("settings.json").path)
+                Text("The Kit server on this Mac uses these for every session.").foregroundStyle(theme.muted)
             }
-            if !loaded && error == nil { KitSpinner("Loading settings…") }
-            if let error {
+            if !editor.loaded && editor.loadError == nil { KitSpinner("Loading settings…") }
+            if let error = editor.loadError {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(error).foregroundStyle(theme.danger).textSelection(.enabled)
-                    Button("Reload settings") { Task { await load() } }
+                    Button("Reload settings") { Task { await editor.load() } }
                 }
             }
-            if loaded {
+            if editor.loaded {
                 VStack(alignment: .leading, spacing: 26) {
-                    HStack(alignment: .top, spacing: 20) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("Default model")
-                            Text("Used for new sessions. Existing sessions keep their selected model.")
-                                .font(.kit(size: 12)).foregroundStyle(theme.muted)
+                    VStack(alignment: .leading, spacing: 18) {
+                        row("Default model", "Used for new sessions. Existing sessions keep their selected model.", field: .defaultModel) {
+                            modelPicker("Default model", none: automatic,
+                                        selection: Binding(get: { settings.defaultModel }, set: { save(.defaultModel($0)) }))
                         }
-                        Spacer(minLength: 0)
-                        Picker("Default model", selection: Binding(get: { settings.defaultModel }, set: { save(.defaultModel($0)) })) {
-                            Text("Automatic").tag("")
-                            if !settings.defaultModel.isEmpty && !models.contains(where: { $0.id == settings.defaultModel }) {
-                                Text(settings.defaultModel).tag(settings.defaultModel)
-                            }
-                            ForEach(models, id: \.id) { Text("\($0.name) · \($0.provider)").tag($0.id) }
-                        }.labelsHidden().frame(width: 230)
+                        row("Compaction model", "Summarizes context when a session compacts. Sessions use it after Reload.", field: .compactionModel) {
+                            modelPicker("Compaction model", none: "Session’s own model",
+                                        selection: Binding(get: { settings.compactionModel }, set: { save(.compactionModel($0)) }))
+                        }
+                        row("Prompt cache", "Long asks providers to keep prompt caches for an hour or more.", field: .promptCacheRetention) {
+                            Picker("Prompt cache", selection: Binding(get: { settings.promptCacheRetention },
+                                                                      set: { save(.promptCacheRetention($0)) })) {
+                                Text("Short").tag(PromptCacheRetention.short)
+                                Text("Long").tag(PromptCacheRetention.long)
+                            }.labelsHidden().pickerStyle(.segmented).frame(width: 140)
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Toggle(isOn: Binding(get: { settings.readClaudeConfigs }, set: { save(.readClaudeConfigs($0)) })) {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text("Claude Code commands")
+                                    Text("Offers a project’s .claude/commands as prompt commands. Sessions read them after Reload.")
+                                        .font(.kit(size: 12)).foregroundStyle(theme.muted)
+                                }
+                            }.toggleStyle(FormSwitchStyle(trailing: true))
+                            failure(.readClaudeConfigs)
+                        }
                     }
                     Divider()
                     VStack(alignment: .leading, spacing: 12) {
@@ -58,31 +72,72 @@ struct ModelSettingsView: View {
                         Text("Override the context limit for an exact provider and model.")
                             .font(.kit(size: 12)).foregroundStyle(theme.muted)
                         if adding { addForm }
-                        if settings.overrides.isEmpty {
+                        if settings.contextWindows.isEmpty {
                             Text("All models use their default context limits.").foregroundStyle(theme.muted).padding(.vertical, 18)
                         }
-                        ForEach(settings.overrides.keys.sorted(), id: \.self) { selector in
+                        ForEach(settings.contextWindows.keys.sorted(), id: \.self) { selector in
                             ModelOverrideRow(selector: selector, name: models.first { $0.id == selector }?.name,
-                                             tokens: settings.overrides[selector]!, saving: saving) { tokens in
+                                             tokens: settings.contextWindows[selector]!, saving: editor.saving != nil) { tokens in
                                 save(.contextWindow(selector, tokens))
                             }
+                            failure(.contextWindow(selector))
                             Divider()
                         }
                         Text("Remove an override to use the model’s default context limit.")
                             .font(.kit(size: 12)).foregroundStyle(theme.muted)
                     }
-                }.disabled(saving)
+                }.disabled(editor.saving != nil)
             }
-            if let catalogError {
+            if let catalogError = editor.catalogError {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Model catalog unavailable. Saved overrides can still be edited.").foregroundStyle(theme.muted)
+                    Text("Model catalog unavailable. Saved settings can still be edited.").foregroundStyle(theme.muted)
                     Text(catalogError).font(.kit(size: 12)).foregroundStyle(theme.muted)
-                    Button("Reload models") { Task { await loadCatalog() } }
+                    Button("Reload models") { Task { await editor.loadCatalog() } }
                 }
             }
         }
-        .task { await load(); await loadCatalog() }
-        .onChange(of: phase) { if phase == .active && !saving && !adding { Task { await load() } } }
+        .task { await editor.load(); await editor.loadCatalog() }
+        .onChange(of: phase) { if phase == .active && editor.saving == nil && !adding { Task { await editor.load() } } }
+    }
+
+    /// The default model's "none": the server's current choice.
+    private var automatic: String {
+        settings.newSessionModel.isEmpty ? "Automatic" : "Automatic · \(editor.name(of: settings.newSessionModel))"
+    }
+
+    private func row(_ title: String, _ detail: String, field: ServerSettingsEditor.Field,
+                     @ViewBuilder control: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 20) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title)
+                    Text(detail).font(.kit(size: 12)).foregroundStyle(theme.muted)
+                }
+                Spacer(minLength: 0)
+                if editor.saving == field { KitSpinner(nil) }
+                control()
+            }
+            failure(field)
+        }
+    }
+
+    @ViewBuilder private func failure(_ field: ServerSettingsEditor.Field) -> some View {
+        if let message = editor.failure(for: field) {
+            Text(message).font(.kit(size: 12)).foregroundStyle(theme.danger).textSelection(.enabled)
+        }
+    }
+
+    /// A model menu whose empty selection is `none`. A saved model the
+    /// catalog doesn't offer stays listed by its id.
+    private func modelPicker(_ title: String, none: String, selection: Binding<String>) -> some View {
+        let current = selection.wrappedValue
+        return Picker(title, selection: selection) {
+            Text(none).tag("")
+            if !current.isEmpty && !models.contains(where: { $0.id == current }) {
+                Text(current).tag(current)
+            }
+            ForEach(models, id: \.id) { Text("\($0.name) · \($0.provider)").tag($0.id) }
+        }.labelsHidden().frame(width: 230)
     }
 
     private var addForm: some View {
@@ -90,7 +145,7 @@ struct ModelSettingsView: View {
             if !models.isEmpty {
                 Picker("Model", selection: $newModel) {
                     Text("Choose a model…").tag("")
-                    ForEach(models.filter { settings.overrides[$0.id] == nil }, id: \.id) {
+                    ForEach(models.filter { settings.contextWindows[$0.id] == nil }, id: \.id) {
                         Text("\($0.name) · \($0.provider)").tag($0.id)
                     }
                 }.onChange(of: newModel) {
@@ -107,29 +162,21 @@ struct ModelSettingsView: View {
                 Button("Cancel") { adding = false }.keyboardShortcut(.cancelAction)
                 Button("Add") {
                     guard let tokens = Int(newTokens) else { return }
-                    save(.contextWindow(newModel, tokens), closeAddForm: true)
-                }.disabled(!SharedSettingsStore.validSelector(newModel) || (Int(newTokens) ?? 0) <= 0)
+                    save(.contextWindow(newModel, tokens), as: .newOverride, closeAddForm: true)
+                }.disabled(!Self.validSelector(newModel) || (Int(newTokens) ?? 0) <= 0)
             }
+            failure(.newOverride)
         }.padding(.vertical, 12)
     }
 
-    private func load() async {
-        do { settings = try await store.load(); loaded = true; error = nil }
-        catch { self.error = error.localizedDescription }
+    static func validSelector(_ value: String) -> Bool {
+        let parts = value.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+        return parts.count == 2 && parts.allSatisfy { !$0.isEmpty && $0.trimmingCharacters(in: .whitespacesAndNewlines) == $0 }
     }
-    private func loadCatalog() async {
-        do { models = try await HTTPClient.local().models(); catalogError = nil }
-        catch { catalogError = error.localizedDescription }
-    }
-    private func save(_ change: SharedSettingsStore.Change, closeAddForm: Bool = false) {
-        guard !saving else { return }
-        saving = true
+
+    private func save(_ change: ServerSettingsChange, as field: ServerSettingsEditor.Field? = nil, closeAddForm: Bool = false) {
         Task {
-            defer { saving = false }
-            do {
-                settings = try await store.update(change); error = nil
-                if closeAddForm { adding = false; newModel = ""; newTokens = "" }
-            } catch { self.error = error.localizedDescription }
+            if await editor.save(change, as: field), closeAddForm { adding = false; newModel = ""; newTokens = "" }
         }
     }
 }

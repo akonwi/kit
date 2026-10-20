@@ -33,7 +33,7 @@ struct NewSessionViewTests {
     private func host(_ server: CreationServer, close: @escaping () -> Void, open: @escaping (SessionExcerpt) -> Void) -> NSWindow {
         let theme = ThemeConfiguration.decode("").theme(dark: true)
         let view = NewSessionOverlay(client: server, suggestedModel: "anthropic/sonnet", close: close,
-                                     loadDefaults: { .init() }, open: open)
+                                     loadDefaults: { ServerSettings() }, open: open)
             .environment(\.mica, theme).environment(\.colorScheme, .dark)
             .frame(width: 900, height: 700)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),

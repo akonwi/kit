@@ -23,8 +23,16 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side 
         ceil(CGFloat(rows + 1) * rowHeight) + 8
     }
 
-    var layout: DiffLayout = .unified
-    var wrapLines = false
+    /// The app's diff presentation, which this diff follows.
+    let preferences: DiffPreferences
+    var layout: DiffLayout {
+        get { preferences.layout }
+        set { preferences.layout = newValue }
+    }
+    var wrapLines: Bool {
+        get { preferences.wrapLines }
+        set { preferences.wrapLines = newValue }
+    }
     /// Files whose sections are folded to their header.
     var collapsed: Set<String> = []
     var fileStates: [String: DiffState] = [:]
@@ -54,6 +62,8 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side 
     private var lineCursors = Set<String>()
     private var annotationID: UInt64?
 
+    init(preferences: DiffPreferences = .shared) { self.preferences = preferences }
+
     /// Files keep independent pagination and native editor identity within one observed revision.
     func loadFile(_ file: WireDiffFileSummary, client: any DiffClient, session: String) async {
         guard fileStates[file.path] == nil, let observation else { return }
@@ -62,7 +72,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side 
             await previous?.value
             guard let self, !Task.isCancelled, self.observation?.revision == observation.revision,
                   self.observation?.target.id == observation.target.id, self.fileStates[file.path] == nil else { return }
-            let reader = DiffState()
+            let reader = DiffState(preferences: preferences)
             reader.catalog = self.catalog; reader.target = self.target; reader.observation = observation
             reader.annotationID = self.annotationID
             if let document = self.document, document.file.path == file.path {
@@ -133,7 +143,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side 
     func poll(client: any DiffClient, session: String, canApply: () -> Bool) async {
         guard !loading, canApply() else { return }
         let token = epoch
-        let updated = DiffState()
+        let updated = DiffState(preferences: preferences)
         updated.target = target
         updated.selectedPath = selectedPath
         await updated.refresh(client: client, session: session)
@@ -247,7 +257,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side 
                 guard epoch == token, !Task.isCancelled else { return false }
                 try accept(next, more: true)
             }
-            let reader = DiffState()
+            let reader = DiffState(preferences: preferences)
             reader.catalog = catalog; reader.target = target; reader.observation = observation
             reader.document = document; reader.selectedPath = selectedPath; reader.hunks = hunks
             reader.lineCursor = lineCursor; reader.lineCursors = lineCursors

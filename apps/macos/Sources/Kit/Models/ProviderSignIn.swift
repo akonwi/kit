@@ -75,8 +75,9 @@ final class ProviderSignIn {
     private var savedDefault = ""
 
     @ObservationIgnored var open: @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) }
-    @ObservationIgnored var loadDefaults: @Sendable () async throws -> SharedSettingsStore.Snapshot = { try await SharedSettingsStore.shared.load() }
-    @ObservationIgnored var saveDefault: @Sendable (String) async throws -> Void = { _ = try await SharedSettingsStore.shared.update(.defaultModel($0)) }
+    /// Read and save the server's default model.
+    @ObservationIgnored var loadDefault: @Sendable () async throws -> String
+    @ObservationIgnored var saveDefault: @Sendable (String) async throws -> Void
     @ObservationIgnored private var polling: Task<Void, Never>?
     /// Listens for a browser login's redirect while one is pending.
     @ObservationIgnored private var receiver: LoopbackRedirectReceiver?
@@ -84,7 +85,12 @@ final class ProviderSignIn {
     /// How long one request waits for a pending sign-in to finish.
     static let wait = 20
 
-    init(client: any ProviderClient) { self.client = client }
+    init(client: any ProviderClient) {
+        self.client = client
+        let settings = client as? any ServerSettingsClient
+        loadDefault = { try await settings?.serverSettings().defaultModel ?? "" }
+        saveDefault = { _ = try await settings?.updateServerSettings(.defaultModel($0)) }
+    }
 
     var options: [ProviderOption] { ProviderOption.options(providers) }
     var anyConnected: Bool { providers.contains(where: \.configured) }
@@ -246,7 +252,7 @@ final class ProviderSignIn {
     private func connected(_ option: ProviderOption) async {
         await load()
         models = (try? await client.models()) ?? []
-        savedDefault = (try? await loadDefaults().defaultModel) ?? ""
+        savedDefault = (try? await loadDefault()) ?? ""
         // Keep a default that still works; otherwise suggest this provider's first model.
         let own = models.first { $0.provider == option.provider || $0.id.hasPrefix(option.provider + "/") }
         defaultModel = models.contains(where: { $0.id == savedDefault }) ? savedDefault : (own ?? models.first)?.id ?? ""

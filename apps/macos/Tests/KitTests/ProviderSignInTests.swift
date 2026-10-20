@@ -160,7 +160,7 @@ struct ProviderSignInTests {
         let box = Box()
         let signIn = ProviderSignIn(client: server)
         signIn.open = { box.opened.append($0) }
-        signIn.loadDefaults = { .init(defaultModel: saved) }
+        signIn.loadDefault = { saved }
         signIn.saveDefault = { model in await MainActor.run { box.saved.append(model) } }
         return (signIn, box)
     }
