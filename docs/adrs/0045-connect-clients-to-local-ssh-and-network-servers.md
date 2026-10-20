@@ -178,24 +178,33 @@ disconnect or server restart.
 |---|---|---|
 | Local | the effective Kit home's discovery registry | local token |
 | Home | another Kit home's discovery registry | that home's local token |
-| SSH | `kit server connect-info` over SSH, then a loopback port forward | the remote local token |
+| SSH | `kit server status --json` over SSH, then a loopback port forward | the remote local token |
 | URL | a configured HTTP(S) URL | device token |
 
-- The local connector is the only one that may start or replace a daemon.
-  Every explicit connector attaches only: it never installs, starts, stops,
-  replaces, or migrates a server.
+- The local connector may start or replace a daemon, and the SSH connector
+  may start the server of the host's default Kit home. Otherwise explicit
+  connectors attach only: they never install, start, stop, replace, or
+  migrate a server.
 - The URL connector is the primary remote connector. The SSH connector is an
   alternative for hosts reachable over SSH that should not serve an
   endpoint.
 - The SSH connector uses the system `ssh` executable so user SSH
-  configuration, agents, jump hosts, and private-network SSH apply. It runs
-  `kit server start` and `kit server connect-info` on the host, which prints
-  the server URL, local token, identity, and protocol version, then holds
-  `ssh -N -L 127.0.0.1:<local>:<remote>` for the connection's lifetime.
-  Reconnection repeats both steps. Interactive SSH prompts are supported only
-  before the TUI takes the terminal or through the macOS app's askpass
-  bridge; reconnection requires non-interactive authentication or connection
-  sharing.
+  configuration, agents, jump hosts, and private-network SSH apply. `kit`
+  must be on the host's `PATH` for commands run over SSH. In one SSH command
+  it runs `kit server start` and `kit server status --json` on the host. The
+  status report carries the server URL, local token, instance, Kit version,
+  and protocol version; its fields are stable across Kit versions because it
+  is read before compatibility is known. The connector then holds
+  `ssh -L 127.0.0.1:<local>:<remote>` on a free local port for the
+  connection's lifetime. Its remote command reports when ssh holds the local
+  port, and only then does the client send the token to it; the command
+  exits when the server process does or when the client's end of the
+  session closes, so a server restart ends the forward as a disconnect does
+  and nothing is left on the host. The next request repeats both steps
+  without starting the server, and a refused token drops the forward. Interactive SSH prompts are supported
+  only before the TUI takes the terminal or through the macOS app's askpass
+  bridge; reconnection uses `BatchMode` and requires non-interactive
+  authentication or connection sharing.
 - The macOS app runs its bundled `kit` executable as the SSH connector helper
   (`kit server tunnel <name>`), which reports resolved endpoints as structured
   output. SSH and reconnection logic exist once, in Go.
@@ -208,7 +217,8 @@ endpoint target accepts a credential without an instance identifier.
 Saved servers live in `<home>/servers.json`, shared by the TUI and the macOS
 app. It contains only non-secret connector configuration: a name, connector
 kind, and its address (SSH destination, Kit home path, or URL). `local` is
-implicit and cannot be removed.
+implicit and cannot be removed. Entries of kinds a client does not know are
+kept unchanged and not offered.
 
 Only URL connectors need stored secrets. The macOS app stores device tokens in
 Keychain; the TUI stores them in a private, atomically replaced file beside
@@ -219,9 +229,11 @@ Command surface:
 - `kit servers add|list|remove` manages saved servers.
 - `kit pair <server>` prints a pairing link for another device from an
   already paired one.
-- `kit attach <target>` runs the TUI against one server. A target is a saved
-  name, then a pairing link, an HTTP(S) URL, an SSH destination, or a Kit home
-  path. Attaching through a pairing link redeems it, saves the server, and
+- `kit attach <target>` runs the TUI against one server. A target is a
+  pairing link, an HTTP(S) URL, an `ssh://` URL, a Kit home path (containing
+  a path separator or starting with `.` or `~`), a saved name, or an unsaved
+  `user@host` SSH destination. A bare host or SSH configuration alias must
+  be saved or written as an `ssh://` URL, so a mistyped name never connects. Attaching through a pairing link redeems it, saves the server, and
   stores its device token. Without a target it shows a server picker.
 - `kit attach <target> --cwd <path>` starts in a server path. Without
   `--cwd`, new sessions on non-local servers start in the server's home
@@ -247,7 +259,7 @@ versions match. Servers do not support multiple protocol versions.
 - Every explicit connector reports a mismatch with both Kit and protocol
   versions and the corrective action: upgrade the server host when the server
   is older, upgrade the client when the server is newer.
-- The SSH connector checks the protocol reported by `connect-info` before
+- The SSH connector checks the protocol in the status report before
   forwarding.
 - Clients never replace, downgrade, or upgrade a server reached through an
   explicit connector, and Kit does not install or upgrade itself on remote
@@ -315,7 +327,7 @@ terminals.
 0. **Foundation.** Server identity in health; Host and Origin allowlists with
    loopback literals on any port; `--listen`; connector resolution with
    attach-only explicit connectors, re-resolution, and resubscription; home
-   connector; `kit server connect-info`; `servers.json`; `kit attach` for
+   connector; `servers.json`; `kit attach` for
    saved names and home paths. This enables cross-worktree development.
 1. **Serving.** Device tokens with expiry and revocation, pairing through
    `kit server pair`, startup output, and `kit pair`, the URL
@@ -329,7 +341,8 @@ terminals.
 2. **Ownership.** Server-side provider login with callback relay, server
    settings API, client-routed open requests, and same-machine gating.
 3. **Server-hosted terminals.**
-4. **SSH.** SSH connector, `kit attach` for SSH destinations, the macOS
+4. **SSH.** `kit server status --json`, the SSH connector, `kit attach` and
+   `kit servers add` for SSH destinations, the macOS
    tunnel helper and askpass bridge.
 
 ### Non-goals

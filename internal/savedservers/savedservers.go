@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/akonwi/kit/internal/sshtunnel"
 	"github.com/gofrs/flock"
 )
 
@@ -31,6 +32,9 @@ var (
 	ErrExists = errors.New("server name is already saved")
 	// ErrNotFound reports a name that is not saved.
 	ErrNotFound = errors.New("server name is not saved")
+	// ErrUnsupported reports a server saved by a newer Kit, of a kind this
+	// one cannot reach.
+	ErrUnsupported = errors.New("server is of a kind this Kit cannot reach; upgrade Kit")
 )
 
 // Kind is how a saved server is reached.
@@ -42,6 +46,9 @@ const (
 	// KindURL is a server served at an HTTP(S) URL, reached with a device
 	// token.
 	KindURL Kind = "url"
+	// KindSSH is the server of the default Kit home on a host reached with
+	// the system ssh executable.
+	KindSSH Kind = "ssh"
 )
 
 // Server is one saved server.
@@ -53,12 +60,18 @@ type Server struct {
 	Home string `json:"home,omitempty"`
 	// URL is the server's HTTP(S) origin, for KindURL.
 	URL string `json:"url,omitempty"`
+	// Destination is what ssh connects to, for KindSSH: [user@]host, an
+	// alias from the SSH configuration, or an ssh:// URL.
+	Destination string `json:"destination,omitempty"`
 }
 
-// Location is the server's home or URL, for display.
+// Location is the server's home, URL, or SSH destination, for display.
 func (s Server) Location() string {
-	if s.Kind == KindURL {
+	switch s.Kind {
+	case KindURL:
 		return s.URL
+	case KindSSH:
+		return s.Destination
 	}
 	return s.Home
 }
@@ -75,7 +88,36 @@ func CanonicalURL(value string) (string, error) {
 }
 
 type document struct {
-	Servers []Server `json:"servers"`
+	Servers []json.RawMessage `json:"servers"`
+}
+
+// saved is the file's contents: the servers this version reaches, and
+// entries of kinds it does not know, which a newer version saved and which
+// are kept unchanged. raw keeps each server's entry as read, so fields a
+// newer version added survive changes to other entries.
+type saved struct {
+	servers []Server
+	others  []other
+	raw     map[string]json.RawMessage
+}
+
+type other struct {
+	name string
+	raw  json.RawMessage
+}
+
+func (f saved) has(name string) bool {
+	for _, server := range f.servers {
+		if server.Name == name {
+			return true
+		}
+	}
+	for _, entry := range f.others {
+		if entry.name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Store reads and changes the saved-server file at one path. Changes from
@@ -125,33 +167,49 @@ func (s Server) validate() error {
 			return fmt.Errorf("server %q home must be a clean absolute path: %q", s.Name, s.Home)
 		}
 	case KindURL:
-		if canonical, err := CanonicalURL(s.URL); err != nil || canonical != s.URL || s.Home != "" {
+		if canonical, err := CanonicalURL(s.URL); err != nil || canonical != s.URL || s.Home != "" || s.Destination != "" {
 			return fmt.Errorf("server %q URL must be a canonical HTTP(S) origin: %q", s.Name, s.URL)
 		}
+	case KindSSH:
+		if err := sshtunnel.ValidateDestination(s.Destination); err != nil || s.Home != "" || s.URL != "" {
+			return fmt.Errorf("server %q SSH destination is invalid: %q", s.Name, s.Destination)
+		}
 	default:
-		return fmt.Errorf("server %q kind %q is not home or url", s.Name, s.Kind)
+		return fmt.Errorf("server %q kind %q is not home, url, or ssh", s.Name, s.Kind)
+	}
+	if s.Kind == KindHome && s.Destination != "" {
+		return fmt.Errorf("server %q home must be a clean absolute path: %q", s.Name, s.Home)
 	}
 	return nil
 }
 
+func knownKind(kind Kind) bool {
+	return kind == KindHome || kind == KindURL || kind == KindSSH
+}
+
 // List returns the saved servers sorted by name. A missing file lists none.
 func (s *Store) List() ([]Server, error) {
-	servers, err := s.read()
+	file, err := s.read()
 	if err != nil {
 		return nil, err
 	}
-	return servers, nil
+	return file.servers, nil
 }
 
 // Find returns the server saved under name.
 func (s *Store) Find(name string) (Server, error) {
-	servers, err := s.read()
+	file, err := s.read()
 	if err != nil {
 		return Server{}, err
 	}
-	for _, server := range servers {
+	for _, server := range file.servers {
 		if server.Name == name {
 			return server, nil
+		}
+	}
+	for _, entry := range file.others {
+		if entry.name == name {
+			return Server{}, fmt.Errorf("%q: %w", name, ErrUnsupported)
 		}
 	}
 	return Server{}, fmt.Errorf("%w: %q", ErrNotFound, name)
@@ -159,11 +217,11 @@ func (s *Store) Find(name string) (Server, error) {
 
 // FindURL returns the server saved with url, an origin from CanonicalURL.
 func (s *Store) FindURL(url string) (Server, error) {
-	servers, err := s.read()
+	file, err := s.read()
 	if err != nil {
 		return Server{}, err
 	}
-	for _, server := range servers {
+	for _, server := range file.servers {
 		if server.Kind == KindURL && server.URL == url {
 			return server, nil
 		}
@@ -176,43 +234,49 @@ func (s *Store) Add(server Server) error {
 	if err := server.validate(); err != nil {
 		return err
 	}
-	return s.mutate(func(servers []Server) ([]Server, error) {
-		for _, saved := range servers {
-			if saved.Name == server.Name {
-				return nil, fmt.Errorf("%w: %q", ErrExists, server.Name)
-			}
+	return s.mutate(func(file saved) (saved, error) {
+		if file.has(server.Name) {
+			return saved{}, fmt.Errorf("%w: %q", ErrExists, server.Name)
 		}
-		return append(servers, server), nil
+		file.servers = append(file.servers, server)
+		return file, nil
 	})
 }
 
 // Remove forgets the server saved under name.
 func (s *Store) Remove(name string) error {
-	return s.mutate(func(servers []Server) ([]Server, error) {
-		for index, saved := range servers {
-			if saved.Name == name {
-				return slices.Delete(servers, index, index+1), nil
+	return s.mutate(func(file saved) (saved, error) {
+		for index, server := range file.servers {
+			if server.Name == name {
+				file.servers = slices.Delete(file.servers, index, index+1)
+				return file, nil
 			}
 		}
-		return nil, fmt.Errorf("%w: %q", ErrNotFound, name)
+		for index, entry := range file.others {
+			if entry.name == name {
+				file.others = slices.Delete(file.others, index, index+1)
+				return file, nil
+			}
+		}
+		return saved{}, fmt.Errorf("%w: %q", ErrNotFound, name)
 	})
 }
 
-func (s *Store) mutate(change func([]Server) ([]Server, error)) error {
+func (s *Store) mutate(change func(saved) (saved, error)) error {
 	unlock, err := lockFile(s.path)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	servers, err := s.read()
+	file, err := s.read()
 	if err != nil {
 		return err
 	}
-	servers, err = change(servers)
+	file, err = change(file)
 	if err != nil {
 		return err
 	}
-	return s.write(servers)
+	return s.write(file)
 }
 
 // lockFile creates path's directory and holds the lock beside path, which
@@ -229,50 +293,80 @@ func lockFile(path string) (func(), error) {
 	return func() { _ = lock.Unlock() }, nil
 }
 
-func (s *Store) read() ([]Server, error) {
+func (s *Store) read() (saved, error) {
 	file, err := os.Open(s.path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return saved{}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read saved servers %q: %w", s.path, err)
+		return saved{}, fmt.Errorf("read saved servers %q: %w", s.path, err)
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, maxFileSize+1))
 	if err != nil {
-		return nil, fmt.Errorf("read saved servers %q: %w", s.path, err)
+		return saved{}, fmt.Errorf("read saved servers %q: %w", s.path, err)
 	}
 	if len(data) > maxFileSize {
-		return nil, fmt.Errorf("saved servers %q exceeds %d bytes", s.path, maxFileSize)
+		return saved{}, fmt.Errorf("saved servers %q exceeds %d bytes", s.path, maxFileSize)
 	}
 	var decoded document
 	if err := json.Unmarshal(data, &decoded); err != nil {
-		return nil, fmt.Errorf("decode saved servers %q: %w", s.path, err)
+		return saved{}, fmt.Errorf("decode saved servers %q: %w", s.path, err)
 	}
-	seen := make(map[string]bool, len(decoded.Servers))
-	for index, server := range decoded.Servers {
+	result := saved{raw: map[string]json.RawMessage{}}
+	for _, raw := range decoded.Servers {
+		var server Server
+		if err := json.Unmarshal(raw, &server); err != nil {
+			return saved{}, fmt.Errorf("decode saved servers %q: %w", s.path, err)
+		}
 		// Entries saved before servers had kinds are Kit homes.
 		if server.Kind == "" && server.Home != "" {
 			server.Kind = KindHome
-			decoded.Servers[index] = server
+		}
+		if result.has(server.Name) {
+			return saved{}, fmt.Errorf("saved servers %q: server %q is listed twice", s.path, server.Name)
+		}
+		if !knownKind(server.Kind) && server.Kind != "" {
+			if err := ValidateName(server.Name); err != nil {
+				return saved{}, fmt.Errorf("saved servers %q: %w", s.path, err)
+			}
+			result.others = append(result.others, other{name: server.Name, raw: raw})
+			continue
 		}
 		if err := server.validate(); err != nil {
-			return nil, fmt.Errorf("saved servers %q: %w", s.path, err)
+			return saved{}, fmt.Errorf("saved servers %q: %w", s.path, err)
 		}
-		if seen[server.Name] {
-			return nil, fmt.Errorf("saved servers %q: server %q is listed twice", s.path, server.Name)
-		}
-		seen[server.Name] = true
+		result.servers = append(result.servers, server)
+		result.raw[server.Name] = raw
 	}
-	slices.SortFunc(decoded.Servers, func(a, b Server) int { return strings.Compare(a.Name, b.Name) })
-	return decoded.Servers, nil
+	slices.SortFunc(result.servers, func(a, b Server) int { return strings.Compare(a.Name, b.Name) })
+	return result, nil
 }
 
-func (s *Store) write(servers []Server) error {
-	if servers == nil {
-		servers = []Server{}
+func (s *Store) write(file saved) error {
+	type entry struct {
+		name string
+		raw  json.RawMessage
 	}
-	slices.SortFunc(servers, func(a, b Server) int { return strings.Compare(a.Name, b.Name) })
+	entries := make([]entry, 0, len(file.servers)+len(file.others))
+	for _, server := range file.servers {
+		raw, kept := file.raw[server.Name]
+		if !kept {
+			var err error
+			if raw, err = json.Marshal(server); err != nil {
+				return fmt.Errorf("encode saved servers: %w", err)
+			}
+		}
+		entries = append(entries, entry{name: server.Name, raw: raw})
+	}
+	for _, kept := range file.others {
+		entries = append(entries, entry{name: kept.name, raw: kept.raw})
+	}
+	slices.SortFunc(entries, func(a, b entry) int { return strings.Compare(a.name, b.name) })
+	servers := make([]json.RawMessage, len(entries))
+	for index, kept := range entries {
+		servers[index] = kept.raw
+	}
 	data, err := json.MarshalIndent(document{Servers: servers}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode saved servers: %w", err)

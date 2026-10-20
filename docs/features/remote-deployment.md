@@ -18,6 +18,10 @@ Serving takes three things:
 
 Remote clients then [pair](pairing.md) to get a device token.
 
+A host you already reach with `ssh` needs none of this: `kit attach
+user@host` starts the host's server and forwards a port to it over SSH. See
+[Servers over SSH](attach.md#servers-over-ssh).
+
 ## Choosing a deployment
 
 | Deployment | Who can reach the server | Recommended for |

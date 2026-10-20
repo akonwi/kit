@@ -66,7 +66,7 @@ func Parse(ctx context.Context, args []string, stdout, stderr io.Writer) Invocat
 				return 1
 			}
 			if len(choices) == 0 {
-				fmt.Fprintln(stderr, "kit: no saved servers; add one with `kit servers add NAME HOME`")
+				fmt.Fprintln(stderr, "kit: no saved servers; add one with `kit servers add NAME LOCATION`")
 				return 2
 			}
 			invocation = Invocation{Kind: InvocationServers, options: options, servers: choices}
@@ -157,10 +157,10 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 	target := invocation.options.Server
 	needsCWD := invocation.Kind == InvocationInteractive && invocation.options.SessionID == ""
 	// A server attached by Kit home runs on this machine, so the shell's
-	// working directory is meaningful to it. A URL server may not be, so its
-	// directory is chosen once it reports where it runs.
+	// working directory is meaningful to it. A URL or SSH server may not be,
+	// so its directory is chosen once it reports where it runs.
 	cwd := ""
-	if needsCWD && target.URL == "" {
+	if needsCWD && !target.remote() {
 		cwd, err = resolveCWD(invocation.options.CWD)
 		if err != nil {
 			fmt.Fprintf(stderr, "kit: %v\n", err)
@@ -183,10 +183,11 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return failed(1)
 	}
-	// A server attached by Kit home shares this machine and user. A URL
-	// server reports its home, which places new sessions on another machine.
+	// A server attached by Kit home shares this machine and user. A URL or
+	// SSH server reports its home, which places new sessions on another
+	// machine.
 	serverHome, _ := os.UserHomeDir()
-	if target.URL != "" {
+	if target.remote() {
 		infoContext, cancel := context.WithTimeout(ctx, 3*time.Second)
 		info, err := client.Server(infoContext)
 		cancel()

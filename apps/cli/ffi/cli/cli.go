@@ -6,6 +6,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 	"github.com/akonwi/kit/internal/localdiscovery"
 	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/serverlisten"
+	"github.com/akonwi/kit/internal/serverstatus"
 	"github.com/akonwi/kit/internal/version"
 )
 
@@ -493,15 +495,19 @@ func runServerCommand(ctx context.Context, args []string, stdout, stderr io.Writ
 		fmt.Fprintf(stdout, "server running: pid %d, %s\n", registry.PID, registry.URL)
 		return 0
 	case "status":
-		if len(args) != 1 {
+		asJSON := len(args) == 2 && args[1] == "--json"
+		if len(args) != 1 && !asJSON {
 			return serverUsage(stderr)
 		}
 		operationContext, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
-		registry, health, err := manager.Status(operationContext)
+		registry, connection, health, err := manager.StatusConnection(operationContext)
 		if err != nil {
 			fmt.Fprintf(stderr, "server unavailable: %v\n", err)
 			return 1
+		}
+		if asJSON {
+			return writeServerStatusJSON(stdout, stderr, paths, registry, connection, health)
 		}
 		writeServerStatus(stdout, registry, health)
 		return 0
@@ -564,7 +570,24 @@ func writeServerStatus(output io.Writer, registry localdiscovery.Registry, healt
 	fmt.Fprintln(output, "compatibility: compatible")
 }
 
+// writeServerStatusJSON prints the status report programs read, such as the
+// SSH connector on another machine. It includes the local token.
+func writeServerStatusJSON(stdout, stderr io.Writer, paths apphome.Paths, registry localdiscovery.Registry, connection clienttransport.Connection, health daemonctl.Health) int {
+	report := serverstatus.Report{
+		Home: paths.Home, PID: registry.PID, URL: registry.URL,
+		KitVersion: registry.KitVersion, ProtocolVersion: registry.ProtocolVersion, InstanceID: registry.InstanceID,
+		DatabaseReady: health.DatabaseReady, Token: connection.Token,
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(encoded))
+	return 0
+}
+
 func serverUsage(output io.Writer) int {
-	fmt.Fprintln(output, "usage: kit server <start|status|stop|restart|run> [--listen host:port]")
+	fmt.Fprintln(output, "usage: kit server <start|status [--json]|stop|restart|run> [--listen host:port]")
 	return 2
 }

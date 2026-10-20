@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/serveridentity"
+	"github.com/akonwi/kit/internal/sshtunnel"
 )
 
 // ErrClientClosed indicates an operation attempted after Client.Close.
@@ -44,6 +46,7 @@ const (
 	targetLocal
 	targetHome
 	targetEndpoint
+	targetSSH
 )
 
 // Target identifies one Kit server without exposing transport request details.
@@ -51,6 +54,9 @@ type Target struct {
 	kind       targetKind
 	address    string
 	credential Credential
+	// prompts receives ssh's diagnostics while an SSH target connects
+	// interactively; nil connects without prompting.
+	prompts io.Writer
 }
 
 // Local discovers the registered daemon under the effective Kit home.
@@ -66,6 +72,29 @@ func Home(path string) Target { return Target{kind: targetHome, address: path} }
 // ErrServerChanged if a different server answers at the address.
 func Endpoint(address string, credential Credential) Target {
 	return Target{kind: targetEndpoint, address: address, credential: credential}
+}
+
+// SSH reaches the Kit server on another host through the system ssh
+// executable, so the user's SSH configuration, agent, and jump hosts apply.
+// Destination is [user@]host, an alias from the SSH configuration, or an
+// ssh:// URL. Kit must be on the host's PATH for commands run over SSH.
+//
+// Unlike other targets, SSH starts the host's server when none is running.
+// The client forwards a loopback port to the server for its lifetime and,
+// after a disconnect or a server restart, forwards one again without
+// prompting, which requires authentication that needs no prompt, such as an
+// SSH agent.
+func SSH(destination string) Target { return Target{kind: targetSSH, address: destination} }
+
+// WithSSHPrompts lets an SSH target ask for passwords, passphrases, and host
+// key confirmation on the terminal while it first connects, writing ssh's
+// diagnostics to stderr. It has no effect on other targets.
+func (t Target) WithSSHPrompts(stderr io.Writer) Target {
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	t.prompts = stderr
+	return t
 }
 
 // Option configures a Client. No options are currently defined.
@@ -122,6 +151,7 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 	}
 
 	var transport *clienttransport.Client
+	closeTunnel := func() {}
 	switch target.kind {
 	case targetLocal:
 		paths, err := apphome.Resolve("")
@@ -151,15 +181,28 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 			return nil, errors.New("endpoint token is required")
 		}
 		transport = clienttransport.NewEndpoint(address, target.credential.token)
+	case targetSSH:
+		tunnel, err := sshtunnel.Open(ctx, sshtunnel.Options{
+			Destination: target.address, Start: true, Interactive: target.prompts != nil, Stderr: target.prompts,
+		})
+		if err != nil {
+			return nil, projectError(err)
+		}
+		transport = clienttransport.NewInvalidating(tunnel.Resolve, tunnel.Invalidate)
+		closeTunnel = func() { _ = tunnel.Close() }
 	default:
 		return nil, errors.New("Kit server target is invalid")
 	}
 
-	if _, err := transport.ProbeCompatible(ctx); err != nil {
+	closeTransport := func() {
 		transport.CloseIdleConnections()
+		closeTunnel()
+	}
+	if _, err := transport.ProbeCompatible(ctx); err != nil {
+		closeTransport()
 		return nil, projectError(err)
 	}
-	client := newClient(transport, transport.CloseIdleConnections)
+	client := newClient(transport, closeTransport)
 	client.compatibility = transport
 	client.sessions = transport
 	client.devices = transport

@@ -167,12 +167,12 @@ fn pick_session(
 let server_picker_chrome_rows = 8
 
 // The attach picker's rows: one per server, offering every server that can be
-// attached. This home's own server is started when needed; a saved server that
-// is not running cannot be picked, and shows why.
+// attached. This home's own server and an SSH server are started when needed;
+// another saved server that is not running cannot be picked, and shows why.
 fn server_items(servers: [cli::ServerChoice]) [palette::Item] {
   let items = mut List::new<palette::Item>()
   for server in servers {
-    let attachable = server.Status == "running" or server.Name == "local"
+    let attachable = server.Status == "running" or server.Starts and server.Status == "not running"
     items.push(
       palette::Item{
         key: server.Name,
@@ -250,12 +250,24 @@ fn pick_server(servers: [cli::ServerChoice], definition: kittheme::Definition) S
   Result::ok(choice.id)
 }
 
-test fn only_running_servers_and_this_home_can_be_picked() Void!Str {
+test fn only_running_servers_and_servers_attaching_starts_can_be_picked() Void!Str {
   let rows = server_items(
     [
       cli::ServerChoice{
         Name: "local",
         Location: "~/.kit",
+        Status: "not running",
+        Starts: true,
+      },
+      cli::ServerChoice{
+        Name: "devbox",
+        Location: "me@devbox",
+        Status: "not running",
+        Starts: true,
+      },
+      cli::ServerChoice{
+        Name: "stopped",
+        Location: "/tmp/kit-stopped",
         Status: "not running",
       },
       cli::ServerChoice{
@@ -274,6 +286,6 @@ test fn only_running_servers_and_this_home_can_be_picked() Void!Str {
   for row in rows {
     shown = shown + "{row.label}|{row.description}|{row.meta}|{row.disabled_reason}\n"
   }
-  let expected = "local|~/.kit|not running|\ndev|/tmp/kit-dev|running|\nold|~/.kit-old||incompatible\n"
+  let expected = "local|~/.kit|not running|\ndevbox|me@devbox|not running|\nstopped|/tmp/kit-stopped||not running\ndev|/tmp/kit-dev|running|\nold|~/.kit-old||incompatible\n"
   testing::assert(shown == expected, shown)
 }

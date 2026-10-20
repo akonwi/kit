@@ -78,7 +78,10 @@ type Health = httpapi.Health
 
 // Client performs authenticated session API requests.
 type Client struct {
-	resolve     Resolver
+	resolve Resolver
+	// invalidate, when set, tells the resolver that the server rejected a
+	// connection it returned, so it resolves the server again.
+	invalidate  func(Connection)
 	endpoint    *endpoint
 	http        *http.Client
 	sessionHTTP *http.Client
@@ -147,6 +150,25 @@ func (c *Client) instanceRejected(connection Connection) {
 	if c.endpoint != nil {
 		c.endpoint.forget(connection.InstanceID)
 	}
+	if c.invalidate != nil {
+		c.invalidate(connection)
+	}
+}
+
+// errStaleConnection reports a request a server refused because the
+// resolved connection was stale; resolving again may succeed.
+var errStaleConnection = errors.New("the server refused a stale connection")
+
+// credentialRejected reports whether a resolver that can be invalidated
+// handed out a connection the server refused as unauthorized, as happens
+// when a forwarded server restarts with a new token. It invalidates the
+// connection so the next request resolves the server again.
+func (c *Client) credentialRejected(connection Connection, statusCode int) bool {
+	if c.invalidate == nil || statusCode != http.StatusUnauthorized {
+		return false
+	}
+	c.invalidate(connection)
+	return true
 }
 
 // rejectedInstance reports whether an error response rejected the request's
@@ -173,6 +195,16 @@ func New(resolve Resolver) *Client {
 		// context owns the deadline; dial timeout remains bounded by transport.
 		sessionHTTP: &http.Client{Transport: transport, CheckRedirect: noRedirect},
 	}
+}
+
+// NewInvalidating creates a transport using resolve for every request. When
+// the server refuses a resolved connection as unauthorized or for another
+// instance, it calls invalidate and treats the failure as transient, so the
+// next request resolves the server again.
+func NewInvalidating(resolve Resolver, invalidate func(Connection)) *Client {
+	client := New(resolve)
+	client.invalidate = invalidate
+	return client
 }
 
 // WithLifetime returns a shallow transport view whose requests are canceled
@@ -288,6 +320,10 @@ func (c *Client) Probe(ctx context.Context, requireDatabase bool) (Connection, H
 		probed, health, err := c.ProbeConnection(ctx, connection, requireDatabase)
 		if errors.Is(err, errInstanceChanged) && attempt == 0 {
 			c.instanceRejected(connection)
+			continue
+		}
+		var refused *APIError
+		if errors.As(err, &refused) && c.credentialRejected(connection, refused.StatusCode) && attempt == 0 {
 			continue
 		}
 		return probed, health, err

@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/daemonctl"
 	"github.com/akonwi/kit/internal/localdiscovery"
+	"github.com/akonwi/kit/internal/serverstatus"
 	"github.com/akonwi/kit/internal/version"
 )
 
@@ -52,6 +54,20 @@ func TestServerStatusShowsDaemonAndClientCompatibility(t *testing.T) {
 				t.Fatalf("status = %q, want prefix %q and verdict %q", output.String(), wantPrefix, tc.verdict)
 			}
 		})
+	}
+}
+
+func TestServerStatusJSONIsTheReportProgramsRead(t *testing.T) {
+	paths := apphome.Paths{Home: "/home/me/.kit"}
+	registry := localdiscovery.Registry{PID: 42, URL: "http://127.0.0.1:2345", KitVersion: "0.48.0", ProtocolVersion: 47, InstanceID: "instance_1"}
+	var stdout bytes.Buffer
+	code := writeServerStatusJSON(&stdout, io.Discard, paths, registry, clienttransport.Connection{Token: "secret"}, daemonctl.Health{DatabaseReady: true})
+	want := `{"home":"/home/me/.kit","pid":42,"url":"http://127.0.0.1:2345","kitVersion":"0.48.0","protocolVersion":47,"instanceId":"instance_1","databaseReady":true,"token":"secret"}` + "\n"
+	if code != 0 || stdout.String() != want {
+		t.Fatalf("exit %d, output %q", code, stdout.String())
+	}
+	if _, err := serverstatus.Decode(stdout.Bytes()); err != nil {
+		t.Fatalf("the report does not decode: %v", err)
 	}
 }
 

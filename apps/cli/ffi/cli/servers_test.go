@@ -33,7 +33,7 @@ func TestServersAddListAndRemove(t *testing.T) {
 	isolatedHome(t)
 	serverHome := t.TempDir()
 
-	if code, stdout, _ := runServers(t); code != 0 || stdout != "No saved servers. Add one with `kit servers add NAME HOME-OR-LINK`.\n" {
+	if code, stdout, _ := runServers(t); code != 0 || stdout != "No saved servers. Add one with `kit servers add NAME LOCATION`.\n" {
 		t.Fatalf("empty list: exit = %d, stdout = %q", code, stdout)
 	}
 	code, stdout, stderr := runServers(t, "add", "dev", serverHome)
@@ -108,6 +108,9 @@ func TestAttachResolvesServers(t *testing.T) {
 		{args: []string{"attach", serverHome}, want: attachTarget{Name: "kit-dev", Home: serverHome}},
 		{args: []string{"attach", "local"}, want: attachTarget{}},
 		{args: []string{"attach", "dev", "--cwd", "/tmp"}, want: attachTarget{Name: "dev", Home: serverHome}},
+		// An unsaved user@host or ssh:// URL is an SSH destination.
+		{args: []string{"attach", "me@devbox"}, want: attachTarget{Name: "me@devbox", SSH: "me@devbox"}},
+		{args: []string{"attach", "ssh://me@devbox:2222"}, want: attachTarget{Name: "ssh://me@devbox:2222", SSH: "ssh://me@devbox:2222"}},
 	} {
 		invocation := Parse(context.Background(), test.args, &stdout, &stderr)
 		if invocation.Kind != InvocationInteractive || invocation.options.Server != test.want {
@@ -128,8 +131,9 @@ func TestAttachResolvesServers(t *testing.T) {
 	}
 
 	stderr.Reset()
+	// A bare name must be saved, so a typo never connects anywhere.
 	unknown := Parse(context.Background(), []string{"attach", "nope"}, &stdout, &stderr)
-	if unknown.Kind != InvocationExit || unknown.ExitCode != 2 || stderr.String() != "kit: unknown server \"nope\"; list saved servers with `kit servers`\n" {
+	if unknown.Kind != InvocationExit || unknown.ExitCode != 2 || stderr.String() != "kit: unknown server \"nope\"; list saved servers with `kit servers`, or attach over SSH with USER@HOST or ssh://HOST\n" {
 		t.Fatalf("unknown server = %+v, stderr = %q", unknown, stderr.String())
 	}
 }
@@ -138,7 +142,7 @@ func TestAttachWithoutSavedServersExplainsHowToAddOne(t *testing.T) {
 	isolatedHome(t)
 	var stdout, stderr bytes.Buffer
 	invocation := Parse(context.Background(), []string{"attach"}, &stdout, &stderr)
-	if invocation.Kind != InvocationExit || invocation.ExitCode != 2 || stderr.String() != "kit: no saved servers; add one with `kit servers add NAME HOME`\n" {
+	if invocation.Kind != InvocationExit || invocation.ExitCode != 2 || stderr.String() != "kit: no saved servers; add one with `kit servers add NAME LOCATION`\n" {
 		t.Fatalf("attach = %+v, stderr = %q", invocation, stderr.String())
 	}
 }
@@ -156,5 +160,34 @@ func TestAttachingToAStoppedServerNeverStartsIt(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(serverHome); err != nil || len(entries) != 0 {
 		t.Fatalf("server home entries = %v, %v; want it untouched", entries, err)
+	}
+}
+
+func TestServersAddSavesAnSSHDestination(t *testing.T) {
+	home := isolatedHome(t)
+	for _, test := range []struct{ name, location string }{{"devbox", "me@devbox"}, {"alias", "devbox"}, {"port", "ssh://me@devbox:2222"}} {
+		code, stdout, stderr := runServers(t, "add", test.name, test.location)
+		if code != 0 || stdout != "saved server \""+test.name+"\": "+test.location+" over SSH\n" {
+			t.Fatalf("add %s: exit = %d, stdout = %q, stderr = %q", test.location, code, stdout, stderr)
+		}
+	}
+	store, err := savedservers.NewStore(filepath.Join(home, "servers.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server, err := store.Find("port"); err != nil || server != (savedservers.Server{Name: "port", Kind: savedservers.KindSSH, Destination: "ssh://me@devbox:2222"}) {
+		t.Fatalf("saved = %#v, %v", server, err)
+	}
+	if code, _, stderr := runServers(t, "add", "bad", "-oProxyCommand=x"); code == 0 {
+		t.Fatalf("saved an option as a destination; stderr = %q", stderr)
+	}
+}
+
+func TestPairingThroughAnSSHServerNeedsAURL(t *testing.T) {
+	isolatedHome(t)
+	var stdout, stderr bytes.Buffer
+	code := executeCommand(context.Background(), []string{"pair", "me@devbox"}, &stdout, &stderr, defaultCommandDependencies())
+	if code != 1 || stderr.String() != "kit: server \"me@devbox\" is reached over SSH, so Kit does not know a URL that reaches it; pass --url, or run `kit server pair` on the host\n" {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr.String())
 	}
 }
