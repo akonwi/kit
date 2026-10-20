@@ -192,18 +192,22 @@ private struct TileCommands: Commands {
             Button("Join All Tabs") { if let workspace { workspace.joinTiles(selecting: workspace.selected) } }
                 .disabled((workspace?.root.tiles.count ?? 0) < 2)
             Divider()
+            // Directional commands stay enabled and do nothing where there
+            // is no tile that way. Gating them on the focused tile left a
+            // shortcut disabled when the menu's state wasn't refreshed after
+            // focus moved, so ⌘⌥← stopped working after ⌘⌥→.
             Menu("Focus Tile") {
                 ForEach(Self.directions, id: \.0) { name, direction, key in
                     Button(name) { workspace?.focus(direction) }
                         .keyboardShortcut(key, modifiers: [.command, .option])
-                        .disabled(workspace?.canFocus(direction) != true)
+                        .disabled(workspace == nil)
                 }
             }
             Menu("Move Tab") {
                 ForEach(Self.directions, id: \.0) { name, direction, key in
                     Button(name) { workspace?.moveSelectedTab(direction) }
                         .keyboardShortcut(key, modifiers: [.command, .option, .shift])
-                        .disabled(workspace?.canMoveSelectedTab(direction) != true)
+                        .disabled(workspace == nil)
                 }
             }
             Menu("Resize Tile") {
