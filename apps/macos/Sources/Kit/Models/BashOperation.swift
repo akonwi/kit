@@ -7,6 +7,10 @@ import Observation
     private(set) var error: String?
     private(set) var executions: [BashExecution] = []
     private var anchors: [String: String] = [:]
+    /// Settled executions the transcript has shown on its own. It owns their
+    /// placement from then on, so they are never re-inserted. Updated while
+    /// merging, which presentation reads; it is not observed.
+    @ObservationIgnored private var recorded: Set<String> = []
     private var admission: (id: String, draft: String)?
     var active: BashExecution? { executions.last(where: \.running) }
     var unresolved: Bool { admission != nil }
@@ -19,6 +23,7 @@ import Observation
         if executions.count > 64 { executions.removeFirst(executions.count - 64) }
         let retained = Set(executions.map(\.id)).union(admission.map { [$0.id] } ?? [])
         anchors = anchors.filter { retained.contains($0.key) }
+        recorded.formIntersection(retained)
     }
     func submit(_ draft: String, session: String, client: any BashClient,
                 after messageID: String? = nil, acknowledged: @MainActor (String) -> Void) async {
@@ -50,7 +55,13 @@ import Observation
         } catch { self.error = error.localizedDescription }
     }
     func merge(into messages: [TranscriptMessage]) -> [TranscriptMessage] {
-        BashExecution.merge(executions, anchors: anchors, into: messages) { row, execution in
+        // Only records count: an excluded command never becomes one, and its
+        // row may be another projection's placement.
+        for row in messages {
+            if let bash = row.bash, !bash.running, !bash.excluded,
+               executions.contains(where: { $0.id == bash.id }) { recorded.insert(bash.id) }
+        }
+        return BashExecution.merge(executions, anchors: anchors, recorded: recorded, into: messages) { row, execution in
             row.bash?.running != false || !execution.running
         }
     }
