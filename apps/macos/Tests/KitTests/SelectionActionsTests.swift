@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import Kit
 
@@ -96,5 +97,12 @@ import Testing
             source: secondSource, range: nil, responder: nil, viaAccessibility: true)
         #expect(!first.isNew(comparedTo: first))
         #expect(second.isNew(comparedTo: first))
+    }
+
+    @Test func popUpIsOnePopoverMenuRow() {
+        _ = NSApplication.shared
+        // One 28 pt menu row inside the popover card's 4 pt inset, like the tile add menu.
+        let size = NSHostingView(rootView: SelectionActionsMenu(theme: MicaTheme(dark: true)) {}).fittingSize
+        #expect(size.height == 36)
     }
 }

@@ -232,12 +232,7 @@ struct SelectionActions: NSViewRepresentable {
             panel.backgroundColor = .clear
             panel.hasShadow = true
             panel.hidesOnDeactivate = true
-            let content = Button { [weak self] in self?.dismiss(); self?.quote(text) } label: {
-                Label("Quote", icon: .quotes).padding(.horizontal, 12).padding(.vertical, 9)
-            }.buttonStyle(.plain).font(.kit(size: 12))
-                .foregroundStyle(theme.text).background(theme.raised, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.border))
-                .fixedSize()
+            let content = SelectionActionsMenu(theme: theme) { [weak self] in self?.dismiss(); self?.quote(text) }
             let hosting = NSHostingView(rootView: content)
             panel.contentView = hosting
             let size = hosting.fittingSize
@@ -263,6 +258,38 @@ struct SelectionActions: NSViewRepresentable {
                 if !reduceMotion { panel.animator().setFrame(targetFrame, display: true) }
             }
         }
+    }
+}
+
+/// The pop-up's card: the shared popover surface (4 pt corners, hairline
+/// border, window shadow) around menu rows like the tile add menu's, so it
+/// reads as one of the app's anchored menus rather than a floating pill. It
+/// sizes to its content, since it holds one action centred on the selection.
+struct SelectionActionsMenu: View {
+    let theme: MicaTheme
+    let quote: () -> Void
+    @State private var hovering = false
+
+    static let rowHeight: CGFloat = 28
+
+    var body: some View {
+        Button(action: quote) {
+            HStack(spacing: 8) {
+                IconView(.quotes).foregroundStyle(theme.muted)
+                Text("Quote").font(.kit(size: 12))
+            }
+            .padding(.horizontal, 8)
+            .frame(height: Self.rowHeight)
+            .background(hovering ? theme.hover : .clear, in: RoundedRectangle(cornerRadius: 3))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .padding(4)
+        .fixedSize()
+        .foregroundStyle(theme.text)
+        .background(theme.raised)
+        .popoverCard(theme)
     }
 }
 
