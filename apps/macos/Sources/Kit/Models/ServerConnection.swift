@@ -18,6 +18,9 @@ enum ServerStatus: Equatable, Sendable {
     /// The first check hasn't finished.
     case connecting
     case connected(ServerIdentity)
+    /// A connected server missed one check. Its open sessions stay readable
+    /// until the next check, which is at `retry`, also fails.
+    case reconnecting(ServerIdentity, retry: Date)
     /// The server couldn't be reached or verified. The next check is at
     /// `retry`, or is underway when it is nil.
     case unreachable(reason: String, retry: Date?)
@@ -25,10 +28,16 @@ enum ServerStatus: Equatable, Sendable {
     /// so restarting it with a compatible Kit resumes its tabs.
     case incompatible(ServerMismatch)
 
+    /// The server last verified, while connected or reconnecting.
     var identity: ServerIdentity? {
-        if case .connected(let identity) = self { identity } else { nil }
+        switch self {
+        case .connected(let identity), .reconnecting(let identity, _): identity
+        case .connecting, .unreachable, .incompatible: nil
+        }
     }
-    var isConnected: Bool { identity != nil }
+    var isConnected: Bool {
+        if case .connected = self { true } else { false }
+    }
 }
 
 /// The app's one connection to a server, shared by every window. It checks
@@ -132,6 +141,10 @@ final class ServerConnection: Identifiable {
                     status = .incompatible(ServerMismatch(serverKitVersion: version, serverProtocol: serverProtocol,
                                                           appProtocol: appProtocol, reason: reason))
                     wait = schedule.check
+                } else if case .connected(let identity) = status {
+                    status = .reconnecting(identity, retry: Date.now.addingTimeInterval(delay.seconds))
+                    wait = delay
+                    delay = min(delay * 2, schedule.maximumRetry)
                 } else {
                     status = .unreachable(reason: error.localizedDescription, retry: Date.now.addingTimeInterval(delay.seconds))
                     wait = delay

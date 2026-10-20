@@ -139,10 +139,14 @@ private struct SessionTabContent: View {
             switch connection.status {
             case .connected:
                 connected(connection)
+            // An open session stays readable while its server is checked.
             case .connecting where tab.isLauncher || tab.store == nil:
                 KitSpinner(connection.isLocal ? "Connecting to Kit" : "Connecting to \(connection.name)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .connecting:
+            case .reconnecting where tab.isLauncher || tab.store == nil:
+                KitSpinner(connection.isLocal ? "Reconnecting to Kit" : "Reconnecting to \(connection.name)")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .connecting, .reconnecting:
                 connected(connection)
             case .unreachable, .incompatible:
                 ServerStateView(connection: connection)

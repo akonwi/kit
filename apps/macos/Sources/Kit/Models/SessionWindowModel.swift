@@ -53,8 +53,12 @@ final class SessionTab: Identifiable {
         switch connection.status {
         case .unreachable: return "Can’t connect"
         case .incompatible(let mismatch): return mismatch.serverIsOlder ? "Server needs a newer Kit" : "Needs a newer Kit for Mac"
-        case .connecting, .connected: return nil
+        case .connecting, .connected, .reconnecting: return nil
         }
+    }
+    /// Whether the tab's server missed a check and is being tried again.
+    var reconnecting: Bool {
+        if case .reconnecting = connection?.status { true } else { false }
     }
     /// The live session once opened; until then, its catalog entry.
     var session: SessionExcerpt? {

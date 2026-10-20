@@ -129,6 +129,37 @@ import Testing
         #expect(await script.calls == 3)
     }
 
+    @Test func aConnectedServerReconnectsBeforeItIsUnreachable() async throws {
+        let slow = ServerConnection.Schedule(firstRetry: .seconds(60), maximumRetry: .seconds(60), check: .seconds(60))
+        let script = Script([.success(Self.identity()), .failure(ClientError.noDaemon), .failure(ClientError.noDaemon)])
+        let server = connection(script, schedule: slow)
+        server.start()
+        defer { server.stop() }
+        try await eventually { server.status.isConnected }
+        server.checkNow()
+        try await eventually { if case .reconnecting(Self.identity(), _) = server.status { true } else { false } }
+        #expect(!server.status.isConnected)
+        #expect(server.status.identity == Self.identity())
+        server.checkNow()
+        try await eventually {
+            if case .unreachable(ClientError.noDaemon.localizedDescription, _) = server.status { true } else { false }
+        }
+    }
+
+    @Test func aServerBackWhileReconnectingResumesWithoutReloading() async throws {
+        let slow = ServerConnection.Schedule(firstRetry: .seconds(60), maximumRetry: .seconds(60), check: .seconds(60))
+        let script = Script([.success(Self.identity()), .failure(ClientError.noDaemon), .success(Self.identity())])
+        let server = connection(script, schedule: slow)
+        server.start()
+        defer { server.stop() }
+        try await eventually { server.status.isConnected && server.catalog.loaded }
+        server.checkNow()
+        try await eventually { if case .reconnecting = server.status { true } else { false } }
+        server.checkNow()
+        try await eventually { server.status == .connected(Self.identity()) }
+        #expect(await script.calls == 3)
+    }
+
     @Test func aServerOfAnotherProtocolIsIncompatible() async throws {
         let older = ClientError.incompatibleDaemon(daemonVersion: "0.40.0", appProtocol: kitWireVersion,
                                                    daemonProtocol: kitWireVersion - 1, reason: .daemonProtocolOlder)

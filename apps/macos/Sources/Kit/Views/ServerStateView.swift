@@ -76,7 +76,7 @@ struct ServerStatePresentation: Equatable {
             reason = failure
             versions = []
             action = .retry(retry)
-        case .connecting, .connected:
+        case .connecting, .connected, .reconnecting:
             title = local ? "Connecting to Kit" : "Connecting to \(name)"
             message = ""
             source = nil

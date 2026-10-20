@@ -20,7 +20,7 @@ struct SessionBar: View {
                         .layoutPriority(2)
                 }
                 if let server = tab.serverLabel {
-                    ServerChip(name: server, attention: tab.serverIssue != nil)
+                    ServerChip(name: server, attention: tab.serverIssue != nil, reconnecting: tab.reconnecting)
                 }
                 if !tab.isLauncher, session?.pluginFooter?.locationHidden != true {
                     // The pull request opens in the session's browser.
@@ -713,16 +713,19 @@ struct ServerLabel: View {
 }
 
 /// The session bar's server, before its folder, for a session on another
-/// server. It turns to the warning colour while the server needs the user.
+/// server. It turns to the warning colour while the server needs the user,
+/// and says so while a missed check is retried.
 struct ServerChip: View {
     @Environment(\.mica) private var theme
     let name: String
     var attention = false
+    var reconnecting = false
 
     var body: some View {
         HStack(spacing: 5) {
             IconView(.hardDrives, size: 12)
             Text(name).font(.kit(size: 11, design: .monospaced)).lineLimit(1)
+            if reconnecting { Text("· Reconnecting…").font(.kit(size: 11)).lineLimit(1) }
         }
         .foregroundStyle(attention ? theme.warning : theme.muted)
         .padding(.horizontal, 6).frame(height: 20)
@@ -730,6 +733,6 @@ struct ServerChip: View {
         .fixedSize()
         .help("On \(name)")
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Server \(name)")
+        .accessibilityLabel(reconnecting ? "Server \(name), reconnecting" : "Server \(name)")
     }
 }
