@@ -83,7 +83,10 @@ struct ModelPickerModal {}
 struct ThemePickerModal {
   from_settings: Bool,
 }
-struct SettingsModal {}
+// Settings, opening on a row, or the first when empty.
+struct SettingsModal {
+  selection: Str,
+}
 struct ThinkingPickerModal {}
 struct SessionsModal {}
 struct TabsModal {}
@@ -1581,7 +1584,7 @@ impl cui::Component for Shell {
       PairingModal => layers.push(self.pairing_modal()),
       ModelPickerModal => layers.push(self.model_picker_modal()),
       ThemePickerModal(request) => layers.push(self.theme_picker_modal(request.from_settings)),
-      SettingsModal => layers.push(self.settings_modal()),
+      SettingsModal(request) => layers.push(self.settings_modal(request.selection)),
       ThinkingPickerModal => layers.push(self.thinking_picker_modal()),
       rename::Request(request) => layers.push(self.rename_session_modal(request)),
       SessionsModal => layers.push(self.sessions_modal()),
@@ -1978,7 +1981,7 @@ impl Shell {
       match from_settings {
         true => {
           self.dispatch(fn() {
-            self.active_modal = SettingsModal{}
+            self.active_modal = SettingsModal{selection: "theme"}
           })
         },
         false => {
@@ -2008,7 +2011,7 @@ impl Shell {
     )
   }
 
-  fn mut settings_modal() cui::View {
+  fn mut settings_modal(selection: Str) cui::View {
     cui::child(
       settings::new,
       settings::Props{
@@ -2016,6 +2019,7 @@ impl Shell {
         lifetime: self.lifetime.expect("mounted settings"),
         services: settings::services(self.props.options),
         server: self.props.options.Server,
+        selection: selection,
         diff_split: self.diff_split,
         diff_wrap: self.diff_wrap,
         theme_name: self.theme.committed_name,
@@ -2149,7 +2153,7 @@ impl Shell {
       command_palette::ActionKind::pair => { self.active_modal = PairingModal{} },
       command_palette::ActionKind::model => { self.active_modal = ModelPickerModal{} },
       command_palette::ActionKind::theme => { self.active_modal = ThemePickerModal{from_settings: false} },
-      command_palette::ActionKind::settings => { self.active_modal = SettingsModal{} },
+      command_palette::ActionKind::settings => { self.active_modal = SettingsModal{selection: ""} },
       command_palette::ActionKind::thinking => { self.active_modal = ThinkingPickerModal{} },
       command_palette::ActionKind::rename => {
         self.active_modal = rename::Request{

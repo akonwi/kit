@@ -161,6 +161,7 @@ fn services(fake: mut Server) settings::Services {
 struct HostProps {
   fake: mut Server,
   server: Str,
+  selection: Str,
   themes: theme::Context,
   lifetime: contextbridge::Cancellation,
 }
@@ -207,6 +208,7 @@ impl cui::Component for Host {
             lifetime: self.props.lifetime,
             services: services(fake),
             server: self.props.server,
+            selection: self.props.selection,
             diff_split: fake.diff_split,
             diff_wrap: fake.diff_wrap,
             theme_name: "solarized",
@@ -240,6 +242,10 @@ impl cui::Component for Host {
 }
 
 fn mount(terminal: headless::TestApp, fake: mut Server, server_name: Str) cui::Renderer {
+  mount_at(terminal, fake, server_name, "")
+}
+
+fn mount_at(terminal: headless::TestApp, fake: mut Server, server_name: Str, selection: Str) cui::Renderer {
   cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     cui::child(
@@ -247,6 +253,7 @@ fn mount(terminal: headless::TestApp, fake: mut Server, server_name: Str) cui::R
       HostProps{
         fake: fake,
         server: server_name,
+        selection: selection,
         themes: theme::context(theme::store(theme::system())),
         lifetime: contextbridge::WithCancel(context::Background()),
       },
@@ -354,25 +361,6 @@ test fn the_dialog_shows_the_servers_settings_and_this_terminals() Void!Str {
   let renderer = mount(terminal, fake, "")
   defer renderer.destroy()
   try testing::assert(wait_for(terminal, "Automatic · Claude Sonnet 4.6"), "the settings load")
-  // The on toggle's track uses the toggleOn tone and the off one a raised
-  // surface; each knob is the two cells at its end.
-  let colors = theme::system()
-  let on = terminal.frame().cell(
-    33,
-    row_of(terminal, "Claude Code commands"),
-  ).expect("on track").style.background.expect("on fill")
-  let off = terminal.frame().cell(
-    35,
-    row_of(terminal, "Wrap diff lines"),
-  ).expect("off track").style.background.expect("off fill")
-  try testing::assert(
-    on.red == colors.primary.red and on.green == colors.primary.green and on.blue == colors.primary.blue,
-    "the on track uses toggleOn",
-  )
-  try testing::assert(
-    off.red == colors.surface_raised.red and off.green == colors.surface_raised.green and off.blue == colors.surface_raised.blue,
-    "the off track uses the raised surface",
-  )
   expect_rows(
     dialog(terminal),
     [
@@ -549,4 +537,44 @@ test fn the_theme_row_opens_the_theme_picker() Void!Str {
   press(terminal, "up")
   press(terminal, "return")
   testing::assert(fake.themes_opened == 1, "themes opened: {fake.themes_opened}")
+}
+
+test fn server_settings_change_one_at_a_time() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let fake = server()
+  fake.hold = true
+  let renderer = mount(terminal, fake, "")
+  defer renderer.destroy()
+  try testing::assert(wait_for(terminal, "Automatic · Claude Sonnet 4.6"), "the settings load")
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "right")
+  try testing::assert(wait_for(terminal, "Saving…"), "the prompt cache saves")
+  // While it saves, the other server rows and a reload wait.
+  press(terminal, "down")
+  press(terminal, "space")
+  press(terminal, "up")
+  press(terminal, "up")
+  press(terminal, "up")
+  press(terminal, "return")
+  press_ctrl(terminal, "r")
+  try testing::assert(not shows(terminal, "Settings › Default model"), "the model picker waits")
+  fake.release.send(1)
+  try testing::assert(wait_for(terminal, "‹ Long ›"), "the saved value is shown")
+  try testing::assert(saves(fake) == "prompt cache long", "saves: {saves(fake)}")
+  testing::assert(fake.loads == 1, "loads: {fake.loads}")
+}
+
+test fn settings_can_open_on_a_row() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let fake = server()
+  let renderer = mount_at(terminal, fake, "", "theme")
+  defer renderer.destroy()
+  try testing::assert(wait_for(terminal, "Automatic · Claude Sonnet 4.6"), "the settings load")
+  testing::assert(
+    strings::Contains(terminal.frame().text(), "│▌  Theme                solarized"),
+    "the Theme row is selected:\n{terminal.frame().text()}",
+  )
 }

@@ -74,7 +74,9 @@ Go clients use `Client.ServerSettings`, `UpdateServerSettings`, and
   this client's own `settings.json`.
 
 Each change saves at once. A row shows a spinner while it saves; if saving
-fails, it keeps the last confirmed value and shows the reason beneath it.
+fails, it keeps the last confirmed value and shows the reason beneath it. The
+server's settings change one at a time: while one saves, the other server rows
+wait.
 Enter or Space changes the selected row, and ←/→ change a choice. The model
 rows open a model picker in the same frame, where models whose provider has no
 credentials are disabled, and the Theme row opens the theme picker, which

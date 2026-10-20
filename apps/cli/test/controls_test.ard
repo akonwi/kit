@@ -5,9 +5,12 @@ use cooper/cui
 use cooper/event
 use cooper/keymap
 use cooper/testing as headless
+use cooper/theme as ctheme
 use cooper/ui
+use go:github.com/akonwi/kit/internal/theme as kittheme
 use kit/tui/controls
 use kit/tui/theme
+use go:strings
 
 struct Model {
   presses: Int,
@@ -193,4 +196,66 @@ fn interrupts_after_ctrl_c(keep: Bool) Int {
 test fn a_focused_text_field_keeps_ctrl_c_from_the_application() Void!Str {
   try testing::assert(interrupts_after_ctrl_c(false) == 1, "an ordinary field lets Ctrl+C through")
   testing::assert(interrupts_after_ctrl_c(true) == 0, "a field keeping Ctrl+C holds it")
+}
+
+struct ToggleProps {
+  themes: theme::Context,
+}
+
+struct ToggleHost {
+  props: mut ToggleProps,
+}
+
+fn toggle_host(props: mut ToggleProps) mut ToggleHost {
+  (mut ToggleHost{props: props})
+}
+
+impl cui::Component for ToggleHost {
+  fn mut render() cui::View {
+    cui::box(
+      [
+        controls::toggle(self.props.themes, true),
+        cui::text(" "),
+        controls::toggle(self.props.themes, false),
+      ],
+      styles: ui::style(flex_direction: ui::FlexDirection::row),
+    )
+  }
+}
+
+test fn a_toggle_keeps_its_knob_at_the_end_its_state_names() Void!Str {
+  let terminal = headless::new(12, 1)
+  defer terminal.destroy()
+  let tokens = mut Map::new<kittheme::Color>()
+  tokens.set(
+    kittheme::TokenToggleOn,
+    kittheme::Color{
+      R: 20,
+      G: 160,
+      B: 60,
+      A: 255,
+    },
+  )
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, ctheme::default())
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    cui::child(toggle_host, ToggleProps{themes: theme::context(theme::store(colors))}),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try testing::assert(
+    strings::TrimRight(terminal.frame().text(), " ") == "  ██ ██",
+    "toggles: [{terminal.frame().text()}]",
+  )
+  // On, the track is the theme's toggleOn; off, a raised surface.
+  let on = terminal.frame().cell(0, 0).expect("on track").style.background.expect("on fill")
+  try testing::assert(
+    on.red == 20 and on.green == 160 and on.blue == 60,
+    "on track rgb({on.red}, {on.green}, {on.blue})",
+  )
+  let off = terminal.frame().cell(7, 0).expect("off track").style.background.expect("off fill")
+  testing::assert(
+    off.red == colors.surface_raised.red and off.green == colors.surface_raised.green and off.blue == colors.surface_raised.blue,
+    "off track rgb({off.red}, {off.green}, {off.blue})",
+  )
 }

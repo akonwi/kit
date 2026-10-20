@@ -25,7 +25,9 @@ use kit/tui/theme
 // Theme row hands off to the theme picker, which the shell owns.
 //
 // The dialog owns its loading, selection, hover, per-row saving and failure
-// state, and the generations that discard stale completions. The shell owns
+// state, and the counters that discard stale completions. The server's
+// settings change one at a time: while one saves, the other server rows and
+// reloads wait, so every answer the dialog shows is the server's latest. The shell owns
 // the terminal preferences' current values and applies them when the dialog
 // reports one saved.
 
@@ -103,6 +105,8 @@ struct Props {
   services: Services,
   // The attached server's name, or empty for this home's own.
   server: Str,
+  // The row selected on opening, or empty for the first.
+  selection: Str,
   diff_split: Bool,
   diff_wrap: Bool,
   theme_name: Str,
@@ -193,8 +197,10 @@ struct Dialog {
   failures: [Str: Str],
   // Counts loads, so a superseded load is ignored.
   generation: Int,
-  // Counts each row's saves, so only its latest save settles it.
-  saves: [Str: Int],
+  // Whether a server setting is saving.
+  server_saving: Bool,
+  // Counts server saves, so a read that started before one is ignored.
+  revision: Int,
   // The model row whose picker is open, or empty.
   picking: Str,
 }
@@ -203,7 +209,10 @@ fn new(props: mut Props) mut Dialog {
   (mut Dialog{
     props: props,
     context: Maybe::new<cui::Context>(),
-    selection: "default_model",
+    selection: match props.selection == "" {
+      true => "default_model",
+      false => props.selection,
+    },
     hovered: "",
     loading: true,
     load_error: "",
@@ -213,7 +222,8 @@ fn new(props: mut Props) mut Dialog {
     saving: [:],
     failures: [:],
     generation: 0,
-    saves: [:],
+    server_saving: false,
+    revision: 0,
     picking: "",
   })
 }
@@ -241,19 +251,27 @@ impl Dialog {
   }
 
   // Reads the server's settings and model catalog. Terminal preferences stay
-  // usable while they load or when they can't be read.
+  // usable while they load or when they can't be read. A reload waits for a
+  // saving server setting.
   private fn mut load(ctx: cui::Context) {
+    if not self.server_saving {
+      self.read(ctx)
+    }
+  }
+
+  private fn mut read(ctx: cui::Context) {
     self.loading = true
     self.load_error = ""
     self.generation =+ 1
     let generation = self.generation
+    let revision = self.revision
     let services = self.props.services
     let lifetime = self.props.lifetime
     let dispatch = ctx.dispatch
     async::start(fn() {
       let result = services.load(lifetime.Context)
       let _ = dispatch(fn() {
-        if self.generation == generation {
+        if self.generation == generation and self.revision == revision {
           self.loading = false
           match result {
             ok(settings) => {
@@ -276,6 +294,26 @@ impl Dialog {
               self.models_error = ""
             },
             err(failure) => { self.models_error = failure.error() },
+          }
+        }
+      })
+    })
+  }
+
+  // Rereads the server's settings after a failed save, which the server may
+  // still have applied, keeping the failures shown.
+  private fn mut refresh(ctx: cui::Context) {
+    let revision = self.revision
+    let services = self.props.services
+    let lifetime = self.props.lifetime
+    let dispatch = ctx.dispatch
+    async::start(fn() {
+      let result = services.load(lifetime.Context)
+      let _ = dispatch(fn() {
+        if self.revision == revision and not self.server_saving {
+          match result {
+            ok(settings) => { self.settings = settings },
+            err(_) => (),
           }
         }
       })
@@ -313,15 +351,23 @@ impl Dialog {
     }
   }
 
+  // Moves the selection among the rows shown. A selection that isn't shown,
+  // such as a server row while the server's settings load, moves to the
+  // first or last row shown.
   private fn mut move(delta: Int) {
     let rows = self.rows()
-    mut index = 0
+    mut index = -1
     for key, position in rows {
       if key == self.selection {
         index = position
       }
     }
-    self.selection = rows.at((index + delta + rows.size()) % rows.size()).or(self.selection)
+    let next = match {
+      index >= 0 => (index + delta + rows.size()) % rows.size(),
+      delta > 0 => 0,
+      _ => rows.size() - 1,
+    }
+    self.selection = rows.at(next).or(self.selection)
   }
 
   private fn is_saving(key: Str) Bool {
@@ -335,7 +381,7 @@ impl Dialog {
       is_choice(key) => self.cycle(key),
       key == "theme" => self.props.open_theme(),
       _ => {
-        if self.server_available() {
+        if self.server_available() and not self.server_saving {
           self.picking = key
         }
       },
@@ -421,69 +467,71 @@ impl Dialog {
     }
   }
 
-  // Starts a row's save, which supersedes one in flight.
-  private fn mut begin(key: Str) Int {
-    let save = self.saves.get(key).or(0) + 1
-    self.saves.set(key, save)
+  private fn mut begin(key: Str) {
     self.saving.set(key, true)
     self.failures.set(key, "")
-    save
   }
 
-  // Settles a row's save unless a later one superseded it.
-  private fn mut settle(key: Str, save: Int, failure: Str) Bool {
-    let latest = self.saves.get(key).or(0) == save
-    if latest {
-      self.saving.set(key, false)
-      self.failures.set(key, failure)
-    }
-    latest
+  private fn mut settle(key: Str, failure: Str) {
+    self.saving.set(key, false)
+    self.failures.set(key, failure)
   }
 
-  // Saves a server setting and shows the settings the server returns.
+  // Saves a server setting and shows the settings the server returns. It
+  // does nothing while the server's settings are unread or another saves.
   private fn mut save_server(key: Str, run: fn(context::Context) protocol::ServerSettings!Error) {
     match self.context {
       context => {
-        let save = self.begin(key)
-        let lifetime = self.props.lifetime
-        let dispatch = context.dispatch
-        async::start(fn() {
-          let result = run(lifetime.Context)
-          let _ = dispatch(fn() {
-            match result {
-              ok(settings) => {
-                if self.settle(key, save, "") {
+        if self.server_available() and not self.server_saving {
+          self.begin(key)
+          self.server_saving = true
+          self.revision =+ 1
+          let lifetime = self.props.lifetime
+          let dispatch = context.dispatch
+          async::start(fn() {
+            let result = run(lifetime.Context)
+            let _ = dispatch(fn() {
+              self.server_saving = false
+              match result {
+                ok(settings) => {
+                  self.settle(key, "")
                   self.settings = settings
-                }
-              },
-              err(failure) => {
-                let _ = self.settle(key, save, failure.error())
-              },
-            }
+                },
+                err(failure) => {
+                  self.settle(key, failure.error())
+                  self.refresh(context)
+                },
+              }
+            })
           })
-        })
+        }
       },
       _ => (),
     }
   }
 
-  // Saves a terminal preference. run reports a saved value to the shell
-  // itself, so the shell applies it even if the dialog has closed.
+  // Saves a terminal preference unless that row is saving. run reports a
+  // saved value to the shell itself, so the shell applies it even if the
+  // dialog has closed.
   private fn mut save_terminal(key: Str, run: fn() Void!Error) {
     match self.context {
       context => {
-        let save = self.begin(key)
-        let dispatch = context.dispatch
-        async::start(fn() {
-          let result = run()
-          let _ = dispatch(fn() {
-            let failure = match result {
-              ok(_) => "",
-              err(error) => error.error(),
-            }
-            let _ = self.settle(key, save, failure)
+        if not self.is_saving(key) {
+          self.begin(key)
+          let dispatch = context.dispatch
+          async::start(fn() {
+            let result = run()
+            let _ = dispatch(fn() {
+              self.settle(
+                key,
+                match result {
+                  ok(_) => "",
+                  err(error) => error.error(),
+                },
+              )
+            })
           })
-        })
+        }
       },
       _ => (),
     }

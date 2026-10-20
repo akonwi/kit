@@ -601,6 +601,8 @@ private struct Pane {
   // The first row in view, for the pinned header.
   top: Int,
   column: Int,
+  // The layout last drawn; a change returns the text to its first column.
+  drawn_split: Bool,
   polling: contextbridge::Cancellation?,
   was_shown: Bool,
   // The picked commit or branch, or none for the working tree.
@@ -637,6 +639,7 @@ private fn new(props: mut Props) mut Pane {
     generation: 0,
     top: 0,
     column: 0,
+    drawn_split: props.split,
     polling: Maybe::new<contextbridge::Cancellation>(),
     was_shown: false,
     target: Maybe::new<protocol::DiffTargetEntry>(),
@@ -683,6 +686,10 @@ impl Pane {
   // Acts on prop changes: a new workspace starts over on its working tree,
   // and being shown again observes the target and resumes polling.
   private fn mut sync() {
+    if self.props.split != self.drawn_split {
+      self.drawn_split = self.props.split
+      self.column = 0
+    }
     let reveal = self.props.reveal
     if reveal.opening != self.reveal_opening {
       self.reveal_opening = reveal.opening
@@ -2106,7 +2113,6 @@ impl Pane {
             false => "Unified",
           },
           keymap::simple_command("diff.layout", "Change layout", fn() Bool {
-            self.column = 0
             set_split(not split)
             true
           }),
