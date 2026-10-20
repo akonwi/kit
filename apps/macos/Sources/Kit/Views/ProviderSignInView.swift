@@ -285,9 +285,11 @@ private struct BrowserStep: View {
             }
             .buttonStyle(FormButtonStyle())
             KitSpinner("Waiting for browser approval…").font(.kit(size: 12)).foregroundStyle(theme.muted)
+                // The browser returns to this Mac once approved; listen only while this step shows.
+                .task(id: login.id) { await signIn.receiveRedirect() }
             Rule()
             VStack(alignment: .leading, spacing: 6) {
-                Text("Or paste the code from the browser").font(.kit(size: 12)).foregroundStyle(theme.muted)
+                Text("Or paste the code or address from the browser").font(.kit(size: 12)).foregroundStyle(theme.muted)
                 HStack(spacing: 8) {
                     TextField("", text: $code, prompt: Text("Paste code…").foregroundStyle(theme.strongBorder))
                         .textFieldStyle(.plain).font(.kit(size: 12, design: .monospaced))

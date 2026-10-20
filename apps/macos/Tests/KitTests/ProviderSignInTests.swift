@@ -18,6 +18,9 @@ private final class ProviderResponse: URLProtocol, @unchecked Sendable {
         case 19303: (201, login.replacingOccurrences(of: "https://auth.openai.com", with: "file://"))
         case 19304: (400, #"{"error":{"code":"invalid_request","message":"The API key was rejected."}}"#)
         case 19305: (200, #"{"providers":[{"id":"Bad ID","name":"x","methods":[],"configured":false,"source":"store"}]}"#)
+        case 19306, 19307:
+            (201, #"{"id":"login_2","provider":"anthropic","method":"browser","state":"pending","expiresAt":"2026-10-16T05:00:00Z","browser":{"authorizationUrl":"https://claude.ai/oauth/authorize?state=st4te","redirectUri":"REDIRECT"}}"#
+                .replacingOccurrences(of: "REDIRECT", with: url.port == 19306 ? "http://localhost:53692/callback" : "https://console.anthropic.com/oauth/code/callback"))
         default: (500, "")
         }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
@@ -49,6 +52,16 @@ struct ProviderTransportTests {
         #expect(login.device?.verificationURL == URL(string: "https://auth.openai.com/codex/device"))
     }
 
+    @Test func carriesALoopbackRedirectThisMacCanReceive() async throws {
+        let login = try await client(19306).startLogin(provider: "anthropic", method: .browser)
+        #expect(login.authorizationURL == URL(string: "https://claude.ai/oauth/authorize?state=st4te"))
+        #expect(login.redirectURI == URL(string: "http://localhost:53692/callback"))
+        // Another redirect leaves the login to a pasted code.
+        let pasted = try await client(19307).startLogin(provider: "anthropic", method: .browser)
+        #expect(pasted.authorizationURL != nil)
+        #expect(pasted.redirectURI == nil)
+    }
+
     @Test func rejectsPayloadsOutsideTheContract() async throws {
         for port in [19303, 19305] {
             do {
@@ -78,21 +91,30 @@ private actor FakeProviders: ProviderClient {
     var keys: [String: String] = [:]
     var rejectKey = false
     var catalog: [WireModelCapability]
+    /// Authorizations submitted to browser logins.
+    var submitted: [String] = []
+    /// The redirect browser logins name.
+    var redirect = URL(string: "http://127.0.0.1:53692/callback")!
+    private var started: ProviderLogin?
 
     init(list: [ProviderInfo], models: [WireModelCapability] = []) { self.list = list; catalog = models }
 
     func providers() async throws -> [ProviderInfo] { list }
     func startLogin(provider: String, method: ProviderLoginMethod) async throws -> ProviderLogin {
-        login(provider, method, .pending)
+        started = login(provider, method, .pending)
+        return started!
     }
     func login(_ id: String, wait: Int) async throws -> ProviderLogin {
         // Each poll reports the next queued state; pending when none is queued.
-        if logins.isEmpty { try await Task.sleep(for: .milliseconds(20)); return login("openai-codex", .device, .pending) }
+        if logins.isEmpty { try await Task.sleep(for: .milliseconds(20)); return started ?? login("openai-codex", .device, .pending) }
         let next = logins.removeFirst()
         if next.state == .succeeded { configure(next.provider) }
         return next
     }
-    func submitAuthorization(login: String, _ authorization: String) async throws {}
+    func submitAuthorization(login: String, _ authorization: String) async throws {
+        submitted.append(authorization)
+        logins.append(self.login("anthropic", .browser, .succeeded))
+    }
     func cancelLogin(_ id: String) async throws { cancelled.append(id) }
     func setAPIKey(provider: String, _ key: String) async throws {
         if rejectKey { throw ProviderRequestFailed(message: "The API key was rejected.") }
@@ -106,15 +128,18 @@ private actor FakeProviders: ProviderClient {
 
     func queue(_ state: ProviderLogin.State, failure: String? = nil) { logins.append(login("openai-codex", .device, state, failure: failure)) }
     func setRejectKey(_ value: Bool) { rejectKey = value }
+    func setRedirect(_ value: URL) { redirect = value }
 
     private func configure(_ provider: String) {
         list = list.map { $0.id == provider ? ProviderInfo(id: $0.id, name: $0.name, methods: $0.methods, configured: true, fromEnvironment: false) : $0 }
     }
 
     private func login(_ provider: String, _ method: ProviderLoginMethod, _ state: ProviderLogin.State, failure: String? = nil) -> ProviderLogin {
-        ProviderLogin(id: "login_1", provider: provider, method: method, state: state,
-                      device: .init(userCode: "WDJB-MJHT", verificationURL: URL(string: "https://auth.openai.com/codex/device")!, expiresAt: nil),
-                      authorizationURL: nil, failure: failure, expiresAt: nil)
+        let browser = method == .browser
+        return ProviderLogin(id: "login_1", provider: provider, method: method, state: state,
+                             device: browser ? nil : .init(userCode: "WDJB-MJHT", verificationURL: URL(string: "https://auth.openai.com/codex/device")!, expiresAt: nil),
+                             authorizationURL: browser ? URL(string: "https://claude.ai/oauth/authorize?code=true&state=st4te")! : nil,
+                             redirectURI: browser ? redirect : nil, failure: failure, expiresAt: nil)
     }
 }
 
@@ -223,6 +248,67 @@ struct ProviderSignInTests {
         #expect(signIn.step == .list)
         for _ in 0..<200 where await server.cancelled.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
         #expect(await server.cancelled == ["login_1"])
+    }
+
+    @Test func browserSignInReceivesTheRedirectAndSubmitsIt() async throws {
+        let port = try await LoopbackPort.free()
+        let server = FakeProviders(list: Self.providers)
+        await server.setRedirect(URL(string: "http://localhost:\(port)/callback")!)
+        let (signIn, box) = signIn(server)
+        await signIn.load()
+        let claude = try #require(signIn.options.first { $0.method == .browser })
+        signIn.choose(claude)
+        try await until { signIn.login?.redirectURI != nil }
+        #expect(box.opened == [URL(string: "https://claude.ai/oauth/authorize?code=true&state=st4te")!])
+
+        let receiving = Task { await signIn.receiveRedirect() }
+        let (status, page) = try await LoopbackPort.get("http://127.0.0.1:\(port)/callback?code=abc&state=st4te")
+        #expect(status == 200)
+        #expect(page == LoopbackRedirectReceiver.page)
+        await receiving.value
+        #expect(await server.submitted == ["http://localhost:\(port)/callback?code=abc&state=st4te"])
+        try await until { signIn.step == .connected(claude) }
+        // Listening ended with the redirect; the port is free again.
+        try await LoopbackPort.bind(port)
+    }
+
+    @Test func goingBackStopsListeningForTheRedirect() async throws {
+        let port = try await LoopbackPort.free()
+        let server = FakeProviders(list: Self.providers)
+        await server.setRedirect(URL(string: "http://127.0.0.1:\(port)/callback")!)
+        let (signIn, _) = signIn(server)
+        await signIn.load()
+        signIn.choose(try #require(signIn.options.first { $0.method == .browser }))
+        try await until { signIn.login?.redirectURI != nil }
+        let receiving = Task { await signIn.receiveRedirect() }
+        // A request without the login's state is refused and changes nothing.
+        let (status, _) = try await LoopbackPort.get("http://127.0.0.1:\(port)/callback?code=abc&state=other")
+        #expect(status == 400)
+
+        signIn.back()
+        await receiving.value
+        #expect(await server.submitted.isEmpty)
+        try await LoopbackPort.bind(port)
+    }
+
+    @Test func aTakenRedirectPortLeavesTheSignInToAPastedCode() async throws {
+        let port = try await LoopbackPort.free()
+        let taken = try await LoopbackPort.bind(port, keep: true)
+        defer { taken?.cancel() }
+        let server = FakeProviders(list: Self.providers)
+        await server.setRedirect(URL(string: "http://127.0.0.1:\(port)/callback")!)
+        let (signIn, _) = signIn(server)
+        await signIn.load()
+        let claude = try #require(signIn.options.first { $0.method == .browser })
+        signIn.choose(claude)
+        try await until { signIn.login?.redirectURI != nil }
+        await signIn.receiveRedirect()
+        #expect(signIn.error == nil)
+        #expect(signIn.login?.state == .pending)
+
+        await signIn.submit(authorization: "abc#st4te")
+        #expect(await server.submitted == ["abc#st4te"])
+        try await until { signIn.step == .connected(claude) }
     }
 
     @Test func settingsSignInChoosesAmongAProvidersMethods() async throws {

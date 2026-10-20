@@ -40,6 +40,20 @@ offers the providers' logins. Each runs on the attached server:
   runs on another machine, paste the final page's URL or the code it shows.
 - **API key.** The key is sent to the server once and never returned.
 
+## In the macOS app
+
+First run and Settings › Providers offer the same logins. A browser login
+opens the authorization page in the default browser and, while its step
+shows, listens on the login's loopback redirect address as the terminal
+client does: on both loopback addresses for `localhost`, accepting only a
+request on the redirect's path that carries the login's state. It answers
+the browser with a short page saying it can be closed and relays the redirect
+to the server. Leaving the step, going back, or the login ending stops
+listening. When the app cannot listen there, such as while a terminal client
+is waiting on the same login port, or when the browser runs on another
+machine, paste the final page's address or the code it shows into the step's
+field.
+
 ## From the command line
 
 ```sh
