@@ -2142,7 +2142,7 @@ impl Shell {
   private fn mut run_palette_action(action: command_palette::Action) {
     match action.kind {
       // Replacing the palette mounts the flow's own focus owner.
-      command_palette::ActionKind::login => { self.active_modal = AuthModal{} },
+      command_palette::ActionKind::connect => { self.active_modal = AuthModal{} },
       command_palette::ActionKind::quit => self.props.quit(),
       command_palette::ActionKind::compact => {
         self.finish_modal()

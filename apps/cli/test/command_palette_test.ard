@@ -409,6 +409,32 @@ test fn gapped_command_words_rank_the_command_and_keep_arguments() Void!Str {
   )
 }
 
+test fn the_former_login_command_name_finds_connect() Void!Str {
+  let terminal = headless::new(80, 16)
+  defer terminal.destroy()
+  let model = mut Model{
+    open: true,
+    draft: "",
+    busy: false,
+    actions: [],
+    notices: [],
+    dismissed: 0,
+  }
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "login")
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(model.actions.size() == 1, "Enter resolves one action")
+  let action = model.actions.at(0).expect("action")
+  testing::assert(
+    action.kind == command_palette::ActionKind::connect,
+    "login is a search term for /connect",
+  )
+}
+
 test fn without_a_compatible_server_only_local_commands_remain() Void!Str {
   let catalog = command_palette::command_catalog(
     false,
@@ -429,7 +455,7 @@ test fn without_a_compatible_server_only_local_commands_remain() Void!Str {
       false => "{keys} {item.key}",
     }
   }
-  testing::assert(keys == "debug login mcp quit settings theme", keys)
+  testing::assert(keys == "connect debug mcp quit settings theme", keys)
 }
 
 test fn prompt_commands_show_their_source_with_claude_code_commands_as_claude() Void!Str {
