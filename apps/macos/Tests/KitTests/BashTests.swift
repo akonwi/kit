@@ -98,6 +98,43 @@ private actor ShellResults {
         #expect(await sink.latest?.activeBashID == nil)
     }
 
+    @Test func recordsThatLeaveTheDeliveredWindowAreNotMovedToTheEnd() async throws {
+        let sink = ShellResults()
+        let projection = BashWatchProjection { await sink.accept($0) }
+        func row(_ id: String) -> TranscriptMessage { .init(id: id, role: "assistant", text: id, tools: []) }
+        var session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "server", model: "model", thinking: "off", workspace: "tmp", date: "",
+            messages: [row("before"), try execution("bash_old", status: .value1, output: "done").message, row("after")])
+        await projection.stream(session)
+        #expect(await sink.latest?.messages.map(\.id) == ["before", "bash_old", "after"])
+        // Later turns slide the bounded snapshot window past the command's record.
+        session.messages = [row("later"), row("latest")]
+        await projection.stream(session)
+        #expect(await sink.latest?.messages.map(\.id) == ["later", "latest"])
+    }
+
+    @Test func submittedCommandsKeepTheirPlaceOnlyWhileItIsShown() async throws {
+        let operation = BashOperation(), client = ShellClient()
+        await operation.submit("!printf test", session: "s", client: client, after: "before") { _ in }
+        let id = try #require(operation.executions.first?.id)
+        func row(_ id: String) -> TranscriptMessage { .init(id: id, role: "assistant", text: id, tools: []) }
+        // Settled before its record arrives, the command follows its anchor.
+        #expect(operation.merge(into: [row("before"), row("after")]).map(\.id) == ["before", id, "after"])
+        let record = try execution(id, status: .value1, output: "test").message
+        #expect(operation.merge(into: [row("before"), record, row("after")]).map(\.id) == ["before", id, "after"])
+        // Once its record and anchor leave the shown rows, it is not appended.
+        #expect(operation.merge(into: [row("later")]).map(\.id) == ["later"])
+
+        // An excluded command never has a record; it is shown only after its anchor.
+        let excluded = try execution("bash_excluded", status: .value1, excluded: true, output: "private")
+        let unrecorded = BashExecution.merge([excluded], anchors: ["bash_excluded": "before"], into: [row("before"), row("after")])
+        #expect(unrecorded.map(\.id) == ["before", "bash_excluded", "after"])
+        #expect(BashExecution.merge([excluded], anchors: ["bash_excluded": "before"], into: [row("later")]).map(\.id) == ["later"])
+        // A running command is current work, so it follows a transcript that no
+        // longer shows its anchor.
+        let running = try execution("bash_running")
+        #expect(BashExecution.merge([running], anchors: ["bash_running": "before"], into: [row("later")]).map(\.id) == ["later", "bash_running"])
+    }
+
     @Test func idleSessionsDoNotPollAndRunningRowsArePolledUntilSettled() async throws {
         actor Reads {
             var ids: [String] = []

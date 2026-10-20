@@ -63,9 +63,14 @@ struct BashExecution: Decodable, Sendable, Equatable, Identifiable {
     var message: TranscriptMessage { .init(id: id, role: "bash", text: "", tools: [], bash: self) }
 
     /// Places tracked executions into transcript rows. A row with an execution's
-    /// identity is replaced when `replace` allows; otherwise the execution is
-    /// inserted at the start (empty anchor), after its anchor row, or at the end.
-    static func merge(_ executions: [BashExecution], anchors: [String: String], into messages: [TranscriptMessage],
+    /// identity is replaced when `replace` allows. A missing execution is
+    /// inserted at the start (empty anchor) or after its anchor row, unless
+    /// `recorded` names it: the transcript has shown its record, so its absence
+    /// means its place lies outside the rows shown. A running execution whose
+    /// anchor is gone follows the transcript; a settled one is left out, because
+    /// its place is no longer shown.
+    static func merge(_ executions: [BashExecution], anchors: [String: String], recorded: Set<String> = [],
+                      into messages: [TranscriptMessage],
                       replace: (_ row: TranscriptMessage, _ execution: BashExecution) -> Bool = { _, _ in true }) -> [TranscriptMessage] {
         guard !executions.isEmpty else { return messages }
         var rows = messages
@@ -79,12 +84,12 @@ struct BashExecution: Decodable, Sendable, Equatable, Identifiable {
                 missing.append(execution)
             }
         }
-        for execution in missing {
+        for execution in missing where !recorded.contains(execution.id) {
             if anchors[execution.id] == "" {
                 rows.insert(execution.message, at: 0)
             } else if let anchor = anchors[execution.id], let index = rows.firstIndex(where: { $0.id == anchor }) {
                 rows.insert(execution.message, at: index + 1)
-            } else { rows.append(execution.message) }
+            } else if execution.running { rows.append(execution.message) }
         }
         return rows
     }

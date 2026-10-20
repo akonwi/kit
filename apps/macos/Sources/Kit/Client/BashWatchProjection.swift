@@ -10,6 +10,9 @@ actor BashWatchProjection {
     private var latest: SessionExcerpt?
     private var executions: [BashExecution] = []
     private var anchors: [String: String] = [:]
+    /// Executions whose transcript record a delivery has carried. The
+    /// transcript owns their placement; they are never re-inserted.
+    private var recorded: Set<String> = []
     private var lastPublishedID: String?
     private let receive: @Sendable (SessionExcerpt) async -> Void
     private let signals: AsyncStream<Void>
@@ -24,7 +27,11 @@ actor BashWatchProjection {
 
     func stream(_ session: SessionExcerpt) async {
         latest = session
-        for row in session.messages { if let bash = row.bash { upsert(bash) } }
+        for row in session.messages {
+            guard let bash = row.bash else { continue }
+            if !bash.running { recorded.insert(bash.id) }
+            upsert(bash)
+        }
         if !pollTargets().isEmpty { signal.yield() }
         await publish()
     }
@@ -78,12 +85,13 @@ actor BashWatchProjection {
         if executions.count > 64 { executions.removeFirst(executions.count - 64) }
         let retained = Set(executions.map(\.id))
         anchors = anchors.filter { retained.contains($0.key) }
+        recorded.formIntersection(retained)
     }
 
     private func publish() async {
         guard var session = latest else { return }
         session.activeBashID = activeID
-        session.messages = BashExecution.merge(executions, anchors: anchors, into: session.messages)
+        session.messages = BashExecution.merge(executions, anchors: anchors, recorded: recorded, into: session.messages)
         lastPublishedID = session.messages.last?.id
         await receive(session)
     }
