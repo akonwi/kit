@@ -2251,11 +2251,27 @@ impl Shell {
         authenticated: fn() {
           self.apply_authenticated()
         },
+        logged_out: self.logout_reporter(),
         copied: fn() {
           self.notify("Copied to clipboard", "", toast::Variant::info, false)
         },
       },
     )
+  }
+
+  // logout_reporter returns the callback a provider logout's worker calls
+  // with its outcome. It captures Shell's dispatch on the UI thread, so the
+  // worker only dispatches.
+  fn mut logout_reporter() fn(Str, Str) {
+    let dispatch = self.context.expect("mounted shell").dispatch
+    fn(name: Str, failure: Str) {
+      let _ = dispatch(fn() {
+        match failure == "" {
+          true => self.notify("Logged out of {name}", "", toast::Variant::info, false),
+          false => self.notify("Couldn't log out of {name}", failure, toast::Variant::error, true),
+        }
+      })
+    }
   }
 
   fn mut apply_authenticated() {
@@ -2978,5 +2994,64 @@ private fn typed_key(name: Str) mut event::KeyEvent {
       alt: false,
       super: false,
     },
+  )
+}
+
+// Runs a toast's entrance animation to completion and reports whether text
+// is visible.
+private fn settled_frame_contains(terminal: headless::TestApp, text: Str) Bool {
+  terminal.flush()
+  terminal.advance_time(0)
+  terminal.advance_time(350)
+  terminal.render()
+  terminal.flush()
+  terminal.frame().text().contains(text)
+}
+
+test fn logout_outcomes_raise_toasts_from_their_worker() Void!Str {
+  let terminal = headless::new(100, 20)
+  defer terminal.destroy()
+  let subject = new(
+    mut Props{
+      options: cli::TUIOptions{Context: context::Background(), Authenticated: false},
+      themes: theme::context(theme::store(theme::system())),
+      quit: fn() {},
+      attach: bootstrap::attach,
+      terminal: terminal_status::detached(),
+      open_url: fn(target: Str) Void!Error {
+        Result::ok(())
+      },
+    },
+  )
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  let report = subject.logout_reporter()
+
+  // The flow reports from its logout worker, off the UI thread.
+  let reported_a = Chan::new<Bool>(1)
+  async::start(fn() {
+    report("Anthropic", "")
+    reported_a.send(true)
+  })
+  let _ = reported_a.recv()
+  try testing::assert(
+    settled_frame_contains(terminal, "Logged out of Anthropic"),
+    "a logout raises an informational toast:\n{terminal.frame().text()}",
+  )
+
+  let reported_b = Chan::new<Bool>(1)
+  async::start(fn() {
+    report("OpenAI Codex", "credentials come from the environment")
+    reported_b.send(true)
+  })
+  let _ = reported_b.recv()
+  try testing::assert(
+    settled_frame_contains(terminal, "Couldn't log out of OpenAI Codex"),
+    "a refused logout raises an error toast titled with the provider:\n{terminal.frame().text()}",
+  )
+  testing::assert(
+    terminal.frame().text().contains("credentials come from the environment"),
+    "the error toast carries the server's reason:\n{terminal.frame().text()}",
   )
 }

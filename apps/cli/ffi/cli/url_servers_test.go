@@ -93,6 +93,9 @@ func TestURLServersPairAttachAndRecoverFromRevocation(t *testing.T) {
 	if _, ok := prepared.Options.Login.(serverDeviceLogin); !ok {
 		t.Fatalf("device login = %T", prepared.Options.Login)
 	}
+	if _, ok := prepared.Options.Logout.(serverLogout); !ok {
+		t.Fatalf("logout = %T", prepared.Options.Logout)
+	}
 
 	// kit pair from this device prints a link at the saved URL.
 	code, stdout, stderr = runCLI("pair", "vps")

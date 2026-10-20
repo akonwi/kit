@@ -35,6 +35,7 @@ type TUIOptions struct {
 	Login              DeviceLogin
 	BrowserLogin       BrowserLogin
 	APIKeyLogin        APIKeyLogin
+	Logout             ProviderLogout
 	ThemeName          string
 	ThemeDefinition    kittheme.Definition
 	ThemeService       ThemeService
@@ -59,6 +60,12 @@ type BrowserLogin interface {
 // APIKeyLogin installs an API-key credential and activates its provider.
 type APIKeyLogin interface {
 	Login(context.Context, string, string) error
+}
+
+// ProviderLogout removes the attached server's stored credential for a
+// provider.
+type ProviderLogout interface {
+	Logout(context.Context, string) error
 }
 
 // ThemeService discovers, loads, and persists terminal themes.
