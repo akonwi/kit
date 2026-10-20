@@ -83,12 +83,19 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     // URLSession retains its connections until explicitly invalidated, including
-    // abandoned SSE requests. LocalClient creates a transport per operation.
+    // abandoned SSE requests. ServerClient creates a transport per operation.
     deinit { session.invalidateAndCancel() }
 
+    /// The server of the app's own Kit home.
     static func local() async throws -> HTTPClient {
+        try await discover(home: DevHomeResolver.resolve(), serverID: ServerClient.localID)
+    }
+
+    /// Finds the server of a Kit home on this Mac through its discovery
+    /// files and verifies it.
+    static func discover(home: URL, serverID: String) async throws -> HTTPClient {
         // Discovery is read-only. Starting a daemon remains owned by Kit's CLI.
-        let root = DevHomeResolver.resolve().appendingPathComponent("run")
+        let root = home.appendingPathComponent("run")
         let registry: LocalDaemonRegistry
         let token: String
         do {
@@ -104,7 +111,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         }
         guard registry.registryVersion == 1 else { throw ClientError.incompatible }
         guard let url = URL(string: registry.url), registry.pid > 0 else { throw ClientError.invalidEndpoint }
-        let client = try HTTPClient(endpoint: url, token: token, instance: registry.instanceId, serverID: "local-v2")
+        let client = try HTTPClient(endpoint: url, token: token, instance: registry.instanceId, serverID: serverID)
         let output = try await client.generatedOperation { try await client.api.getHealth(headers: .init(xKitInstanceID: registry.instanceId)) }
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let payload = try response.body.json

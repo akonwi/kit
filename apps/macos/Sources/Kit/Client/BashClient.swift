@@ -6,15 +6,15 @@ protocol BashClient: SessionClient {
     func abortBash(_ session: String, id: String) async throws
 }
 
-extension LocalClient: BashClient {
+extension ServerClient: BashClient {
     func startBash(_ session: String, input: WireBashExecutionInput) async throws -> BashExecution {
         let transport: HTTPClient
-        do { transport = try await HTTPClient.local() }
+        do { transport = try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
         return try await transport.startBash(session, input: input)
     }
-    func bash(_ session: String, id: String) async throws -> BashExecution { try await HTTPClient.local().bash(session, id: id) }
-    func abortBash(_ session: String, id: String) async throws { try await HTTPClient.local().abortBash(session, id: id) }
+    func bash(_ session: String, id: String) async throws -> BashExecution { try await resolve().bash(session, id: id) }
+    func abortBash(_ session: String, id: String) async throws { try await resolve().abortBash(session, id: id) }
 }
 
 struct BashExecution: Decodable, Sendable, Equatable, Identifiable {

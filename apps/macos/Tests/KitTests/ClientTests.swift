@@ -65,13 +65,13 @@ struct LiveClientSmokeTests {
     func localServerReadOnly() async throws {
         // Warm Foundation networking first, then ensure per-operation transports
         // do not accumulate sockets across catalog refreshes.
-        _ = try await LocalClient().sessions()
+        _ = try await ServerClient.local().sessions()
         func openDescriptors() -> Int {
             (0..<getdtablesize()).reduce(0) { $0 + (fcntl($1, F_GETFD) == -1 ? 0 : 1) }
         }
         try await Task.sleep(for: .milliseconds(100))
         let baseline = openDescriptors()
-        for _ in 0..<40 { _ = try await LocalClient().sessions() }
+        for _ in 0..<40 { _ = try await ServerClient.local().sessions() }
         try await Task.sleep(for: .milliseconds(300))
         #expect(openDescriptors() <= baseline + 8)
         let client = try await HTTPClient.local()
@@ -92,7 +92,7 @@ struct LiveClientSmokeTests {
             // Cancel after the initial snapshot: detachment must not abort the run.
             let streamBaseline = openDescriptors()
             for _ in 0..<8 {
-                let task = Task { try await LocalClient().watch(session.id) { _ in } }
+                let task = Task { try await ServerClient.local().watch(session.id) { _ in } }
                 try await Task.sleep(for: .milliseconds(100))
                 task.cancel()
                 _ = await task.result

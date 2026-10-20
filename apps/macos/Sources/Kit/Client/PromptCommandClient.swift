@@ -4,10 +4,10 @@ protocol PromptCommandClient: SessionClient {
     func submitPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WirePromptSubmission
 }
 
-extension LocalClient: PromptCommandClient {
+extension ServerClient: PromptCommandClient {
     func submitPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WirePromptSubmission {
         let transport: HTTPClient
-        do { transport = try await HTTPClient.local() }
+        do { transport = try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
         return try await transport.submitPromptCommand(id, input: input)
     }

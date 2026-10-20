@@ -4,10 +4,10 @@ protocol SessionNamingClient: SessionClient {
     func renameSession(_ id: String, name: String) async throws -> SessionExcerpt
 }
 
-extension LocalClient: SessionNamingClient {
+extension ServerClient: SessionNamingClient {
     func renameSession(_ id: String, name: String) async throws -> SessionExcerpt {
         let transport: HTTPClient
-        do { transport = try await HTTPClient.local() }
+        do { transport = try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
         return try await transport.renameSession(id, name: name)
     }

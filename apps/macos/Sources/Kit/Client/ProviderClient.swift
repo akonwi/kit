@@ -61,16 +61,16 @@ protocol ProviderClient: Sendable {
     func models() async throws -> [WireModelCapability]
 }
 
-extension LocalClient: ProviderClient {
-    func providers() async throws -> [ProviderInfo] { try await HTTPClient.local().providers() }
+extension ServerClient: ProviderClient {
+    func providers() async throws -> [ProviderInfo] { try await resolve().providers() }
     func startLogin(provider: String, method: ProviderLoginMethod) async throws -> ProviderLogin {
-        try await HTTPClient.local().startLogin(provider: provider, method: method)
+        try await resolve().startLogin(provider: provider, method: method)
     }
-    func login(_ id: String, wait: Int) async throws -> ProviderLogin { try await HTTPClient.local().login(id, wait: wait) }
+    func login(_ id: String, wait: Int) async throws -> ProviderLogin { try await resolve().login(id, wait: wait) }
     func submitAuthorization(login: String, _ authorization: String) async throws {
-        try await HTTPClient.local().submitAuthorization(login: login, authorization)
+        try await resolve().submitAuthorization(login: login, authorization)
     }
-    func cancelLogin(_ id: String) async throws { try await HTTPClient.local().cancelLogin(id) }
-    func setAPIKey(provider: String, _ key: String) async throws { try await HTTPClient.local().setAPIKey(provider: provider, key) }
-    func signOut(provider: String) async throws { try await HTTPClient.local().signOut(provider: provider) }
+    func cancelLogin(_ id: String) async throws { try await resolve().cancelLogin(id) }
+    func setAPIKey(provider: String, _ key: String) async throws { try await resolve().setAPIKey(provider: provider, key) }
+    func signOut(provider: String) async throws { try await resolve().signOut(provider: provider) }
 }

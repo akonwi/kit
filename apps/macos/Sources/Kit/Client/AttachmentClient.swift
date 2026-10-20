@@ -6,8 +6,8 @@ protocol AttachmentClient: SessionClient {
     func attachmentContent(_ session: String, info: WireAttachmentInfo) async throws -> Data
 }
 
-extension LocalClient: AttachmentClient {
+extension ServerClient: AttachmentClient {
     func attachmentContent(_ session: String, info: WireAttachmentInfo) async throws -> Data {
-        try await HTTPClient.local().attachmentContent(session, info: info)
+        try await resolve().attachmentContent(session, info: info)
     }
 }

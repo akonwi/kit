@@ -4,9 +4,9 @@ protocol PluginNotificationClient: SessionClient {
     func watchPluginNotifications(_ session: String, receive: @escaping @Sendable (PluginNotification) async -> Void) async throws
 }
 
-extension LocalClient: PluginNotificationClient {
+extension ServerClient: PluginNotificationClient {
     func watchPluginNotifications(_ session: String, receive: @escaping @Sendable (PluginNotification) async -> Void) async throws {
-        try await HTTPClient.local().watchPluginNotifications(session, receive: receive)
+        try await resolve().watchPluginNotifications(session, receive: receive)
     }
 }
 

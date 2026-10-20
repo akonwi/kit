@@ -20,11 +20,11 @@ protocol SubagentConfigurationClient: SubagentClient {
                            model: String?, thinking: String?) async throws -> SubagentConfigurationResult
 }
 
-extension LocalClient: SubagentConfigurationClient {
+extension ServerClient: SubagentConfigurationClient {
     func configureSubagent(_ session: String, conversation: String, generation: UInt64,
                            model: String?, thinking: String?) async throws -> SubagentConfigurationResult {
         let transport: HTTPClient
-        do { transport = try await HTTPClient.local() }
+        do { transport = try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
         return try await transport.configureSubagent(session, conversation: conversation, generation: generation,
             model: model, thinking: thinking)

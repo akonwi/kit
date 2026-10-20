@@ -4,10 +4,10 @@ protocol PluginCommandClient: SessionClient {
     func executePluginCommand(_ session: String, input: WirePluginCommandInput) async throws
 }
 
-extension LocalClient: PluginCommandClient {
+extension ServerClient: PluginCommandClient {
     func executePluginCommand(_ session: String, input: WirePluginCommandInput) async throws {
         let transport: HTTPClient
-        do { transport = try await HTTPClient.local() }
+        do { transport = try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
         try await transport.executePluginCommand(session, input: input)
     }

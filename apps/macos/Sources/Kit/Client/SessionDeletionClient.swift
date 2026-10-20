@@ -4,9 +4,9 @@ protocol SessionDisposalClient: SessionClient {
     func disposeSession(_ id: String) async throws
 }
 
-extension LocalClient: SessionDisposalClient {
+extension ServerClient: SessionDisposalClient {
     func disposeSession(_ id: String) async throws {
-        try await HTTPClient.local().disposeSession(id)
+        try await resolve().disposeSession(id)
     }
 }
 
@@ -14,10 +14,10 @@ protocol SessionDeletionClient: SessionClient {
     func deleteSession(_ id: String) async throws
 }
 
-extension LocalClient: SessionDeletionClient {
+extension ServerClient: SessionDeletionClient {
     func deleteSession(_ id: String) async throws {
         let transport: HTTPClient
-        do { transport = try await HTTPClient.local() }
+        do { transport = try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
         try await transport.deleteSession(id)
     }

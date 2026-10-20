@@ -77,29 +77,54 @@ indirect enum WireJSON: Codable, Sendable {
     }
 }
 
-/// Resolve discovery afresh for each attachment, including after daemon restart.
-struct LocalClient: ScratchpadClient, TranscriptPagingClient, SubagentStreamingClient {
+/// How the app reaches a server. A connector resolves the server afresh for
+/// every operation, so a restarted server is found again.
+enum ServerConnector: Hashable, Sendable {
+    /// The server of a Kit home on this Mac, found through its discovery files.
+    case home(URL)
+}
+
+/// A client for one server, named by `serverID`. It resolves the server
+/// through its connector for each operation, including after a restart.
+struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreamingClient {
+    let serverID: String
+    let connector: ServerConnector
+    let isDemo = false
+
+    /// The name of the app's own Kit home's server.
+    static let localID = "local-v2"
+
+    /// The server of the app's own Kit home.
+    static func local() -> ServerClient {
+        ServerClient(serverID: localID, connector: .home(DevHomeResolver.resolve()))
+    }
+
+    /// Resolves the server and returns a transport for one operation.
+    func resolve() async throws -> HTTPClient {
+        switch connector {
+        case .home(let home): try await HTTPClient.discover(home: home, serverID: serverID)
+        }
+    }
+
     func scratchpad(session: String) async throws -> ScratchpadRecord {
-        try await HTTPClient.local().scratchpad(session: session)
+        try await resolve().scratchpad(session: session)
     }
     func updateScratchpad(session: String, content: String, expectedRevision: Int64) async throws -> ScratchpadRecord {
-        try await HTTPClient.local().updateScratchpad(session: session, content: content, expectedRevision: expectedRevision)
+        try await resolve().updateScratchpad(session: session, content: content, expectedRevision: expectedRevision)
     }
     func subagentTranscript(session: String, conversation: String) async throws -> [TranscriptMessage] {
-        try await HTTPClient.local().subagentTranscript(session: session, conversation: conversation)
+        try await resolve().subagentTranscript(session: session, conversation: conversation)
     }
     func watchSubagent(session: String, conversation: String,
                        receive: @escaping @Sendable (SubagentTranscriptUpdate) async -> Void) async throws {
-        try await HTTPClient.local().watchSubagent(session: session, conversation: conversation, receive: receive)
+        try await resolve().watchSubagent(session: session, conversation: conversation, receive: receive)
     }
-    let serverID = "local-v2"
-    let isDemo = false
-    func sessions() async throws -> [SessionExcerpt] { try await HTTPClient.local().sessions() }
+    func sessions() async throws -> [SessionExcerpt] { try await resolve().sessions() }
     func history(_ id: String, before: String) async throws -> TranscriptHistoryPage {
-        try await HTTPClient.local().history(id, before: before)
+        try await resolve().history(id, before: before)
     }
-    func snapshot(_ id: String) async throws -> SessionExcerpt { try await HTTPClient.local().snapshot(id) }
+    func snapshot(_ id: String) async throws -> SessionExcerpt { try await resolve().snapshot(id) }
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
-        try await HTTPClient.local().watch(id, receive: receive)
+        try await resolve().watch(id, receive: receive)
     }
 }

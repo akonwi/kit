@@ -30,9 +30,9 @@ actor WorkspaceReadGate {
     }
 }
 
-extension LocalClient: WorkspaceFileClient {
+extension ServerClient: WorkspaceFileClient {
     func readWorkspaceFile(_ session: String, path: String, expectedRevision: String?) async throws -> WireWorkspaceFileRead {
-        try await HTTPClient.local().readWorkspaceFile(session, path: path, expectedRevision: expectedRevision)
+        try await resolve().readWorkspaceFile(session, path: path, expectedRevision: expectedRevision)
     }
 }
 

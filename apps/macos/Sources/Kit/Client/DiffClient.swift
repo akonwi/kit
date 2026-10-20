@@ -6,15 +6,15 @@ protocol DiffClient: SessionClient {
     func readDiff(_ session: String, input: WireReadFileDiffInput) async throws -> WireFileDiffPage
 }
 
-extension LocalClient: DiffClient {
+extension ServerClient: DiffClient {
     func diffTargets(_ session: String) async throws -> WireDiffTargetCatalog {
-        try await HTTPClient.local().diffTargets(session)
+        try await resolve().diffTargets(session)
     }
     func observeDiff(_ session: String, input: WireObserveDiffInput) async throws -> WireWorkingTreePage {
-        try await HTTPClient.local().observeDiff(session, input: input)
+        try await resolve().observeDiff(session, input: input)
     }
     func readDiff(_ session: String, input: WireReadFileDiffInput) async throws -> WireFileDiffPage {
-        try await HTTPClient.local().readDiff(session, input: input)
+        try await resolve().readDiff(session, input: input)
     }
 }
 

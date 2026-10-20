@@ -26,10 +26,10 @@ final class AppModel {
     /// Reuse the established client; overlapping presentation/manual requests coalesce.
     func refreshSessions() async {
         guard !connecting else { return }
-        await connectLocal(using: client ?? LocalClient())
+        await connectLocal(using: client ?? ServerClient.local())
     }
 
-    func connectLocal(using candidate: any SessionClient = LocalClient()) async {
+    func connectLocal(using candidate: any SessionClient = ServerClient.local()) async {
         let attempt = UUID(); generation = attempt
         connecting = true; error = nil
         defer { if generation == attempt { connecting = false } }
@@ -43,7 +43,7 @@ final class AppModel {
         }
     }
 
-    func connectIfNeeded(to serverID: String, using candidate: any SessionClient = LocalClient()) async {
+    func connectIfNeeded(to serverID: String, using candidate: any SessionClient = ServerClient.local()) async {
         guard ["", "local-v2"].contains(serverID), client == nil, !connecting else { return }
         await connectLocal(using: candidate)
     }

@@ -85,7 +85,7 @@ final class SessionWindowModel: Identifiable {
     @ObservationIgnored private var layoutCapture: Task<Void, Never>?
     static let layoutCaptureDelay: Duration = .milliseconds(500)
 
-    static let defaultServer = "local-v2"
+    static let defaultServer = ServerClient.localID
 
     init(id: UUID, sessions: [SessionIdentity] = [], selected: SessionIdentity? = nil,
          layouts: [SessionIdentity: TileArrangement] = [:], collapsed: Set<String> = []) {
