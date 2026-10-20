@@ -382,7 +382,7 @@ final class SessionWindowModel: Identifiable {
             select(existing)
             return
         }
-        if tab.store?.selectedID != identity.session { release(tab) }
+        if tab.store?.selectedID != identity.session || tab.store?.serverID != identity.server { release(tab) }
         tab.identity = identity
         tab.savedArrangement = nil
         reveal(tab)
@@ -434,7 +434,17 @@ final class SessionWindowModel: Identifiable {
 
     func store(for tab: SessionTab, client: any SessionClient) -> SessionStore? {
         guard !tab.isLauncher, tab.identity.server == client.serverID else { return nil }
-        if let store = tab.store, store.serverID == client.serverID { return store }
+        if let store = tab.store, store.serverID == client.serverID {
+            if store.connector == (client as? ServerClient)?.connector {
+                // A watch that gave up, as on a restart's transient errors,
+                // resumes once the server is back.
+                if store.watchStopped { store.attach() }
+                return store
+            }
+            // The server's name now points elsewhere; keep only the layout.
+            tab.savedArrangement = store.ui.workspace.arrangement
+            release(tab)
+        }
         let catalog = servers.connection(named: client.serverID)?.catalog.sessions ?? []
         let store = SessionStore(fixture: Fixture(sessions: catalog), client: client, sessionID: tab.identity.session)
         if let arrangement = tab.savedArrangement { store.ui.workspace.restore(arrangement) }
@@ -448,7 +458,7 @@ final class SessionWindowModel: Identifiable {
     }
 
     /// Attaches every session tab whose server is connected, so background
-    /// tabs report their status.
+    /// tabs report their status, and resumes watches that gave up.
     func attachAll() {
         for tab in tabs { store(for: tab) }
     }

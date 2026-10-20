@@ -52,6 +52,9 @@ final class ServerConnection: Identifiable {
         var maximumRetry: Duration = .seconds(30)
         /// How often a connected or incompatible server is checked again.
         var check: Duration = .seconds(30)
+
+        /// The retry after one that waited `wait`.
+        func retry(after wait: Duration) -> Duration { min(wait * 2, maximumRetry) }
     }
 
     typealias Handshake = @Sendable () async throws -> ServerIdentity
@@ -64,6 +67,9 @@ final class ServerConnection: Identifiable {
     private(set) var status: ServerStatus = .connecting
 
     @ObservationIgnored private let handshake: Handshake
+    /// A handshake is underway.
+    @ObservationIgnored private var checking = false
+    @ObservationIgnored private(set) var retired = false
     @ObservationIgnored private let schedule: Schedule
     @ObservationIgnored private var monitor: Task<Void, Never>?
 
@@ -74,28 +80,30 @@ final class ServerConnection: Identifiable {
     convenience init(name: String, connector: ServerConnector, schedule: Schedule = Schedule()) {
         let signal = ServerSignal()
         let client = ServerClient(serverID: name, connector: connector, unreachable: signal)
-        self.init(client: client, catalogClient: client, schedule: schedule) {
+        self.init(client: client, catalogClient: client, schedule: schedule, signal: signal) {
             try await connector.handshake(serverID: name).identity
-        }
-        signal.connect { [weak self] in
-            Task { @MainActor in self?.operationFailed() }
         }
     }
 
-    /// Creates a connection with an explicit handshake, as tests do.
+    /// Creates a connection with an explicit handshake, as tests do. Firing
+    /// `signal` reports a failed operation.
     init(client: ServerClient, catalogClient: (any SessionClient)? = nil, schedule: Schedule = Schedule(),
-         handshake: @escaping Handshake) {
+         signal: ServerSignal? = nil, handshake: @escaping Handshake) {
         name = client.serverID
         connector = client.connector
         self.client = client
         catalog = SessionCatalog(client: catalogClient ?? client)
         self.schedule = schedule
         self.handshake = handshake
+        signal?.connect { [weak self] in
+            Task { @MainActor in self?.operationFailed() }
+        }
     }
 
-    /// Starts checking the server, if it isn't already.
+    /// Starts checking the server, if it isn't already and the connection
+    /// hasn't been retired.
     func start() {
-        guard monitor == nil else { return }
+        guard monitor == nil, !retired else { return }
         monitor = Task { [weak self] in await self?.run() }
     }
 
@@ -103,10 +111,20 @@ final class ServerConnection: Identifiable {
     func stop() {
         monitor?.cancel()
         monitor = nil
+        checking = false
+    }
+
+    /// Stops checking the server for good, as when it is no longer saved
+    /// under this name or its connector changed. Operations of sessions still
+    /// using it can't revive it.
+    func retire() {
+        retired = true
+        stop()
     }
 
     /// Checks the server now, as Try Now and returning to the app do.
     func checkNow() {
+        guard !retired else { return }
         if case .unreachable(let reason, _) = status { status = .unreachable(reason: reason, retry: nil) }
         stop()
         start()
@@ -114,9 +132,10 @@ final class ServerConnection: Identifiable {
 
     /// An operation couldn't reach a server believed connected; check it now
     /// rather than at the next scheduled check. A server already known to be
-    /// unreachable keeps its backoff.
+    /// unreachable keeps its backoff, and a check already underway answers
+    /// for every operation that failed meanwhile.
     private func operationFailed() {
-        guard status.isConnected else { return }
+        guard status.isConnected, !checking else { return }
         checkNow()
     }
 
@@ -124,9 +143,13 @@ final class ServerConnection: Identifiable {
         var delay = schedule.firstRetry
         while !Task.isCancelled {
             let wait: Duration
+            checking = true
+            let result: Result<ServerIdentity, any Error>
+            do { result = .success(try await handshake()) } catch { result = .failure(error) }
+            guard !Task.isCancelled else { return }
+            checking = false
             do {
-                let identity = try await handshake()
-                guard !Task.isCancelled else { return }
+                let identity = try result.get()
                 let restarted = status.identity?.instance != identity.instance
                 status = .connected(identity)
                 delay = schedule.firstRetry
@@ -136,7 +159,7 @@ final class ServerConnection: Identifiable {
                     Task { await catalog.load() }
                 }
             } catch {
-                guard !Task.isCancelled, !(error is CancellationError) else { return }
+                guard !(error is CancellationError) else { return }
                 if case let ClientError.incompatibleDaemon(version, appProtocol, serverProtocol, reason) = error {
                     status = .incompatible(ServerMismatch(serverKitVersion: version, serverProtocol: serverProtocol,
                                                           appProtocol: appProtocol, reason: reason))
@@ -144,11 +167,11 @@ final class ServerConnection: Identifiable {
                 } else if case .connected(let identity) = status {
                     status = .reconnecting(identity, retry: Date.now.addingTimeInterval(delay.seconds))
                     wait = delay
-                    delay = min(delay * 2, schedule.maximumRetry)
+                    delay = schedule.retry(after: delay)
                 } else {
                     status = .unreachable(reason: error.localizedDescription, retry: Date.now.addingTimeInterval(delay.seconds))
                     wait = delay
-                    delay = min(delay * 2, schedule.maximumRetry)
+                    delay = schedule.retry(after: delay)
                 }
             }
             do { try await Task.sleep(for: wait) } catch { return }
@@ -233,18 +256,20 @@ final class ServerDirectory {
             }
         }
         let kept = Set(next.map(ObjectIdentifier.init))
-        for connection in connections where !kept.contains(ObjectIdentifier(connection)) { connection.stop() }
+        for connection in connections where !kept.contains(ObjectIdentifier(connection)) { connection.retire() }
         if next.map(ObjectIdentifier.init) != connections.map(ObjectIdentifier.init) { connections = next }
         if started { for connection in connections { connection.checkNow() } }
     }
 
     /// The saved servers this app can reach. Served and SSH servers arrive
     /// with their connectors; a saved home that is the app's own is `local`.
+    /// A server saved under two names connects once, under the first.
     private static func reachable(_ servers: [SavedServer], home: URL) -> [(name: String, connector: ServerConnector)] {
-        servers.compactMap { server in
+        var seen: Set<ServerConnector> = [.home(path: home.path)]
+        return servers.compactMap { server in
             guard server.kind == .home else { return nil }
             let connector = ServerConnector.home(path: server.address)
-            guard connector != .home(path: home.path) else { return nil }
+            guard seen.insert(connector).inserted else { return nil }
             return (server.name, connector)
         }
     }

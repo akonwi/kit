@@ -86,4 +86,37 @@ struct DaemonCompatibilityTests {
             #expect(reason == .daemonProtocolOlder)
         }
     }
+
+    /// A Kit home whose discovery files hold `registry`.
+    private func home(registry: String) throws -> URL {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let run = home.appendingPathComponent("run")
+        try FileManager.default.createDirectory(at: run, withIntermediateDirectories: true)
+        try Data(registry.utf8).write(to: run.appendingPathComponent("server.json"))
+        try Data("token".utf8).write(to: run.appendingPathComponent("server.token"))
+        return home
+    }
+
+    @Test func aRegistryOfAnotherFormatStillNamesAServerOfAnotherProtocol() async throws {
+        let newer = try home(registry: #"{"registryVersion":2,"protocolVersion":\#(kitWireVersion + 1),"kitVersion":"0.60.0","endpoints":[]}"#)
+        let unknown = try home(registry: #"{"registryVersion":2,"endpoints":[]}"#)
+        let malformed = try home(registry: #"{"registryVersion":1,"protocolVersion":\#(kitWireVersion)}"#)
+        defer { for home in [newer, unknown, malformed] { try? FileManager.default.removeItem(at: home) } }
+        do {
+            _ = try await HTTPClient.handshake(home: newer, serverID: "devbox")
+            Issue.record("A server of another protocol must not attach")
+        } catch ClientError.incompatibleDaemon(let version, _, let daemonProtocol, let reason) {
+            #expect(version == "0.60.0")
+            #expect(daemonProtocol == kitWireVersion + 1)
+            #expect(reason == .clientProtocolOlder)
+        }
+        do {
+            _ = try await HTTPClient.handshake(home: unknown, serverID: "devbox")
+            Issue.record("An unknown registry must not attach")
+        } catch ClientError.incompatible {}
+        do {
+            _ = try await HTTPClient.handshake(home: malformed, serverID: "devbox")
+            Issue.record("A malformed registry must not attach")
+        } catch ClientError.discovery {}
+    }
 }

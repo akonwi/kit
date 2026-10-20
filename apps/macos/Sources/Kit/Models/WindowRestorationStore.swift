@@ -51,7 +51,9 @@ final class WindowRestorationStore {
             let saved = try container.decodeIfPresent([Layout].self, forKey: .layouts) ?? []
             layouts = Dictionary(saved.map { ($0.session, $0.arrangement) }) { first, _ in first }
             collapsed = Set(try container.decodeIfPresent([String].self, forKey: .collapsed) ?? [])
-            let named = try container.decodeIfPresent([Title].self, forKey: .titles) ?? []
+            // Titles are cosmetic, so ones this build can't read are dropped
+            // rather than costing the window.
+            let named = (try? container.decodeIfPresent([Title].self, forKey: .titles)) ?? []
             titles = Dictionary(named.map { ($0.session, $0.title) }) { first, _ in first }
         }
 
@@ -173,9 +175,10 @@ final class WindowRestorationStore {
     func save() {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            // Layouts and collapsed families are optional fields of version
-            // 2, which earlier builds ignore, so downgrading keeps windows
-            // and tabs.
+            // Layouts, collapsed families, and titles are optional fields
+            // of version 2, which earlier builds ignore. Earlier builds name
+            // the local server `local-v2`, so after a downgrade they restore
+            // windows but can't attach their tabs.
             try JSONEncoder().encode(Manifest(version: 2, windows: windows)).write(to: url, options: .atomic)
             error = nil
         } catch { self.error = "Could not save open windows: " + error.localizedDescription }

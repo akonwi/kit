@@ -11,6 +11,15 @@ import Testing
     Issue.record("Condition was not reached in time")
 }
 
+/// Waits for a condition that has to ask an actor.
+@MainActor func eventually(awaiting condition: @MainActor () async -> Bool) async throws {
+    for _ in 0..<300 {
+        if await condition() { return }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    Issue.record("Condition was not reached in time")
+}
+
 @MainActor struct SessionCatalogTests {
     private actor CatalogClient: SessionClient {
         nonisolated let serverID = "local"
@@ -90,7 +99,7 @@ import Testing
         }
     }
 
-    private static func identity(instance: String = "instance-1") -> ServerIdentity {
+    nonisolated private static func identity(instance: String = "instance-1") -> ServerIdentity {
         ServerIdentity(id: "server_" + String(repeating: "a", count: 32), instance: instance, kitVersion: "0.48.0",
                        protocolVersion: kitWireVersion, machine: String(repeating: "b", count: 64), home: "/Users/kit")
     }
@@ -98,12 +107,26 @@ import Testing
     private static let fast = ServerConnection.Schedule(firstRetry: .milliseconds(20), maximumRetry: .milliseconds(40),
                                                        check: .seconds(60))
 
-    private func connection(_ script: Script, name: String = "devbox", schedule: ServerConnection.Schedule = fast) -> ServerConnection {
+    /// A catalog that counts how often it is loaded.
+    private actor CountingCatalog: SessionClient {
+        nonisolated let serverID = "devbox"
+        nonisolated let isDemo = false
+        private(set) var loads = 0
+        func sessions() async throws -> [SessionExcerpt] { loads += 1; return [] }
+        func snapshot(_ id: String) async throws -> SessionExcerpt { throw ClientError.missingSession }
+        func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {}
+    }
+
+    private func connection(_ script: Script, name: String = "devbox", schedule: ServerConnection.Schedule = fast,
+                            catalog: (any SessionClient)? = nil, signal: ServerSignal? = nil) -> ServerConnection {
         let client = ServerClient(serverID: name, connector: .home(URL(fileURLWithPath: "/tmp/\(name)")))
-        return ServerConnection(client: client, catalogClient: FixtureClient(fixture: Fixture(sessions: [])), schedule: schedule) {
+        return ServerConnection(client: client, catalogClient: catalog ?? FixtureClient(fixture: Fixture(sessions: [])),
+                                schedule: schedule, signal: signal) {
             try await script.next()
         }
     }
+
+    private static let slow = ServerConnection.Schedule(firstRetry: .seconds(60), maximumRetry: .seconds(60), check: .seconds(60))
 
     @Test func aReachableServerConnectsAndLoadsItsCatalog() async throws {
         let server = connection(Script([.success(Self.identity())]))
@@ -147,9 +170,9 @@ import Testing
     }
 
     @Test func aServerBackWhileReconnectingResumesWithoutReloading() async throws {
-        let slow = ServerConnection.Schedule(firstRetry: .seconds(60), maximumRetry: .seconds(60), check: .seconds(60))
         let script = Script([.success(Self.identity()), .failure(ClientError.noDaemon), .success(Self.identity())])
-        let server = connection(script, schedule: slow)
+        let catalog = CountingCatalog()
+        let server = connection(script, schedule: Self.slow, catalog: catalog)
         server.start()
         defer { server.stop() }
         try await eventually { server.status.isConnected && server.catalog.loaded }
@@ -158,6 +181,55 @@ import Testing
         server.checkNow()
         try await eventually { server.status == .connected(Self.identity()) }
         #expect(await script.calls == 3)
+        #expect(await catalog.loads == 1)
+    }
+
+    @Test func retriesBackOffByDoublingUpToTheMaximum() {
+        let schedule = ServerConnection.Schedule()
+        var waits = [schedule.firstRetry]
+        for _ in 0..<5 { waits.append(schedule.retry(after: waits.last!)) }
+        #expect(waits == [.seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(30), .seconds(30)])
+    }
+
+    @Test func aFailedOperationChecksAConnectedServerOnce() async throws {
+        let signal = ServerSignal()
+        let gate = AsyncStream<Void>.makeStream()
+        actor Calls { var count = 0; func add() -> Int { count += 1; return count } }
+        let calls = Calls()
+        let client = ServerClient(serverID: "devbox", connector: .home(URL(fileURLWithPath: "/tmp/devbox")))
+        let server = ServerConnection(client: client, catalogClient: FixtureClient(fixture: Fixture(sessions: [])),
+                                      schedule: Self.slow, signal: signal) {
+            // The second check waits until released, standing for a slow handshake.
+            if await calls.add() == 2 { for await _ in gate.stream { break } }
+            return Self.identity()
+        }
+        server.start()
+        defer { server.stop() }
+        try await eventually { server.status.isConnected }
+        signal.fire()
+        try await eventually(awaiting: { await calls.count == 2 })
+        // Failures meanwhile are answered by the check underway.
+        signal.fire()
+        signal.fire()
+        try await Task.sleep(for: .milliseconds(50))
+        gate.continuation.yield()
+        try await eventually { server.status.isConnected }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await calls.count == 2)
+    }
+
+    @Test func aRetiredConnectionStaysDown() async throws {
+        let signal = ServerSignal()
+        let script = Script([.success(Self.identity())])
+        let server = connection(script, schedule: Self.slow, signal: signal)
+        server.start()
+        try await eventually { server.status.isConnected }
+        server.retire()
+        signal.fire()
+        server.checkNow()
+        server.start()
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await script.calls == 1)
     }
 
     @Test func aServerOfAnotherProtocolIsIncompatible() async throws {
@@ -184,13 +256,19 @@ import Testing
     }
 
     @Test func aRestartedServerReloadsItsCatalog() async throws {
-        let script = Script([.success(Self.identity(instance: "first")), .success(Self.identity(instance: "second"))])
-        let server = connection(script)
+        let script = Script([.success(Self.identity(instance: "first")), .success(Self.identity(instance: "first")),
+                             .success(Self.identity(instance: "second"))])
+        let catalog = CountingCatalog()
+        let server = connection(script, catalog: catalog)
         server.start()
         defer { server.stop() }
         try await eventually { server.status.identity?.instance == "first" }
+        try await eventually(awaiting: { await catalog.loads == 1 })
+        server.checkNow()
+        try await eventually(awaiting: { await script.calls == 2 })
         server.checkNow()
         try await eventually { server.status.identity?.instance == "second" }
+        try await eventually(awaiting: { await catalog.loads == 2 })
     }
 }
 
@@ -240,6 +318,15 @@ import Testing
         saved.servers = []
         servers.refresh()
         #expect(servers.connections.map(\.name) == ["local"])
+        #expect(alpha?.retired == true)
+        #expect(beta?.retired == true)
+    }
+
+    @Test func aServerSavedUnderTwoNamesConnectsOnce() {
+        let saved = Saved()
+        saved.servers = [SavedServer(name: "alpha", kind: .home, address: "/work/shared/home"),
+                         SavedServer(name: "beta", kind: .home, address: "/work/shared/home")]
+        #expect(directory(saved).connections.map(\.name) == ["local", "alpha"])
     }
 }
 
@@ -340,12 +427,14 @@ struct ServerStatePresentationTests {
                                                  kitVersion: "0.48.0", protocolVersion: kitWireVersion,
                                                  machine: String(repeating: "b", count: 64), home: "/Users/kit")
 
-    /// The local server and devbox; devbox answers with `devbox`.
-    private func servers(devbox: @escaping @Sendable () async throws -> ServerIdentity) -> ServerDirectory {
+    /// The local server and devbox, listing `sessions` by server name;
+    /// devbox answers with `devbox`.
+    private func servers(sessions: [String: [SessionExcerpt]] = [:],
+                         devbox: @escaping @Sendable () async throws -> ServerIdentity) -> ServerDirectory {
         ServerDirectory(home: URL(fileURLWithPath: "/tmp/kit-home"),
                         saved: { [SavedServer(name: "devbox", kind: .home, address: "/tmp/devbox")] }) { name, connector in
             ServerConnection(client: ServerClient(serverID: name, connector: connector),
-                             catalogClient: FixtureClient(fixture: Fixture(sessions: []))) {
+                             catalogClient: FixtureClient(fixture: Fixture(sessions: sessions[name] ?? []))) {
                 if name == "devbox" { return try await devbox() }
                 return Self.identity
             }
@@ -373,16 +462,69 @@ struct ServerStatePresentationTests {
     }
 
     @Test func openSessionListsEveryConnectedServer() async throws {
-        let servers = servers { Self.identity }
-        servers.local.catalog.recordCreated(excerpt("a", "Local A", date: "2026-01-01T00:00:00Z"))
-        servers.connection(named: "devbox")?.catalog.recordCreated(excerpt("a", "Devbox A", date: "2026-01-02T00:00:00Z"))
+        let servers = servers(sessions: ["local": [excerpt("a", "Local A", date: "2026-01-01T00:00:00Z")],
+                                         "devbox": [excerpt("a", "Devbox A", date: "2026-01-02T00:00:00Z")]]) { Self.identity }
         #expect(SessionPickerView.entries(servers.connections).isEmpty)
         servers.start()
         defer { for connection in servers.connections { connection.stop() } }
-        try await eventually { servers.connections.allSatisfy(\.status.isConnected) }
+        try await eventually { servers.connections.allSatisfy { $0.status.isConnected && $0.catalog.loaded } }
         let entries = SessionPickerView.entries(servers.connections)
         #expect(entries.map(\.id) == ["a", "devbox/a"])
         #expect(entries.map(\.title) == ["Local A", "Devbox A"])
         #expect(entries.map { SessionWindowModel.identity(treeKey: $0.id).serverLabel } == [nil, "devbox"])
+    }
+
+    @Test func aServerNamePointedElsewhereGetsAFreshStore() async throws {
+        var saved = [SavedServer(name: "devbox", kind: .home, address: "/tmp/devbox")]
+        let servers = ServerDirectory(home: URL(fileURLWithPath: "/tmp/kit-home"), saved: { saved }) { name, connector in
+            ServerConnection(client: ServerClient(serverID: name, connector: connector),
+                             catalogClient: FixtureClient(fixture: Fixture(sessions: []))) { Self.identity }
+        }
+        servers.start()
+        defer { for connection in servers.connections { connection.stop() } }
+        let model = SessionWindowModel(id: UUID(), servers: servers, sessions: [SessionIdentity(server: "devbox", session: "a")])
+        let tab = model.tabs[0]
+        try await eventually { servers.connection(named: "devbox")?.status.isConnected == true }
+        let first = try #require(model.store(for: tab))
+        #expect(first.connector == .home(path: "/tmp/devbox"))
+
+        saved = [SavedServer(name: "devbox", kind: .home, address: "/tmp/devbox2")]
+        servers.refresh()
+        try await eventually { servers.connection(named: "devbox")?.status.isConnected == true }
+        let second = try #require(model.store(for: tab))
+        #expect(second !== first)
+        #expect(second.connector == .home(path: "/tmp/devbox2"))
+        model.closeAll()
+    }
+
+    @Test func aStoreWhoseWatchGaveUpResumesWhenItsServerIsBack() async throws {
+        // A registry this app can't read stops the session's watch for good.
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let run = home.appendingPathComponent("run")
+        try FileManager.default.createDirectory(at: run, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try Data(#"{"registryVersion":2}"#.utf8).write(to: run.appendingPathComponent("server.json"))
+        try Data("token".utf8).write(to: run.appendingPathComponent("server.token"))
+        let servers = ServerDirectory(home: URL(fileURLWithPath: "/tmp/kit-home"),
+                                      saved: { [SavedServer(name: "devbox", kind: .home, address: home.path)] }) { name, connector in
+            ServerConnection(client: ServerClient(serverID: name, connector: connector),
+                             catalogClient: FixtureClient(fixture: Fixture(sessions: []))) { Self.identity }
+        }
+        servers.start()
+        defer { for connection in servers.connections { connection.stop() } }
+        let model = SessionWindowModel(id: UUID(), servers: servers, sessions: [SessionIdentity(server: "devbox", session: "a")])
+        let tab = model.tabs[0]
+        try await eventually { servers.connection(named: "devbox")?.status.isConnected == true }
+        let store = try #require(model.store(for: tab))
+        try await eventually { store.watchStopped }
+        #expect(model.store(for: tab) === store)
+        // Attaching again starts a new watch, which reaches the server again.
+        #expect(store.connectionState == .disconnected)
+        try await eventually { store.watchStopped }
+        // A watch still starting is left to run.
+        model.store(for: tab)
+        #expect(model.store(for: tab) === store)
+        #expect(store.connectionState == .disconnected)
+        model.closeAll()
     }
 }

@@ -170,14 +170,19 @@ private struct SessionTabContent: View {
     }
 }
 
-/// Reattaches tabs when the window's tabs or the servers they use change.
+/// Reattaches tabs when the window's tabs change, or a server connects,
+/// reconnects, or restarts.
 private struct AttachmentKey: Equatable {
     let tabs: [UUID]
+    /// Connected servers, each with its connection and running instance.
     let connected: [String]
 
     @MainActor init(model: SessionWindowModel) {
         tabs = model.tabs.map(\.id)
-        connected = model.servers.connections.filter(\.status.isConnected).map(\.name)
+        connected = model.servers.connections.compactMap { connection in
+            guard connection.status.isConnected, let identity = connection.status.identity else { return nil }
+            return "\(connection.name) \(ObjectIdentifier(connection).hashValue) \(identity.instance)"
+        }
     }
 }
 

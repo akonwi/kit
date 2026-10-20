@@ -149,7 +149,9 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
     func resolve() async throws -> HTTPClient {
         do { return try await connector.handshake(serverID: serverID).client }
         catch {
-            if !(error is CancellationError) { unreachable?.fire() }
+            // An operation that was cancelled says nothing about the server.
+            let cancelled = Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled
+            if !cancelled { unreachable?.fire() }
             throw error
         }
     }

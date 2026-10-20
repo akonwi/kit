@@ -43,6 +43,24 @@ struct LocalDaemonRegistry: Decodable {
     let url: String
     let instanceId: String
     let pid: Int
+
+    /// The versions a registry of any format may still state, to tell a
+    /// server of another protocol from a malformed one.
+    struct Versions: Decodable {
+        let registryVersion: Int?
+        let protocolVersion: Int?
+        let kitVersion: String?
+
+        /// The mismatch this app has with the server the registry names, if
+        /// the registry states a protocol.
+        var incompatibility: ClientError? {
+            guard let protocolVersion,
+                  let reason = DaemonCompatibility.mismatch(clientProtocol: kitWireVersion, daemonProtocol: protocolVersion)
+            else { return nil }
+            return .incompatibleDaemon(daemonVersion: kitVersion ?? "unknown", appProtocol: kitWireVersion,
+                                       daemonProtocol: protocolVersion, reason: reason)
+        }
+    }
 }
 
 /// The health report, decoded leniently: a server of another protocol may
@@ -74,12 +92,16 @@ struct ServerIdentity: Equatable, Sendable {
 
     static func validID(_ value: String) -> Bool {
         let prefix = "server_"
-        return value.hasPrefix(prefix) && value.count == prefix.count + 32
-            && value.dropFirst(prefix.count).allSatisfy { $0.isHexDigit && !$0.isUppercase }
+        return value.hasPrefix(prefix) && lowercaseHex(value.utf8.dropFirst(prefix.utf8.count), count: 32)
     }
 
     static func validMachine(_ value: String) -> Bool {
-        value.count == 64 && value.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+        lowercaseHex(value.utf8[...], count: 64)
+    }
+
+    /// Exactly `count` ASCII lowercase hex digits, as the server writes them.
+    private static func lowercaseHex(_ bytes: Substring.UTF8View, count: Int) -> Bool {
+        bytes.count == count && bytes.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
     }
 
     static func validHome(_ value: String) -> Bool {
@@ -139,10 +161,10 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     static func handshake(home: URL, serverID: String) async throws -> (client: HTTPClient, identity: ServerIdentity) {
         // Discovery is read-only. Starting a daemon remains owned by Kit's CLI.
         let root = home.appendingPathComponent("run")
-        let registry: LocalDaemonRegistry
+        let data: Data
         let token: String
         do {
-            registry = try JSONDecoder().decode(LocalDaemonRegistry.self, from: Data(contentsOf: root.appendingPathComponent("server.json")))
+            data = try Data(contentsOf: root.appendingPathComponent("server.json"))
             token = try String(contentsOf: root.appendingPathComponent("server.token"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             let failure = error as NSError
@@ -152,10 +174,21 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             let cause = failure.userInfo[NSUnderlyingErrorKey] as? NSError ?? failure
             throw ClientError.discovery(cause.localizedDescription)
         }
-        guard registry.registryVersion == 1 else { throw ClientError.incompatible }
+        let versions = try? JSONDecoder().decode(LocalDaemonRegistry.Versions.self, from: data)
+        // A registry of another format may belong to a server of another protocol.
+        if let format = versions?.registryVersion, format != 1 { throw versions?.incompatibility ?? ClientError.incompatible }
+        let registry: LocalDaemonRegistry
+        do { registry = try JSONDecoder().decode(LocalDaemonRegistry.self, from: data) }
+        catch { throw versions?.incompatibility ?? ClientError.discovery(error.localizedDescription) }
         guard let url = URL(string: registry.url), registry.pid > 0 else { throw ClientError.invalidEndpoint }
         let client = try HTTPClient(endpoint: url, token: token, instance: registry.instanceId, serverID: serverID)
-        let health = try await client.health()
+        let health: LocalDaemonHealth
+        do { health = try await client.health() }
+        catch ClientError.invalidPayload {
+            // Health this app can't read, from a server the registry says
+            // speaks another protocol, is that server's.
+            throw versions?.incompatibility ?? ClientError.invalidPayload
+        }
         return (client, try validateDiscovery(registry: registry, health: health))
     }
 

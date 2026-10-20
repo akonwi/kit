@@ -58,6 +58,20 @@ import Testing
         #expect(WindowRestorationStore(url: url).windows == [.init(id: window, sessions: [id("a")], selected: id("a"))])
     }
 
+    @Test func unreadableTitlesKeepTheirWindow() throws {
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let window = UUID()
+        try Data("""
+        {"version":2,"windows":[{"id":"\(window.uuidString)",
+          "sessions":[{"server":"local-v2","session":"a"}],"selected":{"server":"local-v2","session":"a"},
+          "titles":[{"session":{"server":"local","session":"a"},"title":{"text":"from a later build"}}]}]}
+        """.utf8).write(to: url)
+        let store = WindowRestorationStore(url: url)
+        #expect(store.error == nil)
+        #expect(store.windows == [.init(id: window, sessions: [id("a")], selected: id("a"))])
+    }
+
     @Test func nativeTabGroupsMigrateToWindowsOfTabs() throws {
         let url = temporaryURL()
         defer { try? FileManager.default.removeItem(at: url) }
