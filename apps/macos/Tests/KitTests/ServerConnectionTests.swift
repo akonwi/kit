@@ -300,7 +300,7 @@ import Testing
         #expect(servers.connection(named: "vps") == nil)
     }
 
-    @Test func refreshKeepsUnchangedServersAndFollowsTheSavedList() {
+    @Test func refreshRepointsChangedServersAndFollowsTheSavedList() {
         let saved = Saved()
         saved.servers = [SavedServer(name: "alpha", kind: .home, address: "/work/alpha/home"),
                          SavedServer(name: "beta", kind: .home, address: "/work/beta/home")]
@@ -313,8 +313,9 @@ import Testing
         servers.refresh()
         #expect(servers.connections.map(\.name) == ["local", "alpha", "beta", "gamma"])
         #expect(servers.connection(named: "alpha") === alpha)
-        #expect(servers.connection(named: "beta") !== beta)
-        #expect(servers.connection(named: "beta")?.connector == .home(URL(fileURLWithPath: "/work/beta2/home")))
+        #expect(servers.connection(named: "beta") === beta)
+        #expect(beta?.connector == .home(URL(fileURLWithPath: "/work/beta2/home")))
+        #expect(beta?.client.connector == .home(URL(fileURLWithPath: "/work/beta2/home")))
         saved.servers = []
         servers.refresh()
         #expect(servers.connections.map(\.name) == ["local"])
@@ -474,7 +475,7 @@ struct ServerStatePresentationTests {
         #expect(entries.map { SessionWindowModel.identity(treeKey: $0.id).serverLabel } == [nil, "devbox"])
     }
 
-    @Test func aServerNamePointedElsewhereGetsAFreshStore() async throws {
+    @Test func aServerNamePointedElsewhereKeepsItsTabsStores() async throws {
         var saved = [SavedServer(name: "devbox", kind: .home, address: "/tmp/devbox")]
         let servers = ServerDirectory(home: URL(fileURLWithPath: "/tmp/kit-home"), saved: { saved }) { name, connector in
             ServerConnection(client: ServerClient(serverID: name, connector: connector),
@@ -485,15 +486,17 @@ struct ServerStatePresentationTests {
         let model = SessionWindowModel(id: UUID(), servers: servers, sessions: [SessionIdentity(server: "devbox", session: "a")])
         let tab = model.tabs[0]
         try await eventually { servers.connection(named: "devbox")?.status.isConnected == true }
-        let first = try #require(model.store(for: tab))
-        #expect(first.connector == .home(path: "/tmp/devbox"))
+        let store = try #require(model.store(for: tab))
+        let devbox = try #require(servers.connection(named: "devbox"))
 
         saved = [SavedServer(name: "devbox", kind: .home, address: "/tmp/devbox2")]
         servers.refresh()
-        try await eventually { servers.connection(named: "devbox")?.status.isConnected == true }
-        let second = try #require(model.store(for: tab))
-        #expect(second !== first)
-        #expect(second.connector == .home(path: "/tmp/devbox2"))
+        #expect(servers.connection(named: "devbox") === devbox)
+        #expect(devbox.connector == .home(path: "/tmp/devbox2"))
+        try await eventually { devbox.status.isConnected }
+        // The session's drafts and shells stay; its client now reaches the new home.
+        #expect(model.store(for: tab) === store)
+        #expect((store.catalogClient as? ServerClient)?.connector == .home(path: "/tmp/devbox2"))
         model.closeAll()
     }
 

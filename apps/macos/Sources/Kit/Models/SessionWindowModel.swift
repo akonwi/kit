@@ -435,15 +435,10 @@ final class SessionWindowModel: Identifiable {
     func store(for tab: SessionTab, client: any SessionClient) -> SessionStore? {
         guard !tab.isLauncher, tab.identity.server == client.serverID else { return nil }
         if let store = tab.store, store.serverID == client.serverID {
-            if store.connector == (client as? ServerClient)?.connector {
-                // A watch that gave up, as on a restart's transient errors,
-                // resumes once the server is back.
-                if store.watchStopped { store.attach() }
-                return store
-            }
-            // The server's name now points elsewhere; keep only the layout.
-            tab.savedArrangement = store.ui.workspace.arrangement
-            release(tab)
+            // A watch that gave up, as on a restart's transient errors,
+            // resumes once the server is back.
+            if store.watchStopped { store.attach() }
+            return store
         }
         let catalog = servers.connection(named: client.serverID)?.catalog.sessions ?? []
         let store = SessionStore(fixture: Fixture(sessions: catalog), client: client, sessionID: tab.identity.session)

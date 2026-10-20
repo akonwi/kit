@@ -128,14 +128,39 @@ final class ServerSignal: Sendable {
     }
 }
 
+/// Where a server's clients reach it. Every client of one server shares its
+/// address, so when the server's saved name is pointed elsewhere their next
+/// operations go there too, and open sessions keep their drafts and shells.
+final class ServerAddress: Sendable {
+    private let current: Mutex<ServerConnector>
+
+    init(_ connector: ServerConnector) {
+        current = Mutex(connector)
+    }
+
+    var connector: ServerConnector { current.withLock { $0 } }
+
+    func repoint(to connector: ServerConnector) {
+        current.withLock { $0 = connector }
+    }
+}
+
 /// A client for one server, named by `serverID`. It resolves the server
-/// through its connector for each operation, including after a restart.
+/// through its address for each operation, including after a restart.
 struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreamingClient {
     let serverID: String
-    let connector: ServerConnector
+    let address: ServerAddress
     let isDemo = false
     /// Fired when resolving the server fails.
     var unreachable: ServerSignal? = nil
+
+    init(serverID: String, connector: ServerConnector, unreachable: ServerSignal? = nil) {
+        self.serverID = serverID
+        address = ServerAddress(connector)
+        self.unreachable = unreachable
+    }
+
+    var connector: ServerConnector { address.connector }
 
     /// The name of the app's own Kit home's server.
     static let localID = SavedServer.localName

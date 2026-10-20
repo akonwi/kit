@@ -426,8 +426,6 @@ final class SessionStore {
 
     var subagentClient: (any SubagentClient)? { replica.client as? any SubagentClient }
     var serverID: String { replica.client.serverID }
-    /// How the store's client reaches its server, when it is a server's client.
-    var connector: ServerConnector? { (replica.client as? ServerClient)?.connector }
     /// The session's watch has stopped and won't retry on its own, as after
     /// an error a server restart can cause.
     var watchStopped: Bool {

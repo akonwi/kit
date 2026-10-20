@@ -50,6 +50,7 @@ struct LocalDaemonRegistry: Decodable {
         let registryVersion: Int?
         let protocolVersion: Int?
         let kitVersion: String?
+        let url: String?
 
         /// The mismatch this app has with the server the registry names, if
         /// the registry states a protocol.
@@ -59,6 +60,14 @@ struct LocalDaemonRegistry: Decodable {
             else { return nil }
             return .incompatibleDaemon(daemonVersion: kitVersion ?? "unknown", appProtocol: kitWireVersion,
                                        daemonProtocol: protocolVersion, reason: reason)
+        }
+
+        /// The mismatch with the registry's server, once a server answers at
+        /// its address; a registry left behind by a stopped server names none.
+        func incompatibility(token: String) async -> ClientError? {
+            guard let incompatibility, let url, let endpoint = URL(string: url),
+                  await HTTPClient.answers(at: endpoint, token: token) else { return nil }
+            return incompatibility
         }
     }
 }
@@ -175,11 +184,16 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             throw ClientError.discovery(cause.localizedDescription)
         }
         let versions = try? JSONDecoder().decode(LocalDaemonRegistry.Versions.self, from: data)
-        // A registry of another format may belong to a server of another protocol.
-        if let format = versions?.registryVersion, format != 1 { throw versions?.incompatibility ?? ClientError.incompatible }
+        // A registry of another format may belong to a running server of another protocol.
+        if let format = versions?.registryVersion, format != 1 {
+            throw await versions?.incompatibility(token: token) ?? ClientError.incompatible
+        }
         let registry: LocalDaemonRegistry
         do { registry = try JSONDecoder().decode(LocalDaemonRegistry.self, from: data) }
-        catch { throw versions?.incompatibility ?? ClientError.discovery(error.localizedDescription) }
+        catch {
+            let failure = ClientError.discovery(error.localizedDescription)
+            throw await versions?.incompatibility(token: token) ?? failure
+        }
         guard let url = URL(string: registry.url), registry.pid > 0 else { throw ClientError.invalidEndpoint }
         let client = try HTTPClient(endpoint: url, token: token, instance: registry.instanceId, serverID: serverID)
         let health: LocalDaemonHealth
@@ -190,6 +204,16 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             throw versions?.incompatibility ?? ClientError.invalidPayload
         }
         return (client, try validateDiscovery(registry: registry, health: health))
+    }
+
+    /// Whether a server answers health at `endpoint`, whatever its report says.
+    static func answers(at endpoint: URL, token: String) async -> Bool {
+        var request = URLRequest(url: endpoint.appendingPathComponent("v1/health"), timeoutInterval: 5)
+        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        guard let (_, response) = try? await session.data(for: request) else { return false }
+        return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
     /// Reads health without the generated schema, which rejects fields it

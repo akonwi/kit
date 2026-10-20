@@ -61,7 +61,8 @@ final class ServerConnection: Identifiable {
 
     /// The server's name: `local`, or its saved name.
     let name: String
-    let connector: ServerConnector
+    /// How the server is reached; see `repoint(to:)`.
+    private(set) var connector: ServerConnector
     let client: ServerClient
     let catalog: SessionCatalog
     private(set) var status: ServerStatus = .connecting
@@ -81,7 +82,7 @@ final class ServerConnection: Identifiable {
         let signal = ServerSignal()
         let client = ServerClient(serverID: name, connector: connector, unreachable: signal)
         self.init(client: client, catalogClient: client, schedule: schedule, signal: signal) {
-            try await connector.handshake(serverID: name).identity
+            try await client.connector.handshake(serverID: name).identity
         }
     }
 
@@ -122,6 +123,16 @@ final class ServerConnection: Identifiable {
         stop()
     }
 
+    /// Reaches the server another way, as when its saved name is pointed at
+    /// another home. Its sessions' clients follow, and it is checked afresh.
+    func repoint(to connector: ServerConnector) {
+        guard !retired, connector != self.connector else { return }
+        client.address.repoint(to: connector)
+        self.connector = connector
+        status = .connecting
+        if monitor != nil { checkNow() }
+    }
+
     /// Checks the server now, as Try Now and returning to the app do.
     func checkNow() {
         guard !retired else { return }
@@ -133,7 +144,9 @@ final class ServerConnection: Identifiable {
     /// An operation couldn't reach a server believed connected; check it now
     /// rather than at the next scheduled check. A server already known to be
     /// unreachable keeps its backoff, and a check already underway answers
-    /// for every operation that failed meanwhile.
+    /// for every operation that failed meanwhile. That check may have begun
+    /// before the failure and still succeed; the next failed operation fires
+    /// again, so the server is checked then.
     private func operationFailed() {
         guard status.isConnected, !checking else { return }
         checkNow()
@@ -159,7 +172,8 @@ final class ServerConnection: Identifiable {
                     Task { await catalog.load() }
                 }
             } catch {
-                guard !(error is CancellationError) else { return }
+                // A handshake that ends early, uncancelled, is a failure like
+                // any other, so checks keep running.
                 if case let ClientError.incompatibleDaemon(version, appProtocol, serverProtocol, reason) = error {
                     status = .incompatible(ServerMismatch(serverKitVersion: version, serverProtocol: serverProtocol,
                                                           appProtocol: appProtocol, reason: reason))
@@ -241,13 +255,14 @@ final class ServerDirectory {
         for connection in connections { connection.start() }
     }
 
-    /// Reads the saved servers again: new ones connect, removed ones
-    /// disconnect, and changed ones reconnect. Then every server is checked
-    /// now, as when the app becomes active.
+    /// Reads the saved servers again: new ones connect, removed ones retire,
+    /// and changed ones are repointed. Then every server is checked now, as
+    /// when the app becomes active.
     func refresh() {
         var next = [local]
         for entry in Self.reachable(saved(), home: home) {
-            if let existing = connection(named: entry.name), existing.connector == entry.connector {
+            if let existing = connection(named: entry.name) {
+                existing.repoint(to: entry.connector)
                 next.append(existing)
             } else {
                 let connection = makeConnection(entry.name, entry.connector)

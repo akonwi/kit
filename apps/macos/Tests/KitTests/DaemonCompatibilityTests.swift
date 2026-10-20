@@ -97,11 +97,22 @@ struct DaemonCompatibilityTests {
         return home
     }
 
-    @Test func aRegistryOfAnotherFormatStillNamesAServerOfAnotherProtocol() async throws {
-        let newer = try home(registry: #"{"registryVersion":2,"protocolVersion":\#(kitWireVersion + 1),"kitVersion":"0.60.0","endpoints":[]}"#)
+    @Test func aRegistryOfAnotherFormatNamesAServerOfAnotherProtocolOnlyWhileOneAnswers() async throws {
+        let server = try LoopbackHTTPServer(body: #"{"future":true}"#)
+        defer { server.stop() }
+        let running = try await server.start()
+        // A port nothing listens on, as a stopped server leaves behind.
+        let stopped = try LoopbackHTTPServer()
+        let gone = try await stopped.start()
+        stopped.stop()
+        func registry(_ url: URL) -> String {
+            #"{"registryVersion":2,"protocolVersion":\#(kitWireVersion + 1),"kitVersion":"0.60.0","url":"\#(url.absoluteString)"}"#
+        }
+        let newer = try home(registry: registry(running))
+        let leftover = try home(registry: registry(gone))
         let unknown = try home(registry: #"{"registryVersion":2,"endpoints":[]}"#)
         let malformed = try home(registry: #"{"registryVersion":1,"protocolVersion":\#(kitWireVersion)}"#)
-        defer { for home in [newer, unknown, malformed] { try? FileManager.default.removeItem(at: home) } }
+        defer { for home in [newer, leftover, unknown, malformed] { try? FileManager.default.removeItem(at: home) } }
         do {
             _ = try await HTTPClient.handshake(home: newer, serverID: "devbox")
             Issue.record("A server of another protocol must not attach")
@@ -110,10 +121,12 @@ struct DaemonCompatibilityTests {
             #expect(daemonProtocol == kitWireVersion + 1)
             #expect(reason == .clientProtocolOlder)
         }
-        do {
-            _ = try await HTTPClient.handshake(home: unknown, serverID: "devbox")
-            Issue.record("An unknown registry must not attach")
-        } catch ClientError.incompatible {}
+        for home in [leftover, unknown] {
+            do {
+                _ = try await HTTPClient.handshake(home: home, serverID: "devbox")
+                Issue.record("An unknown registry must not attach")
+            } catch ClientError.incompatible {}
+        }
         do {
             _ = try await HTTPClient.handshake(home: malformed, serverID: "devbox")
             Issue.record("A malformed registry must not attach")
