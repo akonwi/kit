@@ -503,6 +503,69 @@ func TestUpdateDiffWrapLinesPersistsPreferenceAndUnknownFields(t *testing.T) {
 	}
 }
 
+func TestUpdateDiffLayoutPersistsPreferenceAndUnknownFields(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"future":{"enabled":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newTestStore(t, path)
+	updated, err := store.UpdateDiffLayout(DiffLayoutSplit)
+	if err != nil || updated.DiffLayout != DiffLayoutSplit {
+		t.Fatalf("UpdateDiffLayout() = %#v, %v", updated, err)
+	}
+	loaded, warnings, err := store.Load()
+	if err != nil || len(warnings) != 0 || loaded.DiffLayout != DiffLayoutSplit {
+		t.Fatalf("Load() = %#v, %v, %v", loaded, warnings, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"diffLayout": "split"`) || !strings.Contains(string(data), `"future"`) {
+		t.Fatalf("settings = %s", data)
+	}
+}
+
+func TestUpdateDiffLayoutRejectsUnknownLayoutWithoutWriting(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if _, err := newTestStore(t, path).UpdateDiffLayout("columns"); err == nil {
+		t.Fatal("UpdateDiffLayout() unexpectedly succeeded")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("settings file exists after rejected update: %v", err)
+	}
+}
+
+func TestLoadDiffLayout(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		document string
+		layout   string
+		warned   bool
+	}{
+		{`{}`, DiffLayoutUnified, false},
+		{`{"diffLayout":"unified"}`, DiffLayoutUnified, false},
+		{`{"diffLayout":"split"}`, DiffLayoutSplit, false},
+		{`{"diffLayout":"columns"}`, DiffLayoutUnified, true},
+		{`{"diffLayout":true}`, DiffLayoutUnified, true},
+	} {
+		path := filepath.Join(t.TempDir(), "settings.json")
+		if err := os.WriteFile(path, []byte(test.document), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		loaded, warnings, err := newTestStore(t, path).Load()
+		if err != nil || loaded.DiffLayout != test.layout || (len(warnings) == 1 && warnings[0].Field == "diffLayout") != test.warned {
+			t.Errorf("Load(%s) = %q, %v, %v; want %q, warned %v", test.document, loaded.DiffLayout, warnings, err, test.layout, test.warned)
+		}
+	}
+	missing, _, err := newTestStore(t, filepath.Join(t.TempDir(), "settings.json")).Load()
+	if err != nil || missing.DiffLayout != DiffLayoutUnified {
+		t.Fatalf("Load(missing) = %q, %v", missing.DiffLayout, err)
+	}
+}
+
 func TestLoadPromptCacheRetention(t *testing.T) {
 	t.Parallel()
 

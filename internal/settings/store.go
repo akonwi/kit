@@ -27,7 +27,10 @@ type Settings struct {
 	DefaultModel    string
 	CompactionModel string
 	DiffWrapLines   bool
-	ModelOverrides  map[string]ModelOverride
+	// DiffLayout is the client's preferred diff layout, DiffLayoutUnified
+	// (the default) or DiffLayoutSplit.
+	DiffLayout     string
+	ModelOverrides map[string]ModelOverride
 	// PromptCacheRetention is "short" (the default) or "long".
 	PromptCacheRetention string
 	// ReadClaudeConfigs enables discovery of Claude Code configuration, which is
@@ -83,6 +86,13 @@ func malformed(err error) error { return malformedError{err} }
 const (
 	PromptCacheShort = "short"
 	PromptCacheLong  = "long"
+)
+
+// Diff layout values. A split layout shows old and new lines side by side
+// where the client has room, and unified lines otherwise.
+const (
+	DiffLayoutUnified = "unified"
+	DiffLayoutSplit   = "split"
 )
 
 // Store serializes settings operations performed through one application-owned
@@ -230,6 +240,29 @@ func (s *Store) UpdateDiffWrapLines(enabled bool) (Settings, error) {
 	current.DiffWrapLines = enabled
 	encoded, _ := json.Marshal(enabled)
 	current.fields["diffWrapLines"] = encoded
+	if err := s.write(current.fields); err != nil {
+		return Settings{}, err
+	}
+	return cloneSettings(current), nil
+}
+
+// UpdateDiffLayout persists the preferred diff layout, DiffLayoutUnified or
+// DiffLayoutSplit.
+func (s *Store) UpdateDiffLayout(layout string) (Settings, error) {
+	if s == nil {
+		return Settings{}, errors.New("update diff layout: store is nil")
+	}
+	if layout != DiffLayoutUnified && layout != DiffLayoutSplit {
+		return Settings{}, fmt.Errorf("update diff layout: layout must be %q or %q", DiffLayoutUnified, DiffLayoutSplit)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, _, err := s.load()
+	if err != nil {
+		return Settings{}, err
+	}
+	current.DiffLayout = layout
+	current.fields["diffLayout"], _ = json.Marshal(layout)
 	if err := s.write(current.fields); err != nil {
 		return Settings{}, err
 	}
@@ -408,7 +441,7 @@ func (s *Store) load() (Settings, []Warning, error) {
 	if err != nil {
 		return Settings{}, nil, malformed(fmt.Errorf("decode settings %q: %w", s.path, err))
 	}
-	result := Settings{Theme: theme.SystemName, PromptCacheRetention: PromptCacheShort, ReadClaudeConfigs: true, fields: fields}
+	result := Settings{Theme: theme.SystemName, DiffLayout: DiffLayoutUnified, PromptCacheRetention: PromptCacheShort, ReadClaudeConfigs: true, fields: fields}
 	var warnings []Warning
 	if raw, ok := fields["theme"]; ok {
 		var name string
@@ -424,6 +457,14 @@ func (s *Store) load() (Settings, []Warning, error) {
 		if err := json.Unmarshal(raw, &result.DiffWrapLines); err != nil {
 			warnings = append(warnings, Warning{Field: "diffWrapLines", Err: errors.New("must be a boolean; using clip mode")})
 			result.DiffWrapLines = false
+		}
+	}
+	if raw, ok := fields["diffLayout"]; ok {
+		var layout string
+		if err := json.Unmarshal(raw, &layout); err != nil || (layout != DiffLayoutUnified && layout != DiffLayoutSplit) {
+			warnings = append(warnings, Warning{Field: "diffLayout", Err: errors.New(`must be "unified" or "split"; using unified`)})
+		} else {
+			result.DiffLayout = layout
 		}
 	}
 	if raw, ok := fields["defaultModel"]; ok {
@@ -594,11 +635,11 @@ func loadStringList(server map[string]json.RawMessage, name string, parse func(s
 }
 
 func defaultSettings() Settings {
-	return Settings{Theme: theme.SystemName, PromptCacheRetention: PromptCacheShort, ReadClaudeConfigs: true, fields: make(map[string]json.RawMessage)}
+	return Settings{Theme: theme.SystemName, DiffLayout: DiffLayoutUnified, PromptCacheRetention: PromptCacheShort, ReadClaudeConfigs: true, fields: make(map[string]json.RawMessage)}
 }
 
 func cloneSettings(source Settings) Settings {
-	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, CompactionModel: source.CompactionModel, DiffWrapLines: source.DiffWrapLines,
+	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, CompactionModel: source.CompactionModel, DiffWrapLines: source.DiffWrapLines, DiffLayout: source.DiffLayout,
 		PromptCacheRetention: source.PromptCacheRetention, ReadClaudeConfigs: source.ReadClaudeConfigs, ServerListen: source.ServerListen,
 		ServerAllowedHosts: slices.Clone(source.ServerAllowedHosts), ServerAllowedOrigins: slices.Clone(source.ServerAllowedOrigins), fields: make(map[string]json.RawMessage, len(source.fields))}
 	if source.ModelOverrides != nil {
