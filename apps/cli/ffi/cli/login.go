@@ -133,6 +133,13 @@ func (l serverAPIKeyLogin) Login(ctx context.Context, providerID, apiKey string)
 	return loginError(l.client.SetProviderAPIKey(ctx, providerID, apiKey))
 }
 
+// serverLogout removes credentials stored on the attached server.
+type serverLogout struct{ client *kit.Client }
+
+func (l serverLogout) Logout(ctx context.Context, providerID string) error {
+	return loginError(l.client.Logout(ctx, providerID))
+}
+
 // ReceiveRedirect listens at redirectURI, which must be on this machine's
 // loopback interface, for the browser's redirect after it opens
 // authorizationURL, and sends the redirect's URL to relayed. It returns how

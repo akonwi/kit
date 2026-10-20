@@ -27,6 +27,8 @@ struct Services {
   device: fn(context::Context, fn(authbridge::DeviceInstructions)) Void!Error,
   browser: fn(context::Context, Chan<Str>, fn(authbridge::BrowserInstructions)) Void!Error,
   api_key: fn(context::Context, Str, Str) Void!Error,
+  // logout removes the server's stored credential for a provider ID.
+  logout: fn(context::Context, Str) Void!Error,
 }
 
 // services adapts the CLI's configured login services.
@@ -41,18 +43,25 @@ fn services(options: cli::TUIOptions) Services {
     api_key: fn(ctx: context::Context, provider: Str, key: Str) Void!Error {
       authbridge::RunAPIKey(ctx, options.APIKeyLogin, provider, key)
     },
+    logout: fn(ctx: context::Context, provider: Str) Void!Error {
+      authbridge::RunLogout(ctx, options.Logout, provider)
+    },
   }
 }
 
 // Props are live parent dependencies. dismiss closes the flow from the
 // provider picker; authenticated reports an installed credential. Both run
 // inside the flow's dispatch and must re-enter their owner's context.
+// logged_out reports a logout's provider name and failure, empty on success.
+// It runs on the logout's worker, possibly after the flow has unmounted, so
+// its owner must dispatch to its own context.
 struct Props {
   themes: theme::Context,
   lifetime: contextbridge::Cancellation,
   services: Services,
   dismiss: fn(),
   authenticated: fn(),
+  logged_out: fn(Str, Str),
   copied: fn(),
 }
 
@@ -82,6 +91,8 @@ struct Flow {
   // browser_relayed is whether this client listens for the browser's
   // redirect; without it the user pastes the redirect URL or code.
   browser_relayed: Bool,
+  // logging_out names the provider being logged out, or is empty.
+  logging_out: Str,
 }
 
 // flow mounts the retained connection flow at its provider picker.
@@ -107,6 +118,7 @@ private fn new(props: mut Props) mut Flow {
     browser_manual: Maybe::new<Chan<Str>>(),
     browser_url: "",
     browser_relayed: false,
+    logging_out: "",
   })
 }
 
@@ -181,9 +193,23 @@ fn provider_label(key: Str) Str {
   }
 }
 
-// provider_id maps a catalog key to its credential-store provider ID.
+// provider_id maps a catalog key to the server's provider ID. Claude and
+// Anthropic share the anthropic credential.
 fn provider_id(key: Str) Str {
-  key
+  match key {
+    "codex" => "openai-codex",
+    "claude" => "anthropic",
+    _ => key,
+  }
+}
+
+// provider_name names the server provider that owns a catalog key's
+// credential.
+fn provider_name(key: Str) Str {
+  match key {
+    "claude" => "Anthropic",
+    _ => provider_label(key),
+  }
 }
 
 private fn device_remaining_seconds(expires_at_ms: Int64) Int64 {
@@ -264,7 +290,7 @@ impl Flow {
   }
 
   private fn mut select(key: Str) {
-    if not self.pending {
+    if (not self.pending) and self.logging_out == "" {
       self.provider = key
       self.error = ""
       match key {
@@ -391,6 +417,37 @@ impl Flow {
     }
   }
 
+  // logout removes the selected provider's credential from the server. It
+  // runs on the owner's lifetime rather than an attempt, so closing the flow
+  // neither cancels the request nor hides its outcome.
+  private fn mut logout(key: Str) {
+    if (not self.pending) and self.logging_out == "" and key != "" {
+      match self.context {
+        context => {
+          let dispatch = context.dispatch
+          let run = self.props.services.logout
+          let report = self.props.logged_out
+          let lifetime = self.props.lifetime.Context
+          let provider = provider_id(key)
+          let name = provider_name(key)
+          self.logging_out = name
+          self.error = ""
+          async::start(fn() {
+            let failure = match run(lifetime, provider) {
+              ok(_) => "",
+              err(failure) => failure.error(),
+            }
+            report(name, failure)
+            let _ = dispatch(fn() {
+              self.logging_out = ""
+            })
+          })
+        },
+        _ => (),
+      }
+    }
+  }
+
   private fn mut submit_browser_code(value: Str) {
     if value != "" and self.pending {
       match self.browser_manual {
@@ -448,8 +505,10 @@ impl Flow {
       true => "codex",
       false => self.provider,
     }
-    // No hint footer: arrows, Enter, and Esc are intuitive primitives and the
-    // provider picker has no custom bindings to teach yet.
+    let footer = match self.logging_out == "" {
+      true => "ctrl+d log out",
+      false => "Logging out of {self.logging_out}…",
+    }
     cui::child(
       palette::new_picker,
       palette::PickerProps{
@@ -458,14 +517,18 @@ impl Flow {
         placeholder: "Search providers…",
         initial_selection: initial,
         title: "Connect a provider",
-        footer: "",
+        footer: footer,
         error: self.error,
         dismiss: keymap::simple_command("auth.dismiss", "Close", fn() Bool {
           self.props.dismiss()
           true
         }),
         override: Maybe::new<fn(Str)>(),
-        remove: Maybe::new<fn(Str)>(),
+        remove: Maybe::new(fn(key: Str) {
+          let _ = self.request(fn() {
+            self.logout(key)
+          })
+        }),
         rename: Maybe::new<fn(Str)>(),
         toggle: Maybe::new<fn(Str, Bool)>(),
         tree: Maybe::new<[palette::Branch]>(),

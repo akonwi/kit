@@ -71,6 +71,14 @@ func RunAPIKey(ctx context.Context, login cli.APIKeyLogin, providerID, apiKey st
 	return login.Login(ctx, providerID, apiKey)
 }
 
+// RunLogout removes a provider's credential through an injected CLI service.
+func RunLogout(ctx context.Context, logout cli.ProviderLogout, providerID string) error {
+	if logout == nil {
+		return fmt.Errorf("logout is unavailable")
+	}
+	return logout.Logout(ctx, providerID)
+}
+
 // RedirectReceiver listens for an authorization redirect until Stop.
 type RedirectReceiver struct {
 	Stop func()

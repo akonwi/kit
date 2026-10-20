@@ -306,7 +306,8 @@ func (e Environment) Prepare(ctx context.Context, invocation Invocation, stderr 
 	}
 	// Logins run on the server, which stores their credentials.
 	return e.prepared(ctx, options, cwd, providers, authenticated,
-		serverDeviceLogin{client: e.Client}, serverBrowserLogin{client: e.Client}, serverAPIKeyLogin{client: e.Client})
+		serverDeviceLogin{client: e.Client}, serverBrowserLogin{client: e.Client}, serverAPIKeyLogin{client: e.Client},
+		serverLogout{client: e.Client})
 }
 
 // prepared assembles the terminal client's options.
@@ -314,6 +315,7 @@ func (e Environment) prepared(
 	ctx context.Context, options interactiveOptions, cwd string,
 	providers map[string]bool, authenticated bool,
 	login DeviceLogin, browserLogin BrowserLogin, apiKeyLogin APIKeyLogin,
+	logout ProviderLogout,
 ) Prepared {
 	prepared := Prepared{
 		Options: TUIOptions{
@@ -336,6 +338,7 @@ func (e Environment) prepared(
 			Login:                 login,
 			BrowserLogin:          browserLogin,
 			APIKeyLogin:           apiKeyLogin,
+			Logout:                logout,
 			ThemeName:             e.themeName,
 			ThemeDefinition:       e.ThemeDefinition,
 			ThemeService:          interactiveThemeService{directory: e.paths.Themes, settings: e.settings},
