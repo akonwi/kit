@@ -186,32 +186,72 @@ func TestProbeDisablesRepositoryFSMonitor(t *testing.T) {
 	}
 }
 
-func TestRunGitKillsDescendantsAtDeadline(t *testing.T) {
+func TestRunGitKillsDescendantsWhenContextEnds(t *testing.T) {
 	bin := t.TempDir()
 	pidPath := filepath.Join(t.TempDir(), "child.pid")
-	script := "#!/bin/sh\nsleep 30 &\necho $! > \"$KIT_VCS_CHILD_PID\"\nwait\n"
+	// Publish the descendant's pid atomically so the test never reads a
+	// partially written file.
+	script := "#!/bin/sh\nsleep 30 &\necho $! > \"$KIT_VCS_CHILD_PID.tmp\"\nmv \"$KIT_VCS_CHILD_PID.tmp\" \"$KIT_VCS_CHILD_PID\"\nwait\n"
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("KIT_VCS_CHILD_PID", pidPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+
+	cwd := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	started := time.Now()
-	_, _, _, err := runGit(ctx, t.TempDir(), 1024, "status")
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("runGit() error = %v", err)
+	result := make(chan error, 1)
+	go func() {
+		_, _, _, err := runGit(ctx, cwd, 1024, "status")
+		result <- err
+	}()
+
+	// End the context only once the descendant exists. A fixed deadline races
+	// shim startup, which can be slow on the first exec of a new file (e.g.
+	// macOS executable assessment), and would kill the shell before it forks.
+	var pid int
+	ready := time.NewTimer(10 * time.Second)
+	defer ready.Stop()
+	for {
+		if pidBytes, err := os.ReadFile(pidPath); err == nil {
+			pid, err = strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Reap a surviving descendant on failure. A passing run has already
+			// observed its exit, so its pid may belong to another process.
+			t.Cleanup(func() {
+				if t.Failed() {
+					_ = syscall.Kill(pid, syscall.SIGKILL)
+				}
+			})
+			break
+		}
+		select {
+		case err := <-result:
+			t.Fatalf("runGit() returned before the descendant started: %v", err)
+		case <-ready.C:
+			t.Fatal("git shim did not start its descendant")
+		case <-time.After(5 * time.Millisecond):
+		}
 	}
-	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("runGit() returned after %v", elapsed)
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("git descendant %d is not running before cancellation: %v", pid, err)
 	}
-	pidBytes, err := os.ReadFile(pidPath)
-	if err != nil {
-		t.Fatal(err)
+
+	cancelled := time.Now()
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("runGit() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runGit() did not return after cancellation")
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
-	if err != nil {
-		t.Fatal(err)
+	if elapsed := time.Since(cancelled); elapsed > time.Second {
+		t.Fatalf("runGit() returned %v after cancellation", elapsed)
 	}
 	deadline := time.Now().Add(time.Second)
 	for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
