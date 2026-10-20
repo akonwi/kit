@@ -55,9 +55,9 @@ updates; see [ADR 0029](../../docs/adrs/0029-distribute-native-macos-app-separat
 It **does not include or start** a server. Install and start a compatible Kit
 server separately. Discovery authenticates the registered server, checks its
 identity and readiness, and checks protocol compatibility. The app attaches to
-any server speaking its session protocol (45 for this build), regardless of the
-server's release label; the app and CLI need not share a version. Apps 0.1.1 and 0.1.2 use
-protocol 41 and cannot attach to a protocol-45 server. Incompatible running
+any server speaking its session protocol (48 for this build), regardless of the
+server's release label; the app and CLI need not share a version. Apps 0.2.0 and
+earlier use older protocols and cannot attach to a protocol-48 server. Incompatible running
 servers are left alone; update to compatible releases rather than restarting or
 replacing one from the app.
 
@@ -73,8 +73,7 @@ apps/macos/script/package_app.sh macos-vX.Y.Z
 
 Run it only from a clean checkout at the reviewed `macos-vX.Y.Z` tag; the
 initial app version was `0.1.0`. The script builds arm64 Release, stamps app
-version, source-derived build number, source commit, and the pinned Kit client
-compatibility release (`0.42.0`); signs with
+version, source-derived build number, and source commit; signs with
 hardened runtime; notarizes and staples the app; checks Gatekeeper; and writes
 `apps/macos/dist/releases/kit_macos-vX.Y.Z_darwin_arm64.zip` plus its SHA-256
 file. It fails if required credentials are missing. The development
