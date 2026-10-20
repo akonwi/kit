@@ -30,6 +30,17 @@ final class SessionCatalog {
         sessions.insert(session, at: 0)
     }
 
+    /// Forgets the catalog, as when its server's name is pointed at another
+    /// home, superseding a load in progress.
+    func reset() {
+        generation = UUID()
+        sessions = []
+        loaded = false
+        loading = false
+        error = nil
+        deletedIDs = []
+    }
+
     /// Loads the catalog. Overlapping requests coalesce.
     func refresh() async {
         guard !loading else { return }

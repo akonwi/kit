@@ -64,9 +64,11 @@ struct LocalDaemonRegistry: Decodable {
 
         /// The mismatch with the registry's server, once a server answers at
         /// its address; a registry left behind by a stopped server names none.
-        func incompatibility(token: String) async -> ClientError? {
+        func incompatibility(token: String, serverID: String) async -> ClientError? {
             guard let incompatibility, let url, let endpoint = URL(string: url),
-                  await HTTPClient.answers(at: endpoint, token: token) else { return nil }
+                  let probe = try? HTTPClient(endpoint: endpoint, token: token, instance: "probe", serverID: serverID,
+                                              requestTimeout: HTTPClient.probeTimeout),
+                  await probe.answers() else { return nil }
             return incompatibility
         }
     }
@@ -186,13 +188,13 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         let versions = try? JSONDecoder().decode(LocalDaemonRegistry.Versions.self, from: data)
         // A registry of another format may belong to a running server of another protocol.
         if let format = versions?.registryVersion, format != 1 {
-            throw await versions?.incompatibility(token: token) ?? ClientError.incompatible
+            throw await versions?.incompatibility(token: token, serverID: serverID) ?? ClientError.incompatible
         }
         let registry: LocalDaemonRegistry
         do { registry = try JSONDecoder().decode(LocalDaemonRegistry.self, from: data) }
         catch {
             let failure = ClientError.discovery(error.localizedDescription)
-            throw await versions?.incompatibility(token: token) ?? failure
+            throw await versions?.incompatibility(token: token, serverID: serverID) ?? failure
         }
         guard let url = URL(string: registry.url), registry.pid > 0 else { throw ClientError.invalidEndpoint }
         let client = try HTTPClient(endpoint: url, token: token, instance: registry.instanceId, serverID: serverID)
@@ -206,13 +208,23 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         return (client, try validateDiscovery(registry: registry, health: health))
     }
 
-    /// Whether a server answers health at `endpoint`, whatever its report says.
-    static func answers(at endpoint: URL, token: String) async -> Bool {
-        var request = URLRequest(url: endpoint.appendingPathComponent("v1/health"), timeoutInterval: 5)
-        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
-        let session = URLSession(configuration: .ephemeral)
-        defer { session.invalidateAndCancel() }
-        guard let (_, response) = try? await session.data(for: request) else { return false }
+    /// How long a probe waits for a server to answer.
+    static let probeTimeout: TimeInterval = 5
+
+    /// Whether a server answers health, whatever its report says. Only the
+    /// response's head is read, within the probe timeout.
+    func answers() async -> Bool {
+        guard var request = try? request("v1/health") else { return false }
+        request.setValue(nil, forHTTPHeaderField: "X-Kit-Protocol-Version")
+        request.setValue(nil, forHTTPHeaderField: "X-Kit-Instance-ID")
+        let session = session
+        let probe = Task { try await session.bytes(for: request).1 }
+        let deadline = Task {
+            try await Task.sleep(for: .seconds(Self.probeTimeout))
+            probe.cancel()
+        }
+        defer { deadline.cancel() }
+        guard let response = try? await probe.value else { return false }
         return (response as? HTTPURLResponse)?.statusCode == 200
     }
 

@@ -33,6 +33,8 @@ final class SessionTab: Identifiable {
     fileprivate var savedArrangement: TileArrangement?
     /// The title the tab last showed, until its server describes the session.
     fileprivate var savedTitle: String?
+    /// The route of its server the tab's store attached by.
+    fileprivate var attachedRoute = 0
     /// The app's servers, whose catalogs describe tabs not yet opened.
     private weak var servers: ServerDirectory?
 
@@ -434,12 +436,18 @@ final class SessionWindowModel: Identifiable {
 
     func store(for tab: SessionTab, client: any SessionClient) -> SessionStore? {
         guard !tab.isLauncher, tab.identity.server == client.serverID else { return nil }
+        let route = servers.connection(named: client.serverID)?.route ?? 0
         if let store = tab.store, store.serverID == client.serverID {
             // A watch that gave up, as on a restart's transient errors,
-            // resumes once the server is back.
-            if store.watchStopped { store.attach() }
+            // resumes once the server is back. Streams opened before the
+            // server was repointed still read the old home, so they reattach.
+            if store.watchStopped || tab.attachedRoute != route {
+                tab.attachedRoute = route
+                store.attach()
+            }
             return store
         }
+        tab.attachedRoute = route
         let catalog = servers.connection(named: client.serverID)?.catalog.sessions ?? []
         let store = SessionStore(fixture: Fixture(sessions: catalog), client: client, sessionID: tab.identity.session)
         if let arrangement = tab.savedArrangement { store.ui.workspace.restore(arrangement) }

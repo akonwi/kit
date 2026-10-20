@@ -63,6 +63,8 @@ final class ServerConnection: Identifiable {
     let name: String
     /// How the server is reached; see `repoint(to:)`.
     private(set) var connector: ServerConnector
+    /// Counts repointings, so sessions attached by an earlier route reattach.
+    private(set) var route = 0
     let client: ServerClient
     let catalog: SessionCatalog
     private(set) var status: ServerStatus = .connecting
@@ -129,7 +131,9 @@ final class ServerConnection: Identifiable {
         guard !retired, connector != self.connector else { return }
         client.address.repoint(to: connector)
         self.connector = connector
+        route += 1
         status = .connecting
+        catalog.reset()
         if monitor != nil { checkNow() }
     }
 

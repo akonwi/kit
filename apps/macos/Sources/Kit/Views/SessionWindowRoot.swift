@@ -174,14 +174,14 @@ private struct SessionTabContent: View {
 /// reconnects, or restarts.
 private struct AttachmentKey: Equatable {
     let tabs: [UUID]
-    /// Connected servers, each with its connection and running instance.
+    /// Connected servers, each with its connection, route, and running instance.
     let connected: [String]
 
     @MainActor init(model: SessionWindowModel) {
         tabs = model.tabs.map(\.id)
         connected = model.servers.connections.compactMap { connection in
             guard connection.status.isConnected, let identity = connection.status.identity else { return nil }
-            return "\(connection.name) \(ObjectIdentifier(connection).hashValue) \(identity.instance)"
+            return "\(connection.name) \(ObjectIdentifier(connection).hashValue) \(connection.route) \(identity.instance)"
         }
     }
 }

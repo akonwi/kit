@@ -488,15 +488,23 @@ struct ServerStatePresentationTests {
         try await eventually { servers.connection(named: "devbox")?.status.isConnected == true }
         let store = try #require(model.store(for: tab))
         let devbox = try #require(servers.connection(named: "devbox"))
+        try await eventually { devbox.catalog.loaded && store.connectionState != .disconnected }
+        // A second look at an attached store leaves its watch alone.
+        model.store(for: tab)
+        #expect(store.connectionState != .disconnected)
 
         saved = [SavedServer(name: "devbox", kind: .home, address: "/tmp/devbox2")]
         servers.refresh()
         #expect(servers.connection(named: "devbox") === devbox)
         #expect(devbox.connector == .home(path: "/tmp/devbox2"))
+        // The old home's sessions aren't the new home's.
+        #expect(!devbox.catalog.loaded)
         try await eventually { devbox.status.isConnected }
-        // The session's drafts and shells stay; its client now reaches the new home.
+        // The session's drafts and shells stay; its client now reaches the
+        // new home, and its watch reattaches there.
         #expect(model.store(for: tab) === store)
         #expect((store.catalogClient as? ServerClient)?.connector == .home(path: "/tmp/devbox2"))
+        #expect(store.connectionState == .disconnected)
         model.closeAll()
     }
 
