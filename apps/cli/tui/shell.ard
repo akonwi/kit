@@ -40,6 +40,7 @@ use kit/tui/model_refresh
 use kit/tui/pairing
 use kit/tui/rename
 use kit/tui/scratchpad
+use kit/tui/selection_menu
 use kit/tui/session_debug
 use kit/tui/sessions
 use kit/tui/status
@@ -113,6 +114,14 @@ type Modal =
   | SubagentThinkingModal
   | diff_pane::TargetRequest
 
+// SelectionMenu is the open selection context menu: the text selected when
+// it opened, and where it opened.
+struct SelectionMenu {
+  text: Str,
+  pointer: ui::Point,
+  viewport: ui::Rect,
+}
+
 // The detached placeholder never starts work, so its effects are inert.
 private fn inert_attachment_host() attached_session::Host {
   attached_session::Host{
@@ -170,6 +179,9 @@ struct Shell {
   // 1 at the start of copy feedback, fading to 0 over 350ms.
   selection_copy_pulse: Float64,
   selection_copy_base: ui::Color,
+  selection_menu: SelectionMenu?,
+  // The shell surface, measured to fit the selection menu in the viewport.
+  surface: mut cui::BoxRef,
   // Owns the client-wide model-catalog refresh.
   models: mut model_refresh::Refresher,
   // Owns theme selection and preview; Shell only routes picker results.
@@ -210,6 +222,8 @@ fn new(props: mut Props) mut Shell {
     dock_shown: false,
     selection_copy_pulse: 0.0,
     selection_copy_base: ui::rgb(0, 0, 0),
+    selection_menu: Maybe::new<SelectionMenu>(),
+    surface: cui::box_ref(),
     models: model_refresh::refresher(props.options.Client, notifications),
     theme: theme::owner(props.themes, props.options.ThemeName, props.options.ThemeDefinition),
     workspace: workspace::tabs(),
@@ -1389,6 +1403,10 @@ impl Shell {
 impl cui::Component for Shell {
   fn mut render() cui::View {
     let colors = self.props.themes.current()
+    // A dialog opened while the menu was open replaces it.
+    if not self.modal_closed() {
+      self.selection_menu = Maybe::new<SelectionMenu>()
+    }
     let interrupt = keymap::simple_command("app.interrupt", "Clear or quit", fn() Bool {
       match self.modal_closed() {
         true => self.interrupt(),
@@ -1429,7 +1447,7 @@ impl cui::Component for Shell {
     }
     // While a request is pending, the dock's Escape cancels it instead. A
     // running shell command is stopped before the turn.
-    if self.phase == Phase::ready and self.modal_closed() and (not self.attached.feedback_pending()) and self.attached.can_interrupt() {
+    if self.phase == Phase::ready and self.modal_closed() and (not self.selection_menu.is_some()) and (not self.attached.feedback_pending()) and self.attached.can_interrupt() {
       let abort = keymap::simple_command("run.abort", "Abort run", fn() Bool {
         self.attached.interrupt()
       })
@@ -1457,6 +1475,8 @@ impl cui::Component for Shell {
       // child autofocus settles.
       // Let focused controls handle Cmd+C first. This application fallback
       // copies the active cross-control selection without changing focus.
+      // A secondary press while text is selected opens the selection menu
+      // there. Cooper keeps the selection through a secondary press.
       [
         self.header(),
         layout::divider(colors.border),
@@ -1475,30 +1495,26 @@ impl cui::Component for Shell {
       commands: commands.@,
       bindings: bindings.@,
       binding_scope: keymap::ScopeMode::application,
+      ref: self.surface,
       on_key: fn(received: mut event::KeyEvent, ctx: cui::Context) {
         if received.event_type == event::KeyEventType::press and received.modifiers.super and received.name == "c" {
           match (ctx.current_selection)() {
             selection => {
               if selection.selected_text != "" {
-                (ctx.copy)(selection.copy_text.or(selection.selected_text))
-                if self.selection_copy_pulse == 0.0 {
-                  self.selection_copy_base = self.props.themes.current().selection
-                }
-                self.selection_copy_pulse = 1.0
-                self.update_selection_copy_pulse(1.0)
-                let _ = ctx.animate(
-                  350,
-                  fn(frame: animation::Frame) {
-                    self.selection_copy_pulse = 1.0 - frame.progress
-                    self.update_selection_copy_pulse(self.selection_copy_pulse)
-                  },
-                  ease: animation::in_out_sine,
-                )
+                self.copy_selection(ctx, selection_text(selection))
                 received.prevent_default()
                 received.stop_propagation()
               }
             },
             _ => (),
+          }
+        }
+      },
+      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+        if received.event_type == event::MouseEventType::down and received.button == event::MouseButton::right {
+          if self.open_selection_menu(ctx, received.x, received.y) {
+            received.prevent_default()
+            received.stop_propagation()
           }
         }
       },
@@ -1509,6 +1525,14 @@ impl cui::Component for Shell {
     // modal so opening a dialog never remounts it.
     layers.push(toast::host(self.props.themes, self.notifications))
     layers.push(self.terminal_status())
+    match self.selection_menu {
+      menu => {
+        if self.modal_closed() {
+          layers.push(self.selection_menu_layer(menu))
+        }
+      },
+      _ => (),
+    }
     match self.active_modal {
       NoModal => (),
       CommandPaletteModal => layers.push(self.command_palette_modal()),
@@ -1580,6 +1604,136 @@ impl Shell {
         frame_duration: Maybe::new<time::Duration>(),
       },
     )
+  }
+
+  // copy_selection copies text and acknowledges it with a pulse of the
+  // selection's background. Repeated copies restart the pulse.
+  fn mut copy_selection(ctx: cui::Context, text: Str) {
+    ctx.copy(text)
+    if self.selection_copy_pulse == 0.0 {
+      self.selection_copy_base = self.props.themes.current().selection
+    }
+    self.selection_copy_pulse = 1.0
+    self.update_selection_copy_pulse(1.0)
+    let _ = ctx.animate(
+      350,
+      fn(frame: animation::Frame) {
+        self.selection_copy_pulse = 1.0 - frame.progress
+        self.update_selection_copy_pulse(self.selection_copy_pulse)
+      },
+      ease: animation::in_out_sine,
+    )
+  }
+
+  // Whether the selection menu can quote into the composer.
+  fn can_quote() Bool {
+    self.phase == Phase::ready and not self.docked()
+  }
+
+  // open_selection_menu opens the selection menu at a screen cell when text
+  // is selected and no dialog is open, and reports whether it opened.
+  fn mut open_selection_menu(ctx: cui::Context, x: Int, y: Int) Bool {
+    let text = match (ctx.current_selection)() {
+      selection => selection_text(selection),
+      _ => "",
+    }
+    let viewport = match self.surface.current {
+      surface => surface.layout().screen,
+      _ => {
+        ui::Rect{
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+        }
+      },
+    }
+    match strings::TrimSpace(text) == "" or (not self.modal_closed()) or viewport.width == 0 {
+      true => false,
+      false => {
+        self.selection_menu = Maybe::new(
+          SelectionMenu{
+            text: text,
+            pointer: ui::Point{x: x, y: y},
+            viewport: viewport,
+          },
+        )
+        true
+      },
+    }
+  }
+
+  fn mut selection_menu_layer(menu: SelectionMenu) cui::View {
+    let items = mut List::new<selection_menu::Item>()
+    items.push(selection_menu::Item{key: "copy", label: "Copy"})
+    if self.can_quote() {
+      items.push(selection_menu::Item{key: "quote", label: "Quote"})
+    }
+    selection_menu::view(
+      selection_menu::Props{
+        themes: self.props.themes,
+        items: items.@,
+        pointer: menu.pointer,
+        viewport: menu.viewport,
+        activate: fn(action: Str) {
+          self.choose_selection_action(action, menu.text)
+        },
+        dismiss: fn() {
+          self.close_selection_menu()
+        },
+        outside: fn(button: event::MouseButton, x: Int, y: Int) {
+          self.press_outside_selection_menu(button, x, y)
+        },
+      },
+    )
+  }
+
+  private fn mut choose_selection_action(action: Str, text: Str) {
+    match self.context {
+      ctx => {
+        let _ = ctx.dispatch(fn() {
+          self.selection_menu = Maybe::new<SelectionMenu>()
+          if action == "copy" {
+            self.copy_selection(ctx, text)
+            self.restore_focus(ctx)
+          } else if action == "quote" and self.can_quote() {
+            // The blank line after the quote is where the reply goes.
+            let _ = self.composer_control.append("{selection_menu::quote(text)}\n\n")
+            self.focus_composer()
+          }
+        })
+      },
+      _ => (),
+    }
+  }
+
+  // A secondary press outside the menu moves it there while text is still
+  // selected; any other press closes it.
+  private fn mut press_outside_selection_menu(button: event::MouseButton, x: Int, y: Int) {
+    match self.context {
+      ctx => {
+        let _ = ctx.dispatch(fn() {
+          self.selection_menu = Maybe::new<SelectionMenu>()
+          let reopened = button == event::MouseButton::right and self.open_selection_menu(ctx, x, y)
+          if not reopened {
+            self.restore_focus(ctx)
+          }
+        })
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut close_selection_menu() {
+    match self.context {
+      ctx => {
+        let _ = ctx.dispatch(fn() {
+          self.selection_menu = Maybe::new<SelectionMenu>()
+          self.restore_focus(ctx)
+        })
+      },
+      _ => (),
+    }
   }
 
   // update_selection_copy_pulse updates the shared presentation token so
@@ -1674,6 +1828,12 @@ impl Shell {
 
   private fn mut finish_modal_now(context: cui::Context) {
     self.active_modal = NoModal{}
+    self.restore_focus(context)
+  }
+
+  // restore_focus returns focus to the shell's resting owner after a
+  // transient surface closes.
+  private fn mut restore_focus(context: cui::Context) {
     if self.phase == Phase::auth {
       let connect = self.connect_button
       let _ = after_commit::once(context, fn() {
@@ -2261,6 +2421,12 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
 }
 
 // Commands as the composer recalls them, with the prefix of their mode.
+// The text a selection copies and quotes: a semantic container's copy text,
+// such as a table's tab-separated values, or else the selected text.
+private fn selection_text(selection: cooper::Selection) Str {
+  selection.copy_text.or(selection.selected_text)
+}
+
 private fn bash_entries(items: [sessionbridge::BashHistoryItem]) [composer::HistoryEntry] {
   let entries = mut List::new<composer::HistoryEntry>()
   for item in items {
@@ -2512,5 +2678,214 @@ test fn a_pending_request_replaces_the_composer_until_it_settles() Void!Str {
   testing::assert(
     terminal.frame().text().contains("Ask kit to do something…"),
     "the composer returns once the request settles",
+  )
+}
+
+private fn ready_shell() mut Shell {
+  let subject = new(
+    mut Props{
+      options: cli::TUIOptions{Context: context::Background(), Authenticated: true},
+      themes: theme::context(theme::store(theme::system())),
+      quit: fn() {},
+      attach: bootstrap::attach,
+      terminal: terminal_status::detached(),
+      open_url: fn(target: Str) Void!Error {
+        Result::ok(())
+      },
+    },
+  )
+  subject.phase = Phase::ready
+  subject.attached = attached_session::detached(cli::TUIOptions{}, inert_attachment_host())
+  subject.attached.active = true
+  subject.attached.apply_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}},
+  )
+  subject
+}
+
+private fn shell_rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+private fn typed(text: Str) mut event::KeyEvent {
+  event::key(
+    "",
+    text,
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: false,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+// Types a draft, selects its second word, and opens the selection menu on it.
+private fn open_menu_on_draft(terminal: headless::TestApp) {
+  terminal.key(typed("hello world"))
+  terminal.flush()
+  terminal.double_click(9, 11)
+  terminal.flush()
+  terminal.mouse_down(9, 11, event::MouseButton::right)
+  terminal.mouse_up(9, 11, event::MouseButton::right)
+  terminal.flush()
+}
+
+private fn expect_shell_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  for want, index in expected {
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+  }
+  testing::pass()
+}
+
+test fn a_secondary_click_on_selected_text_opens_the_selection_menu() Void!Str {
+  let terminal = headless::new(40, 14)
+  defer terminal.destroy()
+  let subject = ready_shell()
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  open_menu_on_draft(terminal)
+  // The composer's last row leaves no room below, so the menu opens upward
+  // and ends above the clicked row.
+  expect_shell_rows(
+    shell_rows(terminal),
+    [
+      "  Unnamed",
+      "────────────────────────────────────────",
+      "",
+      "",
+      "                  k i t",
+      "               ━━━━━━━━━━━",
+      "",
+      "     Ask ┌────────────┐give a task.",
+      "         │ Copy       │",
+      "         │ Quote      │",
+      "─────────└────────────┘─────────────────",
+      " hello world",
+      "────────────────────────────────────────",
+      "",
+    ],
+  )
+}
+
+test fn quote_appends_the_selection_to_the_draft_as_a_block_quote() Void!Str {
+  let terminal = headless::new(40, 14)
+  defer terminal.destroy()
+  let subject = ready_shell()
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  open_menu_on_draft(terminal)
+  terminal.click(11, 9)
+  terminal.flush()
+  terminal.flush()
+  try expect_shell_rows(
+    shell_rows(terminal),
+    [
+      "  Unnamed",
+      "────────────────────────────────────────",
+      "                  k i t",
+      "",
+      "     Ask a question or give a task.",
+      "",
+      "────────────────────────────────────────",
+      " hello world",
+      "",
+      " > world",
+      "",
+      "",
+      "────────────────────────────────────────",
+      "",
+    ],
+  )
+  // The composer takes focus below the quote, where the reply goes.
+  testing::assert(
+    terminal.frame().cursor_x().or(-1) == 1 and terminal.frame().cursor_y().or(-1) == 11,
+    "cursor at {terminal.frame().cursor_x().or(-1)},{terminal.frame().cursor_y().or(-1)}",
+  )
+}
+
+test fn copy_closes_the_menu_and_pulses_the_selection() Void!Str {
+  let terminal = headless::new(40, 14)
+  defer terminal.destroy()
+  let subject = ready_shell()
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  open_menu_on_draft(terminal)
+  terminal.key(typed_key("down"))
+  terminal.key(typed_key("return"))
+  terminal.flush()
+  try testing::assert(not subject.selection_menu.is_some(), "Copy closes the menu")
+  try testing::assert(subject.selection_copy_pulse == 1.0, "Copy starts the copy pulse")
+  testing::assert(
+    terminal.selection().expect("kept selection").selected_text == "world",
+    "Copy keeps the selection",
+  )
+}
+
+test fn escape_and_an_outside_press_close_the_selection_menu() Void!Str {
+  let terminal = headless::new(40, 14)
+  defer terminal.destroy()
+  let subject = ready_shell()
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  open_menu_on_draft(terminal)
+  terminal.key(typed_key("escape"))
+  terminal.flush()
+  try testing::assert(not subject.selection_menu.is_some(), "Escape closes the menu")
+
+  terminal.mouse_down(9, 11, event::MouseButton::right)
+  terminal.flush()
+  try testing::assert(subject.selection_menu.is_some(), "a secondary click reopens it")
+  // A secondary press outside the open menu moves it there.
+  terminal.mouse_down(3, 11, event::MouseButton::right)
+  terminal.flush()
+  let moved = subject.selection_menu.expect("moved menu")
+  try testing::assert(moved.pointer.x == 3 and moved.pointer.y == 11, "the menu moves")
+  terminal.click(30, 3)
+  terminal.flush()
+  testing::assert(
+    not subject.selection_menu.is_some() and subject.selection_copy_pulse == 0.0,
+    "an outside press closes the menu without acting",
+  )
+}
+
+test fn a_secondary_click_without_selected_text_opens_nothing() Void!Str {
+  let terminal = headless::new(40, 14)
+  defer terminal.destroy()
+  let subject = ready_shell()
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.key(typed("hello world"))
+  terminal.flush()
+  terminal.mouse_down(9, 11, event::MouseButton::right)
+  terminal.mouse_up(9, 11, event::MouseButton::right)
+  terminal.flush()
+  testing::assert(not subject.selection_menu.is_some(), "no menu without a selection")
+}
+
+private fn typed_key(name: Str) mut event::KeyEvent {
+  event::key(
+    name,
+    "",
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: false,
+      alt: false,
+      super: false,
+    },
   )
 }

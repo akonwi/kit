@@ -640,6 +640,31 @@ test fn restored_text_goes_before_the_draft_with_the_cursor_at_the_end() Void!St
   testing::assert(value.submitted == "only", "an empty draft takes the text alone")
 }
 
+test fn appended_text_goes_after_the_draft_with_the_cursor_at_the_end() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  try testing::assert(value.control.append("> quoted\n\n"), "append is scheduled")
+  terminal.flush()
+  terminal.key(character("reply  "))
+  terminal.flush()
+  // The draft's trailing whitespace gives way to one blank line.
+  let _ = value.control.append("> more\n\n")
+  terminal.flush()
+  terminal.key(character("thanks"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(
+    value.submitted == "> quoted\n\nreply\n\n> more\n\nthanks",
+    "the text follows the draft: {value.submitted}",
+  )
+}
+
 test fn a_file_list_inserted_as_text_is_attached() Void!Str {
   let directory = attachments::fixtures()
   defer os::RemoveAll(directory)

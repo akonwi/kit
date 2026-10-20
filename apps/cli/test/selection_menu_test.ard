@@ -1,0 +1,213 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/selection_menu
+use kit/tui/theme
+use go:strings
+
+struct Model {
+  activated: [Str],
+  dismissed: Int,
+  outside: [Str],
+}
+
+fn mount(terminal: headless::TestApp, model: mut Model) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(
+    app,
+    selection_menu::view(
+      selection_menu::Props{
+        themes: theme::context(theme::store(theme::system())),
+        items: [
+          selection_menu::Item{key: "copy", label: "Copy"},
+          selection_menu::Item{key: "quote", label: "Quote"},
+        ],
+        pointer: ui::Point{x: 2, y: 1},
+        viewport: ui::Rect{
+          x: 0,
+          y: 0,
+          width: 24,
+          height: 8,
+        },
+        activate: fn(key: Str) {
+          model.activated.push(key)
+        },
+        dismiss: fn() {
+          model.dismissed =+ 1
+        },
+        outside: fn(button: event::MouseButton, x: Int, y: Int) {
+          let name = match button == event::MouseButton::right {
+            true => "right",
+            false => "other",
+          }
+          model.outside.push("{name}@{x},{y}")
+        },
+      },
+    ),
+  )
+}
+
+fn model() mut Model {
+  (mut Model{
+    activated: [],
+    dismissed: 0,
+    outside: [],
+  })
+}
+
+fn key(name: Str) mut event::KeyEvent {
+  event::key(
+    name,
+    "",
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: false,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  for want, index in expected {
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+  }
+  testing::pass()
+}
+
+fn fill(terminal: headless::TestApp, x: Int, y: Int) ui::Color? {
+  match terminal.frame().cell(x, y) {
+    cell => cell.style.background,
+    _ => Maybe::new<ui::Color>(),
+  }
+}
+
+fn same(actual: ui::Color?, expected: ui::Color) Bool {
+  match actual {
+    color => color.red == expected.red and color.green == expected.green and color.blue == expected.blue,
+    _ => false,
+  }
+}
+
+test fn the_menu_opens_below_the_pointer_and_highlights_the_hovered_action() Void!Str {
+  let terminal = headless::new(24, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "  ┌────────────┐",
+      "  │ Copy       │",
+      "  │ Quote      │",
+      "  └────────────┘",
+      "",
+      "",
+    ],
+  )
+  terminal.mouse_move(6, 4)
+  terminal.flush()
+  let tint = theme::system().picker_selected
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "  ┌────────────┐",
+      "  │ Copy       │",
+      "  │ Quote      │",
+      "  └────────────┘",
+      "",
+      "",
+    ],
+  )
+  // The tint fills the whole row inside the frame, its padding included.
+  try testing::assert(
+    same(fill(terminal, 3, 4), tint) and same(fill(terminal, 4, 4), tint) and same(fill(terminal, 14, 4), tint),
+    "the hovered row uses the picker focus tint across its width",
+  )
+  testing::assert(
+    same(fill(terminal, 3, 3), theme::system().background),
+    "the other row keeps the menu background",
+  )
+}
+
+test fn only_a_primary_release_activates_an_action() Void!Str {
+  let terminal = headless::new(24, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+  // The release of the secondary press that opened the menu can land on it.
+  terminal.mouse_up(6, 3, event::MouseButton::right)
+  terminal.flush()
+  try testing::assert(value.activated.size() == 0, "a secondary release does nothing")
+  terminal.click(6, 4)
+  terminal.flush()
+  testing::assert(
+    value.activated.size() == 1 and value.activated.at(0).or("") == "quote",
+    "a click activates the clicked action",
+  )
+}
+
+test fn keys_move_the_highlight_and_run_or_dismiss() Void!Str {
+  let terminal = headless::new(24, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+  // Enter without a highlight does nothing; Up starts at the last action and
+  // Down wraps to the first.
+  terminal.key(key("return"))
+  terminal.key(key("up"))
+  terminal.key(key("down"))
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(
+    value.activated.size() == 1 and value.activated.at(0).or("") == "copy",
+    "activated: {strings::Join(mut value.activated, ",")}",
+  )
+  terminal.key(key("escape"))
+  terminal.flush()
+  testing::assert(value.dismissed == 1, "Escape dismisses the menu")
+}
+
+test fn presses_outside_the_menu_are_reported_with_their_button() Void!Str {
+  let terminal = headless::new(24, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.mouse_down(20, 7, event::MouseButton::right)
+  terminal.click(0, 0)
+  // A press on the frame stays with the menu.
+  terminal.click(2, 2)
+  terminal.flush()
+  testing::assert(
+    strings::Join(mut value.outside, " ") == "right@20,7 other@0,0",
+    "outside: {strings::Join(mut value.outside, " ")}",
+  )
+}

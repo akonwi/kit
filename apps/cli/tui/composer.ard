@@ -20,6 +20,7 @@ struct Ref {
   reset_action: (fn() Bool)?,
   restore_action: (fn(Str) Bool)?,
   prepend_action: (fn(Str) Bool)?,
+  append_action: (fn(Str) Bool)?,
   history_action: (fn([HistoryEntry]) Bool)?,
   bash_history_action: (fn([HistoryEntry]) Bool)?,
   bash_page_action: (fn(BashPage?, Bool) Bool)?,
@@ -40,6 +41,7 @@ fn ref() mut Ref {
     reset_action: Maybe::new<fn() Bool>(),
     restore_action: Maybe::new<fn(Str) Bool>(),
     prepend_action: Maybe::new<fn(Str) Bool>(),
+    append_action: Maybe::new<fn(Str) Bool>(),
     history_action: Maybe::new<fn([HistoryEntry]) Bool>(),
     bash_history_action: Maybe::new<fn([HistoryEntry]) Bool>(),
     bash_page_action: Maybe::new<fn(BashPage?, Bool) Bool>(),
@@ -80,6 +82,16 @@ impl Ref {
   // cursor at the end.
   fn mut prepend(value: Str) Bool {
     match self.prepend_action {
+      action => action(value),
+      _ => false,
+    }
+  }
+
+  // append puts value after the draft, separated by a blank line, with the
+  // cursor at the end. Trailing whitespace in the draft gives way to that
+  // blank line; value is kept as given.
+  fn mut append(value: Str) Bool {
+    match self.append_action {
       action => action(value),
       _ => false,
     }
@@ -278,6 +290,9 @@ impl cui::Lifecycle for Composer {
     self.props.control.prepend_action = Maybe::new(fn(value: Str) Bool {
       self.request_prepend(value)
     })
+    self.props.control.append_action = Maybe::new(fn(value: Str) Bool {
+      self.request_append(value)
+    })
     self.props.control.history_action = Maybe::new(fn(entries: [HistoryEntry]) Bool {
       self.request_history(entries)
     })
@@ -319,6 +334,7 @@ impl cui::Lifecycle for Composer {
     self.props.control.reset_action = Maybe::new<fn() Bool>()
     self.props.control.restore_action = Maybe::new<fn(Str) Bool>()
     self.props.control.prepend_action = Maybe::new<fn(Str) Bool>()
+    self.props.control.append_action = Maybe::new<fn(Str) Bool>()
     self.props.control.history_action = Maybe::new<fn([HistoryEntry]) Bool>()
     self.props.control.bash_history_action = Maybe::new<fn([HistoryEntry]) Bool>()
     self.props.control.bash_page_action = Maybe::new<fn(BashPage?, Bool) Bool>()
@@ -401,6 +417,25 @@ impl Composer {
             }
           }
           self.change(strings::Join(parts, "\n\n"))
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut request_append(value: Str) Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          let draft = strings::TrimRight(self.draft, " \t\r\n")
+          self.close_history()
+          self.change(
+            match draft == "" {
+              true => value,
+              false => "{draft}\n\n{value}",
+            },
+          )
         })
         true
       },

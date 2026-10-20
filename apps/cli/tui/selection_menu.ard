@@ -1,0 +1,348 @@
+use ard/testing
+
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/ui
+use kit/tui/theme
+use go:strings
+
+// The context menu for the active text selection: a transient overlay opened
+// by a secondary click while text is selected. Shell owns whether it is open,
+// the snapshot of selected text it acts on, and what each action does; the
+// menu owns its highlight, keyboard focus, and pointer handling. It mounts with
+// focus so Up, Down, Enter, and Escape work at once. A press outside the menu
+// dismisses it and is reported so a secondary press can reopen it there.
+
+// Item is one action row.
+struct Item {
+  key: Str,
+  label: Str,
+}
+
+// The narrowest menu, frame included, so short labels keep a usable target.
+let min_width = 14
+
+// Placement is the menu's top-left corner and size in viewport cells.
+struct Placement {
+  left: Int,
+  top: Int,
+  width: Int,
+  height: Int,
+}
+
+// place opens the menu on the row below the pointer, starting at the pointer's
+// column, so the clicked text stays visible. A menu that would cross the right
+// edge moves left, and one that would cross the bottom edge opens upward,
+// ending on the row above the pointer. It stays within the viewport where it
+// fits.
+fn place(items: [Item], pointer: ui::Point, viewport: ui::Rect) Placement {
+  mut widest = 0
+  for item in items {
+    if item.label.size() > widest {
+      widest = item.label.size()
+    }
+  }
+  // The frame, one cell of leading padding, and two cells of trailing room.
+  mut width = widest + 5
+  if width < min_width {
+    width = min_width
+  }
+  let height = items.size() + 2
+  let x = pointer.x - viewport.x
+  let y = pointer.y - viewport.y
+  let left = match x + width > viewport.width {
+    true => viewport.width - width,
+    false => x,
+  }
+  let top = match y + 1 + height > viewport.height {
+    true => y - height,
+    false => y + 1,
+  }
+  Placement{
+    left: at_least_zero(left),
+    top: at_least_zero(top),
+    width: width,
+    height: height,
+  }
+}
+
+private fn at_least_zero(value: Int) Int {
+  match value < 0 {
+    true => 0,
+    false => value,
+  }
+}
+
+// quote formats text as a Markdown block quote. Line endings are normalized,
+// trailing spaces are dropped from each line, and leading and trailing blank
+// lines are dropped; blank lines inside the text stay in the quote.
+fn quote(text: Str) Str {
+  let normalized = strings::ReplaceAll(text, "\r\n", "\n")
+  let lines = mut List::new<Str>()
+  for line in strings::Split(normalized, "\n") {
+    lines.push(strings::TrimRight(line, " \t\r"))
+  }
+  // The first and last lines with text; without any, nothing is quoted.
+  mut first = -1
+  mut last = -2
+  for line, index in lines {
+    if line != "" {
+      if first < 0 {
+        first = index
+      }
+      last = index
+    }
+  }
+  let quoted = mut List::new<Str>()
+  for line, index in lines {
+    if index >= first and index <= last {
+      quoted.push(
+        match line == "" {
+          true => ">",
+          false => "> {line}",
+        },
+      )
+    }
+  }
+  strings::Join(quoted, "\n")
+}
+
+struct Props {
+  themes: theme::Context,
+  items: [Item],
+  // The pointer cell that opened the menu and the viewport it must fit, both
+  // in screen cells.
+  pointer: ui::Point,
+  viewport: ui::Rect,
+  // Runs the action with this key. The owner closes the menu.
+  activate: fn(Str),
+  // Escape closes the menu without acting.
+  dismiss: fn(),
+  // A press outside the menu, with its button and screen cell. The owner
+  // closes the menu, or reopens it at the cell.
+  outside: fn(event::MouseButton, Int, Int),
+}
+
+// view renders the menu and a transparent barrier over the viewport. It is
+// intended as a root-shell layer, so its absolute layer fills the viewport.
+fn view(props: Props) cui::View {
+  cui::child(new, props, key: "selection-menu")
+}
+
+private struct Menu {
+  props: mut Props,
+  // The highlighted row's key, or empty before the pointer or a key picks one.
+  highlighted: Str,
+}
+
+private fn new(props: mut Props) mut Menu {
+  (mut Menu{props: props, highlighted: ""})
+}
+
+impl Menu {
+  // Moves the highlight delta rows, wrapping. Without a highlight, Down
+  // starts at the first row and Up at the last.
+  private fn mut step(delta: Int) Bool {
+    let items = self.props.items
+    let count = items.size()
+    if count > 0 {
+      mut index = -1
+      for item, position in items {
+        if item.key == self.highlighted {
+          index = position
+        }
+      }
+      mut next = 0
+      if index < 0 {
+        next = match delta < 0 {
+          true => count - 1,
+          false => 0,
+        }
+      } else {
+        next = (index + delta) % count
+        if next < 0 {
+          next = next + count
+        }
+      }
+      self.highlighted = items.at(next).expect("menu item").key
+    }
+    true
+  }
+
+  private fn mut activate_highlighted() Bool {
+    if self.highlighted != "" {
+      (self.props.activate)(self.highlighted)
+    }
+    true
+  }
+
+  private fn mut row(item: Item) cui::View {
+    let colors = self.props.themes.current()
+    let active = item.key == self.highlighted
+    let activate = self.props.activate
+    cui::box(
+      [
+        cui::text(
+          item.label,
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      ],
+      key: "selection-menu.row.{item.key}",
+      styles: ui::style(
+        background: match active {
+          true => colors.picker_selected,
+          false => colors.background,
+        },
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(0),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+        match received.event_type {
+          // Only the primary button acts: the secondary release that follows
+          // the opening press lands on the menu.
+          event::MouseEventType::over => { self.highlighted = item.key },
+          event::MouseEventType::move => { self.highlighted = item.key },
+          event::MouseEventType::out => {
+            if self.highlighted == item.key {
+              self.highlighted = ""
+            }
+          },
+          event::MouseEventType::up => {
+            if received.button == event::MouseButton::left {
+              activate(item.key)
+              received.prevent_default()
+              received.stop_propagation()
+            }
+          },
+          _ => (),
+        }
+      },
+    )
+  }
+}
+
+impl cui::Component for Menu {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let items = self.props.items
+    let placed = place(items, self.props.pointer, self.props.viewport)
+    let rows = mut List::new<cui::View>()
+    for item in items {
+      rows.push(self.row(item))
+    }
+    let dismiss = keymap::simple_command("selection-menu.dismiss", "Close menu", fn() Bool {
+      (self.props.dismiss)()
+      true
+    })
+    let up = keymap::simple_command("selection-menu.up", "Previous action", fn() Bool {
+      self.step(-1)
+    })
+    let down = keymap::simple_command("selection-menu.down", "Next action", fn() Bool {
+      self.step(1)
+    })
+    let choose = keymap::simple_command("selection-menu.choose", "Run action", fn() Bool {
+      self.activate_highlighted()
+    })
+    let outside = self.props.outside
+    cui::box(
+      [
+        cui::box(
+          [],
+          key: "selection-menu.barrier",
+          styles: ui::style(
+            position: ui::Position::absolute,
+            top: ui::cells(0),
+            right: ui::cells(0),
+            bottom: ui::cells(0),
+            left: ui::cells(0),
+          ),
+          on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+            if received.event_type == event::MouseEventType::down or received.event_type == event::MouseEventType::scroll {
+              received.prevent_default()
+              received.stop_propagation()
+              let button = match received.event_type == event::MouseEventType::scroll {
+                true => event::MouseButton::none,
+                false => received.button,
+              }
+              outside(button, received.x, received.y)
+            }
+          },
+        ),
+        cui::box(
+          rows.@,
+          key: "selection-menu.panel",
+          styles: ui::style(
+            position: ui::Position::absolute,
+            top: ui::cells(placed.top),
+            left: ui::cells(placed.left),
+            width: ui::cells(placed.width),
+            height: ui::cells(placed.height),
+            flex_direction: ui::FlexDirection::column,
+            background: colors.background,
+            foreground: colors.foreground,
+            border: ui::Border::single,
+            border_color: colors.border,
+          ),
+          autofocus: true,
+          commands: [dismiss, up, down, choose],
+          bindings: [
+            keymap::binding(keymap::key("escape"), dismiss.with()),
+            keymap::binding(keymap::key("up"), up.with(), keymap::Trigger::press_or_repeat),
+            keymap::binding(keymap::key("down"), down.with(), keymap::Trigger::press_or_repeat),
+            keymap::binding(keymap::key("return"), choose.with()),
+          ],
+          on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+            // Presses on the frame stay with the menu.
+            if received.event_type == event::MouseEventType::down {
+              received.prevent_default()
+              received.stop_propagation()
+            }
+          },
+        ),
+      ],
+      key: "selection-menu.layer",
+      styles: ui::style(
+        position: ui::Position::absolute,
+        top: ui::cells(0),
+        right: ui::cells(0),
+        bottom: ui::cells(0),
+        left: ui::cells(0),
+        z_index: 90,
+      ),
+    )
+  }
+}
+
+test fn quote_prefixes_each_line_and_keeps_inner_blank_lines() Void!Str {
+  try testing::assert(quote("world") == "> world", "one line: {quote("world")}")
+  let quoted = quote("\n  \nfirst  \r\n\nsecond\t\n\n")
+  testing::assert(quoted == "> first\n>\n> second", "multiline: {quoted}")
+}
+
+test fn place_opens_below_the_pointer_and_flips_at_the_edges() Void!Str {
+  let items = [Item{key: "copy", label: "Copy"}, Item{key: "quote", label: "Quote"}]
+  let viewport = ui::Rect{
+    x: 0,
+    y: 0,
+    width: 40,
+    height: 14,
+  }
+  let below = place(items, ui::Point{x: 9, y: 3}, viewport)
+  try testing::assert(
+    below.left == 9 and below.top == 4 and below.width == min_width and below.height == 4,
+    "below: {below.left},{below.top} {below.width}x{below.height}",
+  )
+  // Too near the bottom-right corner: it moves left and ends above the row.
+  let flipped = place(items, ui::Point{x: 35, y: 12}, viewport)
+  testing::assert(flipped.left == 26 and flipped.top == 8, "flipped: {flipped.left},{flipped.top}")
+}
