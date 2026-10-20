@@ -88,7 +88,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
 
     static func local() async throws -> HTTPClient {
         // Discovery is read-only. Starting a daemon remains owned by Kit's CLI.
-        let root = SharedSettingsStore.home.appendingPathComponent("run")
+        let root = DevHomeResolver.resolve().appendingPathComponent("run")
         let registry: LocalDaemonRegistry
         let token: String
         do {
@@ -1420,7 +1420,10 @@ extension HTTPClient {
     }
 
     /// The server's explanation of a refused provider request, or its status.
-    private static func providerFailure(_ output: Any) -> Error {
+    /// The error for a response a provider or settings request didn't
+    /// expect: the server's explanation when it gave one, made into an error
+    /// by `explained`, or the status.
+    private static func providerFailure(_ output: Any, explained: (String) -> any Error = { ProviderRequestFailed(message: $0) }) -> Error {
         let statuses = ["badRequest": 400, "unauthorized": 401, "forbidden": 403, "notFound": 404, "conflict": 409,
                         "contentTooLarge": 413, "misdirectedRequest": 421, "upgradeRequired": 426, "tooManyRequests": 429,
                         "internalServerError": 500, "serviceUnavailable": 503]
@@ -1428,7 +1431,7 @@ extension HTTPClient {
         if label == "undocumented", let code = Mirror(reflecting: child.value).children.first?.value as? Int { return ClientError.http(code) }
         let status = statuses[label] ?? 0
         if status == 401 || status == 403 { return ClientError.http(status) }
-        if let message = errorMessage(in: child.value) { return ProviderRequestFailed(message: message) }
+        if let message = errorMessage(in: child.value) { return explained(message) }
         return status == 0 ? ClientError.invalidPayload : ClientError.http(status)
     }
 
@@ -1447,5 +1450,57 @@ extension HTTPClient {
             value = Mirror(reflecting: current).children.first?.value
         }
         return nil
+    }
+}
+
+// MARK: Server settings
+
+extension HTTPClient {
+    func serverSettings() async throws -> ServerSettings {
+        let output = try await generatedOperation { try await api.getServerSettings(headers: .init(xKitInstanceID: instance)) }
+        guard case let .ok(response) = output else { throw Self.providerFailure(output, explained: ServerSettingsFailed.init) }
+        return try Self.projectSettings(try response.body.json)
+    }
+
+    func updateServerSettings(_ change: ServerSettingsChange) async throws -> ServerSettings {
+        var input = Components.Schemas.UpdateServerSettingsInput()
+        switch change {
+        case .defaultModel(let model):
+            guard model.isEmpty || Self.validModel(model) else { throw MutationNotSent(reason: "Choose a model with an exact provider/model identifier.") }
+            input.defaultModel = model
+        case .compactionModel(let model):
+            guard model.isEmpty || Self.validModel(model) else { throw MutationNotSent(reason: "Choose a model with an exact provider/model identifier.") }
+            input.compactionModel = model
+        case .contextWindow(let model, let tokens):
+            guard Self.validModel(model), tokens.map({ $0 > 0 && $0 <= 100_000_000 }) ?? true else {
+                throw MutationNotSent(reason: "Enter a positive whole number of tokens.")
+            }
+            input.modelOverrides = [.init(contextWindow: tokens ?? 0, model: model)]
+        case .promptCacheRetention(let retention):
+            input.promptCacheRetention = retention == .long ? .long : .short
+        case .readClaudeConfigs(let enabled):
+            input.readClaudeConfigs = enabled
+        }
+        let output = try await generatedOperation { try await api.updateServerSettings(headers: .init(xKitInstanceID: instance), body: .json(input)) }
+        guard case let .ok(response) = output else { throw Self.providerFailure(output, explained: ServerSettingsFailed.init) }
+        return try Self.projectSettings(try response.body.json)
+    }
+
+    /// An exact provider/model selector, as the contract accepts it.
+    private static func validModel(_ value: String) -> Bool {
+        let parts = value.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+        return parts.count == 2 && parts.allSatisfy { !$0.isEmpty && $0.trimmingCharacters(in: .whitespacesAndNewlines) == $0 }
+    }
+
+    private static func projectSettings(_ settings: Components.Schemas.ServerSettings) throws -> ServerSettings {
+        let models = [settings.defaultModel, settings.compactionModel, settings.newSessionModel].compactMap { $0 }
+        guard models.allSatisfy(validModel), settings.modelOverrides.count <= 256,
+              Set(settings.modelOverrides.map(\.model)).count == settings.modelOverrides.count,
+              settings.modelOverrides.allSatisfy({ validModel($0.model) && $0.contextWindow > 0 }) else { throw ClientError.invalidPayload }
+        return ServerSettings(
+            defaultModel: settings.defaultModel ?? "", compactionModel: settings.compactionModel ?? "",
+            contextWindows: Dictionary(uniqueKeysWithValues: settings.modelOverrides.map { ($0.model, $0.contextWindow) }),
+            promptCacheRetention: settings.promptCacheRetention == .long ? .long : .short,
+            readClaudeConfigs: settings.readClaudeConfigs, newSessionModel: settings.newSessionModel ?? "")
     }
 }

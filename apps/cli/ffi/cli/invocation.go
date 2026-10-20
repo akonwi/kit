@@ -137,11 +137,12 @@ type Environment struct {
 	// server labels an attached server other than this home's own.
 	server string
 	// serverURL is the origin of a URL server.
-	serverURL string
-	cwd       string
-	settings  *settings.Store
-	themeName string
-	diffWrap  bool
+	serverURL  string
+	cwd        string
+	settings   *settings.Store
+	themeName  string
+	diffWrap   bool
+	diffLayout string
 }
 
 // OpenEnvironment validates the working directory, connects to the server,
@@ -243,6 +244,7 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 		settings:        settingsStore,
 		themeName:       loadedSettings.Theme,
 		diffWrap:        loadedSettings.DiffWrapLines,
+		diffLayout:      loadedSettings.DiffLayout,
 	}
 }
 
@@ -338,6 +340,7 @@ func (e Environment) prepared(
 			ThemeDefinition:       e.ThemeDefinition,
 			ThemeService:          interactiveThemeService{directory: e.paths.Themes, settings: e.settings},
 			DiffWrapLines:         e.diffWrap,
+			DiffLayout:            e.diffLayout,
 			DiffPreferenceService: interactiveDiffPreferenceService{settings: e.settings},
 		},
 		client: e.Client,

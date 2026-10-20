@@ -1,0 +1,580 @@
+use ard/testing
+
+use go:api/contract as protocol
+use go:context
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use go:errors
+use go:kit/ffi/contextbridge
+use kit/tui/settings
+use kit/tui/theme
+use go:strings
+use go:time
+
+// Server is a fake attached server and terminal settings store. A save waits
+// for a release while hold is set, so a test can see the row saving.
+struct Server {
+  settings: protocol::ServerSettings,
+  load_failure: Str,
+  save_failure: Str,
+  loads: Int,
+  hold: Bool,
+  release: Chan<Int>,
+  saves: [Str],
+  // The terminal preferences, as the shell keeps them.
+  diff_split: Bool,
+  diff_wrap: Bool,
+  dismissed: Int,
+  themes_opened: Int,
+}
+
+fn server() mut Server {
+  (mut Server{
+    settings: protocol::ServerSettings{
+      DefaultModel: "",
+      CompactionModel: "",
+      PromptCacheRetention: protocol::PromptCacheShort,
+      ReadClaudeConfigs: true,
+      NewSessionModel: "anthropic/claude-sonnet-4-6",
+    },
+    load_failure: "",
+    save_failure: "",
+    loads: 0,
+    hold: false,
+    release: Chan::new<Int>(8),
+    saves: [],
+    diff_split: false,
+    diff_wrap: false,
+    dismissed: 0,
+    themes_opened: 0,
+  })
+}
+
+fn models() [protocol::ModelCapability] {
+  [
+    protocol::ModelCapability{
+      ID: "anthropic/claude-sonnet-4-6",
+      Name: "Claude Sonnet 4.6",
+      Provider: "anthropic",
+      Available: true,
+    },
+    protocol::ModelCapability{
+      ID: "anthropic/claude-opus-4-6",
+      Name: "Claude Opus 4.6",
+      Provider: "anthropic",
+      Available: true,
+    },
+    protocol::ModelCapability{
+      ID: "openai/gpt-5.6-sol",
+      Name: "GPT-5.6 Sol",
+      Provider: "openai",
+      Available: false,
+    },
+  ]
+}
+
+impl Server {
+  fn mut record(save: Str) {
+    let saves = mut List::new<Str>()
+    for previous in self.saves {
+      saves.push(previous)
+    }
+    saves.push(save)
+    self.saves = saves.@
+  }
+
+  // Waits for a release when holding, then fails or succeeds.
+  fn mut finish(save: Str) Void!Error {
+    if self.hold {
+      let _ = self.release.recv()
+    }
+    match self.save_failure == "" {
+      true => {
+        self.record(save)
+        Result::ok(())
+      },
+      false => errors::New(self.save_failure),
+    }
+  }
+}
+
+fn failed(message: Str) protocol::ServerSettings!Error {
+  match errors::New(message) {
+    err(failure) => Result::err(failure),
+    ok(_) => Result::ok(protocol::ServerSettings{}),
+  }
+}
+
+fn services(fake: mut Server) settings::Services {
+  let update = fn(save: Str, change: fn()) protocol::ServerSettings!Error {
+    try fake.finish(save)
+    change()
+    Result::ok(fake.settings)
+  }
+  settings::Services{
+    load: fn(ctx: context::Context) protocol::ServerSettings!Error {
+      fake.loads =+ 1
+      match fake.load_failure == "" {
+        true => Result::ok(fake.settings),
+        false => failed(fake.load_failure),
+      }
+    },
+    models: fn(ctx: context::Context) [protocol::ModelCapability]!Error {
+      Result::ok(models())
+    },
+    set_default_model: fn(ctx: context::Context, model: Str) protocol::ServerSettings!Error {
+      update("default model {model}", fn() {
+        fake.settings.DefaultModel = model
+      })
+    },
+    set_compaction_model: fn(ctx: context::Context, model: Str) protocol::ServerSettings!Error {
+      update("compaction model {model}", fn() {
+        fake.settings.CompactionModel = model
+      })
+    },
+    set_prompt_cache: fn(ctx: context::Context, retention: Str) protocol::ServerSettings!Error {
+      update("prompt cache {retention}", fn() {
+        fake.settings.PromptCacheRetention = match retention == "long" {
+          true => protocol::PromptCacheLong,
+          false => protocol::PromptCacheShort,
+        }
+      })
+    },
+    set_claude_commands: fn(ctx: context::Context, enabled: Bool) protocol::ServerSettings!Error {
+      update("claude commands {enabled}", fn() {
+        fake.settings.ReadClaudeConfigs = enabled
+      })
+    },
+    save_diff_layout: fn(layout: Str) Void!Error {
+      fake.finish("diff layout {layout}")
+    },
+    save_diff_wrap: fn(wrap: Bool) Void!Error {
+      fake.finish("diff wrap {wrap}")
+    },
+  }
+}
+
+struct HostProps {
+  fake: mut Server,
+  server: Str,
+  selection: Str,
+  themes: theme::Context,
+  lifetime: contextbridge::Cancellation,
+}
+
+// Host plays the shell: it owns the terminal preferences and applies the
+// values the dialog reports saved.
+struct Host {
+  props: mut HostProps,
+  context: cui::Context?,
+}
+
+fn host(props: mut HostProps) mut Host {
+  (mut Host{props: props, context: Maybe::new<cui::Context>()})
+}
+
+impl cui::Lifecycle for Host {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+  }
+
+  fn mut unmounting(ctx: cui::Context) {}
+}
+
+impl Host {
+  fn mut apply(change: fn()) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(change)
+      },
+      _ => (),
+    }
+  }
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    let fake = self.props.fake
+    cui::box(
+      [
+        cui::child(
+          settings::new,
+          settings::Props{
+            themes: self.props.themes,
+            lifetime: self.props.lifetime,
+            services: services(fake),
+            server: self.props.server,
+            selection: self.props.selection,
+            diff_split: fake.diff_split,
+            diff_wrap: fake.diff_wrap,
+            theme_name: "solarized",
+            dismiss: keymap::simple_command("test.settings.dismiss", "Close", fn() Bool {
+              fake.dismissed =+ 1
+              true
+            }),
+            diff_split_saved: fn(split: Bool) {
+              self.apply(fn() {
+                fake.diff_split = split
+              })
+            },
+            diff_wrap_saved: fn(wrap: Bool) {
+              self.apply(fn() {
+                fake.diff_wrap = wrap
+              })
+            },
+            open_theme: fn() {
+              fake.themes_opened =+ 1
+            },
+          },
+        ),
+      ],
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        position: ui::Position::relative,
+      ),
+    )
+  }
+}
+
+fn mount(terminal: headless::TestApp, fake: mut Server, server_name: Str) cui::Renderer {
+  mount_at(terminal, fake, server_name, "")
+}
+
+fn mount_at(terminal: headless::TestApp, fake: mut Server, server_name: Str, selection: Str) cui::Renderer {
+  cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    cui::child(
+      host,
+      HostProps{
+        fake: fake,
+        server: server_name,
+        selection: selection,
+        themes: theme::context(theme::store(theme::system())),
+        lifetime: contextbridge::WithCancel(context::Background()),
+      },
+    ),
+  )
+}
+
+fn modifiers(ctrl: Bool) event::Modifiers {
+  event::Modifiers{
+    shift: false,
+    ctrl: ctrl,
+    alt: false,
+    super: false,
+  }
+}
+
+fn press(terminal: headless::TestApp, name: Str) {
+  terminal.key(event::key(name, "", event::KeyEventType::press, modifiers(false)))
+  terminal.flush()
+}
+
+fn press_ctrl(terminal: headless::TestApp, name: Str) {
+  terminal.key(event::key(name, "", event::KeyEventType::press, modifiers(true)))
+  terminal.flush()
+}
+
+fn shows(terminal: headless::TestApp, text: Str) Bool {
+  strings::Contains(terminal.frame().text(), text)
+}
+
+fn wait_for(terminal: headless::TestApp, text: Str) Bool {
+  mut attempts = 0
+  while (not shows(terminal, text)) and attempts < 200 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  terminal.flush()
+  shows(terminal, text)
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let result = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    result.push(strings::TrimRight(row, " "))
+  }
+  result.@
+}
+
+// The dialog's rows, from its top border through its bottom border.
+fn dialog(terminal: headless::TestApp) [Str] {
+  let result = mut List::new<Str>()
+  mut inside = false
+  for row in rows(terminal) {
+    if strings::Contains(row, "┌") {
+      inside = true
+    }
+    if inside {
+      result.push(row)
+    }
+    if strings::Contains(row, "└") {
+      inside = false
+    }
+  }
+  result.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  testing::assert(
+    strings::Join(mut actual, "\n") == strings::Join(mut expected, "\n"),
+    "rows:\n{strings::Join(mut actual, "\n")}\n\nwant:\n{strings::Join(mut expected, "\n")}",
+  )
+}
+
+// The terminal row that shows text.
+fn row_of(terminal: headless::TestApp, text: Str) Int {
+  mut found = -1
+  for row, index in rows(terminal) {
+    if found < 0 and strings::Contains(row, text) {
+      found = index
+    }
+  }
+  found
+}
+
+fn saves(fake: mut Server) Str {
+  strings::Join(mut fake.saves, ", ")
+}
+
+// The first count rows of shown.
+fn first(shown: [Str], count: Int) [Str] {
+  let result = mut List::new<Str>()
+  for row, index in shown {
+    if index < count {
+      result.push(row)
+    }
+  }
+  result.@
+}
+
+test fn the_dialog_shows_the_servers_settings_and_this_terminals() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let fake = server()
+  let renderer = mount(terminal, fake, "")
+  defer renderer.destroy()
+  try testing::assert(wait_for(terminal, "Automatic · Claude Sonnet 4.6"), "the settings load")
+  expect_rows(
+    dialog(terminal),
+    [
+      "        ┌──────────────────────────────────────────────────────────────┐",
+      "        │ Settings                                        local server │",
+      "        ├──────────────────────────────────────────────────────────────┤",
+      "        │ Server                                                       │",
+      "        │▌  Default model        Automatic · Claude Sonnet 4.6       › │",
+      "        │   Compaction model     Session's own model                 › │",
+      "        │   Prompt cache         ‹ Short ›                             │",
+      "        │   Claude Code commands   ██ On                               │",
+      "        │                                                              │",
+      "        │ This terminal                                                │",
+      "        │   Diff layout          ‹ Unified ›                           │",
+      "        │   Wrap diff lines      ██   Off                              │",
+      "        │   Theme                solarized                           › │",
+      "        │                                                              │",
+      "        │                                                              │",
+      "        │                                                              │",
+      "        │                                                              │",
+      "        ├──────────────────────────────────────────────────────────────┤",
+      "        │ New sessions that don't name a model start with this one.    │",
+      "        └──────────────────────────────────────────────────────────────┘",
+    ],
+  )
+}
+
+test fn a_toggle_saves_at_once_and_shows_the_servers_answer() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let fake = server()
+  fake.hold = true
+  let renderer = mount(terminal, fake, "")
+  defer renderer.destroy()
+  try testing::assert(wait_for(terminal, "Automatic · Claude Sonnet 4.6"), "the settings load")
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "space")
+  try testing::assert(wait_for(terminal, "Saving…"), "the row shows that it is saving")
+  try testing::assert(
+    strings::Contains(dialog(terminal).at(7).or(""), "│▌  Claude Code commands ⠋ Saving…"),
+    "the toggle row saves: {dialog(terminal).at(7).or("")}",
+  )
+  fake.release.send(1)
+  try testing::assert(
+    wait_for(terminal, "Claude Code commands ██   Off"),
+    "the server's answer replaces the saving row",
+  )
+  try expect_rows(
+    [dialog(terminal).at(7).or(""), dialog(terminal).at(17).or(""), dialog(terminal).at(18).or("")],
+    [
+      "        │▌  Claude Code commands ██   Off                              │",
+      "        │ Offers a project's .claude/commands. Sessions read it        │",
+      "        │ after /reload.                                               │",
+    ],
+  )
+  testing::assert(saves(fake) == "claude commands false", "saves: {saves(fake)}")
+}
+
+test fn a_failed_save_keeps_the_confirmed_value_and_explains_why() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let fake = server()
+  fake.save_failure = "the server's settings.json needs fixing; its log says why"
+  let renderer = mount(terminal, fake, "")
+  defer renderer.destroy()
+  try testing::assert(wait_for(terminal, "Automatic · Claude Sonnet 4.6"), "the settings load")
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "right")
+  try testing::assert(wait_for(terminal, "✗ not saved"), "the row reports that it was not saved")
+  expect_rows(
+    [dialog(terminal).at(6).or(""), dialog(terminal).at(7).or(""), dialog(terminal).at(8).or("")],
+    [
+      "        │▌  Prompt cache         ‹ Short ›                 ✗ not saved │",
+      "        │    the server's settings.json needs fixing; its log says why │",
+      "        │   Claude Code commands   ██ On                               │",
+    ],
+  )
+}
+
+test fn an_unreadable_server_leaves_this_terminals_preferences_usable() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let fake = server()
+  fake.load_failure = "the server's settings.json needs fixing; its log says why"
+  let renderer = mount(terminal, fake, "devbox")
+  defer renderer.destroy()
+  try testing::assert(wait_for(terminal, "needs fixing"), "the load failure is shown")
+  try expect_rows(
+    first(dialog(terminal), 10),
+    [
+      "        ┌──────────────────────────────────────────────────────────────┐",
+      "        │ Settings                                              devbox │",
+      "        ├──────────────────────────────────────────────────────────────┤",
+      "        │ Server · devbox                                              │",
+      "        │   ⚠ the server's settings.json needs fixing; its log says    │",
+      "        │   why                                                        │",
+      "        │                                                              │",
+      "        │ This terminal                                                │",
+      "        │▌  Diff layout          ‹ Unified ›                           │",
+      "        │   Wrap diff lines      ██   Off                              │",
+    ],
+  )
+  press(terminal, "return")
+  try testing::assert(wait_for(terminal, "‹ Split ›"), "the layout changes")
+  try testing::assert(fake.diff_split, "the shell applies the saved layout")
+  try testing::assert(saves(fake) == "diff layout split", "saves: {saves(fake)}")
+  fake.load_failure = ""
+  press_ctrl(terminal, "r")
+  try testing::assert(
+    wait_for(terminal, "Automatic · Claude Sonnet 4.6"),
+    "Ctrl+R reloads the server's settings",
+  )
+  testing::assert(fake.loads == 2, "loads: {fake.loads}")
+}
+
+test fn a_model_row_picks_from_the_catalog_in_the_same_frame() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let fake = server()
+  let renderer = mount(terminal, fake, "")
+  defer renderer.destroy()
+  try testing::assert(wait_for(terminal, "Automatic · Claude Sonnet 4.6"), "the settings load")
+  press(terminal, "return")
+  try testing::assert(wait_for(terminal, "Settings › Default model"), "the model picker opens")
+  try expect_rows(
+    first(dialog(terminal), 10),
+    [
+      "        ┌──────────────────────────────────────────────────────────────┐",
+      "        │ Settings › Default model                                     │",
+      "        ├──────────────────────────────────────────────────────────────┤",
+      "        │ Search models…                                               │",
+      "        ├──────────────────────────────────────────────────────────────┤",
+      "        │▌Automatic                     currently Claude Sonnet 4.6    │",
+      "        │ Claude Sonnet 4.6  anthropic                                 │",
+      "        │ Claude Opus 4.6    anthropic                                 │",
+      "        │ GPT-5.6 Sol        openai     ⊘ not logged in                │",
+      "        │                                                              │",
+    ],
+  )
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "return")
+  try testing::assert(wait_for(terminal, "Claude Opus 4.6 · anthropic"), "the chosen model is shown")
+  testing::assert(saves(fake) == "default model anthropic/claude-opus-4-6", "saves: {saves(fake)}")
+}
+
+test fn escape_in_the_model_picker_returns_to_the_settings() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let fake = server()
+  let renderer = mount(terminal, fake, "")
+  defer renderer.destroy()
+  try testing::assert(wait_for(terminal, "Automatic · Claude Sonnet 4.6"), "the settings load")
+  press(terminal, "down")
+  press(terminal, "return")
+  try testing::assert(wait_for(terminal, "Settings › Compaction model"), "the model picker opens")
+  press(terminal, "escape")
+  try testing::assert(wait_for(terminal, "This terminal"), "Escape returns to the settings")
+  try testing::assert(fake.dismissed == 0, "the dialog stays open")
+  press(terminal, "escape")
+  testing::assert(fake.dismissed == 1, "a second Escape closes the dialog")
+}
+
+test fn the_theme_row_opens_the_theme_picker() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let fake = server()
+  let renderer = mount(terminal, fake, "")
+  defer renderer.destroy()
+  try testing::assert(wait_for(terminal, "Automatic · Claude Sonnet 4.6"), "the settings load")
+  press(terminal, "up")
+  press(terminal, "return")
+  testing::assert(fake.themes_opened == 1, "themes opened: {fake.themes_opened}")
+}
+
+test fn server_settings_change_one_at_a_time() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let fake = server()
+  fake.hold = true
+  let renderer = mount(terminal, fake, "")
+  defer renderer.destroy()
+  try testing::assert(wait_for(terminal, "Automatic · Claude Sonnet 4.6"), "the settings load")
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "right")
+  try testing::assert(wait_for(terminal, "Saving…"), "the prompt cache saves")
+  // While it saves, the other server rows and a reload wait.
+  press(terminal, "down")
+  press(terminal, "space")
+  press(terminal, "up")
+  press(terminal, "up")
+  press(terminal, "up")
+  press(terminal, "return")
+  press_ctrl(terminal, "r")
+  try testing::assert(not shows(terminal, "Settings › Default model"), "the model picker waits")
+  fake.release.send(1)
+  try testing::assert(wait_for(terminal, "‹ Long ›"), "the saved value is shown")
+  try testing::assert(saves(fake) == "prompt cache long", "saves: {saves(fake)}")
+  testing::assert(fake.loads == 1, "loads: {fake.loads}")
+}
+
+test fn settings_can_open_on_a_row() Void!Str {
+  let terminal = headless::new(80, 30)
+  defer terminal.destroy()
+  let fake = server()
+  let renderer = mount_at(terminal, fake, "", "theme")
+  defer renderer.destroy()
+  try testing::assert(wait_for(terminal, "Automatic · Claude Sonnet 4.6"), "the settings load")
+  testing::assert(
+    strings::Contains(terminal.frame().text(), "│▌  Theme                solarized"),
+    "the Theme row is selected:\n{terminal.frame().text()}",
+  )
+}

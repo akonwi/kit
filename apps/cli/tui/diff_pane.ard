@@ -67,6 +67,10 @@ struct Props {
   // Whether lines wrap, a saved preference the caller owns.
   wrap: Bool,
   set_wrap: fn(Bool),
+  // Whether the split layout is chosen, a saved preference the caller owns;
+  // it shows only where the pane is wide enough.
+  split: Bool,
+  set_split: fn(Bool),
   // The session's annotations, and what saves them; without it, lines can't
   // be annotated.
   annotations: [sessionbridge::Annotation],
@@ -597,12 +601,12 @@ private struct Pane {
   // The first row in view, for the pinned header.
   top: Int,
   column: Int,
+  // The layout last drawn; a change returns the text to its first column.
+  drawn_split: Bool,
   polling: contextbridge::Cancellation?,
   was_shown: Bool,
   // The picked commit or branch, or none for the working tree.
   target: protocol::DiffTargetEntry?,
-  // Whether the split layout is chosen; it shows only where wide enough.
-  split: Bool,
   // The workspace's targets as last listed, for the picker to show at once.
   targets: [protocol::DiffTargetEntry],
   // The line under the pointer, which offers a +, and the line a held
@@ -635,10 +639,10 @@ private fn new(props: mut Props) mut Pane {
     generation: 0,
     top: 0,
     column: 0,
+    drawn_split: props.split,
     polling: Maybe::new<contextbridge::Cancellation>(),
     was_shown: false,
     target: Maybe::new<protocol::DiffTargetEntry>(),
-    split: false,
     targets: [],
     hover: Maybe::new<Spot>(),
     drag: Maybe::new<Spot>(),
@@ -682,6 +686,10 @@ impl Pane {
   // Acts on prop changes: a new workspace starts over on its working tree,
   // and being shown again observes the target and resumes polling.
   private fn mut sync() {
+    if self.props.split != self.drawn_split {
+      self.drawn_split = self.props.split
+      self.column = 0
+    }
     let reveal = self.props.reveal
     if reveal.opening != self.reveal_opening {
       self.reveal_opening = reveal.opening
@@ -1132,7 +1140,7 @@ impl Pane {
 
   // Whether rows are split: chosen, and the pane is wide enough.
   private fn split_shown() Bool {
-    self.split and self.width >= split_width
+    self.props.split and self.width >= split_width
   }
 
   // The cells left for a section's text after its padding, gutter and gap.
@@ -2077,6 +2085,8 @@ impl Pane {
     }
     let wrap = self.props.wrap
     let set_wrap = self.props.set_wrap
+    let split = self.props.split
+    let set_split = self.props.set_split
     let right = mut List::new<cui::View>()
     right.push(
       controls::button(
@@ -2098,13 +2108,12 @@ impl Pane {
       right.push(
         controls::button(
           self.props.themes,
-          match self.split {
+          match split {
             true => "Split",
             false => "Unified",
           },
           keymap::simple_command("diff.layout", "Change layout", fn() Bool {
-            self.split = not self.split
-            self.column = 0
+            set_split(not split)
             true
           }),
           variant: controls::ButtonVariant::ghost,

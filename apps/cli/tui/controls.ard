@@ -2,6 +2,7 @@ use cooper/cui
 use cooper/event
 use cooper/keymap
 use cooper/ui
+use go:github.com/akonwi/kit/internal/theme as kittheme
 use kit/tui/theme
 
 // Ctrl+C clears the composer or quits only when focus is outside modals and
@@ -16,6 +17,34 @@ let keep_interrupt = keymap::simple_command("text.keep_interrupt", "Stay in the 
 // it with `keep_interrupt`. The composer does not use it.
 fn keep_interrupt_binding() keymap::Binding {
   keymap::binding(keymap::key("c", ctrl: true), keep_interrupt.with())
+}
+
+// toggle draws the shared on/off switch: a four-cell track holding a
+// two-cell knob, at the right on the toggleOn tone when on and at the left on
+// a raised surface when off. It only presents the state; the row or control
+// that owns it handles activation.
+fn toggle(themes: theme::Context, on: Bool) cui::View {
+  let colors = themes.current()
+  let track = match on {
+    true => theme::token_color(colors, kittheme::TokenToggleOn).or(colors.primary),
+    false => colors.surface_raised,
+  }
+  let knob = cui::text("██", text_style: ui::text_style(foreground: colors.foreground))
+  let room = cui::text("  ")
+  let parts: [cui::View] = match on {
+    true => [room, knob],
+    false => [knob, room],
+  }
+  cui::box(
+    parts,
+    styles: ui::style(
+      width: ui::cells(4),
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+      background: track,
+    ),
+  )
 }
 
 // ButtonVariant selects a semantic presentation while retaining the same

@@ -113,8 +113,9 @@ private fn sorted_catalog(items: [palette::Item]) [palette::Item] {
 }
 
 // Commands that need no server: diagnostics and MCP status read the last
-// snapshot, and login, themes, and quitting are local.
-let local_commands = ["debug", "login", "mcp", "quit", "theme"]
+// snapshot, login, themes, and quitting are local, and settings keeps this
+// terminal's preferences usable while it explains the server's.
+let local_commands = ["debug", "login", "mcp", "quit", "settings", "theme"]
 
 // command_catalog preserves the established command vocabulary while this
 // client reaches feature parity. Commands whose owning surface is not ported
@@ -197,6 +198,7 @@ private fn available_catalog(
     command_item("reload", "Reload session context", "agents context refresh", ""),
     command_item("scratchpad", "Open shared working notes", "notes memory", ""),
     command_item("sessions", "Browse sessions", "list resume switch threads", ""),
+    command_item("settings", "Change server and terminal settings", "preferences options config", ""),
     command_item("subagents", "Inspect delegated work", "agents delegates children", ""),
     command_item("tabs", "Open a workspace tab", "panes workspace", ""),
     command_item("theme", "Choose UI colors", "appearance colors", ""),
@@ -268,6 +270,7 @@ enum ActionKind {
   refresh_models,
   reload,
   sessions,
+  settings,
   scratchpad,
   subagents,
   tabs,
@@ -443,6 +446,7 @@ private fn resolve_arguments(
       "refresh-models" => builtin(ActionKind::refresh_models),
       "reload" => builtin(ActionKind::reload),
       "sessions" => builtin(ActionKind::sessions),
+      "settings" => builtin(ActionKind::settings),
       "scratchpad" => builtin(ActionKind::scratchpad),
       "subagents" => builtin(ActionKind::subagents),
       "tabs" => builtin(ActionKind::tabs),

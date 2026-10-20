@@ -43,6 +43,7 @@ use kit/tui/scratchpad
 use kit/tui/selection_menu
 use kit/tui/session_debug
 use kit/tui/sessions
+use kit/tui/settings
 use kit/tui/status
 use kit/tui/subagent_pane
 use kit/tui/subagent_picker
@@ -78,7 +79,14 @@ struct SessionDebugModal {}
 struct MCPStatusModal {}
 struct PairingModal {}
 struct ModelPickerModal {}
-struct ThemePickerModal {}
+// The theme picker; opened from Settings, it returns there when it closes.
+struct ThemePickerModal {
+  from_settings: Bool,
+}
+// Settings, opening on a row, or the first when empty.
+struct SettingsModal {
+  selection: Str,
+}
 struct ThinkingPickerModal {}
 struct SessionsModal {}
 struct TabsModal {}
@@ -104,6 +112,7 @@ type Modal =
   | PairingModal
   | ModelPickerModal
   | ThemePickerModal
+  | SettingsModal
   | ThinkingPickerModal
   | rename::Request
   | SessionsModal
@@ -188,8 +197,10 @@ struct Shell {
   theme: mut theme::Owner,
   workspace: mut workspace::Tabs,
   scratchpad_control: mut scratchpad::PaneRef,
-  // Whether Diff lines wrap, a saved preference.
+  // Whether Diff lines wrap, and whether the Diff tab uses the split layout
+  // where wide enough; both are saved preferences.
   diff_wrap: Bool,
+  diff_split: Bool,
   // The lines an annotation's chip last asked the Diff tab to show.
   diff_reveal: diff_pane::Reveal,
   active_modal: Modal,
@@ -229,6 +240,7 @@ fn new(props: mut Props) mut Shell {
     workspace: workspace::tabs(),
     scratchpad_control: scratchpad::pane_ref(),
     diff_wrap: props.options.DiffWrapLines,
+    diff_split: props.options.DiffLayout == "split",
     diff_reveal: diff_pane::no_reveal(),
     active_modal: NoModal{},
     notifications: notifications,
@@ -516,6 +528,12 @@ impl Shell {
                 set_wrap: fn(wrap: Bool) {
                   self.dispatch(fn() {
                     self.set_diff_wrap(wrap)
+                  })
+                },
+                split: self.diff_split,
+                set_split: fn(split: Bool) {
+                  self.dispatch(fn() {
+                    self.set_diff_split(split)
                   })
                 },
                 annotations: self.attached.annotations,
@@ -972,6 +990,30 @@ impl Shell {
         },
       },
     )
+  }
+
+  // Splits Diff lines side by side where wide enough, or unifies them, and
+  // saves the choice.
+  private fn mut set_diff_split(split: Bool) {
+    self.diff_split = split
+    let service = self.props.options.DiffPreferenceService
+    if not unsafe::is_nil(service) {
+      async::start(fn() {
+        match service.SetLayout(settings::layout_name(split)) {
+          ok(_) => (),
+          err(error) => {
+            self.dispatch(fn() {
+              self.notify(
+                "Could not save the diff layout",
+                error.error(),
+                toast::Variant::warning,
+                false,
+              )
+            })
+          },
+        }
+      })
+    }
   }
 
   // Wraps Diff lines or stops, and saves the choice.
@@ -1541,7 +1583,8 @@ impl cui::Component for Shell {
       MCPStatusModal => layers.push(self.mcp_status_modal()),
       PairingModal => layers.push(self.pairing_modal()),
       ModelPickerModal => layers.push(self.model_picker_modal()),
-      ThemePickerModal => layers.push(self.theme_picker_modal()),
+      ThemePickerModal(request) => layers.push(self.theme_picker_modal(request.from_settings)),
+      SettingsModal(request) => layers.push(self.settings_modal(request.selection)),
       ThinkingPickerModal => layers.push(self.thinking_picker_modal()),
       rename::Request(request) => layers.push(self.rename_session_modal(request)),
       SessionsModal => layers.push(self.sessions_modal()),
@@ -1931,8 +1974,21 @@ impl Shell {
     )
   }
 
-  fn mut theme_picker_modal() cui::View {
+  fn mut theme_picker_modal(from_settings: Bool) cui::View {
     let owner = self.theme
+    // Opened from Settings, the picker closes back to it.
+    let close = fn() {
+      match from_settings {
+        true => {
+          self.dispatch(fn() {
+            self.active_modal = SettingsModal{selection: "theme"}
+          })
+        },
+        false => {
+          let _ = self.dismiss_modal()
+        },
+      }
+    }
     cui::child(
       theme_picker::new,
       theme_picker::Props{
@@ -1942,14 +1998,48 @@ impl Shell {
         committed_definition: owner.committed,
         dismiss: fn() {
           owner.request_cancel()
-          let _ = self.dismiss_modal()
+          close()
         },
         preview: fn(definition: kittheme::Definition) {
           owner.request_preview(definition)
         },
         applied: fn(name: Str, definition: kittheme::Definition) {
           owner.request_commit(name, definition)
-          let _ = self.dismiss_modal()
+          close()
+        },
+      },
+    )
+  }
+
+  fn mut settings_modal(selection: Str) cui::View {
+    cui::child(
+      settings::new,
+      settings::Props{
+        themes: self.props.themes,
+        lifetime: self.lifetime.expect("mounted settings"),
+        services: settings::services(self.props.options),
+        server: self.props.options.Server,
+        selection: selection,
+        diff_split: self.diff_split,
+        diff_wrap: self.diff_wrap,
+        theme_name: self.theme.committed_name,
+        dismiss: keymap::simple_command("settings.dismiss", "Close", fn() Bool {
+          self.dismiss_modal()
+        }),
+        diff_split_saved: fn(split: Bool) {
+          self.dispatch(fn() {
+            self.diff_split = split
+          })
+        },
+        diff_wrap_saved: fn(wrap: Bool) {
+          self.dispatch(fn() {
+            self.diff_wrap = wrap
+          })
+        },
+        open_theme: fn() {
+          self.dispatch(fn() {
+            self.active_modal = ThemePickerModal{from_settings: true}
+          })
         },
       },
     )
@@ -2062,7 +2152,8 @@ impl Shell {
       command_palette::ActionKind::mcp => { self.active_modal = MCPStatusModal{} },
       command_palette::ActionKind::pair => { self.active_modal = PairingModal{} },
       command_palette::ActionKind::model => { self.active_modal = ModelPickerModal{} },
-      command_palette::ActionKind::theme => { self.active_modal = ThemePickerModal{} },
+      command_palette::ActionKind::theme => { self.active_modal = ThemePickerModal{from_settings: false} },
+      command_palette::ActionKind::settings => { self.active_modal = SettingsModal{selection: ""} },
       command_palette::ActionKind::thinking => { self.active_modal = ThinkingPickerModal{} },
       command_palette::ActionKind::rename => {
         self.active_modal = rename::Request{

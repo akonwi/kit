@@ -19,7 +19,7 @@ final class NativeThemeLibrary {
     private(set) var themes: [InstalledTheme] = []
     private(set) var issues: [String] = []
 
-    init(directory: URL = SharedSettingsStore.home.appendingPathComponent("themes", isDirectory: true)) {
+    init(directory: URL = DevHomeResolver.resolve().appendingPathComponent("themes", isDirectory: true)) {
         self.directory = directory
         reload()
     }

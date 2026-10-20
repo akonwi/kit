@@ -8,7 +8,8 @@ struct NewSessionOverlay: View {
     let client: any SessionCreationClient
     let suggestedModel: String?
     let close: () -> Void
-    var loadDefaults: @Sendable () async throws -> SharedSettingsStore.Snapshot = { try await SharedSettingsStore.shared.load() }
+    /// Reads the server's settings; nil reads them from client.
+    var loadDefaults: (@Sendable () async throws -> ServerSettings)? = nil
     let open: (SessionExcerpt) -> Void
 
     static let top: CGFloat = 180
@@ -34,7 +35,8 @@ struct NewSessionView: View {
     let suggestedModel: String?
     let close: () -> Void
     let open: (SessionExcerpt) -> Void
-    var loadDefaults: @Sendable () async throws -> SharedSettingsStore.Snapshot = { try await SharedSettingsStore.shared.load() }
+    /// Reads the server's settings; nil reads them from client.
+    var loadDefaults: (@Sendable () async throws -> ServerSettings)? = nil
     @Environment(\.mica) private var theme
     @Environment(\.openSettings) private var openSettings
     @State private var temporary = false
@@ -275,15 +277,21 @@ struct NewSessionView: View {
         defer { loading = false }
         do {
             models = try await client.models()
-            let defaults: SharedSettingsStore.Snapshot
-            do { defaults = try await loadDefaults() }
+            let defaults: ServerSettings
+            do { defaults = try await serverSettings() }
             catch {
                 defaults = .init()
                 self.error = "Couldn’t load the default model. Choose a model above. " + error.localizedDescription
             }
-            model = SharedSettingsStore.preferredModel(defaults, available: models.map(\.id), suggested: suggestedModel)
+            model = defaults.preferredModel(available: models.map(\.id), suggested: suggestedModel)
             thinking = Self.defaultThinking(levels)
         } catch { self.error = error.localizedDescription }
+    }
+
+    /// The settings of the server the session is created on.
+    private func serverSettings() async throws -> ServerSettings {
+        if let loadDefaults { return try await loadDefaults() }
+        return try await (client as? any ServerSettingsClient)?.serverSettings() ?? ServerSettings()
     }
 
     private func disposeUncertain() async {

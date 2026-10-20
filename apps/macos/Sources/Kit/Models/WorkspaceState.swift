@@ -91,7 +91,7 @@ final class WorkspaceState {
     let fixture: WorkspaceFixture
     var fileIndex = FileIndexCache()
     let filePreviews = FilePreviewCache()
-    let diff = DiffState()
+    let diff: DiffState
     /// Every open pane in the order it was opened. Views key pane content by
     /// this list so moving a pane between tiles never remounts it.
     private(set) var panes: [WorkspacePane] = [.conversation]
@@ -642,7 +642,8 @@ final class WorkspaceState {
     var editingLine: Int?
     var noteDraft = ""
 
-    init(demo: Bool = true) {
+    init(demo: Bool = true, diffPreferences: DiffPreferences = .shared) {
+        diff = DiffState(preferences: diffPreferences)
         let tile = UUID()
         root = .tile(tile)
         tiles = [tile: WorkspaceTile(panes: [.conversation], selected: .conversation)]

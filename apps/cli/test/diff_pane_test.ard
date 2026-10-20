@@ -101,6 +101,8 @@ fn props(
     pick_target: fn(request: diff_pane::TargetRequest) {},
     wrap: false,
     set_wrap: fn(wrap: Bool) {},
+    split: false,
+    set_split: fn(split: Bool) {},
     annotations: [],
     remove_annotation: fn(id: Uint64) {},
     release_focus: fn() {},
@@ -279,18 +281,54 @@ fn column_of(terminal: headless::TestApp, row: Int, text: Str) Int {
   strings::Split(before, "").size()
 }
 
-test fn a_wide_pane_splits_old_and_new_lines_side_by_side() Void!Str {
+struct LayoutChoices {
+  chosen: [Bool],
+}
+
+test fn the_layout_button_asks_for_the_other_layout() Void!Str {
   let terminal = headless::new(124, 9)
   defer terminal.destroy()
+  let choices = mut LayoutChoices{chosen: []}
+  let unified = mut props(Maybe::new(observed), Maybe::new(paired_read))
+  unified.set_split = fn(split: Bool) {
+    let chosen = mut List::new<Bool>()
+    for previous in choices.chosen {
+      chosen.push(previous)
+    }
+    chosen.push(split)
+    choices.chosen = chosen.@
+  }
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    diff_pane::view(props(Maybe::new(observed), Maybe::new(paired_read))),
+    diff_pane::view(unified.@),
   )
   defer renderer.destroy()
   terminal.flush()
   wait_for(terminal, "var z")
+  try testing::assert(
+    rows(terminal).at(0).or("") == " Working tree ▾  2 changed files                                                                         Wrap off   Unified",
+    "header: {rows(terminal).at(0).or("")}",
+  )
   terminal.click(column_of(terminal, 0, "Unified") + 2, 0)
   terminal.flush()
+  testing::assert(
+    choices.chosen.size() == 1 and choices.chosen.at(0).or(false),
+    "chose {choices.chosen.size()} layouts",
+  )
+}
+
+test fn a_wide_pane_splits_old_and_new_lines_side_by_side() Void!Str {
+  let terminal = headless::new(124, 9)
+  defer terminal.destroy()
+  let split = mut props(Maybe::new(observed), Maybe::new(paired_read))
+  split.split = true
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(split.@),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  wait_for(terminal, "var z")
   terminal.flush()
   expect_rows(
     rows(terminal),
@@ -437,6 +475,7 @@ test fn the_split_rule_spans_a_wrapped_row() Void!Str {
   defer terminal.destroy()
   let wrapped = mut props(Maybe::new(observed), Maybe::new(long_pair_read))
   wrapped.wrap = true
+  wrapped.split = true
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     diff_pane::view(wrapped.@),
@@ -444,8 +483,6 @@ test fn the_split_rule_spans_a_wrapped_row() Void!Str {
   defer renderer.destroy()
   terminal.flush()
   wait_for(terminal, "after")
-  terminal.click(column_of(terminal, 0, "Unified") + 2, 0)
-  terminal.flush()
   terminal.flush()
   expect_rows(
     rows(terminal),
@@ -743,14 +780,13 @@ test fn split_halves_annotate_their_own_side() Void!Str {
   defer terminal.destroy()
   let made = mut annotated([diff_note(3, "old", 3, 3, "keep z")], recorded, diff_pane::no_reveal())
   made.read = Maybe::new(paired_read)
+  made.split = true
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     diff_pane::view(made.@),
   )
   defer renderer.destroy()
   wait_for(terminal, "var z")
-  terminal.click(column_of(terminal, 0, "Unified") + 2, 0)
-  terminal.flush()
   terminal.flush()
   try testing::assert(
     rows(terminal).at(7).or("") == "   ×  🗨️ keep z                                              │                                                             │",

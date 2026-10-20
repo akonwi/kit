@@ -555,6 +555,12 @@ extension InlineAnnotationEditorTests {
             let client = DiffTestClient()
             await client.setLongLines()
             let state = SessionStore(fixture: Fixture(sessions: []), client: client, sessionID: "session_test")
+            // Switching modes changes the app's diff preferences, so this
+            // workspace keeps its own.
+            let suite = "DiffTests.\(UUID().uuidString)"
+            let defaults = try #require(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            state.ui.workspace = WorkspaceState(demo: false, diffPreferences: DiffPreferences(defaults: defaults))
             state.ui.workspace.open(.review)
             let model = state.ui.workspace.diff
             await model.refresh(client: client, session: "session_test")

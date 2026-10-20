@@ -20,9 +20,10 @@ compaction model apply to newly opened session runtimes or after `/reload`,
 and `readClaudeConfigs` when a runtime next loads or reloads. Editing the file
 by hand works the same way.
 
-Client preferences in the same file, such as `theme` and `diffWrapLines`, stay
-with each client. The server's access settings under `server` are changed with
-`kit server expose` or by editing the file, not through the API.
+Client preferences in the same file, such as `theme`, `diffWrapLines`, and
+`diffLayout` (`unified` or `split`), stay with each client. The server's
+access settings under `server` are changed with `kit server expose` or by
+editing the file, not through the API.
 
 ## New sessions
 
@@ -62,7 +63,37 @@ Go clients use `Client.ServerSettings`, `UpdateServerSettings`, and
 
 ## Clients
 
-- The terminal client's `/model` picker edits context-window overrides on the
-  attached server with `Ctrl+O`.
-- The macOS app's Models settings still edit `settings.json` in its own Kit
-  home, so they reach only a server using that home.
+### Terminal client
+
+`/settings` opens a dialog with two sections:
+
+- **Server** (labeled with the attached server's name when it isn't this
+  home's own): default model, compaction model, prompt cache retention, and
+  Claude Code commands, read and changed through the API.
+- **This terminal**: diff layout, diff line wrapping, and theme, saved in
+  this client's own `settings.json`.
+
+Each change saves at once. A row shows a spinner while it saves; if saving
+fails, it keeps the last confirmed value and shows the reason beneath it. The
+server's settings change one at a time: while one saves, the other server rows
+wait.
+Enter or Space changes the selected row, and ←/→ change a choice. The model
+rows open a model picker in the same frame, where models whose provider has no
+credentials are disabled, and the Theme row opens the theme picker, which
+returns to Settings. When the server's settings can't be read, the Server
+section shows why and `Ctrl+R` reloads; the terminal's preferences still work.
+The Diff tab's Split/Unified button saves the layout too, as its Wrap button
+saves wrapping.
+
+The `/model` picker also edits context-window overrides on the attached server
+with `Ctrl+O`.
+
+### macOS app
+
+Settings › Models reads and changes the server's default model, compaction
+model, prompt cache retention, Claude Code commands, and context-window
+overrides through the API. A failed change keeps the server's last settings
+and shows the reason under the setting. New sessions start on the server's
+default model, then the most recent session's model, then the server's own
+choice. Diff layout and line wrapping are app preferences under Settings ›
+Workspace, and every Diff pane follows them.
