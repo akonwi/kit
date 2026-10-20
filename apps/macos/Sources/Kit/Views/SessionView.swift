@@ -16,6 +16,7 @@ struct SessionView: View {
             SessionComposerRegion(state: state, dockHeight: height / 2)
         }
         .background(theme.surface)
+        .environment(\.openURL, .workspace(state.ui.workspace, beside: .conversation))
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
     }
 
@@ -71,6 +72,12 @@ struct SessionComposerRegion: View {
                 InteractionDock(flow: flow, pendingCount: max(1, state.interactions.count),
                                 takesFocus: workspace.tile(containing: .conversation) == workspace.focusedTile,
                                 maxHeight: dockHeight) { state.finishInteraction(cancelled: $0) }
+                    // The authorization page's redirect answers the request,
+                    .environment(\.openURL, .workspace(workspace, beside: .conversation) { [state] url in
+                        url == flow.authorizationURL && state.openAuthorization(flow)
+                    })
+                    // and opens without a click when the request arrives.
+                    .task(id: flow.request?.id) { state.openAuthorizationOnce(flow) }
                     .frame(maxWidth: .infinity)
                     .transition(reduceMotion ? .opacity
                                 : .asymmetric(insertion: .opacity.combined(with: .offset(y: 10)), removal: .opacity))

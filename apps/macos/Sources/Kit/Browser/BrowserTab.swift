@@ -13,6 +13,14 @@ enum BrowserTabRequest {
     case downloadBlocked(source: URL?)
 }
 
+/// Takes an authorization's redirect from a browser tab's page in place of
+/// loading it. `receive` returns false when the redirect is no longer wanted,
+/// and the page then loads it.
+struct BrowserRedirectReceiver {
+    let redirect: AuthorizationRedirect
+    let receive: @MainActor (URL) -> Bool
+}
+
 /// Why a browser tab shows Kit's message instead of a page.
 struct BrowserFailure: Equatable {
     let title: String
@@ -40,6 +48,8 @@ final class BrowserTab: Identifiable {
     /// Loads waiting for the engine, as for a restored tab.
     @ObservationIgnored private var pending: URL?
     @ObservationIgnored var onRequest: (@MainActor (BrowserTabRequest) -> Void)?
+    /// Receives an authorization's redirect; the tab closes once it has.
+    @ObservationIgnored var redirectReceiver: BrowserRedirectReceiver?
 
     init(id: UUID = UUID(), url: URL? = nil, makeEngine: @escaping @MainActor () -> any BrowserEngine) {
         self.id = id
@@ -117,6 +127,7 @@ final class BrowserTab: Identifiable {
         engine?.close()
         engine = nil
         onRequest = nil
+        redirectReceiver = nil
     }
 
     private var liveEngine: any BrowserEngine {
@@ -129,6 +140,17 @@ final class BrowserTab: Identifiable {
     private func attach(_ engine: any BrowserEngine) {
         self.engine = engine
         engine.onEvent = { [weak self] event in self?.handle(event) }
+        engine.interceptsNavigation = { [weak self] url in self?.intercept(url) ?? false }
+    }
+
+    /// Hands a page's redirect to the tab's receiver instead of loading it,
+    /// then closes the tab, after the engine has stopped the navigation.
+    private func intercept(_ url: URL) -> Bool {
+        guard let receiver = redirectReceiver, receiver.redirect.matches(url) else { return false }
+        redirectReceiver = nil
+        guard receiver.receive(url) else { return false }
+        Task { @MainActor [weak self] in self?.onRequest?(.close) }
+        return true
     }
 
     /// Decodes a site's icon at tab size only, so a large or hostile image

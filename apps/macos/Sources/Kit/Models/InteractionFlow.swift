@@ -60,6 +60,16 @@ final class InteractionFlow: Identifiable {
               let url = URL(string: raw), url.scheme?.lowercased() == "https", url.host() != nil else { return nil }
         return url
     }
+    /// Where the authorization page sends the browser once access is approved.
+    var authorizationRedirect: AuthorizationRedirect? {
+        authorizationURL.flatMap { AuthorizationRedirect(authorization: $0, redirectURI: request?.redirectUri) }
+    }
+    /// Answers an authorization with the redirect the browser received.
+    func receiveRedirect(_ url: URL) -> Bool {
+        guard !submitting, authorizationRedirect?.matches(url) == true else { return false }
+        answers[step].text = url.absoluteString
+        return submitText()
+    }
     /// The request's own detail, shown above a guided question.
     var detail: String { request?.detail ?? (guided ? "" : question.detail) }
     /// Plugin confirmations, and any with a default, highlight one answer

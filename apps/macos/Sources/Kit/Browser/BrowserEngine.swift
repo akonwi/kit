@@ -41,6 +41,9 @@ enum BrowserEngineEvent {
     /// The page's view. One host shows it at a time.
     var view: NSView { get }
     var onEvent: (@MainActor (BrowserEngineEvent) -> Void)? { get set }
+    /// Asked before the page goes to a new address, including by a
+    /// redirect. Returning true stops the navigation there.
+    var interceptsNavigation: (@MainActor (URL) -> Bool)? { get set }
     var state: BrowserPageState { get }
     func load(_ url: URL)
     func goBack()

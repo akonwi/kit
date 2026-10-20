@@ -494,6 +494,36 @@ final class WorkspaceState {
         return tab
     }
 
+    /// Opens a web link in a browser tab beside `anchor`. Returns false,
+    /// opening nothing, for a link that isn't a web address or that the user
+    /// asked to open externally; the caller hands those to the system.
+    @discardableResult
+    func openLink(_ url: URL, beside anchor: WorkspacePane, externally: Bool = false) -> Bool {
+        guard BrowserAddress.isWeb(url), !externally else { return false }
+        openBrowser(url, beside: anchor)
+        return true
+    }
+
+    /// Opens an authorization page in a browser tab beside `anchor` whose
+    /// redirect goes to `receive` instead of loading. A tab already waiting
+    /// for the same redirect, or still showing the page, as after a
+    /// relaunch, is shown instead of opening another.
+    @discardableResult
+    func openAuthorization(_ url: URL, redirect: AuthorizationRedirect, beside anchor: WorkspacePane,
+                           receive: @escaping @MainActor (URL) -> Bool) -> BrowserTab {
+        let receiver = BrowserRedirectReceiver(redirect: redirect, receive: receive)
+        let tabs = panes.compactMap(browser)
+        if let waiting = tabs.first(where: { $0.redirectReceiver?.redirect == redirect })
+            ?? tabs.first(where: { $0.redirectReceiver == nil && $0.url == url }) {
+            if waiting.redirectReceiver == nil { waiting.redirectReceiver = receiver }
+            open(.browser(waiting.id), beside: anchor)
+            return waiting
+        }
+        let tab = openBrowser(url, beside: anchor)
+        tab.redirectReceiver = receiver
+        return tab
+    }
+
     /// Stops every page and ends every shell when the session tab closes.
     func closeLiveTabs() {
         for tab in browsers.values { tab.close() }
@@ -548,11 +578,7 @@ final class WorkspaceState {
                 self?.select(pane)
             }
         case .openURL(let url):
-            if BrowserAddress.isWeb(url) {
-                openBrowser(url, beside: pane)
-            } else {
-                NSWorkspace.shared.open(url)
-            }
+            if !openLink(url, beside: pane) { NSWorkspace.shared.open(url) }
         }
     }
 
