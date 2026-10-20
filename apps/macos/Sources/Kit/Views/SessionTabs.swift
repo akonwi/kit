@@ -321,6 +321,7 @@ private struct SessionSidebarRow: View {
 private struct ClosedParentRow: View {
     @Environment(\.mica) private var theme
     @Environment(\.sessionNavigation) private var navigation
+    /// The parent's tree key.
     let session: String
     let title: String
     let row: SessionTreeRow
@@ -352,7 +353,7 @@ private struct ClosedParentRow: View {
         .contextMenu { Button("Open Tab", action: reopen) }
     }
 
-    private func reopen() { navigation.openSession(session) }
+    private func reopen() { navigation.openSession(SessionWindowModel.identity(treeKey: session)) }
 }
 
 /// A family's caret. A collapsed family also shows how many tabs it hides

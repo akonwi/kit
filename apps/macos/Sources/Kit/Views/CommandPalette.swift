@@ -218,8 +218,9 @@ struct CommandPalette: View {
     private func newSession() {
         guard state.canCreateSibling else { navigation.openLauncher(); return }
         let open = navigation.openSession
+        let server = state.serverID
         Task {
-            if let session = await state.createSibling() { open(session.id) }
+            if let session = await state.createSibling() { open(SessionIdentity(server: server, session: session.id)) }
         }
     }
 

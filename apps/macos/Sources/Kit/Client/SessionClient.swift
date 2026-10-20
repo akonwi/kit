@@ -1,9 +1,27 @@
 import Foundation
+import Synchronization
 
 /// Endpoints and sessions have independent identities; session IDs are not global.
 struct SessionIdentity: Hashable, Codable, Sendable {
     let server: String
     let session: String
+
+    init(server: String, session: String) {
+        self.server = server
+        self.session = session
+    }
+
+    /// The name earlier builds saved for the local server.
+    static let legacyLocalServer = "local-v2"
+
+    private enum CodingKeys: String, CodingKey { case server, session }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let server = try container.decode(String.self, forKey: .server)
+        self.server = server == Self.legacyLocalServer ? ServerClient.localID : server
+        session = try container.decode(String.self, forKey: .session)
+    }
 }
 
 protocol SessionClient: Sendable {
@@ -82,6 +100,32 @@ indirect enum WireJSON: Codable, Sendable {
 enum ServerConnector: Hashable, Sendable {
     /// The server of a Kit home on this Mac, found through its discovery files.
     case home(URL)
+
+    /// The server of the Kit home at `path`, normalized so equal paths are equal connectors.
+    static func home(path: String) -> ServerConnector {
+        .home(URL(fileURLWithPath: path).standardizedFileURL)
+    }
+
+    /// Resolves and verifies the server, reporting who it is.
+    func handshake(serverID: String) async throws -> (client: HTTPClient, identity: ServerIdentity) {
+        switch self {
+        case .home(let home): try await HTTPClient.handshake(home: home, serverID: serverID)
+        }
+    }
+}
+
+/// Tells a server's connection that an operation couldn't reach the server,
+/// so it checks the server now rather than at its next scheduled check.
+final class ServerSignal: Sendable {
+    private let action = Mutex<(@Sendable () -> Void)?>(nil)
+
+    func connect(_ action: @escaping @Sendable () -> Void) {
+        self.action.withLock { $0 = action }
+    }
+
+    func fire() {
+        action.withLock { $0 }?()
+    }
 }
 
 /// A client for one server, named by `serverID`. It resolves the server
@@ -90,9 +134,11 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
     let serverID: String
     let connector: ServerConnector
     let isDemo = false
+    /// Fired when resolving the server fails.
+    var unreachable: ServerSignal? = nil
 
     /// The name of the app's own Kit home's server.
-    static let localID = "local-v2"
+    static let localID = SavedServer.localName
 
     /// The server of the app's own Kit home.
     static func local() -> ServerClient {
@@ -101,8 +147,10 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
 
     /// Resolves the server and returns a transport for one operation.
     func resolve() async throws -> HTTPClient {
-        switch connector {
-        case .home(let home): try await HTTPClient.discover(home: home, serverID: serverID)
+        do { return try await connector.handshake(serverID: serverID).client }
+        catch {
+            if !(error is CancellationError) { unreachable?.fire() }
+            throw error
         }
     }
 

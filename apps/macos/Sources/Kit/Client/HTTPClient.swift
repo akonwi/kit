@@ -45,12 +45,49 @@ struct LocalDaemonRegistry: Decodable {
     let pid: Int
 }
 
+/// The health report, decoded leniently: a server of another protocol may
+/// add or omit fields, and must still be identified as incompatible rather
+/// than malformed.
 struct LocalDaemonHealth: Decodable {
     let instanceId: String
     let protocolVersion: Int
     let kitVersion: String
     let pid: Int
     let databaseReady: Bool
+    var serverId: String? = nil
+    var machineId: String? = nil
+    var home: String? = nil
+}
+
+/// Who a verified, compatible server is.
+struct ServerIdentity: Equatable, Sendable {
+    /// Identifies the server's Kit home across restarts.
+    let id: String
+    /// Identifies the running server process.
+    let instance: String
+    let kitVersion: String
+    let protocolVersion: Int
+    /// The Kit-scoped identifier of the server's machine.
+    let machine: String
+    /// The server user's home directory, for presenting server paths.
+    let home: String
+
+    static func validID(_ value: String) -> Bool {
+        let prefix = "server_"
+        return value.hasPrefix(prefix) && value.count == prefix.count + 32
+            && value.dropFirst(prefix.count).allSatisfy { $0.isHexDigit && !$0.isUppercase }
+    }
+
+    static func validMachine(_ value: String) -> Bool {
+        value.count == 64 && value.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+    }
+
+    static func validHome(_ value: String) -> Bool {
+        guard value.hasPrefix("/"), value.utf8.count <= 4096,
+              !value.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f }) else { return false }
+        return value == "/" || (!value.hasSuffix("/") && !value.split(separator: "/", omittingEmptySubsequences: false)
+            .dropFirst().contains { $0.isEmpty || $0 == "." || $0 == ".." })
+    }
 }
 
 final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, SessionDeletionClient, SessionDisposalClient, SessionForkClient, ComposerClient, AttachmentClient {
@@ -94,6 +131,12 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     /// Finds the server of a Kit home on this Mac through its discovery
     /// files and verifies it.
     static func discover(home: URL, serverID: String) async throws -> HTTPClient {
+        try await handshake(home: home, serverID: serverID).client
+    }
+
+    /// Finds the server of a Kit home on this Mac through its discovery
+    /// files, verifies it, and reports who it is.
+    static func handshake(home: URL, serverID: String) async throws -> (client: HTTPClient, identity: ServerIdentity) {
         // Discovery is read-only. Starting a daemon remains owned by Kit's CLI.
         let root = home.appendingPathComponent("run")
         let registry: LocalDaemonRegistry
@@ -112,24 +155,40 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard registry.registryVersion == 1 else { throw ClientError.incompatible }
         guard let url = URL(string: registry.url), registry.pid > 0 else { throw ClientError.invalidEndpoint }
         let client = try HTTPClient(endpoint: url, token: token, instance: registry.instanceId, serverID: serverID)
-        let output = try await client.generatedOperation { try await client.api.getHealth(headers: .init(xKitInstanceID: registry.instanceId)) }
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
-        let payload = try response.body.json
-        let health = LocalDaemonHealth(instanceId: payload.instanceId, protocolVersion: payload.protocolVersion,
-                                       kitVersion: payload.kitVersion, pid: payload.pid, databaseReady: payload.databaseReady)
-        try validateDiscovery(registry: registry, health: health)
-        return client
+        let health = try await client.health()
+        return (client, try validateDiscovery(registry: registry, health: health))
     }
 
-    static func validateDiscovery(registry: LocalDaemonRegistry, health: LocalDaemonHealth) throws {
+    /// Reads health without the generated schema, which rejects fields it
+    /// doesn't know, so a server of another protocol is still identified.
+    private func health() async throws -> LocalDaemonHealth {
+        var request = try request("v1/health")
+        request.setValue(nil, forHTTPHeaderField: "X-Kit-Protocol-Version")
+        let (data, response) = try await session.data(for: request)
+        try check(response)
+        guard data.count <= 64 * 1024 else { throw ClientError.oversized }
+        do { return try JSONDecoder().decode(LocalDaemonHealth.self, from: data) }
+        catch { throw ClientError.invalidPayload }
+    }
+
+    /// Checks health against the discovery registry, then compatibility, and
+    /// only then the identity fields, so a server of another protocol is
+    /// reported as incompatible rather than malformed.
+    @discardableResult
+    static func validateDiscovery(registry: LocalDaemonRegistry, health: LocalDaemonHealth) throws -> ServerIdentity {
         guard health.instanceId == registry.instanceId, health.pid == registry.pid,
               health.protocolVersion == registry.protocolVersion,
               health.kitVersion == registry.kitVersion else { throw ClientError.invalidPayload }
-        guard health.databaseReady else { throw ClientError.daemonNotReady }
         if let reason = DaemonCompatibility.mismatch(clientProtocol: kitWireVersion, daemonProtocol: registry.protocolVersion) {
             throw ClientError.incompatibleDaemon(daemonVersion: registry.kitVersion, appProtocol: kitWireVersion,
                                                  daemonProtocol: registry.protocolVersion, reason: reason)
         }
+        guard health.databaseReady else { throw ClientError.daemonNotReady }
+        guard let id = health.serverId, ServerIdentity.validID(id),
+              let machine = health.machineId, ServerIdentity.validMachine(machine),
+              let home = health.home, ServerIdentity.validHome(home) else { throw ClientError.invalidPayload }
+        return ServerIdentity(id: id, instance: health.instanceId, kitVersion: health.kitVersion,
+                              protocolVersion: health.protocolVersion, machine: machine, home: home)
     }
 
     private func request(_ path: String, query: [URLQueryItem] = []) throws -> URLRequest {

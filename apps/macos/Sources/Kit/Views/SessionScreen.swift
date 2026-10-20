@@ -2,9 +2,9 @@ import SwiftUI
 
 /// Requests that open sessions as tabs of the current window.
 struct SessionNavigation {
-    var openSession: (String) -> Void = { _ in }
-    /// The title of a session on this window's server, when the app knows it.
-    var sessionTitle: (String) -> String? = { _ in nil }
+    var openSession: (SessionIdentity) -> Void = { _ in }
+    /// The title of a session, when the app knows it.
+    var sessionTitle: (SessionIdentity) -> String? = { _ in nil }
     var openLauncher: () -> Void = {}
 }
 
@@ -84,8 +84,8 @@ struct SessionScreen: View {
         .foregroundStyle(theme.text)
         .background(tiled ? .clear : theme.surface)
         .environment(\.mica, theme)
-        .environment(\.transcriptSessionLink, TranscriptSessionLink(serverID: serverID, title: { navigation.sessionTitle($0) }) { id in
-            navigation.openSession(id)
+        .environment(\.transcriptSessionLink, TranscriptSessionLink(serverID: serverID, title: { navigation.sessionTitle(SessionIdentity(server: serverID, session: $0)) }) { id in
+            navigation.openSession(SessionIdentity(server: serverID, session: id))
         })
         .environment(\.transcriptToolContext, TranscriptToolContext(
             cwd: state.selected?.cwd, servers: (state.selected?.mcpServers ?? []).map(\.name)))
@@ -113,7 +113,7 @@ struct SessionScreen: View {
                         SessionPickerOverlayLayout(palette: state.ui.palette, frame: proxy.frame(in: .global)) {
                             Group {
                                 if state.ui.palette { CommandPalette(state: state) { id in
-                                    navigation.openSession(id)
+                                    navigation.openSession(SessionIdentity(server: serverID, session: id))
                                 } }
                                 else { FileMentionPicker(state: state) }
                             }

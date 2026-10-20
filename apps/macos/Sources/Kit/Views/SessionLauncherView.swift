@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 struct SessionLauncherView: View {
-    @Bindable var app: AppModel
+    /// The server whose sessions the launcher lists.
+    let connection: ServerConnection
     /// The status of each of the window's sessions that is working or
     /// awaiting a response.
     var activity: [String: SessionTabStatus] = [:]
@@ -21,12 +22,13 @@ struct SessionLauncherView: View {
         let scheme = SystemAppearance.shared.resolve(appearance)
         let dark = scheme == .dark
         let theme = ThemeConfiguration.decode(themeConfiguration).resolved(dark: dark, installed: installedThemes)
-        SessionLauncherContent(sessions: app.sessions, connecting: app.connecting,
-                               connected: app.client != nil, error: app.error, open: open, refresh: { refreshRequest += 1 },
+        let catalog = connection.catalog
+        SessionLauncherContent(sessions: catalog.sessions, connecting: catalog.loading,
+                               connected: catalog.loaded, error: catalog.error, open: open, refresh: { refreshRequest += 1 },
                                create: create, focusRequest: target == nil, activity: activity,
                                rename: { deleting = false; target = $0 },
                                delete: { deleting = true; target = $0 })
-        .modifier(SessionCatalogActions(client: app.client, refresh: { await app.refreshSessions() },
+        .modifier(SessionCatalogActions(client: connection.client, refresh: { await catalog.refresh() },
                                         target: $target, deleting: $deleting))
         .environment(\.mica, theme)
         .foregroundStyle(theme.text)
@@ -35,9 +37,9 @@ struct SessionLauncherView: View {
         .preferredColorScheme(theme.dark ? .dark : .light)
         .frame(minWidth: 680, minHeight: 540)
         .onReceive(NotificationCenter.default.publisher(for: .kitSessionDeleted)) { notification in
-            if let identity = notification.object as? SessionIdentity { app.sessionDeleted(identity) }
+            if let identity = notification.object as? SessionIdentity { catalog.sessionDeleted(identity) }
         }
-        .task(id: refreshRequest) { await app.refreshSessions() }
+        .task(id: refreshRequest) { await catalog.refresh() }
     }
 }
 

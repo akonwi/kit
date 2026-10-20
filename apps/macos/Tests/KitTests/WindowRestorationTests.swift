@@ -7,7 +7,7 @@ import Testing
     private func temporaryURL() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
     }
-    private func id(_ session: String, server: String = "local-v2") -> SessionIdentity {
+    private func id(_ session: String, server: String = "local") -> SessionIdentity {
         SessionIdentity(server: server, session: session)
     }
 
@@ -148,7 +148,7 @@ import Testing
         var session = SessionExcerpt(id: "b", title: "Release notes", sourceTitle: "", model: "m", thinking: "high",
                                      workspace: "/work/kit", date: "", messages: [])
         session.cwd = "/work/kit/apps"
-        model.app.recordCreated(session)
+        model.launcherServer.catalog.recordCreated(session)
         #expect(tab.title == "Release notes")
         #expect(tab.directory == "/work/kit/apps")
     }

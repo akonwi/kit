@@ -25,6 +25,11 @@ enum DevHomeResolver {
         if let value = bundledHome, !value.isEmpty {
             return URL(fileURLWithPath: value, isDirectory: true).standardizedFileURL
         }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kit")
+        return defaultHome
+    }
+
+    /// The home Kit uses when nothing names another: `~/.kit`.
+    static var defaultHome: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kit")
     }
 }

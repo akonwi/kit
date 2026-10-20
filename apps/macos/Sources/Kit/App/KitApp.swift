@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // SwiftUI's NSApp.delegate wrapper back to our adapted delegate.
     let sessionWindows: SessionWindowRegistry
     override init() {
-        sessionWindows = SessionWindowRegistry()
+        sessionWindows = SessionWindowRegistry(servers: ServerDirectory())
         super.init()
     }
     init(sessionWindows: SessionWindowRegistry) {
@@ -32,6 +32,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        // Saved servers connect when Kit opens, whether or not a tab uses them.
+        sessionWindows.servers.start()
+    }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        sessionWindows.servers.refresh()
     }
 }
 
