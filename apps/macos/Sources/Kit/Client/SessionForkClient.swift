@@ -12,10 +12,10 @@ protocol SessionForkClient: SessionClient {
     func forkSession(_ id: String, input: WireForkSessionInput) async throws -> ForkedSession
 }
 
-extension LocalClient: SessionForkClient {
+extension ServerClient: SessionForkClient {
     func forkSession(_ id: String, input: WireForkSessionInput) async throws -> ForkedSession {
         let transport: HTTPClient
-        do { transport = try await HTTPClient.local() }
+        do { transport = try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
         return try await transport.forkSession(id, input: input)
     }

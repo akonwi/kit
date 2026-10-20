@@ -7,7 +7,7 @@ import Testing
     private func temporaryURL() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
     }
-    private func id(_ session: String, server: String = "local-v2") -> SessionIdentity {
+    private func id(_ session: String, server: String = "local") -> SessionIdentity {
         SessionIdentity(server: server, session: session)
     }
 
@@ -56,6 +56,20 @@ import Testing
         let window = UUID()
         store.update(.init(id: window, sessions: [id("a")], selected: id("a")))
         #expect(WindowRestorationStore(url: url).windows == [.init(id: window, sessions: [id("a")], selected: id("a"))])
+    }
+
+    @Test func unreadableTitlesKeepTheirWindow() throws {
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let window = UUID()
+        try Data("""
+        {"version":2,"windows":[{"id":"\(window.uuidString)",
+          "sessions":[{"server":"local-v2","session":"a"}],"selected":{"server":"local-v2","session":"a"},
+          "titles":[{"session":{"server":"local","session":"a"},"title":{"text":"from a later build"}}]}]}
+        """.utf8).write(to: url)
+        let store = WindowRestorationStore(url: url)
+        #expect(store.error == nil)
+        #expect(store.windows == [.init(id: window, sessions: [id("a")], selected: id("a"))])
     }
 
     @Test func nativeTabGroupsMigrateToWindowsOfTabs() throws {
@@ -148,9 +162,46 @@ import Testing
         var session = SessionExcerpt(id: "b", title: "Release notes", sourceTitle: "", model: "m", thinking: "high",
                                      workspace: "/work/kit", date: "", messages: [])
         session.cwd = "/work/kit/apps"
-        model.app.recordCreated(session)
+        model.launcherServer.catalog.recordCreated(session)
         #expect(tab.title == "Release notes")
         #expect(tab.directory == "/work/kit/apps")
+    }
+
+    @Test func restoredTabsKeepTheirTitlesUntilTheirServerDescribesThem() throws {
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let window = UUID()
+        let long = String(repeating: "x", count: WindowRestorationStore.maximumTitleLength + 10)
+        WindowRestorationStore(url: url).update(.init(id: window, sessions: [id("a"), id("b", server: "devbox")], selected: id("a"),
+                                                      titles: [id("a"): long, id("b", server: "devbox"): "Devbox planning",
+                                                               id("gone"): "Closed"]))
+        let saved = try #require(WindowRestorationStore(url: url).window(window))
+        #expect(saved.titles == [id("a"): String(long.prefix(WindowRestorationStore.maximumTitleLength)),
+                                 id("b", server: "devbox"): "Devbox planning"])
+
+        let model = SessionWindowModel(id: window, sessions: saved.sessions, selected: saved.selected, titles: saved.titles)
+        #expect(model.tabs.map(\.title) == [String(long.prefix(WindowRestorationStore.maximumTitleLength)), "Devbox planning"])
+        model.launcherServer.catalog.recordCreated(SessionExcerpt(id: "a", title: "Release notes", sourceTitle: "", model: "m",
+                                                                  thinking: "high", workspace: "/work", date: "", messages: []))
+        #expect(model.tabs[0].title == "Release notes")
+        #expect(model.titles == [id("a"): "Release notes", id("b", server: "devbox"): "Devbox planning"])
+    }
+
+    @Test func quittingRecordsTitlesLearnedSinceTheLastChange() {
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let registry = SessionWindowRegistry(restoration: WindowRestorationStore(url: url))
+        let model = registry.model(for: SessionWindowRequest(windowID: UUID()))
+        model.open(id("a"))
+        let window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        registry.attach(model, to: window)
+        model.launcherServer.catalog.recordCreated(SessionExcerpt(id: "a", title: "Release notes", sourceTitle: "", model: "m",
+                                                                  thinking: "high", workspace: "/work", date: "", messages: []))
+        registry.captureBeforeQuit()
+        registry.terminating = true
+        window.close()
+        #expect(WindowRestorationStore(url: url).window(model.id)?.titles == [id("a"): "Release notes"])
     }
 
     @Test func registryCapturesTabsAndForgetsClosedWindows() {

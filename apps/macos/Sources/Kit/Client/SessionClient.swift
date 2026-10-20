@@ -1,9 +1,27 @@
 import Foundation
+import Synchronization
 
 /// Endpoints and sessions have independent identities; session IDs are not global.
 struct SessionIdentity: Hashable, Codable, Sendable {
     let server: String
     let session: String
+
+    init(server: String, session: String) {
+        self.server = server
+        self.session = session
+    }
+
+    /// The name earlier builds saved for the local server.
+    static let legacyLocalServer = "local-v2"
+
+    private enum CodingKeys: String, CodingKey { case server, session }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let server = try container.decode(String.self, forKey: .server)
+        self.server = server == Self.legacyLocalServer ? ServerClient.localID : server
+        session = try container.decode(String.self, forKey: .session)
+    }
 }
 
 protocol SessionClient: Sendable {
@@ -77,29 +95,111 @@ indirect enum WireJSON: Codable, Sendable {
     }
 }
 
-/// Resolve discovery afresh for each attachment, including after daemon restart.
-struct LocalClient: ScratchpadClient, TranscriptPagingClient, SubagentStreamingClient {
+/// How the app reaches a server. A connector resolves the server afresh for
+/// every operation, so a restarted server is found again.
+enum ServerConnector: Hashable, Sendable {
+    /// The server of a Kit home on this Mac, found through its discovery files.
+    case home(URL)
+
+    /// The server of the Kit home at `path`, normalized so equal paths are equal connectors.
+    static func home(path: String) -> ServerConnector {
+        .home(URL(fileURLWithPath: path).standardizedFileURL)
+    }
+
+    /// Resolves and verifies the server, reporting who it is.
+    func handshake(serverID: String) async throws -> (client: HTTPClient, identity: ServerIdentity) {
+        switch self {
+        case .home(let home): try await HTTPClient.handshake(home: home, serverID: serverID)
+        }
+    }
+}
+
+/// Tells a server's connection that an operation couldn't reach the server,
+/// so it checks the server now rather than at its next scheduled check.
+final class ServerSignal: Sendable {
+    private let action = Mutex<(@Sendable () -> Void)?>(nil)
+
+    func connect(_ action: @escaping @Sendable () -> Void) {
+        self.action.withLock { $0 = action }
+    }
+
+    func fire() {
+        action.withLock { $0 }?()
+    }
+}
+
+/// Where a server's clients reach it. Every client of one server shares its
+/// address, so when the server's saved name is pointed elsewhere their next
+/// operations go there too, and open sessions keep their drafts and shells.
+final class ServerAddress: Sendable {
+    private let current: Mutex<ServerConnector>
+
+    init(_ connector: ServerConnector) {
+        current = Mutex(connector)
+    }
+
+    var connector: ServerConnector { current.withLock { $0 } }
+
+    func repoint(to connector: ServerConnector) {
+        current.withLock { $0 = connector }
+    }
+}
+
+/// A client for one server, named by `serverID`. It resolves the server
+/// through its address for each operation, including after a restart.
+struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreamingClient {
+    let serverID: String
+    let address: ServerAddress
+    let isDemo = false
+    /// Fired when resolving the server fails.
+    var unreachable: ServerSignal? = nil
+
+    init(serverID: String, connector: ServerConnector, unreachable: ServerSignal? = nil) {
+        self.serverID = serverID
+        address = ServerAddress(connector)
+        self.unreachable = unreachable
+    }
+
+    var connector: ServerConnector { address.connector }
+
+    /// The name of the app's own Kit home's server.
+    static let localID = SavedServer.localName
+
+    /// The server of the app's own Kit home.
+    static func local() -> ServerClient {
+        ServerClient(serverID: localID, connector: .home(DevHomeResolver.resolve()))
+    }
+
+    /// Resolves the server and returns a transport for one operation.
+    func resolve() async throws -> HTTPClient {
+        do { return try await connector.handshake(serverID: serverID).client }
+        catch {
+            // An operation that was cancelled says nothing about the server.
+            let cancelled = Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled
+            if !cancelled { unreachable?.fire() }
+            throw error
+        }
+    }
+
     func scratchpad(session: String) async throws -> ScratchpadRecord {
-        try await HTTPClient.local().scratchpad(session: session)
+        try await resolve().scratchpad(session: session)
     }
     func updateScratchpad(session: String, content: String, expectedRevision: Int64) async throws -> ScratchpadRecord {
-        try await HTTPClient.local().updateScratchpad(session: session, content: content, expectedRevision: expectedRevision)
+        try await resolve().updateScratchpad(session: session, content: content, expectedRevision: expectedRevision)
     }
     func subagentTranscript(session: String, conversation: String) async throws -> [TranscriptMessage] {
-        try await HTTPClient.local().subagentTranscript(session: session, conversation: conversation)
+        try await resolve().subagentTranscript(session: session, conversation: conversation)
     }
     func watchSubagent(session: String, conversation: String,
                        receive: @escaping @Sendable (SubagentTranscriptUpdate) async -> Void) async throws {
-        try await HTTPClient.local().watchSubagent(session: session, conversation: conversation, receive: receive)
+        try await resolve().watchSubagent(session: session, conversation: conversation, receive: receive)
     }
-    let serverID = "local-v2"
-    let isDemo = false
-    func sessions() async throws -> [SessionExcerpt] { try await HTTPClient.local().sessions() }
+    func sessions() async throws -> [SessionExcerpt] { try await resolve().sessions() }
     func history(_ id: String, before: String) async throws -> TranscriptHistoryPage {
-        try await HTTPClient.local().history(id, before: before)
+        try await resolve().history(id, before: before)
     }
-    func snapshot(_ id: String) async throws -> SessionExcerpt { try await HTTPClient.local().snapshot(id) }
+    func snapshot(_ id: String) async throws -> SessionExcerpt { try await resolve().snapshot(id) }
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
-        try await HTTPClient.local().watch(id, receive: receive)
+        try await resolve().watch(id, receive: receive)
     }
 }

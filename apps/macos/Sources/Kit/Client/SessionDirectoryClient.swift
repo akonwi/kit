@@ -12,18 +12,18 @@ protocol SessionDirectoryClient: SessionVCSClient {
     func changeDirectory(_ session: String, input: WireChangeCWDInput) async throws -> SessionExcerpt
 }
 
-extension LocalClient: SessionDirectoryClient {
+extension ServerClient: SessionDirectoryClient {
     func changeDirectory(_ session: String, input: WireChangeCWDInput) async throws -> SessionExcerpt {
         let transport: HTTPClient
-        do { transport = try await HTTPClient.local() }
+        do { transport = try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
         return try await transport.changeDirectory(session, input: input)
     }
     func vcs(_ session: String) async throws -> WireSessionVCSStatus {
-        try await HTTPClient.local().vcs(session)
+        try await resolve().vcs(session)
     }
     func watchVCS(_ session: String, receive: @escaping @Sendable (WireSessionVCSStatus) async -> Void) async throws {
-        try await HTTPClient.local().watchVCS(session, receive: receive)
+        try await resolve().watchVCS(session, receive: receive)
     }
 }
 

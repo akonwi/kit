@@ -31,20 +31,42 @@ final class SessionTab: Identifiable {
     fileprivate(set) var store: SessionStore?
     /// A restored tile layout, applied when the tab's store is created.
     fileprivate var savedArrangement: TileArrangement?
-    /// The window's session catalog, which describes tabs not yet opened.
-    private weak var catalog: AppModel?
+    /// The title the tab last showed, until its server describes the session.
+    fileprivate var savedTitle: String?
+    /// The route of its server the tab's store attached by.
+    fileprivate var attachedRoute = 0
+    /// The app's servers, whose catalogs describe tabs not yet opened.
+    private weak var servers: ServerDirectory?
 
-    init(identity: SessionIdentity, catalog: AppModel? = nil) {
+    init(identity: SessionIdentity, servers: ServerDirectory? = nil) {
         self.identity = identity
-        self.catalog = catalog
+        self.servers = servers
     }
 
     var isLauncher: Bool { identity.session.isEmpty }
+    /// The connection to the server the tab is bound to, while that server is known.
+    var connection: ServerConnection? { servers?.connection(named: identity.server) }
+    /// The server's name when it isn't this app's own, to label the tab.
+    var serverLabel: String? { identity.serverLabel }
+    /// What the tab's server needs from the user while it can't serve the tab.
+    var serverIssue: String? {
+        guard !isLauncher, servers != nil else { return nil }
+        guard let connection else { return "Server isn’t saved" }
+        switch connection.status {
+        case .unreachable: return "Can’t connect"
+        case .incompatible(let mismatch): return mismatch.serverIsOlder ? "Server needs a newer Kit" : "Needs a newer Kit for Mac"
+        case .connecting, .connected, .reconnecting: return nil
+        }
+    }
+    /// Whether the tab's server missed a check and is being tried again.
+    var reconnecting: Bool {
+        if case .reconnecting = connection?.status { true } else { false }
+    }
     /// The live session once opened; until then, its catalog entry.
     var session: SessionExcerpt? {
-        store?.selected ?? catalog?.sessions.first { $0.id == identity.session }
+        store?.selected ?? connection?.catalog.sessions.first { $0.id == identity.session }
     }
-    var title: String { session?.title ?? (isLauncher ? "New session" : identity.session) }
+    var title: String { session?.title ?? savedTitle ?? (isLauncher ? "New session" : identity.session) }
     var status: SessionTabStatus { store?.tabStatus ?? .idle }
     /// A turn finished while the user was elsewhere; cleared when the tab is
     /// next shown in a focused window.
@@ -52,8 +74,8 @@ final class SessionTab: Identifiable {
     /// The last status the window recorded, to detect a finished turn.
     fileprivate var recordedStatus: SessionTabStatus = .idle
     /// Whether the tab's marker calls for attention; idle tabs recede.
-    var needsAttention: Bool { status != .idle || finished }
-    var statusLabel: String? { status.label ?? (finished ? "Finished" : nil) }
+    var needsAttention: Bool { status != .idle || finished || serverIssue != nil }
+    var statusLabel: String? { serverIssue ?? status.label ?? (finished ? "Finished" : nil) }
     /// The session's working directory, which names its project on a top tab.
     var directory: String { session?.cwd ?? session?.workspace ?? "" }
     /// The session this one came from, as a fork or an agent's work.
@@ -63,11 +85,12 @@ final class SessionTab: Identifiable {
 /// A row of the sidebar's session tree.
 typealias SessionTreeRow = SessionTree<SessionTab>.Row
 
-/// A window's session tabs and the connection they share.
+/// A window's session tabs. Each tab is bound to one server; the app's
+/// servers are shared by every window.
 @MainActor @Observable
 final class SessionWindowModel: Identifiable {
     let id: UUID
-    let app = AppModel()
+    let servers: ServerDirectory
     private(set) var tabs: [SessionTab]
     private(set) var selectedTabID: UUID
     /// Sessions whose children the sidebar hides.
@@ -85,18 +108,20 @@ final class SessionWindowModel: Identifiable {
     @ObservationIgnored private var layoutCapture: Task<Void, Never>?
     static let layoutCaptureDelay: Duration = .milliseconds(500)
 
-    static let defaultServer = "local-v2"
+    static let defaultServer = ServerClient.localID
 
-    init(id: UUID, sessions: [SessionIdentity] = [], selected: SessionIdentity? = nil,
-         layouts: [SessionIdentity: TileArrangement] = [:], collapsed: Set<String> = []) {
+    init(id: UUID, servers: ServerDirectory = .inert(), sessions: [SessionIdentity] = [], selected: SessionIdentity? = nil,
+         layouts: [SessionIdentity: TileArrangement] = [:], collapsed: Set<String> = [],
+         titles: [SessionIdentity: String] = [:]) {
         self.id = id
+        self.servers = servers
         self.collapsed = collapsed
-        let app = app
         let tabs = sessions.isEmpty
-            ? [SessionTab(identity: Self.launcherIdentity, catalog: app)]
+            ? [SessionTab(identity: Self.launcherIdentity, servers: servers)]
             : sessions.map { identity in
-                let tab = SessionTab(identity: identity, catalog: app)
+                let tab = SessionTab(identity: identity, servers: servers)
                 tab.savedArrangement = layouts[identity]
+                tab.savedTitle = titles[identity]
                 return tab
             }
         self.tabs = tabs
@@ -104,6 +129,28 @@ final class SessionWindowModel: Identifiable {
     }
 
     static var launcherIdentity: SessionIdentity { SessionIdentity(server: defaultServer, session: "") }
+
+    /// The launcher's server, whose sessions it lists and where it starts new ones.
+    var launcherServer: ServerConnection { servers.local }
+
+    /// A session's key in the sidebar tree and in collapsed families. Keys
+    /// of the local server's sessions are their IDs, as earlier builds
+    /// saved; other servers' are prefixed with the server's name, which
+    /// session IDs can't contain.
+    static func treeKey(_ identity: SessionIdentity) -> String {
+        identity.server == defaultServer ? identity.session : identity.server + "/" + identity.session
+    }
+
+    /// The session a tree key names.
+    static func identity(treeKey key: String) -> SessionIdentity {
+        guard let slash = key.firstIndex(of: "/") else { return SessionIdentity(server: defaultServer, session: key) }
+        return SessionIdentity(server: String(key[..<slash]), session: String(key[key.index(after: slash)...]))
+    }
+
+    /// The catalog entry for a session, from its server's catalog.
+    func catalogEntry(_ identity: SessionIdentity) -> SessionExcerpt? {
+        servers.connection(named: identity.server)?.catalog.sessions.first { $0.id == identity.session }
+    }
 
     var selectedTab: SessionTab { tabs.first { $0.id == selectedTabID } ?? tabs[0] }
     var selectedIndex: Int { tabs.firstIndex { $0.id == selectedTabID } ?? 0 }
@@ -128,27 +175,38 @@ final class SessionWindowModel: Identifiable {
     /// The parent's title for a tab whose session came from another.
     func parentTitle(of tab: SessionTab) -> String? {
         guard let parent = tab.parentSessionID else { return nil }
-        return tabs.first { !$0.isLauncher && $0.identity.session == parent }?.title
-            ?? app.sessions.first { $0.id == parent }?.title
+        let identity = SessionIdentity(server: tab.identity.server, session: parent)
+        return self.tab(for: identity)?.title
+            ?? catalogEntry(identity)?.title
             ?? tab.session?.parentSessionName
     }
 
+    /// A session's children and forks share its server, so the tree links
+    /// each tab only to sessions on its own server.
     private func tree(collapsed: Set<String>) -> [SessionTreeRow] {
-        let catalog = Dictionary(app.sessions.map { ($0.id, $0) }) { first, _ in first }
-        return SessionTree.rows(tabs, session: { $0.isLauncher ? nil : $0.identity.session },
-                                parent: \.parentSessionID,
-                                catalog: { id in
-                                    if let session = catalog[id] { return .init(title: session.title, parent: session.parentSessionID) }
-                                    // Outside the catalog, a child may still know its parent's name.
-                                    let name = self.tabs.lazy.compactMap { $0.parentSessionID == id ? $0.session?.parentSessionName : nil }.first
-                                    return name.map { .init(title: $0, parent: nil) }
-                                },
-                                collapsed: collapsed)
+        SessionTree.rows(tabs, session: { $0.isLauncher ? nil : Self.treeKey($0.identity) },
+                         parent: { tab in
+                             tab.parentSessionID.map { Self.treeKey(SessionIdentity(server: tab.identity.server, session: $0)) }
+                         },
+                         catalog: { key in
+                             let identity = Self.identity(treeKey: key)
+                             if let session = self.catalogEntry(identity) {
+                                 let parent = session.parentSessionID.map { Self.treeKey(SessionIdentity(server: identity.server, session: $0)) }
+                                 return .init(title: session.title, parent: parent)
+                             }
+                             // Outside the catalog, a child may still know its parent's name.
+                             let name = self.tabs.lazy.compactMap { tab in
+                                 tab.identity.server == identity.server && tab.parentSessionID == identity.session
+                                     ? tab.session?.parentSessionName : nil
+                             }.first
+                             return name.map { .init(title: $0, parent: nil) }
+                         },
+                         collapsed: collapsed)
     }
 
-    /// Shows or hides a session's children in the sidebar.
-    func toggleCollapsed(_ session: String) {
-        if collapsed.remove(session) == nil { collapsed.insert(session) }
+    /// Shows or hides a session's children in the sidebar, by its tree key.
+    func toggleCollapsed(_ key: String) {
+        if collapsed.remove(key) == nil { collapsed.insert(key) }
         onChange(self)
     }
 
@@ -186,10 +244,13 @@ final class SessionWindowModel: Identifiable {
 
     /// Session identities to restore, in tab order; launcher tabs are not intent.
     var sessions: [SessionIdentity] { tabs.filter { !$0.isLauncher }.map(\.identity) }
-    /// The status of each session tab that is working or awaiting a response.
+    /// The status of each of the launcher server's session tabs that is
+    /// working or awaiting a response.
     var activity: [String: SessionTabStatus] {
         var activity: [String: SessionTabStatus] = [:]
-        for tab in tabs where !tab.isLauncher && tab.status != .idle { activity[tab.identity.session] = tab.status }
+        for tab in tabs where !tab.isLauncher && tab.status != .idle && tab.identity.server == launcherServer.name {
+            activity[tab.identity.session] = tab.status
+        }
         return activity
     }
 
@@ -201,6 +262,15 @@ final class SessionWindowModel: Identifiable {
             if let arrangement = tab.store?.ui.workspace.arrangement ?? tab.savedArrangement, !arrangement.isDefault {
                 result[tab.identity] = arrangement
             }
+        }
+        return result
+    }
+
+    /// The titles session tabs show, to name them while their server can't.
+    var titles: [SessionIdentity: String] {
+        var result: [SessionIdentity: String] = [:]
+        for tab in tabs where !tab.isLauncher {
+            if let title = tab.session?.title ?? tab.savedTitle { result[tab.identity] = title }
         }
         return result
     }
@@ -259,8 +329,8 @@ final class SessionWindowModel: Identifiable {
         case .tab(let tab):
             select(tab)
             return nil
-        case .closedParent(let session, _):
-            return SessionIdentity(server: app.client?.serverID ?? Self.defaultServer, session: session)
+        case .closedParent(let key, _):
+            return Self.identity(treeKey: key)
         }
     }
 
@@ -282,7 +352,7 @@ final class SessionWindowModel: Identifiable {
             show(identity, in: selectedTab)
             return selectedTab
         }
-        let tab = SessionTab(identity: identity, catalog: app)
+        let tab = SessionTab(identity: identity, servers: servers)
         tabs.insert(tab, at: selectedIndex + 1)
         selectedTabID = tab.id
         reveal(tab)
@@ -314,7 +384,7 @@ final class SessionWindowModel: Identifiable {
             select(existing)
             return
         }
-        if tab.store?.selectedID != identity.session { release(tab) }
+        if tab.store?.selectedID != identity.session || tab.store?.serverID != identity.server { release(tab) }
         tab.identity = identity
         tab.savedArrangement = nil
         reveal(tab)
@@ -345,7 +415,7 @@ final class SessionWindowModel: Identifiable {
         let position = order.firstIndex { $0 === tab } ?? 0
         release(tab)
         tabs.remove(at: index)
-        if tabs.isEmpty { tabs = [SessionTab(identity: Self.launcherIdentity, catalog: app)] }
+        if tabs.isEmpty { tabs = [SessionTab(identity: Self.launcherIdentity, servers: servers)] }
         if selectedTabID == tab.id {
             let next = order[(position + 1)...].first ?? order[..<position].last ?? tabs[0]
             selectedTabID = next.id
@@ -355,12 +425,31 @@ final class SessionWindowModel: Identifiable {
         onChange(self)
     }
 
-    /// Creates the tab's store on first display and keeps it attached, so
-    /// background tabs keep streaming status.
+    /// Creates the tab's store once its server is connected and keeps it
+    /// attached, so background tabs keep streaming status. A store outlives
+    /// its server's outages, keeping the tab's drafts and layout.
+    @discardableResult
+    func store(for tab: SessionTab) -> SessionStore? {
+        guard let connection = tab.connection, connection.status.isConnected else { return tab.store }
+        return store(for: tab, client: connection.client)
+    }
+
     func store(for tab: SessionTab, client: any SessionClient) -> SessionStore? {
-        guard !tab.isLauncher, tab.identity.server.isEmpty || tab.identity.server == client.serverID else { return nil }
-        if let store = tab.store, store.serverID == client.serverID { return store }
-        let store = SessionStore(fixture: Fixture(sessions: app.sessions), client: client, sessionID: tab.identity.session)
+        guard !tab.isLauncher, tab.identity.server == client.serverID else { return nil }
+        let route = servers.connection(named: client.serverID)?.route ?? 0
+        if let store = tab.store, store.serverID == client.serverID {
+            // A watch that gave up, as on a restart's transient errors,
+            // resumes once the server is back. Streams opened before the
+            // server was repointed still read the old home, so they reattach.
+            if store.watchStopped || tab.attachedRoute != route {
+                tab.attachedRoute = route
+                store.attach()
+            }
+            return store
+        }
+        tab.attachedRoute = route
+        let catalog = servers.connection(named: client.serverID)?.catalog.sessions ?? []
+        let store = SessionStore(fixture: Fixture(sessions: catalog), client: client, sessionID: tab.identity.session)
         if let arrangement = tab.savedArrangement { store.ui.workspace.restore(arrangement) }
         tab.savedArrangement = nil
         tab.store = store
@@ -371,9 +460,10 @@ final class SessionWindowModel: Identifiable {
         return store
     }
 
-    /// Attaches every session tab, so background tabs report their status.
-    func attachAll(client: any SessionClient) {
-        for tab in tabs { _ = store(for: tab, client: client) }
+    /// Attaches every session tab whose server is connected, so background
+    /// tabs report their status, and resumes watches that gave up.
+    func attachAll() {
+        for tab in tabs { store(for: tab) }
     }
 
     private func observeStatus(of tab: SessionTab, store: SessionStore) {

@@ -17,7 +17,7 @@ enum SettingsSection: String {
 struct ProviderSettingsView: View {
     @Environment(\.mica) private var theme
     @Environment(\.scenePhase) private var phase
-    @State private var signIn = ProviderSignIn(client: LocalClient())
+    @State private var signIn = ProviderSignIn(client: ServerClient.local())
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {

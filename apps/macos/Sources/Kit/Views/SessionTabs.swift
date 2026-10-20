@@ -19,6 +19,9 @@ struct SessionBar: View {
                         .lineLimit(1).truncationMode(.tail)
                         .layoutPriority(2)
                 }
+                if let server = tab.serverLabel {
+                    ServerChip(name: server, attention: tab.serverIssue != nil, reconnecting: tab.reconnecting)
+                }
                 if !tab.isLauncher, session?.pluginFooter?.locationHidden != true {
                     // The pull request opens in the session's browser.
                     WorkspaceLocation(session: session)
@@ -287,12 +290,15 @@ private struct SessionSidebarRow: View {
     var body: some View {
         Button { model.select(tab) } label: {
             HStack(spacing: 10) {
-                SessionTabStatusMarker(status: tab.status, finished: tab.finished).frame(width: 14)
+                SessionTabStatusMarker(status: tab.status, finished: tab.finished, serverIssue: tab.serverIssue != nil)
+                    .frame(width: 14)
                 Text(tab.title)
                     .font(.kit(size: 13, weight: selected ? .medium : .regular))
                     .foregroundStyle(SessionTabStatusMarker.titleProminent(tab, selected: selected) ? theme.text : theme.muted)
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                // A family shares its server, so only its top row names it.
+                if row.depth == 0, let server = tab.serverLabel { ServerLabel(name: server) }
                 HStack(spacing: 0) {
                     SessionTreeDisclosure(row: row, model: model)
                     if hovering {
@@ -321,6 +327,7 @@ private struct SessionSidebarRow: View {
 private struct ClosedParentRow: View {
     @Environment(\.mica) private var theme
     @Environment(\.sessionNavigation) private var navigation
+    /// The parent's tree key.
     let session: String
     let title: String
     let row: SessionTreeRow
@@ -336,6 +343,9 @@ private struct ClosedParentRow: View {
                     .foregroundStyle(theme.muted)
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if row.depth == 0, let server = SessionWindowModel.identity(treeKey: session).serverLabel {
+                    ServerLabel(name: server)
+                }
                 SessionTreeDisclosure(row: row, model: model)
             }
             .padding(.leading, 8).padding(.trailing, 4)
@@ -352,7 +362,7 @@ private struct ClosedParentRow: View {
         .contextMenu { Button("Open Tab", action: reopen) }
     }
 
-    private func reopen() { navigation.openSession(session) }
+    private func reopen() { navigation.openSession(SessionWindowModel.identity(treeKey: session)) }
 }
 
 /// A family's caret. A collapsed family also shows how many tabs it hides
@@ -552,15 +562,17 @@ private struct SessionTopTab: View {
     var body: some View {
         Button(action: select) {
             HStack(spacing: 8) {
-                SessionTabStatusMarker(status: tab.status, finished: tab.finished).frame(width: 12)
+                SessionTabStatusMarker(status: tab.status, finished: tab.finished, serverIssue: tab.serverIssue != nil)
+                    .frame(width: 12)
                 Text(tab.title)
                     .font(.kit(size: 12, weight: selected ? .medium : .regular))
                     .foregroundStyle(SessionTabStatusMarker.titleProminent(tab, selected: selected) ? theme.text : theme.muted)
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if let server = tab.serverLabel { ServerLabel(name: server) }
                 if selected || hovering {
                     ChromeIconButton(icon: .x, size: 10, frame: 16, help: "Close tab", action: close)
-                } else if let project {
+                } else if tab.serverLabel == nil, let project {
                     Text(project).font(.kit(size: 10, design: .monospaced)).foregroundStyle(theme.strongBorder)
                         .lineLimit(1).truncationMode(.middle)
                 }
@@ -599,13 +611,23 @@ private struct SessionTopTab: View {
 }
 
 /// Activity on a session tab: working, awaiting a response, or finished
-/// while the user was elsewhere.
+/// while the user was elsewhere. A tab whose server needs the user shows a
+/// warning instead.
 struct SessionTabStatusMarker: View {
     @Environment(\.mica) private var theme
     let status: SessionTabStatus
     let finished: Bool
+    var serverIssue = false
 
     var body: some View {
+        if serverIssue {
+            IconView(.warning, size: 12).foregroundStyle(theme.warning)
+        } else {
+            activity
+        }
+    }
+
+    @ViewBuilder private var activity: some View {
         switch status {
         case .running: KitSpinner().foregroundStyle(theme.accent)
         case .awaitingResponse:
@@ -675,5 +697,42 @@ struct ChromeIconButton: View {
         .onHover { hovering = $0 }
         .help(help)
         .accessibilityLabel(help)
+    }
+}
+
+/// Names another server after a session's title. The title shortens first.
+struct ServerLabel: View {
+    @Environment(\.mica) private var theme
+    let name: String
+
+    var body: some View {
+        Text(name).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
+            .lineLimit(1).fixedSize()
+            .accessibilityLabel("on \(name)")
+    }
+}
+
+/// The session bar's server, before its folder, for a session on another
+/// server. It turns to the warning colour while the server needs the user,
+/// and says so while a missed check is retried.
+struct ServerChip: View {
+    @Environment(\.mica) private var theme
+    let name: String
+    var attention = false
+    var reconnecting = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            IconView(.hardDrives, size: 12)
+            Text(name).font(.kit(size: 11, design: .monospaced)).lineLimit(1)
+            if reconnecting { Text("· Reconnecting…").font(.kit(size: 11)).lineLimit(1) }
+        }
+        .foregroundStyle(attention ? theme.warning : theme.muted)
+        .padding(.horizontal, 6).frame(height: 20)
+        .background(theme.frameHover, in: RoundedRectangle(cornerRadius: 3))
+        .fixedSize()
+        .help("On \(name)")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(reconnecting ? "Server \(name), reconnecting" : "Server \(name)")
     }
 }

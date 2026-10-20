@@ -205,11 +205,11 @@ protocol ComposerHistoryClient: SessionClient {
     func bashHistory(_ session: String, before: String?, limit: Int) async throws -> ComposerBashHistoryPage
 }
 
-extension LocalClient: ComposerHistoryClient {
+extension ServerClient: ComposerHistoryClient {
     func messageHistory(_ session: String, before: String?) async throws -> ComposerMessageHistoryPage {
-        try await HTTPClient.local().messageHistory(session, before: before)
+        try await resolve().messageHistory(session, before: before)
     }
     func bashHistory(_ session: String, before: String?, limit: Int) async throws -> ComposerBashHistoryPage {
-        try await HTTPClient.local().bashHistory(session, before: before, limit: limit)
+        try await resolve().bashHistory(session, before: before, limit: limit)
     }
 }

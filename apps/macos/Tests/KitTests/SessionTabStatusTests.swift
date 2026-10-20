@@ -4,7 +4,7 @@ import Testing
 
 @MainActor struct SessionTabStatusTests {
     private func model() -> SessionWindowModel {
-        let ids = ["a", "b"].map { SessionIdentity(server: "local-v2", session: $0) }
+        let ids = ["a", "b"].map { SessionIdentity(server: "local", session: $0) }
         return SessionWindowModel(id: UUID(), sessions: ids, selected: ids[0])
     }
 

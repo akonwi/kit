@@ -55,11 +55,11 @@ protocol ServerSettingsClient: Sendable {
     func models() async throws -> [WireModelCapability]
 }
 
-extension LocalClient: ServerSettingsClient {
-    func serverSettings() async throws -> ServerSettings { try await HTTPClient.local().serverSettings() }
+extension ServerClient: ServerSettingsClient {
+    func serverSettings() async throws -> ServerSettings { try await resolve().serverSettings() }
     func updateServerSettings(_ change: ServerSettingsChange) async throws -> ServerSettings {
         let transport: HTTPClient
-        do { transport = try await HTTPClient.local() }
+        do { transport = try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
         return try await transport.updateServerSettings(change)
     }

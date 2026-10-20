@@ -5,10 +5,10 @@ protocol SessionReloadClient: SessionClient {
     func reloadSession(_ id: String) async throws -> WireReloadSessionResult
 }
 
-extension LocalClient: SessionReloadClient {
+extension ServerClient: SessionReloadClient {
     func reloadSession(_ id: String) async throws -> WireReloadSessionResult {
         let transport: HTTPClient
-        do { transport = try await HTTPClient.local() }
+        do { transport = try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
         return try await transport.reloadSession(id)
     }

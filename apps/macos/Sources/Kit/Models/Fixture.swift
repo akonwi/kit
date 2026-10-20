@@ -7,7 +7,7 @@ struct Fixture: Decodable, Sendable {
 }
 
 struct SessionExcerpt: Decodable, Identifiable, Sendable, Equatable {
-    let id: String
+    var id: String
     var isTemporary: Bool? = nil
     var title: String
     var parentSessionID: String? = nil

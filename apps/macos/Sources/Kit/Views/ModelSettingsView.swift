@@ -12,7 +12,7 @@ struct ModelSettingsView: View {
     @FocusState private var addingFocus: Bool
 
     /// client is the server whose settings these are.
-    init(client: any ServerSettingsClient = LocalClient()) {
+    init(client: any ServerSettingsClient = ServerClient.local()) {
         _editor = State(initialValue: ServerSettingsEditor(client: client))
     }
 

@@ -426,6 +426,16 @@ final class SessionStore {
 
     var subagentClient: (any SubagentClient)? { replica.client as? any SubagentClient }
     var serverID: String { replica.client.serverID }
+    /// The session's watch has stopped and won't retry on its own, as after
+    /// an error a server restart can cause.
+    var watchStopped: Bool {
+        guard !unavailable else { return false }
+        switch connectionState {
+        case .failed, .authenticationFailed: return true
+        // A store is disconnected only until its watch starts or after it is released.
+        case .disconnected, .unavailable, .loading, .connected, .retrying: return false
+        }
+    }
     var isDemo: Bool { demo != nil }
     var sessions: [SessionExcerpt] { replica.sessions }
     var refreshingSessions: Bool { replica.refreshingSessions }

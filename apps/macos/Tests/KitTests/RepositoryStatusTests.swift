@@ -218,7 +218,7 @@ private actor RepositoryClient: SessionVCSClient {
         let session = try #require(sessions.first { $0.cwd?.contains("kit-v2") == true })
         let expected = try await http.vcs(session.id)
         _ = try #require(expected.status)
-        let replica = SessionReplica(sessions: [session], client: LocalClient())
+        let replica = SessionReplica(sessions: [session], client: ServerClient.local())
         replica.attach()
         defer { replica.detach() }
         for _ in 0..<50 {

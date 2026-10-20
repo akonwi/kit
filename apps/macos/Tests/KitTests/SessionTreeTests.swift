@@ -118,14 +118,14 @@ struct SessionTreeTests {
 }
 
 @MainActor struct SessionTreeWindowTests {
-    private func id(_ session: String) -> SessionIdentity { SessionIdentity(server: "local-v2", session: session) }
+    private func id(_ session: String) -> SessionIdentity { SessionIdentity(server: "local", session: session) }
 
     /// A window whose catalog knows each session's parent.
     private func model(_ sessions: [String], parents: [String: String], selected: String,
                        closed: [String] = [], collapsed: Set<String> = []) -> SessionWindowModel {
         let model = SessionWindowModel(id: UUID(), sessions: sessions.map(id), selected: id(selected), collapsed: collapsed)
         for session in (sessions + closed).reversed() {
-            model.app.recordCreated(SessionExcerpt(id: session, title: session.uppercased(), parentSessionID: parents[session],
+            model.launcherServer.catalog.recordCreated(SessionExcerpt(id: session, title: session.uppercased(), parentSessionID: parents[session],
                                                    sourceTitle: "", model: "m", thinking: "high", workspace: "",
                                                    date: "", messages: []))
         }

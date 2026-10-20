@@ -97,7 +97,7 @@ struct SessionCreationTests {
         #expect(await received.ids == ["resync", "resync", "resync", "resync"])
     }
     @MainActor @Test func createdSessionIsImmediatelyAvailableInCatalog() {
-        let app = AppModel()
+        let app = SessionCatalog(client: FixtureClient(fixture: Fixture(sessions: [])))
         let created = SessionExcerpt(id: "s", title: "New workspace", sourceTitle: "Kit server", model: "provider/model", thinking: "medium", workspace: "test", cwd: "/tmp/test", date: "2026-09-13", messages: [])
         app.recordCreated(created); app.recordCreated(created)
         #expect(app.sessions.map(\.id) == ["s"])

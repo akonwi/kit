@@ -30,10 +30,10 @@ extension SessionMutationClient {
     }
 }
 
-extension LocalClient: SessionMutationClient {
-    func followUps(_ session: String) async throws -> FollowUpState { try await HTTPClient.local().followUps(session) }
+extension ServerClient: SessionMutationClient {
+    func followUps(_ session: String) async throws -> FollowUpState { try await resolve().followUps(session) }
     private func mutationTransport() async throws -> HTTPClient {
-        do { return try await HTTPClient.local() }
+        do { return try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
     }
     func submit(_ session: String, input: WirePromptInput) async throws -> WirePromptSubmission {

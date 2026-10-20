@@ -43,14 +43,84 @@ struct LocalDaemonRegistry: Decodable {
     let url: String
     let instanceId: String
     let pid: Int
+
+    /// The versions a registry of any format may still state, to tell a
+    /// server of another protocol from a malformed one.
+    struct Versions: Decodable {
+        let registryVersion: Int?
+        let protocolVersion: Int?
+        let kitVersion: String?
+        let url: String?
+
+        /// The mismatch this app has with the server the registry names, if
+        /// the registry states a protocol.
+        var incompatibility: ClientError? {
+            guard let protocolVersion,
+                  let reason = DaemonCompatibility.mismatch(clientProtocol: kitWireVersion, daemonProtocol: protocolVersion)
+            else { return nil }
+            return .incompatibleDaemon(daemonVersion: kitVersion ?? "unknown", appProtocol: kitWireVersion,
+                                       daemonProtocol: protocolVersion, reason: reason)
+        }
+
+        /// The mismatch with the registry's server, once a server answers at
+        /// its address; a registry left behind by a stopped server names none.
+        func incompatibility(token: String, serverID: String) async -> ClientError? {
+            guard let incompatibility, let url, let endpoint = URL(string: url),
+                  let probe = try? HTTPClient(endpoint: endpoint, token: token, instance: "probe", serverID: serverID,
+                                              requestTimeout: HTTPClient.probeTimeout),
+                  await probe.answers() else { return nil }
+            return incompatibility
+        }
+    }
 }
 
+/// The health report, decoded leniently: a server of another protocol may
+/// add or omit fields, and must still be identified as incompatible rather
+/// than malformed.
 struct LocalDaemonHealth: Decodable {
     let instanceId: String
     let protocolVersion: Int
     let kitVersion: String
     let pid: Int
     let databaseReady: Bool
+    var serverId: String? = nil
+    var machineId: String? = nil
+    var home: String? = nil
+}
+
+/// Who a verified, compatible server is.
+struct ServerIdentity: Equatable, Sendable {
+    /// Identifies the server's Kit home across restarts.
+    let id: String
+    /// Identifies the running server process.
+    let instance: String
+    let kitVersion: String
+    let protocolVersion: Int
+    /// The Kit-scoped identifier of the server's machine.
+    let machine: String
+    /// The server user's home directory, for presenting server paths.
+    let home: String
+
+    static func validID(_ value: String) -> Bool {
+        let prefix = "server_"
+        return value.hasPrefix(prefix) && lowercaseHex(value.utf8.dropFirst(prefix.utf8.count), count: 32)
+    }
+
+    static func validMachine(_ value: String) -> Bool {
+        lowercaseHex(value.utf8[...], count: 64)
+    }
+
+    /// Exactly `count` ASCII lowercase hex digits, as the server writes them.
+    private static func lowercaseHex(_ bytes: Substring.UTF8View, count: Int) -> Bool {
+        bytes.count == count && bytes.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
+    }
+
+    static func validHome(_ value: String) -> Bool {
+        guard value.hasPrefix("/"), value.utf8.count <= 4096,
+              !value.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f }) else { return false }
+        return value == "/" || (!value.hasSuffix("/") && !value.split(separator: "/", omittingEmptySubsequences: false)
+            .dropFirst().contains { $0.isEmpty || $0 == "." || $0 == ".." })
+    }
 }
 
 final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, SessionDeletionClient, SessionDisposalClient, SessionForkClient, ComposerClient, AttachmentClient {
@@ -83,16 +153,29 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     // URLSession retains its connections until explicitly invalidated, including
-    // abandoned SSE requests. LocalClient creates a transport per operation.
+    // abandoned SSE requests. ServerClient creates a transport per operation.
     deinit { session.invalidateAndCancel() }
 
+    /// The server of the app's own Kit home.
     static func local() async throws -> HTTPClient {
+        try await discover(home: DevHomeResolver.resolve(), serverID: ServerClient.localID)
+    }
+
+    /// Finds the server of a Kit home on this Mac through its discovery
+    /// files and verifies it.
+    static func discover(home: URL, serverID: String) async throws -> HTTPClient {
+        try await handshake(home: home, serverID: serverID).client
+    }
+
+    /// Finds the server of a Kit home on this Mac through its discovery
+    /// files, verifies it, and reports who it is.
+    static func handshake(home: URL, serverID: String) async throws -> (client: HTTPClient, identity: ServerIdentity) {
         // Discovery is read-only. Starting a daemon remains owned by Kit's CLI.
-        let root = DevHomeResolver.resolve().appendingPathComponent("run")
-        let registry: LocalDaemonRegistry
+        let root = home.appendingPathComponent("run")
+        let data: Data
         let token: String
         do {
-            registry = try JSONDecoder().decode(LocalDaemonRegistry.self, from: Data(contentsOf: root.appendingPathComponent("server.json")))
+            data = try Data(contentsOf: root.appendingPathComponent("server.json"))
             token = try String(contentsOf: root.appendingPathComponent("server.token"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             let failure = error as NSError
@@ -102,27 +185,79 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             let cause = failure.userInfo[NSUnderlyingErrorKey] as? NSError ?? failure
             throw ClientError.discovery(cause.localizedDescription)
         }
-        guard registry.registryVersion == 1 else { throw ClientError.incompatible }
+        let versions = try? JSONDecoder().decode(LocalDaemonRegistry.Versions.self, from: data)
+        // A registry of another format may belong to a running server of another protocol.
+        if let format = versions?.registryVersion, format != 1 {
+            throw await versions?.incompatibility(token: token, serverID: serverID) ?? ClientError.incompatible
+        }
+        let registry: LocalDaemonRegistry
+        do { registry = try JSONDecoder().decode(LocalDaemonRegistry.self, from: data) }
+        catch {
+            let failure = ClientError.discovery(error.localizedDescription)
+            throw await versions?.incompatibility(token: token, serverID: serverID) ?? failure
+        }
         guard let url = URL(string: registry.url), registry.pid > 0 else { throw ClientError.invalidEndpoint }
-        let client = try HTTPClient(endpoint: url, token: token, instance: registry.instanceId, serverID: "local-v2")
-        let output = try await client.generatedOperation { try await client.api.getHealth(headers: .init(xKitInstanceID: registry.instanceId)) }
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
-        let payload = try response.body.json
-        let health = LocalDaemonHealth(instanceId: payload.instanceId, protocolVersion: payload.protocolVersion,
-                                       kitVersion: payload.kitVersion, pid: payload.pid, databaseReady: payload.databaseReady)
-        try validateDiscovery(registry: registry, health: health)
-        return client
+        let client = try HTTPClient(endpoint: url, token: token, instance: registry.instanceId, serverID: serverID)
+        let health: LocalDaemonHealth
+        do { health = try await client.health() }
+        catch ClientError.invalidPayload {
+            // Health this app can't read, from a server the registry says
+            // speaks another protocol, is that server's.
+            throw versions?.incompatibility ?? ClientError.invalidPayload
+        }
+        return (client, try validateDiscovery(registry: registry, health: health))
     }
 
-    static func validateDiscovery(registry: LocalDaemonRegistry, health: LocalDaemonHealth) throws {
+    /// How long a probe waits for a server to answer.
+    static let probeTimeout: TimeInterval = 5
+
+    /// Whether a server answers health, whatever its report says. Only the
+    /// response's head is read, within the probe timeout.
+    func answers() async -> Bool {
+        guard var request = try? request("v1/health") else { return false }
+        request.setValue(nil, forHTTPHeaderField: "X-Kit-Protocol-Version")
+        request.setValue(nil, forHTTPHeaderField: "X-Kit-Instance-ID")
+        let session = session
+        let probe = Task { try await session.bytes(for: request).1 }
+        let deadline = Task {
+            try await Task.sleep(for: .seconds(Self.probeTimeout))
+            probe.cancel()
+        }
+        defer { deadline.cancel() }
+        guard let response = try? await probe.value else { return false }
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    /// Reads health without the generated schema, which rejects fields it
+    /// doesn't know, so a server of another protocol is still identified.
+    private func health() async throws -> LocalDaemonHealth {
+        var request = try request("v1/health")
+        request.setValue(nil, forHTTPHeaderField: "X-Kit-Protocol-Version")
+        let (data, response) = try await session.data(for: request)
+        try check(response)
+        guard data.count <= 64 * 1024 else { throw ClientError.oversized }
+        do { return try JSONDecoder().decode(LocalDaemonHealth.self, from: data) }
+        catch { throw ClientError.invalidPayload }
+    }
+
+    /// Checks health against the discovery registry, then compatibility, and
+    /// only then the identity fields, so a server of another protocol is
+    /// reported as incompatible rather than malformed.
+    @discardableResult
+    static func validateDiscovery(registry: LocalDaemonRegistry, health: LocalDaemonHealth) throws -> ServerIdentity {
         guard health.instanceId == registry.instanceId, health.pid == registry.pid,
               health.protocolVersion == registry.protocolVersion,
               health.kitVersion == registry.kitVersion else { throw ClientError.invalidPayload }
-        guard health.databaseReady else { throw ClientError.daemonNotReady }
         if let reason = DaemonCompatibility.mismatch(clientProtocol: kitWireVersion, daemonProtocol: registry.protocolVersion) {
             throw ClientError.incompatibleDaemon(daemonVersion: registry.kitVersion, appProtocol: kitWireVersion,
                                                  daemonProtocol: registry.protocolVersion, reason: reason)
         }
+        guard health.databaseReady else { throw ClientError.daemonNotReady }
+        guard let id = health.serverId, ServerIdentity.validID(id),
+              let machine = health.machineId, ServerIdentity.validMachine(machine),
+              let home = health.home, ServerIdentity.validHome(home) else { throw ClientError.invalidPayload }
+        return ServerIdentity(id: id, instance: health.instanceId, kitVersion: health.kitVersion,
+                              protocolVersion: health.protocolVersion, machine: machine, home: home)
     }
 
     private func request(_ path: String, query: [URLQueryItem] = []) throws -> URLRequest {

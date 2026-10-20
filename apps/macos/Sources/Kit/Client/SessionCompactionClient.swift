@@ -5,10 +5,10 @@ protocol SessionCompactionClient: SessionClient {
     func compactSession(_ id: String, input: WireCompactSessionInput) async throws -> WireCompactSessionResult
 }
 
-extension LocalClient: SessionCompactionClient {
+extension ServerClient: SessionCompactionClient {
     func compactSession(_ id: String, input: WireCompactSessionInput) async throws -> WireCompactSessionResult {
         let transport: HTTPClient
-        do { transport = try await HTTPClient.local() }
+        do { transport = try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
         return try await transport.compactSession(id, input: input)
     }

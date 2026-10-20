@@ -28,10 +28,10 @@ struct SubagentReceipt: Sendable {
     }
 }
 
-extension LocalClient: SubagentMessagingClient {
+extension ServerClient: SubagentMessagingClient {
     func sendSubagent(_ session: String, agent: String, conversation: String?, message: String) async throws -> SubagentReceipt {
         let transport: HTTPClient
-        do { transport = try await HTTPClient.local() }
+        do { transport = try await resolve() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
         return try await transport.sendSubagent(session, agent: agent, conversation: conversation, message: message)
     }

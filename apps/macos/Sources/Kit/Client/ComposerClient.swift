@@ -23,26 +23,26 @@ extension ComposerClient {
     func files(_ session: String, refresh: Bool) async throws -> [String] { try await files(session) }
 }
 
-extension LocalClient: ModelCatalogRefreshClient {
-    func refreshModels() async throws -> [WireModelCapability] { try await HTTPClient.local().refreshModels() }
+extension ServerClient: ModelCatalogRefreshClient {
+    func refreshModels() async throws -> [WireModelCapability] { try await resolve().refreshModels() }
 }
 
-extension LocalClient: ComposerClient {
+extension ServerClient: ComposerClient {
     func fileIndex(_ session: String, refresh: Bool) async throws -> FileIndex {
-        try await HTTPClient.local().fileIndex(session, refresh: refresh)
+        try await resolve().fileIndex(session, refresh: refresh)
     }
     func configure(_ session: String, input: WireConfigureSessionInput) async throws -> WireConfigureSessionResult {
-        try await HTTPClient.local().configure(session, input: input)
+        try await resolve().configure(session, input: input)
     }
-    func files(_ session: String) async throws -> [String] { try await HTTPClient.local().files(session) }
-    func files(_ session: String, refresh: Bool) async throws -> [String] { try await HTTPClient.local().files(session, refresh: refresh) }
+    func files(_ session: String) async throws -> [String] { try await resolve().files(session) }
+    func files(_ session: String, refresh: Bool) async throws -> [String] { try await resolve().files(session, refresh: refresh) }
     func upload(_ session: String, filename: String, data: Data) async throws -> WireAttachmentInfo {
-        try await HTTPClient.local().upload(session, filename: filename, data: data)
+        try await resolve().upload(session, filename: filename, data: data)
     }
     func resolveAttachments(_ session: String, ids: [String]) async throws -> WireAttachmentResolution {
-        try await HTTPClient.local().resolveAttachments(session, ids: ids)
+        try await resolve().resolveAttachments(session, ids: ids)
     }
     func respond(_ session: String, input: WireInteractionResponse) async throws {
-        try await HTTPClient.local().respond(session, input: input)
+        try await resolve().respond(session, input: input)
     }
 }

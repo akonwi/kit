@@ -41,6 +41,7 @@ enum Icon: String, CaseIterable, Sendable {
     case gitFork = "git-fork"
     case gitDiff = "git-diff"
     case gitPullRequest = "git-pull-request"
+    case hardDrives = "hard-drives"
     case hash
     case image
     case info
