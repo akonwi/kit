@@ -31,6 +31,8 @@ final class SessionTab: Identifiable {
     fileprivate(set) var store: SessionStore?
     /// A restored tile layout, applied when the tab's store is created.
     fileprivate var savedArrangement: TileArrangement?
+    /// The title the tab last showed, until its server describes the session.
+    fileprivate var savedTitle: String?
     /// The app's servers, whose catalogs describe tabs not yet opened.
     private weak var servers: ServerDirectory?
 
@@ -58,7 +60,7 @@ final class SessionTab: Identifiable {
     var session: SessionExcerpt? {
         store?.selected ?? connection?.catalog.sessions.first { $0.id == identity.session }
     }
-    var title: String { session?.title ?? (isLauncher ? "New session" : identity.session) }
+    var title: String { session?.title ?? savedTitle ?? (isLauncher ? "New session" : identity.session) }
     var status: SessionTabStatus { store?.tabStatus ?? .idle }
     /// A turn finished while the user was elsewhere; cleared when the tab is
     /// next shown in a focused window.
@@ -103,7 +105,8 @@ final class SessionWindowModel: Identifiable {
     static let defaultServer = ServerClient.localID
 
     init(id: UUID, servers: ServerDirectory = .inert(), sessions: [SessionIdentity] = [], selected: SessionIdentity? = nil,
-         layouts: [SessionIdentity: TileArrangement] = [:], collapsed: Set<String> = []) {
+         layouts: [SessionIdentity: TileArrangement] = [:], collapsed: Set<String> = [],
+         titles: [SessionIdentity: String] = [:]) {
         self.id = id
         self.servers = servers
         self.collapsed = collapsed
@@ -112,6 +115,7 @@ final class SessionWindowModel: Identifiable {
             : sessions.map { identity in
                 let tab = SessionTab(identity: identity, servers: servers)
                 tab.savedArrangement = layouts[identity]
+                tab.savedTitle = titles[identity]
                 return tab
             }
         self.tabs = tabs
@@ -252,6 +256,15 @@ final class SessionWindowModel: Identifiable {
             if let arrangement = tab.store?.ui.workspace.arrangement ?? tab.savedArrangement, !arrangement.isDefault {
                 result[tab.identity] = arrangement
             }
+        }
+        return result
+    }
+
+    /// The titles session tabs show, to name them while their server can't.
+    var titles: [SessionIdentity: String] {
+        var result: [SessionIdentity: String] = [:]
+        for tab in tabs where !tab.isLauncher {
+            if let title = tab.session?.title ?? tab.savedTitle { result[tab.identity] = title }
         }
         return result
     }

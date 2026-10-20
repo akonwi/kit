@@ -45,7 +45,8 @@ final class SessionWindowRegistry: NSObject {
         if let model = models[request.windowID]?.value { return model }
         let saved = restoration.window(request.windowID)
         let model = SessionWindowModel(id: request.windowID, servers: servers, sessions: saved?.sessions ?? [], selected: saved?.selected,
-                                       layouts: saved?.layouts ?? [:], collapsed: saved?.collapsed ?? [])
+                                       layouts: saved?.layouts ?? [:], collapsed: saved?.collapsed ?? [],
+                                       titles: saved?.titles ?? [:])
         model.onChange = { [weak self] in self?.capture($0) }
         models[request.windowID] = WeakModel(model)
         return model
@@ -66,17 +67,21 @@ final class SessionWindowRegistry: NSObject {
         }
     }
 
-    /// Records a window's tabs, their tile layouts, and its collapsed
-    /// families as restoration intent.
+    /// Records a window's tabs, their tile layouts and titles, and its
+    /// collapsed families as restoration intent.
     func capture(_ model: SessionWindowModel) {
         guard !terminating else { return }
         restoration.update(.init(id: model.id, sessions: model.sessions, selected: model.selectedSession,
-                                 layouts: model.layouts, collapsed: model.collapsed))
+                                 layouts: model.layouts, collapsed: model.collapsed, titles: model.titles))
     }
 
-    /// Records layout changes still waiting to be captured, before quitting.
-    func captureLayouts() {
-        for model in liveModels { model.captureLayouts() }
+    /// Records every window's intent before quitting, including layout
+    /// changes still waiting and titles learned since the last change.
+    func captureBeforeQuit() {
+        for model in liveModels {
+            model.captureLayouts()
+            capture(model)
+        }
     }
 
     /// Attaches a model to its window. A second window for the same model,

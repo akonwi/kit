@@ -3,7 +3,9 @@ import Observation
 
 /// Restoration intent only: which windows were open, their session tabs in
 /// order, each window's selected session, each open session's tile layout,
-/// and the sidebar's collapsed families. Server data, credentials, and drafts have separate owners.
+/// the sidebar's collapsed families, and each tab's last known title, to name
+/// tabs whose server can't be reached. Server data, credentials, and drafts
+/// have separate owners.
 @MainActor @Observable
 final class WindowRestorationStore {
     struct Window: Codable, Equatable, Identifiable {
@@ -16,21 +18,29 @@ final class WindowRestorationStore {
         /// Sessions whose children the sidebar hides, which may include a
         /// closed parent of an open tab.
         var collapsed: Set<String> = []
+        /// The titles tabs last showed.
+        var titles: [SessionIdentity: String] = [:]
 
         init(id: UUID, sessions: [SessionIdentity], selected: SessionIdentity?,
-             layouts: [SessionIdentity: TileArrangement] = [:], collapsed: Set<String> = []) {
+             layouts: [SessionIdentity: TileArrangement] = [:], collapsed: Set<String> = [],
+             titles: [SessionIdentity: String] = [:]) {
             self.id = id
             self.sessions = sessions
             self.selected = selected
             self.layouts = layouts
             self.collapsed = collapsed
+            self.titles = titles
         }
 
         private struct Layout: Codable {
             var session: SessionIdentity
             var arrangement: TileArrangement
         }
-        private enum CodingKeys: String, CodingKey { case id, sessions, selected, layouts, collapsed }
+        private struct Title: Codable {
+            var session: SessionIdentity
+            var title: String
+        }
+        private enum CodingKeys: String, CodingKey { case id, sessions, selected, layouts, collapsed, titles }
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -41,6 +51,8 @@ final class WindowRestorationStore {
             let saved = try container.decodeIfPresent([Layout].self, forKey: .layouts) ?? []
             layouts = Dictionary(saved.map { ($0.session, $0.arrangement) }) { first, _ in first }
             collapsed = Set(try container.decodeIfPresent([String].self, forKey: .collapsed) ?? [])
+            let named = try container.decodeIfPresent([Title].self, forKey: .titles) ?? []
+            titles = Dictionary(named.map { ($0.session, $0.title) }) { first, _ in first }
         }
 
         func encode(to encoder: any Encoder) throws {
@@ -52,6 +64,8 @@ final class WindowRestorationStore {
             let saved = sessions.compactMap { session in layouts[session].map { Layout(session: session, arrangement: $0) } }
             if !saved.isEmpty { try container.encode(saved, forKey: .layouts) }
             if !collapsed.isEmpty { try container.encode(collapsed.sorted(), forKey: .collapsed) }
+            let named = sessions.compactMap { session in titles[session].map { Title(session: session, title: $0) } }
+            if !named.isEmpty { try container.encode(named, forKey: .titles) }
         }
     }
     /// Version 1 saved one session per window, grouped by native window tabs.
@@ -66,6 +80,7 @@ final class WindowRestorationStore {
         var groups: [LegacyGroup]?
     }
     static let maximumSessions = 100
+    static let maximumTitleLength = 200
 
     private(set) var windows: [Window] = []
     private(set) var error: String?
@@ -136,7 +151,10 @@ final class WindowRestorationStore {
             let selected = window.selected.flatMap { members.contains($0) ? $0 : nil } ?? members.first
             let layouts = window.layouts.filter { members.contains($0.key) && !$0.value.isDefault }
             let collapsed = Set(window.collapsed.filter { !$0.isEmpty }.sorted().prefix(maximumSessions))
-            return Window(id: window.id, sessions: members, selected: selected, layouts: layouts, collapsed: collapsed)
+            let titles = window.titles.filter { members.contains($0.key) && !$0.value.isEmpty }
+                .mapValues { String($0.prefix(maximumTitleLength)) }
+            return Window(id: window.id, sessions: members, selected: selected, layouts: layouts, collapsed: collapsed,
+                          titles: titles)
         }
     }
 

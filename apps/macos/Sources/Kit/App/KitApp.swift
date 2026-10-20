@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !busy.isEmpty, TerminalCloseConfirmation.makeAlert(busy, scope: .quit).runModal() != .alertFirstButtonReturn {
             return .terminateCancel
         }
-        sessionWindows.captureLayouts()
+        sessionWindows.captureBeforeQuit()
         sessionWindows.terminating = true
         return .terminateNow
     }
