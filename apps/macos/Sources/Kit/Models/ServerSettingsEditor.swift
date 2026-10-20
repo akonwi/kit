@@ -66,6 +66,8 @@ final class ServerSettingsEditor {
             return true
         } catch {
             failure = Failure(field: field, message: error.localizedDescription)
+            // The server may have applied it before the answer was lost.
+            if let current = try? await client.serverSettings() { settings = current }
             return false
         }
     }

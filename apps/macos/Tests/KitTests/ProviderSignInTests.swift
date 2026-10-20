@@ -218,6 +218,25 @@ struct ProviderSignInTests {
         #expect(box.saved == ["openai/gpt-5"])
     }
 
+    @Test func anUnreadableDefaultIsReplacedOnlyByAChosenModel() async throws {
+        let server = FakeProviders(list: Self.providers, models: [Self.model("anthropic/opus", "anthropic"), Self.model("openai/gpt-5", "openai")])
+        let (signIn, box) = signIn(server)
+        signIn.loadDefault = { throw ServerSettingsFailed(message: "unreachable") }
+        await signIn.load()
+        let key = try #require(signIn.options.first { $0.provider == "openai" })
+        signIn.choose(key)
+        await signIn.save(apiKey: "sk-test")
+        #expect(signIn.defaultModel == "openai/gpt-5")
+        await signIn.finish()
+        #expect(box.saved.isEmpty)
+
+        signIn.choose(key)
+        await signIn.save(apiKey: "sk-test")
+        signIn.defaultModel = "anthropic/opus"
+        await signIn.finish()
+        #expect(box.saved == ["anthropic/opus"])
+    }
+
     @Test func aRejectedKeyStaysOnTheStepWithTheServersMessage() async throws {
         let server = FakeProviders(list: Self.providers)
         await server.setRejectKey(true)

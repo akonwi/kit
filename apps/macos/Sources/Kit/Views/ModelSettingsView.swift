@@ -51,13 +51,16 @@ struct ModelSettingsView: View {
                             }.labelsHidden().pickerStyle(.segmented).frame(width: 140)
                         }
                         VStack(alignment: .leading, spacing: 6) {
-                            Toggle(isOn: Binding(get: { settings.readClaudeConfigs }, set: { save(.readClaudeConfigs($0)) })) {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text("Claude Code commands")
-                                    Text("Offers a project’s .claude/commands as prompt commands. Sessions read them after Reload.")
-                                        .font(.kit(size: 12)).foregroundStyle(theme.muted)
-                                }
-                            }.toggleStyle(FormSwitchStyle(trailing: true))
+                            HStack(spacing: 12) {
+                                Toggle(isOn: Binding(get: { settings.readClaudeConfigs }, set: { save(.readClaudeConfigs($0)) })) {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text("Claude Code commands")
+                                        Text("Offers a project’s .claude/commands as prompt commands. Sessions read them after Reload.")
+                                            .font(.kit(size: 12)).foregroundStyle(theme.muted)
+                                    }
+                                }.toggleStyle(FormSwitchStyle(trailing: true))
+                                if editor.saving == .readClaudeConfigs { KitSpinner(nil) }
+                            }
                             failure(.readClaudeConfigs)
                         }
                     }

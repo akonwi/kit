@@ -5,13 +5,14 @@ import Testing
 /// Answers settings requests by port and records each update's body.
 private final class SettingsResponse: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var bodies: [Int: Data] = [:]
+    nonisolated(unsafe) static var instances: [Int: String] = [:]
     static let lock = NSLock()
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let url = request.url!
-        #expect(request.value(forHTTPHeaderField: "X-Kit-Instance-ID") == "server")
+        Self.lock.withLock { Self.instances[url.port ?? 0] = request.value(forHTTPHeaderField: "X-Kit-Instance-ID") }
         if let stream = request.httpBodyStream {
             stream.open(); defer { stream.close() }
             var data = Data(), buffer = [UInt8](repeating: 0, count: 4096)
@@ -40,6 +41,7 @@ struct ServerSettingsTransportTests {
 
     @Test func projectsTheServersSettings() async throws {
         let settings = try await client(19571).serverSettings()
+        #expect(SettingsResponse.lock.withLock { SettingsResponse.instances[19571] } == "server")
         #expect(settings == ServerSettings(defaultModel: "anthropic/claude-opus-4-6", compactionModel: "",
                                            contextWindows: ["anthropic/claude-sonnet-4-6": 1_000_000],
                                            promptCacheRetention: .long, readClaudeConfigs: false,
