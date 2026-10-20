@@ -8,6 +8,7 @@ import SwiftUI
 struct InteractionDock: View {
     @Environment(\.mica) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.openURL) private var openURL
     @Bindable var flow: InteractionFlow
     let pendingCount: Int
     /// Whether the dock takes keyboard focus when it appears. It waits while
@@ -211,7 +212,7 @@ struct InteractionDock: View {
             confirmButton(true, primary: affirmative)
         case .text:
             if let url = flow.authorizationURL {
-                Button("Open") { NSWorkspace.shared.open(url) }
+                Button("Open") { openURL(url) }
                     .buttonStyle(DockButtonStyle(kind: .bordered)).disabled(flow.submitting)
             }
             primary(flow.guided && !flow.isLastStep ? "Next" : "Submit") { forward { flow.submitText() } }

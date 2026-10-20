@@ -16,6 +16,7 @@ struct SessionView: View {
             SessionComposerRegion(state: state, dockHeight: height / 2)
         }
         .background(theme.surface)
+        .environment(\.openURL, .workspace(state.ui.workspace, beside: .conversation))
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
     }
 

@@ -494,6 +494,16 @@ final class WorkspaceState {
         return tab
     }
 
+    /// Opens a web link in a browser tab beside `anchor`. Returns false,
+    /// opening nothing, for a link that isn't a web address or that the user
+    /// asked to open externally; the caller hands those to the system.
+    @discardableResult
+    func openLink(_ url: URL, beside anchor: WorkspacePane, externally: Bool = false) -> Bool {
+        guard BrowserAddress.isWeb(url), !externally else { return false }
+        openBrowser(url, beside: anchor)
+        return true
+    }
+
     /// Stops every page and ends every shell when the session tab closes.
     func closeLiveTabs() {
         for tab in browsers.values { tab.close() }
@@ -548,11 +558,7 @@ final class WorkspaceState {
                 self?.select(pane)
             }
         case .openURL(let url):
-            if BrowserAddress.isWeb(url) {
-                openBrowser(url, beside: pane)
-            } else {
-                NSWorkspace.shared.open(url)
-            }
+            if !openLink(url, beside: pane) { NSWorkspace.shared.open(url) }
         }
     }
 

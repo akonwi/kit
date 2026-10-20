@@ -4,6 +4,7 @@ import SwiftUI
 /// working directory, Git branch, pull request, and plugin footer items.
 struct SessionBar: View {
     @Environment(\.mica) private var theme
+    @Environment(\.openURL) private var openURL
     let tab: SessionTab
     /// With top tabs, the title is on the tab and the bar is a shorter row.
     var showsTitle = true
@@ -19,7 +20,9 @@ struct SessionBar: View {
                         .layoutPriority(2)
                 }
                 if !tab.isLauncher, session?.pluginFooter?.locationHidden != true {
+                    // The pull request opens in the session's browser.
                     WorkspaceLocation(session: session)
+                        .environment(\.openURL, tab.store.map { .workspace($0.ui.workspace, beside: .conversation) } ?? openURL)
                 }
             }
             .layoutPriority(1)

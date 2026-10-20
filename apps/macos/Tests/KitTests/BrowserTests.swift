@@ -209,6 +209,23 @@ struct BrowserDownloadsTests {
         #expect(tab.addressFocusRequest == 0)
     }
 
+    @Test func aWebLinkOpensBesideTheConversationUnlessAskedToOpenExternally() throws {
+        let engines = FakeBrowserEngines()
+        let workspace = workspace(engines)
+        let pullRequest = URL(string: "https://github.com/akonwi/kit/pull/12")!
+        #expect(!workspace.openLink(pullRequest, beside: .conversation, externally: true))
+        #expect(!workspace.openLink(URL(string: "mailto:kit@example.com")!, beside: .conversation))
+        #expect(workspace.root.tiles.count == 1)
+        #expect(engines.made.isEmpty)
+
+        #expect(workspace.openLink(pullRequest, beside: .conversation))
+        let pane = try #require(workspace.selected)
+        #expect(workspace.root.tiles.count == 2)
+        #expect(workspace.tiles[workspace.focusedTile]?.panes == [pane])
+        #expect(workspace.browser(pane)?.url == pullRequest)
+        #expect(engines.made[0].loads == [pullRequest])
+    }
+
     @Test func aPageWindowOpensAsTheNextTabInTheSameTile() throws {
         let engines = FakeBrowserEngines()
         let workspace = workspace(engines)
