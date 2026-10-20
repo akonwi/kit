@@ -1,0 +1,19 @@
+drawn 13 9
+Second
+
+┌───┐   ┌───┐
+│ A │   │ B │
+└─┬─┘   └─┬─┘
+  │       │
+  │  hi   │
+  ├──────►│
+  │       │
+TTTTTT
+
+fffff   fffff
+f N f   f N f
+fffff   fffff
+  f       f
+  f  ll   f
+  aaaaaaaaf
+  f       f

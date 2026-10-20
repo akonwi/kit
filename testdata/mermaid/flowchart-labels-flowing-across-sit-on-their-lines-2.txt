@@ -1,0 +1,15 @@
+drawn 40 7
+┌───┐
+│ A ├─ first ─┐
+└───┘         │  ┌───┐             ┌───┐
+              ├─►│ C ├─── second ─►│ D │
+┌───┐         │  └───┘             └───┘
+│ B ├─────────┘
+└───┘
+fffff
+f l aa lllll aa
+fffff         a  fffff             fffff
+              aaaf l aaaa llllll aaf l f
+fffff         a  fffff             fffff
+f l aaaaaaaaaaa
+fffff

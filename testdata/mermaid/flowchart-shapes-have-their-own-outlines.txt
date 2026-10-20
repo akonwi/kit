@@ -1,0 +1,57 @@
+drawn 13 28
+   ┌─────┐
+   │ Box │
+   └──┬──┘
+      │
+      ▼
+  ╭───────╮
+  │ Round │
+  ╰───┬───╯
+      │
+      ▼
+ ╭─────────╮
+ ( Stadium )
+ ╰────┬────╯
+      │
+      ▼
+ ╭────────╮
+ │ Circle │
+ ╰────┬───╯
+      │
+      ▼
+╓──────────╖
+║ Database ║
+╙─────┬────╜
+      │
+      ▼
+┌───────────┐
+< Decision? >
+└───────────┘
+   fffffff
+   f lll f
+   fffafff
+      a
+      a
+  fffffffff
+  f lllll f
+  ffffaffff
+      a
+      a
+ fffffffffff
+ f lllllll f
+ fffffafffff
+      a
+      a
+ ffffffffff
+ f llllll f
+ fffffaffff
+      a
+      a
+ffffffffffff
+f llllllll f
+ffffffafffff
+      a
+      a
+fffffffffffff
+f lllllllll f
+fffffffffffff

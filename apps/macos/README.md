@@ -189,6 +189,11 @@ TEST_RUNNER_KIT_LIVE_TEST=1 xcodebuild -scheme Kit \
   -skipPackagePluginValidation -only-testing:KitTests/LiveClientSmokeTests test
 ```
 
+Mermaid diagrams are drawn by `KitMermaid`, a Swift port of the terminal
+client's renderer. `MermaidFixtureTests` holds it to the reference's drawings in
+`testdata/mermaid`; see the terminal client's README for regenerating them
+after a renderer change.
+
 Other opt-in integration checks are documented at their test declarations;
 some create temporary sessions and invoke model or shell work. Ordinary tests
 use synthetic clients. `Fixtures/Themes` contains Flexoki import-regression

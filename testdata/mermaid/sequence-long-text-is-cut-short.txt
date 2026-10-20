@@ -1,0 +1,23 @@
+drawn 140 11
+┌───┐                                                               ┌───┐
+│ A │                                                               │ B │
+└─┬─┘                                                               └─┬─┘
+  │                                                                   │
+  │ word word word word word word word word word word word word wor…  │
+  ├──────────────────────────────────────────────────────────────────►│
+  │                                                                   │
+  │                                                                   │ ┌──────────────────────────────────────────────────────────────────┐
+  │                                                                   │ │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… │
+  │                                                                   │ └──────────────────────────────────────────────────────────────────┘
+  │                                                                   │
+fffff                                                               fffff
+f N f                                                               f N f
+fffff                                                               fffff
+  f                                                                   f
+  f llll llll llll llll llll llll llll llll llll llll llll llll llll  f
+  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaf
+  f                                                                   f
+  f                                                                   f oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
+  f                                                                   f o oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo o
+  f                                                                   f oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
+  f                                                                   f

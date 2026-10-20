@@ -1,0 +1,27 @@
+drawn 17 13
+┌───────────────┐
+│ Quoted [text] │
+└───────┬───────┘
+        │
+        ▼
+      ┌───┐
+      │ B │
+      └─┬─┘
+        │
+        ▼
+    ┌──────┐
+    │ Done │
+    └──────┘
+fffffffffffffffff
+f llllll llllll f
+ffffffffaffffffff
+        a
+        a
+      fffff
+      f l f
+      ffaff
+        a
+        a
+    ffffffff
+    f llll f
+    ffffffff

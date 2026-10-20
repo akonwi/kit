@@ -1,0 +1,1 @@
+not drawn: `direction` is only drawn inside a subgraph

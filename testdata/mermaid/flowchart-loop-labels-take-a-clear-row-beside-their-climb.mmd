@@ -1,0 +1,5 @@
+flowchart TD
+A[Draft] --> B[Review]
+B -->|changes| A
+B -->|ok| C[Publish]
+C -.->|rollback| B

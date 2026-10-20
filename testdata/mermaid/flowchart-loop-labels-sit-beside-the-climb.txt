@@ -1,0 +1,31 @@
+drawn 21 15
+     ┌─────┐
+     ▼     │
+ ┌───────┐ │
+ │ Draft │ │
+ └───┬───┘ │
+     │     │ changes
+     ▼     │
+┌────────┐ │
+│ Review │ │
+└────┬───┘ │
+     ├─────┘
+     ▼
+ ┌───────┐
+ │ Merge │
+ └───────┘
+     aaaaaaa
+     a     a
+ fffffffff a
+ f lllll f a
+ ffffaffff a
+     a     a lllllll
+     a     a
+ffffffffff a
+f llllll f a
+fffffaffff a
+     aaaaaaa
+     a
+ fffffffff
+ f lllll f
+ fffffffff

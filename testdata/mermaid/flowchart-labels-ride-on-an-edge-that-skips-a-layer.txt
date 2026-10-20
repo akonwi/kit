@@ -1,0 +1,29 @@
+drawn 17 14
+     ┌─────┐
+     < ok? >
+     └──┬──┘
+   ┌────◆────┐
+  no         │
+   ▼         │
+┌─────┐      │
+│ Fix │     yes
+└──┬──┘      │
+   └───┐ ┌───┘
+       ▼ ▼
+     ┌─────┐
+     │ End │
+     └─────┘
+     fffffff
+     f lll f
+     fffafff
+   aaaaaaaaaaa
+  ll         a
+   a         a
+fffffff      a
+f lll f     lll
+fffafff      a
+   aaaaa aaaaa
+       a a
+     fffffff
+     f lll f
+     fffffff

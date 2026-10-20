@@ -1,0 +1,33 @@
+drawn 18 16
+    ╭──────╮
+    │ User │
+    ╰───┬──╯
+        │
+┌─────┐ │
+│ you │ │
+└─────┘ │
+        │
+        ├──┐ think
+        │  │
+        │◄─┘
+        │
+    ┌──────┐
+    │ idea │
+    └──────┘
+        │
+    ffffffff
+    f NNNN f
+    ffffffff
+        f
+ooooooo f
+o ooo o f
+ooooooo f
+        f
+        aaaa lllll
+        f  a
+        faaa
+        f
+    oooooooo
+    o oooo o
+    oooooooo
+        f

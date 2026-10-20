@@ -1,0 +1,7 @@
+drawn 41 3
+┌──────┐          ┌────────┐    ┌───────┐
+│ Save │◄─ yes ───< Valid? >◄───┤ Start │
+└──────┘          └────────┘    └───────┘
+ffffffff          ffffffffff    fffffffff
+f llll faa lll aaaf llllll faaaaa lllll f
+ffffffff          ffffffffff    fffffffff

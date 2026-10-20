@@ -1,0 +1,21 @@
+drawn 18 10
+╭──────╮   ┌─────┐
+│ User │   │ Kit │
+╰───┬──╯   └──┬──┘
+    │         │
+    │   ask   │
+    ├────────►│
+    │         │
+    │ answer  │
+    │◄┈┈┈┈┈┈┈┈┤
+    │         │
+ffffffff   fffffff
+f NNNN f   f NNN f
+ffffffff   fffffff
+    f         f
+    f   lll   f
+    aaaaaaaaaaf
+    f         f
+    f llllll  f
+    faaaaaaaaaa
+    f         f

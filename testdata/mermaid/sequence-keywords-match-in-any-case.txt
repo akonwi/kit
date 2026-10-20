@@ -1,0 +1,23 @@
+drawn 9 11
+┌───┐
+│ A │
+└─┬─┘
+  │
+┌ loop ─┐
+│ ├──┐  │
+│ │  │  │
+│ │◄─┘  │
+│ │     │
+└─┼─────┘
+  │
+fffff
+f N f
+fffff
+  f
+f KKKK ff
+f aaaa  f
+f f  a  f
+f faaa  f
+f f     f
+fffffffff
+  f

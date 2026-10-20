@@ -1,0 +1,71 @@
+drawn 21 35
+┌┈┈┈┈┈┈┐
+┊ ▸ S1 ┊
+└┈┈┈┬┈┈┘
+    │
+    ▼
+┌┈┈┈┈┈┈┐
+┊ ▸ S2 ┊
+└┈┈┈┈┈┈┘
+
+S1
+
+ ┌───┐
+ │ A │
+ └─┬─┘
+   │
+   ▼
+ ┌───┐
+ │ B │
+ └─┬─┘
+   │
+   ▼
+┌┈┈┈┈┐
+┊ S2 ┊
+└┈┈┈┈┘
+
+S2
+
+┌───┐    ┌┈┈┈┈┈┈┈┈┐
+│ C │    ┊ S1 · B ┊
+└─┬─┘    └┈┈┈┈┬┈┈┈┘
+  │           │
+  ▼           ▼
+┌───┐   ┌┈┈┈┈┈┈┈┈┈┈┈┐
+│ D │   ┊ all of S2 ┊
+└───┘   └┈┈┈┈┈┈┈┈┈┈┈┘
+ffffffff
+f l ll f
+ffffafff
+    a
+    a
+ffffffff
+f l ll f
+ffffffff
+
+TT
+
+ fffff
+ f l f
+ ffaff
+   a
+   a
+ fffff
+ f l f
+ ffaff
+   a
+   a
+ffffff
+f ll f
+ffffff
+
+TT
+
+fffff    ffffffffff
+f l f    f ll l l f
+ffaff    fffffaffff
+  a           a
+  a           a
+fffff   fffffffffffff
+f l f   f lll ll ll f
+fffff   fffffffffffff

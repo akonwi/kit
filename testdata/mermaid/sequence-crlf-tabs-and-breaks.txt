@@ -1,0 +1,21 @@
+drawn 22 10
+┌───┐            ┌───┐
+│ A │            │ B │
+└─┬─┘            └─┬─┘
+  │                │
+  │ one two three  │
+  ├───────────────►│
+  │                │
+  │   four five    │
+  │◄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┤
+  │                │
+fffff            fffff
+f N f            f N f
+fffff            fffff
+  f                f
+  f lll lll lllll  f
+  aaaaaaaaaaaaaaaaaf
+  f                f
+  f   llll llll    f
+  faaaaaaaaaaaaaaaaa
+  f                f

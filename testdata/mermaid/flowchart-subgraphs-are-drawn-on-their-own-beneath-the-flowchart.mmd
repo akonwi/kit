@@ -1,0 +1,8 @@
+flowchart TD
+subgraph Client
+  A[UI] --> B[Session client]
+end
+subgraph Server
+  C[API] --> D[(SQLite)]
+end
+B --> C

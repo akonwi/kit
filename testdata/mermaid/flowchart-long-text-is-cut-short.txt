@@ -1,0 +1,7 @@
+drawn 96 3
+┌──────────────────────────────────────────┐                                               ┌───┐
+│ long long long long long long long long… ├─── label label label label label label lab… ─►│ B │
+└──────────────────────────────────────────┘                                               └───┘
+ffffffffffffffffffffffffffffffffffffffffffff                                               fffff
+f llll llll llll llll llll llll llll lllll aaaa lllll lllll lllll lllll lllll lllll llll aaf l f
+ffffffffffffffffffffffffffffffffffffffffffff                                               fffff

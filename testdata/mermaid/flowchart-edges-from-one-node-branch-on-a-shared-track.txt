@@ -1,0 +1,17 @@
+drawn 20 8
+     ┌────────┐
+     │ Prompt │
+     └────┬───┘
+    ┌─────┴────┐
+    ▼          ▼
+┌──────┐   ┌───────┐
+│ Tool │   │ Reply │
+└──────┘   └───────┘
+     ffffffffff
+     f llllll f
+     fffffaffff
+    aaaaaaaaaaaa
+    a          a
+ffffffff   fffffffff
+f llll f   f lllll f
+ffffffff   fffffffff

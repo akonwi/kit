@@ -48,6 +48,7 @@ private struct MarkdownBlocks: View {
                             .font(.kit(size: compactHeadings ? size : level == 1 ? 20 : level == 2 ? 17 : 15, weight: .semibold))
                             .padding(.top, compactHeadings ? 2 : 4)
                     case .code(let language, let value): CodeBlock(language: language, source: value)
+                    case .mermaid(let diagram): MermaidBlock(diagram: diagram)
                     case .quote(let children):
                         MarkdownBlocks(blocks: children, compactHeadings: compactHeadings, size: size)
                             .padding(.leading, 14)
@@ -182,40 +183,67 @@ struct CodeBlock: View {
     @Environment(\.compactCodeBlocks) private var compact
     let language: String
     let source: String
-    @State private var copied = false
 
     var body: some View {
         if compact {
             Text(source.hasSuffix("\n") ? String(source.dropLast()) : source)
                 .font(.kit(size: 12, design: .monospaced)).foregroundStyle(theme.text).lineSpacing(3)
                 .textSelection(.enabled)
-                .padding(.horizontal, 10).padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(theme.raised, in: RoundedRectangle(cornerRadius: 3))
-                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border))
+                .compactFence()
         } else {
-            full
+            FenceCard(label: language.isEmpty ? "CODE" : language.uppercased(), copy: source) {
+                ScrollView(.horizontal) {
+                    HighlightedCodeText(language: language, source: source).padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         }
     }
+}
 
-    private var full: some View {
+/// The card fenced Markdown blocks are shown in: a label and a copy action
+/// above their content.
+struct FenceCard<Content: View>: View {
+    @Environment(\.mica) private var theme
+    let label: String
+    /// The text the copy action puts on the pasteboard.
+    let copy: String
+    @ViewBuilder let content: Content
+    @State private var copied = false
+
+    var body: some View {
         VStack(spacing: 0) {
             HStack {
-                MetaLabel(text: language.isEmpty ? "CODE" : language.uppercased())
+                MetaLabel(text: label)
                 Spacer()
                 Button(copied ? "Copied" : "Copy", icon: copied ? .check : .copy, size: 10) {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(source, forType: .string)
+                    NSPasteboard.general.setString(copy, forType: .string)
                     copied = true
                 }.buttonStyle(.plain).font(.kit(size: 10)).foregroundStyle(theme.muted)
             }.padding(.horizontal, 12).padding(.vertical, 8)
             Rule()
-            ScrollView(.horizontal) {
-                HighlightedCodeText(language: language, source: source).padding(14).frame(maxWidth: .infinity, alignment: .leading)
-            }
+            content
         }.background(theme.raised).clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.border, lineWidth: 1))
     }
+}
+
+/// A fenced block's short, headerless frame inside a card such as the
+/// interaction dock.
+private struct CompactFence: ViewModifier {
+    @Environment(\.mica) private var theme
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.raised, in: RoundedRectangle(cornerRadius: 3))
+            .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border))
+    }
+}
+
+extension View {
+    func compactFence() -> some View { modifier(CompactFence()) }
 }
 
 /// Shared native code text for fenced Markdown and expanded tool snippets.

@@ -1,0 +1,29 @@
+drawn 21 14
+       ┌─────┐
+       │  A  │
+       └┬─┬─┬┘
+  ┌─────┘ ┊ ┗━━┳━━━━┓
+  ▼       ┊    ▼    ┃
+┌───┐     ┊  ┌───┐  ┃
+│ B │     ┊  │ D │  ┃
+└─┬─┘     ┊  └─┬─┘  ┃
+  │       ┊    │┏━━━┛
+  └─┐ ┌┈┈┈┘   ┌┘┃
+    ▼ ▼       ▼ ▼
+   ┌───┐     ┌───┐
+   │ C │     │ E │
+   └───┘     └───┘
+       fffffff
+       f  l  f
+       fafafaf
+  aaaaaaa a aaaaaaaaa
+  a       a    a    a
+fffff     a  fffff  a
+f l f     a  f l f  a
+ffaff     a  ffaff  a
+  a       a    aaaaaa
+  aaa aaaaa   aaa
+    a a       a a
+   fffff     fffff
+   f l f     f l f
+   fffff     fffff

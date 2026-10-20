@@ -1,0 +1,17 @@
+drawn 6 8
+┌───┐
+│ A │
+└─┬─┘
+  │
+  ├──┐
+  │  │
+  │◄─┘
+  │
+fffff
+f N f
+fffff
+  f
+  aaaa
+  f  a
+  faaa
+  f

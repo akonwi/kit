@@ -1,0 +1,81 @@
+drawn 27 40
+┌┈┈┈┈┈┈┈┈┈┈┐
+┊ ▸ Client ┊
+└┈┈┈┈┈┬┈┈┈┈┘
+      │
+      ▼
+┌┈┈┈┈┈┈┈┈┈┈┐
+┊ ▸ Server ┊
+└┈┈┈┈┈┈┈┈┈┈┘
+
+Client
+
+      ┌────┐
+      │ UI │
+      └──┬─┘
+         │
+         ▼
+┌────────────────┐
+│ Session client │
+└────────┬───────┘
+         │
+         ▼
+ ┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐
+ ┊ Server · API ┊
+ └┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘
+
+Server
+
+┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐
+┊ Client · Session client ┊
+└┈┈┈┈┈┈┈┈┈┈┈┈┬┈┈┈┈┈┈┈┈┈┈┈┈┘
+             │
+             ▼
+          ┌─────┐
+          │ API │
+          └──┬──┘
+             │
+             ▼
+        ╓────────╖
+        ║ SQLite ║
+        ╙────────╜
+ffffffffffff
+f l llllll f
+ffffffafffff
+      a
+      a
+ffffffffffff
+f l llllll f
+ffffffffffff
+
+TTTTTT
+
+      ffffff
+      f ll f
+      fffaff
+         a
+         a
+ffffffffffffffffff
+f lllllll llllll f
+fffffffffaffffffff
+         a
+         a
+ ffffffffffffffff
+ f llllll l lll f
+ ffffffffffffffff
+
+TTTTTT
+
+fffffffffffffffffffffffffff
+f llllll l lllllll llllll f
+fffffffffffffafffffffffffff
+             a
+             a
+          fffffff
+          f lll f
+          fffafff
+             a
+             a
+        ffffffffff
+        f llllll f
+        ffffffffff

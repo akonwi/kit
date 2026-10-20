@@ -1,0 +1,61 @@
+drawn 52 30
+┌──────┐    ┌┈┈┈┈┈┈┈┈┈┈┈┐    ┌─────┐    ╓──────────╖
+│ User ├───►┊ ▸ Web app ├┈┈┈►│ API ├───►║ Postgres ║
+└──────┘    └┈┈┈┈┈┈┈┈┈┈┈┘    └─────┘    ╙──────────╜
+
+Web app
+
+           ┌───────┐        ┌┈┈┈┈┈┈┐
+           │ Pages │        ┊ User ┊
+           └───┬───┘        └┈┈┈┬┈┈┘
+               │                │
+               ▼                ▼
+           ┌───────┐   ┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐
+           │ State │   ┊ all of Web app ┊
+           └──┬─┬──┘   └┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘
+              │ └┈┈┈┈┈┐
+              ▼       ▼
+┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐   ┌┈┈┈┈┈┐
+┊ ▸ Edge cache ┊   ┊ API ┊
+└┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘   └┈┈┈┈┈┘
+
+Edge cache
+
+┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐
+┊ Web app · State ┊
+└┈┈┈┈┈┈┈┈┬┈┈┈┈┈┈┈┈┘
+         │
+         ▼
+     ┌──────┐
+     │ Keys │
+     └──────┘
+ffffffff    fffffffffffff    fffffff    ffffffffffff
+f llll aaaaaf l lll lll aaaaaf lll aaaaaf llllllll f
+ffffffff    fffffffffffff    fffffff    ffffffffffff
+
+TTT TTT
+
+           fffffffff        ffffffff
+           f lllll f        f llll f
+           ffffaffff        ffffafff
+               a                a
+               a                a
+           fffffffff   ffffffffffffffffff
+           f lllll f   f lll ll lll lll f
+           fffafafff   ffffffffffffffffff
+              a aaaaaaa
+              a       a
+ffffffffffffffff   fffffff
+f l llll lllll f   f lll f
+ffffffffffffffff   fffffff
+
+TTTT TTTTT
+
+fffffffffffffffffff
+f lll lll l lllll f
+fffffffffafffffffff
+         a
+         a
+     ffffffff
+     f llll f
+     ffffffff

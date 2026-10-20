@@ -1,0 +1,1 @@
+not drawn: unclosed `[` in `A[open --> B`

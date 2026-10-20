@@ -1,0 +1,19 @@
+drawn 24 9
+      ┌────────────┐
+      < Tool call? >
+      └──────┬─────┘
+      ┌──────◆─────┐
+     yes          no
+      ▼            ▼
+┌──────────┐   ┌───────┐
+│ Run tool │   │ Reply │
+└──────────┘   └───────┘
+      ffffffffffffff
+      f llll lllll f
+      fffffffaffffff
+      aaaaaaaaaaaaaa
+     lll          ll
+      a            a
+ffffffffffff   fffffffff
+f lll llll f   f lllll f
+ffffffffffff   fffffffff

@@ -1,0 +1,11 @@
+drawn 50 5
+    ┌───────┐    ┌───────┐    ┌─────┐    ┌───────┐
+ ┌─►│ Fetch ├───►│ Parse ├───►< OK? >─◆─►│ Store │
+ │  └───────┘    └───────┘    └─────┘ │  └───────┘
+ │                                    │
+ └────────────── retry ───────────────┘
+    fffffffff    fffffffff    fffffff    fffffffff
+ aaaf lllll aaaaaf lllll aaaaaf lll faaaaf lllll f
+ a  fffffffff    fffffffff    fffffff a  fffffffff
+ a                                    a
+ aaaaaaaaaaaaaaa lllll aaaaaaaaaaaaaaaa

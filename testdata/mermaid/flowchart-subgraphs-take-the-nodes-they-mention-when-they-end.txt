@@ -1,0 +1,83 @@
+drawn 23 41
+┌┈┈┈┈┈┈┈┈┈┐   ┌┈┈┈┈┈┈┈┐
+┊ ▸ three ┊   ┊ ▸ two ┊
+└┈┈┈┈┬┈┈┈┈┘   └┈┈┈┈┈┈┈┘
+     │
+     ▼
+ ┌┈┈┈┈┈┈┈┐
+ ┊ ▸ one ┊
+ └┈┈┈┈┈┈┈┘
+
+one
+
+┌────┐   ┌┈┈┈┈┈┈┈┈┈┈┈┈┐
+│ a1 │   ┊ three · c1 ┊
+└──┬─┘   └┈┈┈┈┈┈┬┈┈┈┈┈┘
+   └──────┬─────┘
+          ▼
+       ┌────┐
+       │ a2 │
+       └────┘
+
+two
+
+┌────┐
+│ b1 │
+└──┬─┘
+   │
+   ▼
+┌────┐
+│ b2 │
+└────┘
+
+three
+
+      ┌────┐
+      │ c1 │
+      └──┬─┘
+   ┌─────┴─────┐
+   ▼           ▼
+┌────┐   ┌┈┈┈┈┈┈┈┈┈┈┐
+│ c2 │   ┊ one · a2 ┊
+└────┘   └┈┈┈┈┈┈┈┈┈┈┘
+fffffffffff   fffffffff
+f l lllll f   f l lll f
+fffffafffff   fffffffff
+     a
+     a
+ fffffffff
+ f l lll f
+ fffffffff
+
+TTT
+
+ffffff   ffffffffffffff
+f ll f   f lllll l ll f
+fffaff   fffffffaffffff
+   aaaaaaaaaaaaaa
+          a
+       ffffff
+       f ll f
+       ffffff
+
+TTT
+
+ffffff
+f ll f
+fffaff
+   a
+   a
+ffffff
+f ll f
+ffffff
+
+TTTTT
+
+      ffffff
+      f ll f
+      fffaff
+   aaaaaaaaaaaaa
+   a           a
+ffffff   ffffffffffff
+f ll f   f lll l ll f
+ffffff   ffffffffffff

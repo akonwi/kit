@@ -1,0 +1,37 @@
+drawn 28 18
+┌───┐
+│ A ├───┐  ┌───┐
+└───┘   └─○│   │
+           │   │
+┌───┐   ┌─►│ E ├━━━━┓
+│ C ├───┘  │   │    ┃
+└───┘  ┏━━►│   │    ┃
+       ┃   └───┘    ┃
+       ┃            ┃
+┌───┐  ┃            ┃  ┌───┐
+│   ├──┼┐         ┌─┼─►│   │
+│ B │  ┃│         │ ┃  │ D │
+│   ├━┓┃│         │┏╋━►│   │
+└───┘ ┃┃└─── go ──┘┃┃  └───┘
+      ┃┃           ┃┃
+      ┗╋━━━━━━━━━━━┛┃
+       ┃            ┃
+       ┗━━ again ━━━┛
+fffff
+f l aaaaa  fffff
+fffff   aaaf   f
+           f   f
+fffff   aaaf l aaaaaa
+f l aaaaa  f   f    a
+fffff  aaaaf   f    a
+       a   fffff    a
+       a            a
+fffff  a            a  fffff
+f   aaaaa         aaaaaf   f
+f l f  aa         a a  f l f
+f   aaaaa         aaaaaf   f
+fffff aaaaaa ll aaaaa  fffff
+      aa           aa
+      aaaaaaaaaaaaaaa
+       a            a
+       aaa lllll aaaa

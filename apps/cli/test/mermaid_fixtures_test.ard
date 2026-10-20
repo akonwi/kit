@@ -1,0 +1,118 @@
+use ard/testing
+
+use go:bytes
+use kit/tui/mermaid
+use kit/tui/mermaid/canvas
+use go:os
+use go:path/filepath
+use go:sort
+use go:strings
+
+// The shared Mermaid fixtures in `testdata/mermaid`: each `.mmd` source and
+// the drawing this renderer makes of it in the matching `.txt`. The macOS
+// client's port is checked against the same files (ADR 0046). Set
+// KIT_UPDATE_MERMAID_FIXTURES=1 to write the drawings this renderer makes.
+
+let fixtures = "../../testdata/mermaid"
+
+// The letter a cell's role is recorded as; capitals are bold.
+private fn role_letter(role: canvas::Role) Str {
+  match role {
+    canvas::Role::frame => "f",
+    canvas::Role::arrow => "a",
+    canvas::Role::name => "n",
+    canvas::Role::label => "l",
+    canvas::Role::note => "o",
+    canvas::Role::keyword => "k",
+    canvas::Role::condition => "c",
+    canvas::Role::title => "t",
+  }
+}
+
+// A drawing as fixture text: its size, its rows with trailing spaces removed,
+// then a row of role letters for each, where a blank cell is a space and the
+// trailing half of a wide character is `~`.
+fn record(drawing: canvas::Canvas) Str {
+  let lines = mut ["drawn {drawing.width} {drawing.height}"]
+  for row in drawing.lines() {
+    lines.push(row)
+  }
+  mut y = 0
+  while y < drawing.height {
+    let cells = mut List::new<Str>()
+    mut x = 0
+    while x < drawing.width {
+      let shown = drawing.shown(x, y)
+      let letter = role_letter(drawing.role(x, y))
+      cells.push(
+        match {
+          shown == "" => "~",
+          shown == " " => " ",
+          drawing.is_bold(x, y) => strings::ToUpper(letter),
+          _ => letter,
+        },
+      )
+      x =+ 1
+    }
+    lines.push(strings::TrimRight(strings::Join(cells, ""), " "))
+    y =+ 1
+  }
+  strings::Join(lines, "\n") + "\n"
+}
+
+// What the renderer makes of source, as fixture text.
+fn expected(source: Str) Str {
+  match mermaid::render(source) {
+    ok(drawing) => record(drawing),
+    err(reason) => "not drawn: {reason}\n",
+  }
+}
+
+private fn read(path: Str) Str!Str {
+  match os::ReadFile(path) {
+    ok(content) => Result::ok(bytes::NewBuffer(mut content).String()),
+    err(failure) => Result::err("{path}: {failure.error()}"),
+  }
+}
+
+private fn write(path: Str, content: Str) Void!Str {
+  match os::Create(path) {
+    ok(file) => {
+      let written = file.WriteString(content)
+      let closed = file.Close()
+      match {
+        written.is_err() => Result::err("{path}: couldn't write"),
+        closed.is_err() => Result::err("{path}: couldn't close"),
+        _ => Result::ok(()),
+      }
+    },
+    err(failure) => Result::err("{path}: {failure.error()}"),
+  }
+}
+
+test fn the_renderer_draws_each_shared_fixture() Void!Str {
+  let update = os::Getenv("KIT_UPDATE_MERMAID_FIXTURES") == "1"
+  let found = filepath::Glob(filepath::Join(fixtures, "*.mmd")).or([])
+  let sources = mut found
+  sort::Strings(sources)
+  try testing::assert(sources.size() > 0, "no fixtures in {fixtures}")
+  let failures = mut List::new<Str>()
+  for path in sources {
+    let source = try read(path)
+    let want_path = strings::TrimSuffix(path, ".mmd") + ".txt"
+    let got = expected(source)
+    match update {
+      true => try write(want_path, got),
+      false => {
+        let want = read(want_path).or("(missing)\n")
+        if got != want {
+          failures.push("{filepath::Base(path)}:\ngot:\n{got}want:\n{want}")
+        }
+      },
+    }
+  }
+  testing::assert(
+    failures.size() == 0,
+    "{failures.size()} fixtures differ; regenerate with KIT_UPDATE_MERMAID_FIXTURES=1 after reviewing:\n{strings::Join(failures, "\n")}",
+  )
+}

@@ -1,0 +1,11 @@
+drawn 25 5
+    ┌───────┐    ╭──────╮
+ ┌─►│ Retry ├─┬─►( Done )
+ │  └───────┘ │  ╰──────╯
+ │            │
+ └── again ───┘
+    fffffffff    ffffffff
+ aaaf lllll aaaaaf llll f
+ a  fffffffff a  ffffffff
+ a            a
+ aaa lllll aaaa

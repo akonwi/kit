@@ -1,0 +1,27 @@
+drawn 10 13
+ ┌───────┐
+ │ Start │
+ └───┬───┘
+     │
+     ▼
+┌────────┐
+│ Middle │
+└────┬───┘
+     │
+     ▼
+  ┌─────┐
+  │ End │
+  └─────┘
+ fffffffff
+ f lllll f
+ ffffaffff
+     a
+     a
+ffffffffff
+f llllll f
+fffffaffff
+     a
+     a
+  fffffff
+  f lll f
+  fffffff

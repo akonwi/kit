@@ -1,0 +1,45 @@
+drawn 23 22
+          ┌┈┈┈┈┈┈┈┈┈┈┈┐
+          ▼           ┊
+        ┌───┐         ┊
+        │ A │         ┊
+        └─┬─┘         ┊
+  ┌───────┼───────┐   ┊
+  ▼       ▼       ▼   ┊
+┌───┐   ┌───┐   ┌───┐ ┊
+│ B │   │ C │   │ D │ ┊
+└─┬─┘   └─┬─┘   └─┬─┘ ┊
+  │┌──────┴──────┐│   ┊
+ ┌┴┼─────┐ ┌─────┼┴┐  ┊
+ ▼ ▼     ▼ ▼     ▼ ▼  ┊
+┌───┐   ┌───┐   ┌───┐ ┊
+│ E │   │ F │   │ G │ ┊
+└─┬─┘   └─┬─┘   └─┬─┘ ┊
+  └───────┼───────┘   ┊
+          ▼           ┊
+        ┌───┐         ┊
+        │ H │         ┊
+        └─┬─┘         ┊
+          └┈┈┈┈┈┈┈┈┈┈┈┘
+          aaaaaaaaaaaaa
+          a           a
+        fffff         a
+        f l f         a
+        ffaff         a
+  aaaaaaaaaaaaaaaaa   a
+  a       a       a   a
+fffff   fffff   fffff a
+f l f   f l f   f l f a
+ffaff   ffaff   ffaff a
+  aaaaaaaaaaaaaaaaa   a
+ aaaaaaaaa aaaaaaaaa  a
+ a a     a a     a a  a
+fffff   fffff   fffff a
+f l f   f l f   f l f a
+ffaff   ffaff   ffaff a
+  aaaaaaaaaaaaaaaaa   a
+          a           a
+        fffff         a
+        f l f         a
+        ffaff         a
+          aaaaaaaaaaaaa

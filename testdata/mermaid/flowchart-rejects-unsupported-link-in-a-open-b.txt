@@ -1,0 +1,1 @@
+not drawn: unsupported link in `A -- open B`

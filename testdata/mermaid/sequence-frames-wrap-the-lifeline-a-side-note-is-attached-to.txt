@@ -1,0 +1,29 @@
+drawn 19 14
+      ┌───┐   ┌───┐
+      │ A │   │ B │
+      └─┬─┘   └─┬─┘
+        │       │
+        │   x   │
+        ├──────►│
+        │       │
+┌ loop ─┼─┐     │
+│ ┌───┐ │ │     │
+│ │ l │ │ │     │
+│ └───┘ │ │     │
+│       │ │     │
+└───────┼─┘     │
+        │       │
+      fffff   fffff
+      f N f   f N f
+      fffff   fffff
+        f       f
+        f   l   f
+        aaaaaaaaf
+        f       f
+f KKKK ffff     f
+f ooooo f f     f
+f o o o f f     f
+f ooooo f f     f
+f       f f     f
+fffffffffff     f
+        f       f

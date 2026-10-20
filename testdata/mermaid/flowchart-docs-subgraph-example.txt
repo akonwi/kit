@@ -1,0 +1,39 @@
+drawn 59 19
+┌┈┈┈┈┈┈┈┈┈┈┐    ┌┈┈┈┈┈┈┈┈┈┈┈┈┐
+┊ ▸ Client ├───►┊ ▸ Services ┊
+└┈┈┈┈┈┈┈┈┈┈┘    └┈┈┈┈┈┈┈┈┈┈┈┈┘
+
+Client
+
+               ╓─────────────╖
+            ┌─►║ Local cache ║
+┌─────────┐ │  ╙─────────────╜
+│ Web app ├─┤
+└─────────┘ │  ┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐
+            └─►┊ Services · API gateway ┊
+               └┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘
+
+Services
+
+┌┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐    ┌─────────────┐    ┌──────────────┐
+┊ Client · Web app ├───►│ API gateway ├───►│ Auth service │
+└┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘    └─────────────┘    └──────────────┘
+ffffffffffff    ffffffffffffff
+f l llllll aaaaaf l llllllll f
+ffffffffffff    ffffffffffffff
+
+TTTTTT
+
+               fffffffffffffff
+            aaaf lllll lllll f
+fffffffffff a  fffffffffffffff
+f lll lll aaa
+fffffffffff a  ffffffffffffffffffffffffff
+            aaaf llllllll l lll lllllll f
+               ffffffffffffffffffffffffff
+
+TTTTTTTT
+
+ffffffffffffffffffff    fffffffffffffff    ffffffffffffffff
+f llllll l lll lll aaaaaf lll lllllll aaaaaf llll lllllll f
+ffffffffffffffffffff    fffffffffffffff    ffffffffffffffff

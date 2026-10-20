@@ -1,0 +1,1 @@
+not drawn: `A as` needs a label after `as`

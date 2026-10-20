@@ -1,0 +1,47 @@
+drawn 31 23
+           ┌──────┐
+           │ Push │
+           └───┬──┘
+    ┌──────────┼──────────┐
+    ▼          ▼          ▼
+┌──────┐   ┌──────┐   ┌───────┐
+│ Lint │   │ Test │   │ Build │
+└───┬──┘   └───┬──┘   └───┬───┘
+    │          │          │
+    │          │          ▼
+    │          │  ┌─────────┐
+    │          │  │ Package │
+    │          │  └────┬────┘
+    └──────────┼───────┘
+               ▼
+           ┌──────┐
+           │ Gate │
+           └───┬──┘
+               │
+               ▼
+          ┌─────────┐
+          │ Release │
+          └─────────┘
+           ffffffff
+           f llll f
+           ffffafff
+    aaaaaaaaaaaaaaaaaaaaaaa
+    a          a          a
+ffffffff   ffffffff   fffffffff
+f llll f   f llll f   f lllll f
+ffffafff   ffffafff   ffffaffff
+    a          a          a
+    a          a          a
+    a          a  fffffffffff
+    a          a  f lllllll f
+    a          a  fffffafffff
+    aaaaaaaaaaaaaaaaaaaa
+               a
+           ffffffff
+           f llll f
+           ffffafff
+               a
+               a
+          fffffffffff
+          f lllllll f
+          fffffffffff

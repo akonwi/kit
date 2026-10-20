@@ -1,0 +1,45 @@
+drawn 9 22
+  ┌─────┐
+  ▼     │
+┌───┐   │
+│ A │   │
+└─┬─┘   │
+  │     │
+  ▼     │
+┌───┐   │
+│ B │   │
+└─┬─┘   │
+  │┌──┐ │
+ ┌┘│  │ │
+ ▼ ▼  │ │
+┌───┐ │ │
+│ C │ │ │
+└─┬─┘ │ │
+  │   │ │
+  ▼   │ │
+┌───┐ │ │
+│ D │ │ │
+└─┬─┘ │ │
+  └───┴─┘
+  aaaaaaa
+  a     a
+fffff   a
+f l f   a
+ffaff   a
+  a     a
+  a     a
+fffff   a
+f l f   a
+ffaff   a
+  aaaaa a
+ aaa  a a
+ a a  a a
+fffff a a
+f l f a a
+ffaff a a
+  a   a a
+  a   a a
+fffff a a
+f l f a a
+ffaff a a
+  aaaaaaa

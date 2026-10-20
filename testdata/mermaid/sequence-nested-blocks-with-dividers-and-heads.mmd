@@ -1,0 +1,10 @@
+sequenceDiagram
+par fetch
+A->>B: x
+and
+critical lock
+A-)B: y
+option timeout
+B<<-->>A: z
+end
+end

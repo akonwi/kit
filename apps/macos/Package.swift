@@ -25,7 +25,8 @@ let package = Package(
             .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "HTTPTypesFoundation", package: "swift-http-types"),
-            "GhosttyKit"
+            "GhosttyKit",
+            "KitMermaid"
         ], exclude: ["openapi-generator-config.yaml"], resources: [.process("Resources")],
         linkerSettings: [
             .linkedFramework("Carbon"),
@@ -39,6 +40,8 @@ let package = Package(
         ]),
         // libghostty, built by script/build_ghosttykit.sh at a pinned commit.
         .binaryTarget(name: "GhosttyKit", path: "Vendor/Ghostty/GhosttyKit.xcframework"),
-        .testTarget(name: "KitTests", dependencies: ["Kit"])
+        // Kit's Mermaid renderer, ported from the terminal client's (ADR 0046).
+        .target(name: "KitMermaid"),
+        .testTarget(name: "KitTests", dependencies: ["Kit", "KitMermaid"])
     ]
 )

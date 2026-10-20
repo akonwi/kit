@@ -1,0 +1,49 @@
+drawn 20 24
+Plan
+
+┌───┐      ┌───┐
+│ A │      │ B │
+└─┬─┘      └─┬─┘
+  │          │
+  │ 10. one  │
+  ├─────────►│
+  │          │
+  │          │ ┌───┐
+  │          │ │ r │
+  │          │ └───┘
+  │          │
+┌──────────────┐
+│  wide note   │
+└──────────────┘
+  │          │
+  │ 15. two  │
+  ├─────────►│
+  │          │
+  ├──┐ 20.   │
+  │  │       │
+  │◄─┘       │
+  │          │
+TTTT
+
+fffff      fffff
+f N f      f N f
+fffff      fffff
+  f          f
+  f lll lll  f
+  aaaaaaaaaaaf
+  f          f
+  f          f ooooo
+  f          f o o o
+  f          f ooooo
+  f          f
+oooooooooooooooo
+o  oooo oooo   o
+oooooooooooooooo
+  f          f
+  f lll lll  f
+  aaaaaaaaaaaf
+  f          f
+  aaaa lll   f
+  f  a       f
+  faaa       f
+  f          f

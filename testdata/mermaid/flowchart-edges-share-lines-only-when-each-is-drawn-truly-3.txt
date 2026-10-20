@@ -1,0 +1,17 @@
+drawn 15 8
+  ┌───┐   ┌───┐
+  │ A │   │ B │
+  └─┬─┘   └─┬─┘
+  ┌─┴────┐ ┌┘
+  ▼      ▼ ▼
+┌───┐   ┌───┐
+│ C │   │ D │
+└───┘   └───┘
+  fffff   fffff
+  f l f   f l f
+  ffaff   ffaff
+  aaaaaaaa aa
+  a      a a
+fffff   fffff
+f l f   f l f
+fffff   fffff

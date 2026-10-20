@@ -1,0 +1,15 @@
+drawn 36 7
+┌───┐                          ┌───┐
+│ A │                          │ B │
+└─┬─┘                          └─┬─┘
+  │                              │
+  │ -9223372036854775808. least  │
+  ├─────────────────────────────►│
+  │                              │
+fffff                          fffff
+f N f                          f N f
+fffff                          fffff
+  f                              f
+  f lllllllllllllllllllll lllll  f
+  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaf
+  f                              f

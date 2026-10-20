@@ -1,0 +1,19 @@
+drawn 22 9
+ ┌───────┐    ┌─────┐
+ │ Parse │    │ Lex │
+ └───┬───┘    └──┬──┘
+  tokens       chars
+     └─────┬─────┘
+           ▼
+       ┌───────┐
+       │ Build │
+       └───────┘
+ fffffffff    fffffff
+ f lllll f    f lll f
+ ffffaffff    fffafff
+  llllll       lllll
+     aaaaaaaaaaaaa
+           a
+       fffffffff
+       f lllll f
+       fffffffff

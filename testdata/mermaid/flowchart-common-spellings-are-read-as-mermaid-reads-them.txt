@@ -1,0 +1,29 @@
+drawn 18 14
+      ┌───┐
+      │ A │
+      └─┬─┘
+   ┌────┴────┐
+  yes       no
+   ▼         ▼
+ ┌───┐    ┌─────┐
+ │ B │    │ End │
+ └───┘    └──┬──┘
+             │
+             ▼
+         ┌───────┐
+         │ Style │
+         └───────┘
+      fffff
+      f l f
+      ffaff
+   aaaaaaaaaaa
+  lll       ll
+   a         a
+ fffff    fffffff
+ f l f    f lll f
+ fffff    fffafff
+             a
+             a
+         fffffffff
+         f lllll f
+         fffffffff

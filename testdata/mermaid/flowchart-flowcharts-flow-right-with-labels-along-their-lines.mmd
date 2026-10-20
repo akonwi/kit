@@ -1,0 +1,6 @@
+flowchart LR
+A[Start] --> B{Valid?}
+B -->|yes| C[Save record]
+B -->|no| D[Reject]
+C --> E[Done]
+D --> E

@@ -1,0 +1,17 @@
+drawn 13 8
+    ┌───┐
+    │ A │
+    └─┬─┘
+  ┌───┴───┐
+  ×       ○
+┌───┐   ┌───┐
+│ B │   │ C │
+└───┘   └───┘
+    fffff
+    f l f
+    ffaff
+  aaaaaaaaa
+  a       a
+fffff   fffff
+f l f   f l f
+fffff   fffff

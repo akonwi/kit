@@ -1,0 +1,12 @@
+flowchart LR
+  subgraph Client
+    UI[Web app]
+    Cache[(Local cache)]
+  end
+  subgraph Services
+    API[API gateway]
+    Auth[Auth service]
+  end
+  UI --> API
+  UI --> Cache
+  API --> Auth

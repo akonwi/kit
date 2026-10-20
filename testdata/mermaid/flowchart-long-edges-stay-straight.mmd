@@ -1,0 +1,6 @@
+flowchart TD
+Push --> Lint & Test & Build
+Lint --> Gate
+Test --> Gate
+Build --> Package --> Gate
+Gate --> Release

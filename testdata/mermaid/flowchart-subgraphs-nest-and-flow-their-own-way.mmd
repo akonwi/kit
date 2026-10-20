@@ -1,0 +1,12 @@
+flowchart LR
+U[User] --> Web
+subgraph Web[Web app]
+  direction TB
+  P[Pages] --> S[State]
+  subgraph Cache[Edge cache]
+    K[Keys]
+  end
+  S --> K
+end
+S -.-> API
+API --> DB[(Postgres)]

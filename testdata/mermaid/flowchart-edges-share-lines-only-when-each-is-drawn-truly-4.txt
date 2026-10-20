@@ -1,0 +1,15 @@
+drawn 14 7
+┌───┐
+│ A ├─┐  ┌───┐
+└───┘ └─►│   │
+         │ C │
+┌───┐ ┌─○│   │
+│ B ├─┘  └───┘
+└───┘
+fffff
+f l aaa  fffff
+fffff aaaf   f
+         f l f
+fffff aaaf   f
+f l aaa  fffff
+fffff

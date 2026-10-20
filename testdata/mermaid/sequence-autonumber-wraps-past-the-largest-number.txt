@@ -1,0 +1,21 @@
+drawn 36 10
+┌───┐                          ┌───┐
+│ A │                          │ B │
+└─┬─┘                          └─┬─┘
+  │                              │
+  │  9223372036854775807. last   │
+  ├─────────────────────────────►│
+  │                              │
+  │ -9223372036854775808. wraps  │
+  │◄─────────────────────────────┤
+  │                              │
+fffff                          fffff
+f N f                          f N f
+fffff                          fffff
+  f                              f
+  f  llllllllllllllllllll llll   f
+  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaf
+  f                              f
+  f lllllllllllllllllllll lllll  f
+  faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  f                              f

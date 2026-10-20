@@ -1,0 +1,37 @@
+drawn 16 18
+ ┌┈┈┈┈┐
+ ┊ ┌──┼─┐
+┌┴─┴┐ ┊ │
+│ C │ ┊ │
+└───┘ ┊ │
+  ▲   ┊ │
+  │   ┊ │
+┌─┴─┐ ┊ │
+│ B │ ┊ │
+└───┘ ┊ │ again
+ ▲ ▲  ┊ │
+ └┐┊  ┊ │
+  │└┈┈┘ │
+┌─┴─┐   │
+│ A │   │
+└───┘   │
+  ▲     │
+  └─────┘
+ aaaaaa
+ a aaaaaa
+fafaf a a
+f l f a a
+fffff a a
+  a   a a
+  a   a a
+ffaff a a
+f l f a a
+fffff a a lllll
+ a a  a a
+ aaa  a a
+  aaaaa a
+ffaff   a
+f l f   a
+fffff   a
+  a     a
+  aaaaaaa

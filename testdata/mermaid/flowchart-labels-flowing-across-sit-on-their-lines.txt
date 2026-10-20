@@ -1,0 +1,23 @@
+drawn 31 11
+          ┌───┐
+┌───┐  ┌─►│   │
+│ A ├──┤  │ C │
+└───┘ ┌┼─►│   │
+      ││  └───┘
+┌───┐ ││
+│ B ├─┤│                  ┌───┐
+└───┘ ││               ┌─►│   │
+      │└─── approve ───┘  │ D │
+      │               ┌──►│   │
+      └───────────────┘   └───┘
+          fffff
+fffff  aaaf   f
+f l aaaa  f l f
+fffff aaaaf   f
+      aa  fffff
+fffff aa
+f l aaaa                  fffff
+fffff aa               aaaf   f
+      aaaaa lllllll aaaa  f l f
+      a               aaaaf   f
+      aaaaaaaaaaaaaaaaa   fffff

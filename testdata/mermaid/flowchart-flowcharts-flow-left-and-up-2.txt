@@ -1,0 +1,29 @@
+drawn 21 14
+┌──────┐   ┌────────┐
+│ Save │   │ Reject │
+└──────┘   └────────┘
+    ▲           ▲
+   yes         no
+    └─────◆─────┘
+     ┌────┴───┐
+     < Valid? >
+     └────────┘
+          ▲
+          │
+      ┌───┴───┐
+      │ Start │
+      └───────┘
+ffffffff   ffffffffff
+f llll f   f llllll f
+ffffffff   ffffffffff
+    a           a
+   lll         ll
+    aaaaaaaaaaaaa
+     fffffaffff
+     f llllll f
+     ffffffffff
+          a
+          a
+      ffffaffff
+      f lllll f
+      fffffffff

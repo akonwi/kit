@@ -1,10 +1,11 @@
 # Mermaid diagrams
 
-The terminal client draws fenced `mermaid` code blocks as diagrams made of
-box-drawing characters, in transcripts and anywhere else Markdown appears.
-Kit draws them with its own renderer
+Kit draws fenced `mermaid` code blocks as diagrams, in transcripts and anywhere
+else Markdown appears. The terminal client draws them with box-drawing
+characters; the macOS app draws the same layout natively, with shaped nodes,
+curved lines, and text in its interface font. Kit draws them with its own renderer
 ([ADR 0046](../adrs/0046-draw-mermaid-diagrams-with-kits-own-renderer.md)),
-which supports a reviewed subset of Mermaid's syntax.
+which supports a reviewed subset of Mermaid's syntax, the same in both clients.
 
 ````markdown
 ```mermaid
@@ -17,7 +18,8 @@ sequenceDiagram
 ````
 
 A diagram keeps its shape: it never wraps, and one wider than the pane scrolls
-sideways. Its colors follow the active theme.
+sideways. Its colors follow the active theme. In the macOS app, a diagram's
+**Copy** button copies its source.
 
 ## When a diagram isn't drawn
 

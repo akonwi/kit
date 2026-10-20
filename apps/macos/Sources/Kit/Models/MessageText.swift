@@ -14,6 +14,7 @@ enum MessageText {
             switch block {
             case .paragraph(let value), .heading(_, let value): String(value.characters)
             case .code(_, let source): source.trimmingCharacters(in: .newlines)
+            case .mermaid(let diagram): diagram.source.trimmingCharacters(in: .newlines)
             case .quote(let children): render(children)
             case .list(let items): items.map { $0.marker + " " + render($0.blocks) }.joined(separator: "\n")
             case .table(let table): ([table.header] + table.rows).map { $0.map { String($0.characters) }.joined(separator: "\t") }.joined(separator: "\n")

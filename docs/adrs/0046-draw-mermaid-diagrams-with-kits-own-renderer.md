@@ -11,7 +11,9 @@ Read as source, a diagram's structure is hard to follow; drawn, it reads at a
 glance. The terminal client renders Markdown in Ard with Cooper
 ([ADR 0035](./0035-build-the-terminal-client-with-ard-and-cooper.md)), so
 diagrams are drawn as text cells that keep their shape, colors, and selection
-like the rest of the transcript.
+like the rest of the transcript. The macOS client renders Markdown natively in
+SwiftUI, and a diagram should read the same in both clients: the same syntax
+drawn, the same reasons for what isn't, and the same layout.
 
 Mermaid's reference renderer is JavaScript that lays out SVG. Go libraries
 that draw Mermaid as text exist, but they cover their own subsets, accept
@@ -21,8 +23,11 @@ semantic colors.
 
 ## Decision
 
-The terminal client draws Mermaid diagrams with its own renderer, written in
-Ard in `apps/cli/tui/mermaid`. It has no third-party dependency.
+Kit's clients draw Mermaid diagrams with Kit's own renderer, which has no
+third-party dependency. The reference renderer is written in Ard in
+`apps/cli/tui/mermaid` and draws the terminal client's diagrams. The macOS
+client draws with a Swift port of it, held to the reference's output by shared
+fixtures (see [The macOS client](#the-macos-client)).
 
 - **Reviewed subset.** Each diagram type supports a documented subset of
   Mermaid's syntax. A parser accepts exactly that subset and rejects anything
@@ -43,7 +48,45 @@ Ard in `apps/cli/tui/mermaid`. It has no third-party dependency.
   its pane scrolls sideways, as tables do.
 
 Sequence diagrams are the first supported type. Flowcharts and other types are
-added as separately reviewed subsets.
+added as separately reviewed subsets, to the reference and the port together.
+
+### The macOS client
+
+The macOS client draws diagrams with `KitMermaid`, a Swift module in
+`apps/macos/Sources/KitMermaid` that ports the reference renderer. It depends
+on nothing beyond Foundation.
+
+- **Same drawing.** The port accepts exactly the reference's syntax, rejects
+  everything else with the same reason, applies the same limits, and lays out
+  the same canvas: cell for cell, the same text, role, and boldness. It
+  measures text in the same terminal cell widths and, where the reference
+  works on a string's UTF-8 bytes, so does the port.
+- **Shared fixtures.** `testdata/mermaid` holds diagram sources and, for each,
+  the reference's drawing as rows of text and the role of each cell, or the
+  reason it isn't drawn. The terminal client's tests check the reference
+  against the fixtures and the macOS client's tests check the port. A change
+  to the renderer regenerates the fixtures from the reference and updates the
+  port in the same change, so neither client draws a diagram the other
+  doesn't.
+- **Native drawing of the same layout.** The layout is the reference's: every
+  node, participant, line, and piece of text keeps the place the terminal
+  gives it, on a grid of cells as wide as the app's monospaced font. Beyond
+  the cells, the port records the figures it draws (nodes in their shapes,
+  participants, notes, and blocks) so the app can draw each whole: nodes and
+  participants as filled shapes lifted from the card by a soft shadow, a
+  database as a cylinder, a decision as a hexagon, notes tinted with the
+  accent, and blocks as rounded frames whose keyword is an accent tag. Lines
+  are strokes through the cells' centers that bend in curves; lifelines run
+  unbroken, and an edge's text sits on a pill over its line where the
+  terminal breaks the line around it. Text is set in the interface font,
+  centered where the terminal centers it. Figures are presentation data only:
+  they never change a cell, so the fixtures still describe both clients.
+- **Same presentation rules.** A diagram is drawn when it's first shown, and
+  its drawing is cached by source, so a streaming message doesn't draw its
+  diagrams again with each token. It never wraps; a diagram wider than its pane scrolls
+  sideways. Its source can be copied. A diagram that isn't drawn shows its
+  source as a code block with the reason, and a fence that hasn't closed
+  shows its source until it does.
 
 ### Layered layout
 
@@ -144,6 +187,10 @@ subgraphs.
 
 - Diagrams follow the theme and the client's selection and layout rules, and
   their tests assert exact rows like the rest of the terminal client.
+- The renderer exists twice. Every change to it is made in Ard and Swift
+  together, and the shared fixtures fail whichever side falls behind.
+- The macOS client draws only what the terminal client draws, rather than
+  the wider syntax a graphical Mermaid renderer would accept.
 - Supported syntax grows only as Kit implements it. Diagrams using other
   syntax show their source, which remains readable.
 - Layout quality is Kit's responsibility. Flowchart layout in particular

@@ -1,0 +1,29 @@
+drawn 25 14
+        ┌──────┐
+        │ 开始 │
+        └───┬──┘
+     ┌──────┴──────┐
+    是            否
+     ▼             ▼
+┌─────────┐   ┌─────────┐
+│ 处理 🚀 │   │ café ✅ │
+└────┬────┘   └────┬────┘
+     └──────┬──────┘
+            ▼
+         ╭─────╮
+         │ été │
+         ╰─────╯
+        ffffffff
+        f l~l~ f
+        ffffafff
+     aaaaaaaaaaaaaaa
+    l~            l~
+     a             a
+fffffffffff   fffffffffff
+f l~l~ l~ f   f llll l~ f
+fffffafffff   fffffafffff
+     aaaaaaaaaaaaaaa
+            a
+         fffffff
+         f lll f
+         fffffff

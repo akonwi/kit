@@ -1,0 +1,15 @@
+drawn 60 7
+                                 ┌─────────────┐
+                        ┌─ yes ─►│ Save record ├─┐
+┌───────┐    ┌────────┐ │        └─────────────┘ │  ┌──────┐
+│ Start ├───►< Valid? >─◆                        ├─►│ Done │
+└───────┘    └────────┘ │        ┌────────┐      │  └──────┘
+                        └─ no ──►│ Reject ├──────┘
+                                 └────────┘
+                                 fffffffffffffff
+                        aa lll aaf llll llllll aaa
+fffffffff    ffffffffff a        fffffffffffffff a  ffffffff
+f lllll aaaaaf llllll faa                        aaaf llll f
+fffffffff    ffffffffff a        ffffffffff      a  ffffffff
+                        aa ll aaaf llllll aaaaaaaa
+                                 ffffffffff

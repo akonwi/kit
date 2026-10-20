@@ -64,6 +64,23 @@ that home is not the default one.
 
 `ard build` regenerates `ard-out/`, which is ignored and not formatted.
 
+## Mermaid fixtures
+
+The Mermaid renderer in `tui/mermaid` is the reference the macOS app's Swift
+port in `apps/macos/Sources/KitMermaid` follows
+([ADR 0046](../../docs/adrs/0046-draw-mermaid-diagrams-with-kits-own-renderer.md)).
+`test/mermaid_fixtures_test.ard` checks it against the shared fixtures in
+`testdata/mermaid`: each `.mmd` source and its drawing in the matching `.txt`.
+After changing the renderer, or adding a source, review the drawings it makes
+and write them:
+
+```sh
+KIT_UPDATE_MERMAID_FIXTURES=1 ard test test/mermaid_fixtures_test.ard
+```
+
+Then update the Swift port in the same change until the macOS client's
+`MermaidFixtureTests` pass.
+
 ## Release build
 
 Release builds must define the version and commit; `--release` rejects

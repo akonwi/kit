@@ -1,0 +1,21 @@
+drawn 20 10
+┌─────┐   ┌────────┐
+│ TUI │   │ Server │
+└──┬──┘   └────┬───┘
+   │           │
+   │  prompt   │
+   ├──────────►│
+   │           │
+   │  stream   │
+   │◄┈┈┈┈┈┈┈┈┈┈┤
+   │           │
+fffffff   ffffffffff
+f NNN f   f NNNNNN f
+fffffff   ffffffffff
+   f           f
+   f  llllll   f
+   aaaaaaaaaaaaf
+   f           f
+   f  llllll   f
+   faaaaaaaaaaaa
+   f           f

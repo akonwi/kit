@@ -1,0 +1,43 @@
+drawn 25 21
+  ┌───┐   ┌───┐
+  │ A │   │ B │
+  └─┬─┘   └─┬─┘
+    │       │
+┌ par [fetch] ──────────┐
+│   │   x   │           │
+│   ├──────►│           │
+│   │       │           │
+├ and ┈┈┈┈┈┈┼┈┈┈┈┈┈┈┈┈┈┈┤
+│ ┌ critical [lock] ──┐ │
+│ │ │   y   │         │ │
+│ │ ├──────▷│         │ │
+│ │ │       │         │ │
+│ ├ option [timeout] ┈┤ │
+│ │ │   z   │         │ │
+│ │ │◄┈┈┈┈┈►│         │ │
+│ │ │       │         │ │
+│ └─┼───────┼─────────┘ │
+│   │       │           │
+└───┼───────┼───────────┘
+    │       │
+  fffff   fffff
+  f N f   f N f
+  fffff   fffff
+    f       f
+f KKK ccccccc fffffffffff
+f   f   l   f           f
+f   aaaaaaaaf           f
+f   f       f           f
+f KKK fffffffffffffffffff
+f f KKKKKKKK cccccc fff f
+f f f   l   f         f f
+f f aaaaaaaaf         f f
+f f f       f         f f
+f f KKKKKK ccccccccc ff f
+f f f   l   f         f f
+f f faaaaaaaf         f f
+f f f       f         f f
+f fffffffffffffffffffff f
+f   f       f           f
+fffffffffffffffffffffffff
+    f       f

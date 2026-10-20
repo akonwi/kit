@@ -1,0 +1,57 @@
+drawn 5 28
+┌───┐
+│ A │
+└─┬─┘
+  ┊
+  ▼
+┌───┐
+│ B │
+└─┬─┘
+  ┃
+  ▼
+┌───┐
+│ C │
+└─┬─┘
+  │
+  │
+┌─┴─┐
+│ D │
+└─┬─┘
+  ┊
+  ┊
+┌─┴─┐
+│ E │
+└─┬─┘
+  ┃
+  ┃
+┌─┴─┐
+│ F │
+└───┘
+fffff
+f l f
+ffaff
+  a
+  a
+fffff
+f l f
+ffaff
+  a
+  a
+fffff
+f l f
+ffaff
+  a
+  a
+ffaff
+f l f
+ffaff
+  a
+  a
+ffaff
+f l f
+ffaff
+  a
+  a
+ffaff
+f l f
+fffff

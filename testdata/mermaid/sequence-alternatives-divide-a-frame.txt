@@ -1,0 +1,35 @@
+drawn 18 17
+┌───┐   ┌───┐
+│ A │   │ B │
+└─┬─┘   └─┬─┘
+  │       │
+  │  hi   │
+  ├──────►│
+  │       │
+┌ alt [ok] ──────┐
+│ │  yes  │      │
+│ │◄┈┈┈┈┈┈┤      │
+│ │       │      │
+├ else [failed] ┈┤
+│ │  no   │      │
+│ │×┈┈┈┈┈┈┤      │
+│ │       │      │
+└─┼───────┼──────┘
+  │       │
+fffff   fffff
+f N f   f N f
+fffff   fffff
+  f       f
+  f  ll   f
+  aaaaaaaaf
+  f       f
+f KKK cccc fffffff
+f f  lll  f      f
+f faaaaaaaa      f
+f f       f      f
+f KKKK cccccccc ff
+f f  ll   f      f
+f faaaaaaaa      f
+f f       f      f
+ffffffffffffffffff
+  f       f

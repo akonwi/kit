@@ -1,0 +1,63 @@
+drawn 15 31
+┌───┐     ┌───┐
+│ A │     │ B │
+└─┬─┘     └─┬─┘
+  │         │
+  │ 1. one  │
+  ├────────►│
+  │         │
+  │ 2. two  │
+  │◄┈┈┈┈┈┈┈┈┤
+  │         │
+  │  three  │
+  ├────────×│
+  │         │
+  │  four   │
+  ├┈┈┈┈┈┈┈┈▷│
+  │         │
+  │  five   │
+  ├────────▷│
+  │         │
+  │   six   │
+  ├┈┈┈┈┈┈┈┈×│
+  │         │
+  │  seven  │
+  ├─────────┤
+  │         │
+  │  eight  │
+  ├┈┈┈┈┈┈┈┈┈┤
+  │         │
+  │  nine   │
+  │◄───────►│
+  │         │
+fffff     fffff
+f N f     f N f
+fffff     fffff
+  f         f
+  f ll lll  f
+  aaaaaaaaaaf
+  f         f
+  f ll lll  f
+  faaaaaaaaaa
+  f         f
+  f  lllll  f
+  aaaaaaaaaaf
+  f         f
+  f  llll   f
+  aaaaaaaaaaf
+  f         f
+  f  llll   f
+  aaaaaaaaaaf
+  f         f
+  f   lll   f
+  aaaaaaaaaaf
+  f         f
+  f  lllll  f
+  aaaaaaaaaaa
+  f         f
+  f  lllll  f
+  aaaaaaaaaaa
+  f         f
+  f  llll   f
+  faaaaaaaaaf
+  f         f

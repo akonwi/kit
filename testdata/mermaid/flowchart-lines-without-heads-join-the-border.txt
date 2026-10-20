@@ -1,0 +1,17 @@
+drawn 5 8
+┌───┐
+│ A │
+└─┬─┘
+  │
+  │
+┌─┴─┐
+│ B │
+└───┘
+fffff
+f l f
+ffaff
+  a
+  a
+ffaff
+f l f
+fffff

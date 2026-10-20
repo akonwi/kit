@@ -1,4 +1,5 @@
 import Foundation
+import KitMermaid
 import Markdown
 
 /// Native presentation data projected from Swift Markdown's document tree.
@@ -7,6 +8,7 @@ struct MarkdownContent {
         case paragraph(AttributedString)
         case heading(Int, AttributedString)
         case code(String, String)
+        case mermaid(MermaidDiagram)
         case quote([Block])
         case list([Item])
         case table(TableContent)
@@ -28,7 +30,80 @@ struct MarkdownContent {
     let blocks: [Block]
 
     init(source: String) {
-        blocks = Self.blocks(in: Document(parsing: source))
+        let parsed = Self.blocks(in: Document(parsing: source))
+        // A diagram whose fence hasn't closed, as while streaming, shows its source.
+        blocks = Self.endsInsideFence(source) ? Self.openingTrailingDiagram(parsed) : parsed
+    }
+
+    /// The Mermaid diagrams drawn in these blocks, in order.
+    var diagrams: [MermaidDiagram] {
+        Self.diagrams(in: blocks)
+    }
+
+    private static func diagrams(in blocks: [Block]) -> [MermaidDiagram] {
+        blocks.flatMap { block -> [MermaidDiagram] in
+            switch block {
+            case .mermaid(let diagram): [diagram]
+            case .quote(let children): diagrams(in: children)
+            case .list(let items): items.flatMap { diagrams(in: $0.blocks) }
+            default: []
+            }
+        }
+    }
+
+    /// blocks with the last one, when it is or ends in a diagram, shown as source.
+    private static func openingTrailingDiagram(_ blocks: [Block]) -> [Block] {
+        guard let last = blocks.last else { return blocks }
+        let open: Block
+        switch last {
+        case .mermaid(let diagram): open = .code("mermaid", diagram.source)
+        case .quote(let children): open = .quote(openingTrailingDiagram(children))
+        case .list(let items):
+            guard let item = items.last else { return blocks }
+            open = .list(Array(items.dropLast()) + [Item(marker: item.marker, blocks: openingTrailingDiagram(item.blocks))])
+        default: return blocks
+        }
+        return Array(blocks.dropLast()) + [open]
+    }
+
+    /// Whether source ends inside an unclosed code fence, as streaming output
+    /// does before the fence closes. A fence closes on a line of at least as
+    /// many of its own characters and nothing else. The terminal client
+    /// decides the same way.
+    static func endsInsideFence(_ source: String) -> Bool {
+        var open: Substring = ""
+        // Split on line feeds alone: Swift reads `\r\n` as one character.
+        for text in source.components(separatedBy: "\n") {
+            let line = Substring(text)
+            let run = fenceRun(line)
+            let info = line.range(of: run).map { line[$0.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+            if open.isEmpty {
+                // A backtick fence's info string can't contain backticks.
+                if !run.isEmpty && !(run.hasPrefix("`") && info.contains("`")) { open = run }
+            } else if !run.isEmpty && run.first == open.first && run.count >= open.count && info.isEmpty {
+                open = ""
+            }
+        }
+        return !open.isEmpty
+    }
+
+    /// The run of three or more backticks or tildes opening line, after any
+    /// quote and list markers, or empty.
+    private static func fenceRun(_ line: Substring) -> Substring {
+        var rest = line.drop { $0 == " " || $0 == "\t" }
+        while rest.hasPrefix(">") {
+            rest = rest.dropFirst().drop { $0 == " " || $0 == "\t" }
+        }
+        for marker in ["- ", "* ", "+ "] where rest.hasPrefix(marker) {
+            rest = rest.dropFirst(2).drop { $0 == " " || $0 == "\t" }
+        }
+        let digits = rest.drop { $0.isASCII && $0.isNumber }
+        if digits.count < rest.count && (digits.hasPrefix(". ") || digits.hasPrefix(") ")) {
+            rest = digits.dropFirst(2).drop { $0 == " " || $0 == "\t" }
+        }
+        guard let character = rest.first, character == "`" || character == "~" else { return "" }
+        let run = rest.prefix { $0 == character }
+        return run.count >= 3 ? run : ""
     }
 
     private static func blocks(in parent: any Markup) -> [Block] {
@@ -36,7 +111,9 @@ struct MarkdownContent {
             switch node {
             case let value as Paragraph: return [.paragraph(inline(value))]
             case let value as Heading: return [.heading(value.level, inline(value))]
-            case let value as Markdown.CodeBlock: return [.code(value.language ?? "", value.code)]
+            case let value as Markdown.CodeBlock:
+                if Mermaid.isMermaid(value.language ?? "") { return [.mermaid(MermaidDiagram(source: value.code))] }
+                return [.code(value.language ?? "", value.code)]
             case let value as BlockQuote: return [.quote(blocks(in: value))]
             case let value as OrderedList:
                 return [.list(value.listItems.enumerated().map { offset, item in
@@ -104,6 +181,47 @@ struct MarkdownContent {
             text.link = url
         }
         return text
+    }
+}
+
+/// A fenced Mermaid diagram (ADR 0046). It's drawn the first time it's
+/// shown, and its drawing is kept by source, so reparsing a streaming
+/// message or copying its text doesn't draw it again.
+struct MermaidDiagram: Equatable {
+    let source: String
+
+    /// The drawing, or why the diagram isn't drawn.
+    var drawing: Result<Canvas, NotDrawn> {
+        MermaidDrawings.shared.drawing(for: source)
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.source == rhs.source }
+}
+
+/// Drawings of recently shown diagrams by source. A drawing depends only on
+/// its source, so one is shared by every message and theme that shows it.
+final class MermaidDrawings: Sendable {
+    static let shared = MermaidDrawings()
+    private final class Entry: NSObject, Sendable {
+        let drawing: Result<Canvas, NotDrawn>
+        init(_ drawing: Result<Canvas, NotDrawn>) { self.drawing = drawing }
+    }
+    // NSCache is thread-safe.
+    nonisolated(unsafe) private let entries = NSCache<NSString, Entry>()
+
+    private init() {
+        entries.countLimit = 64
+        entries.totalCostLimit = 16 * 1024 * 1024
+    }
+
+    func drawing(for source: String) -> Result<Canvas, NotDrawn> {
+        let key = source as NSString
+        if let entry = entries.object(forKey: key) { return entry.drawing }
+        let drawing = Mermaid.render(source)
+        // A drawn diagram keeps a few bytes for each of its cells.
+        let cells = (try? drawing.get()).map { $0.width * $0.height } ?? 0
+        entries.setObject(Entry(drawing), forKey: key, cost: source.utf8.count + 24 * cells)
+        return drawing
     }
 }
 

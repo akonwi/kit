@@ -1,0 +1,29 @@
+drawn 23 14
+┌──────┐     ┌────────┐
+│ 用户 │     │ Kit 🚀 │
+└───┬──┘     └────┬───┘
+    │             │
+    │ 你好，世界  │
+    ├────────────►│
+    │             │
+    │   café ✅   │
+    │◄┈┈┈┈┈┈┈┈┈┈┈┈┤
+    │             │
+  ┌─────────────────┐
+  │    été 👩🏽‍🚀 🇨🇭    │
+  └─────────────────┘
+    │             │
+ffffffff     ffffffffff
+f N~N~ f     f NNN N~ f
+ffffffff     ffffffffff
+    f             f
+    f l~l~l~l~l~  f
+    aaaaaaaaaaaaaaf
+    f             f
+    f   llll l~   f
+    faaaaaaaaaaaaaa
+    f             f
+  ooooooooooooooooooo
+  o    ooo o~ o~    o
+  ooooooooooooooooooo
+    f             f

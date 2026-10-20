@@ -1,0 +1,35 @@
+drawn 34 17
+     ┌──────┐
+     ▼      │
+ ┌───────┐  │
+ │ Draft │  │
+ └───┬───┘  │ changes
+     │ ┌┈┈┈┈┼┈┈┈┈┈┈┈┈┈┈┐
+     ▼ ▼    │          ┊
+┌────────┐  │          ┊
+│ Review │  │          ┊
+└────┬───┘  │          ┊
+     ├──────┘          ┊ rollback
+    ok                 ┊
+     ▼                 ┊
+┌─────────┐            ┊
+│ Publish │            ┊
+└────┬────┘            ┊
+     └┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘
+     aaaaaaaa
+     a      a
+ fffffffff  a
+ f lllll f  a
+ ffffaffff  a lllllll
+     a aaaaaaaaaaaaaaaaa
+     a a    a          a
+ffffffffff  a          a
+f llllll f  a          a
+fffffaffff  a          a
+     aaaaaaaa          a llllllll
+    ll                 a
+     a                 a
+fffffffffff            a
+f lllllll f            a
+fffffafffff            a
+     aaaaaaaaaaaaaaaaaaa

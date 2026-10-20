@@ -1,0 +1,35 @@
+drawn 26 17
+             ┌───────────┐
+             ▼           │
+        ┌────────┐       │
+        │ Prompt │       │
+        └────┬───┘       │
+             │           │
+             ▼           │
+      ┌────────────┐     │
+      < Tool call? >     │
+      └──────┬─────┘     │
+      ┌──────◆─────┐     │
+     yes          no     │
+      ▼            ▼     │
+┌──────────┐   ┌───────┐ │
+│ Run tool │   │ Reply │ │
+└─────┬────┘   └───────┘ │
+      └──────────────────┘
+             aaaaaaaaaaaaa
+             a           a
+        ffffffffff       a
+        f llllll f       a
+        fffffaffff       a
+             a           a
+             a           a
+      ffffffffffffff     a
+      f llll lllll f     a
+      fffffffaffffff     a
+      aaaaaaaaaaaaaa     a
+     lll          ll     a
+      a            a     a
+ffffffffffff   fffffffff a
+f lll llll f   f lllll f a
+ffffffafffff   fffffffff a
+      aaaaaaaaaaaaaaaaaaaa

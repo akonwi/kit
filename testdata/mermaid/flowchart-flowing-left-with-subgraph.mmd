@@ -1,0 +1,8 @@
+flowchart RL
+  A --> S
+  subgraph S[Stage]
+    direction TB
+    B --> C
+  end
+  C --> D{{Done?}}
+  D -- no --> A

@@ -1,0 +1,27 @@
+drawn 17 13
+┌───┐   ┌───┐
+│ A │   │ B │
+└─┬─┘   └─┬─┘
+  │       │
+  │  hi   │
+  ├──────►│
+  │       │
+┌ loop [retry] ─┐
+│ │  no   │     │
+│ │◄┈┈┈┈┈┈┤     │
+│ │       │     │
+└─┼───────┼─────┘
+  │       │
+fffff   fffff
+f N f   f N f
+fffff   fffff
+  f       f
+  f  ll   f
+  aaaaaaaaf
+  f       f
+f KKKK ccccccc ff
+f f  ll   f     f
+f faaaaaaaa     f
+f f       f     f
+fffffffffffffffff
+  f       f

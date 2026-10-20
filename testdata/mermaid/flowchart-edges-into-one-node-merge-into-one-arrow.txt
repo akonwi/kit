@@ -1,0 +1,17 @@
+drawn 22 8
+┌───────┐   ┌────────┐
+│ Parse │   │ Layout │
+└───┬───┘   └────┬───┘
+    └──────┬─────┘
+           ▼
+       ┌──────┐
+       │ Draw │
+       └──────┘
+fffffffff   ffffffffff
+f lllll f   f llllll f
+ffffaffff   fffffaffff
+    aaaaaaaaaaaaaa
+           a
+       ffffffff
+       f llll f
+       ffffffff

@@ -1,0 +1,5 @@
+flowchart LR
+A[Fetch] --> B[Parse]
+B --> C{OK?}
+C -->|retry| A
+C --> D[Store]

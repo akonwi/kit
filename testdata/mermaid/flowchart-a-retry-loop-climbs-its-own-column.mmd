@@ -1,0 +1,5 @@
+flowchart TD
+A[Prompt] --> B{Tool call?}
+B -->|yes| C[Run tool]
+C --> A
+B -->|no| D[Reply]

@@ -1,0 +1,7 @@
+drawn 36 3
+┌────────────┐    ┌────────────────┐
+│ softhyphen ├───►│ lone 🇯 flag 🇯🇵 │
+└────────────┘    └────────────────┘
+ffffffffffffff    ffffffffffffffffff
+f llllllllll aaaaaf llll l llll l~ f
+ffffffffffffff    ffffffffffffffffff
