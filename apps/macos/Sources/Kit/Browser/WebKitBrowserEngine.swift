@@ -22,6 +22,7 @@ import WebKit
     private var explicitNavigation = false
     private(set) var state = BrowserPageState()
     var onEvent: (@MainActor (BrowserEngineEvent) -> Void)?
+    var interceptsNavigation: (@MainActor (URL) -> Bool)?
     var view: NSView { webView }
 
     /// Safari's user agent suffix, with the installed Safari's version: the
@@ -82,6 +83,7 @@ import WebKit
         webView.uiDelegate = nil
         webView.removeFromSuperview()
         onEvent = nil
+        interceptsNavigation = nil
     }
 
     private func observe() {
@@ -180,6 +182,9 @@ extension WebKitBrowserEngine: WKNavigationDelegate {
         if mainFrame {
             explicitNavigation = false
             if clicked { userNavigation = true }
+            // WebKit asks again for each redirect, so a redirect is seen
+            // before its address is requested.
+            if let url = action.request.url, interceptsNavigation?(url) == true { return .cancel }
         }
         if action.shouldPerformDownload {
             guard clicked else { blockDownload(action.request.url); return .cancel }
@@ -269,7 +274,8 @@ extension WebKitBrowserEngine: WKNavigationDelegate {
     private func fail(_ error: any Error) {
         let error = error as NSError
         if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled { return }
-        // WebKit's "frame load interrupted": a navigation turned into a download.
+        // WebKit's "frame load interrupted": a navigation turned into a download
+        // or was stopped by the tab.
         if error.domain == "WebKitErrorDomain" && error.code == 102 { return }
         userNavigation = false
         // Report the address that failed, before the view falls back to the

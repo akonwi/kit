@@ -7,6 +7,7 @@ import Testing
 @MainActor final class FakeBrowserEngine: BrowserEngine {
     var view = NSView()
     var onEvent: (@MainActor (BrowserEngineEvent) -> Void)?
+    var interceptsNavigation: (@MainActor (URL) -> Bool)?
     var state = BrowserPageState()
     private(set) var loads: [URL] = []
     private(set) var reloads = 0
@@ -20,6 +21,13 @@ import Testing
     func close() { closed = true }
 
     func send(_ event: BrowserEngineEvent) { onEvent?(event) }
+    /// The page goes to `url`, as by a link or redirect; false when the
+    /// tab stopped it.
+    func navigate(_ url: URL) -> Bool {
+        if interceptsNavigation?(url) == true { return false }
+        change { $0.url = url }
+        return true
+    }
     func change(_ update: (inout BrowserPageState) -> Void) {
         update(&state)
         send(.changed(state))
@@ -342,6 +350,94 @@ struct BrowserDownloadsTests {
         #expect(WorkspacePane(id: WorkspacePane.browser(id).id) == .browser(id))
         #expect(WorkspacePane(id: "browser:nope") == nil)
         #expect(WorkspacePane(id: "browser:") == nil)
+    }
+
+    @Test func anAuthorizationPageHandsBackItsRedirectAndCloses() async throws {
+        let engines = FakeBrowserEngines()
+        let workspace = workspace(engines)
+        let page = URL(string: "https://auth.example.com/authorize?state=s1")!
+        let redirect = try #require(AuthorizationRedirect(authorization: page, redirectURI: "http://127.0.0.1:53173/mcp/callback"))
+        var received: [URL] = []
+        let tab = workspace.openAuthorization(page, redirect: redirect, beside: .conversation) { received.append($0); return true }
+        let pane = WorkspacePane.browser(tab.id)
+        #expect(workspace.root.tiles.count == 2)
+        #expect(workspace.selected == pane)
+        let engine = engines.made[0]
+        #expect(engine.loads == [page])
+
+        // Opening it again shows the waiting tab.
+        #expect(workspace.openAuthorization(page, redirect: redirect, beside: .conversation) { _ in true } === tab)
+        #expect(engines.made.count == 1)
+
+        // The consent page loads; a redirect for another authorization does too.
+        #expect(engine.navigate(URL(string: "https://auth.example.com/consent?state=s1")!))
+        #expect(engine.navigate(URL(string: "http://127.0.0.1:53173/mcp/callback?code=c&state=other")!))
+        #expect(received.isEmpty)
+
+        let callback = URL(string: "http://127.0.0.1:53173/mcp/callback?code=c&state=s1")!
+        #expect(!engine.navigate(callback))
+        #expect(received == [callback])
+        await Task.yield()
+        #expect(workspace.browser(pane) == nil)
+        #expect(workspace.root.tiles.count == 1)
+        #expect(engine.closed)
+    }
+
+    @Test func aRestoredAuthorizationPageTakesTheRedirectInsteadOfOpeningAnother() throws {
+        let engines = FakeBrowserEngines()
+        let workspace = workspace(engines)
+        let page = URL(string: "https://auth.example.com/authorize?state=s1")!
+        let restored = workspace.openBrowser(page, beside: .conversation)
+        let redirect = try #require(AuthorizationRedirect(authorization: page, redirectURI: "http://127.0.0.1:53173/mcp/callback"))
+        var received: [URL] = []
+        let tab = workspace.openAuthorization(page, redirect: redirect, beside: .conversation) { received.append($0); return true }
+        #expect(tab === restored)
+        #expect(engines.made.count == 1)
+        let callback = URL(string: "http://127.0.0.1:53173/mcp/callback?code=c&state=s1")!
+        #expect(!engines.made[0].navigate(callback))
+        #expect(received == [callback])
+    }
+
+    @Test func aRedirectNoLongerWantedLoadsInTheTab() throws {
+        let engines = FakeBrowserEngines()
+        let workspace = workspace(engines)
+        let page = URL(string: "https://auth.example.com/authorize?state=s1")!
+        let redirect = try #require(AuthorizationRedirect(authorization: page, redirectURI: "http://127.0.0.1:53173/mcp/callback"))
+        let tab = workspace.openAuthorization(page, redirect: redirect, beside: .conversation) { _ in false }
+        let callback = URL(string: "http://127.0.0.1:53173/mcp/callback?code=c&state=s1")!
+        #expect(engines.made[0].navigate(callback))
+        #expect(tab.url == callback)
+        #expect(tab.redirectReceiver == nil)
+        #expect(workspace.browser(.browser(tab.id)) === tab)
+    }
+}
+
+struct AuthorizationRedirectTests {
+    private let page = URL(string: "https://auth.example.com/authorize?client_id=kit&state=s1")!
+
+    @Test func matchesOnlyTheCallbackCarryingTheAuthorizationsState() throws {
+        let redirect = try #require(AuthorizationRedirect(authorization: page, redirectURI: "http://127.0.0.1:53173/mcp/callback"))
+        #expect(redirect.callback == URL(string: "http://127.0.0.1:53173/mcp/callback"))
+        #expect(redirect.state == "s1")
+        #expect(redirect.matches(URL(string: "http://127.0.0.1:53173/mcp/callback?code=c&state=s1")!))
+        #expect(redirect.matches(URL(string: "http://127.0.0.1:53173/mcp/callback?error=access_denied&state=s1")!))
+        #expect(!redirect.matches(URL(string: "http://127.0.0.1:53173/mcp/callback?code=c")!))
+        #expect(!redirect.matches(URL(string: "http://127.0.0.1:53173/mcp/callback?code=c&state=s2")!))
+        #expect(!redirect.matches(URL(string: "http://127.0.0.1:53174/mcp/callback?code=c&state=s1")!))
+        #expect(!redirect.matches(URL(string: "http://127.0.0.1:53173/other?code=c&state=s1")!))
+        #expect(!redirect.matches(URL(string: "https://127.0.0.1:53173/mcp/callback?code=c&state=s1")!))
+        #expect(!redirect.matches(URL(string: "http://localhost:53173/mcp/callback?code=c&state=s1")!))
+    }
+
+    @Test func needsALoopbackHTTPCallbackAndAState() {
+        #expect(AuthorizationRedirect(authorization: page, redirectURI: "http://localhost:8080/callback") != nil)
+        #expect(AuthorizationRedirect(authorization: page, redirectURI: "http://[::1]:8080/callback") != nil)
+        #expect(AuthorizationRedirect(authorization: page, redirectURI: nil) == nil)
+        #expect(AuthorizationRedirect(authorization: page, redirectURI: "https://127.0.0.1:53173/mcp/callback") == nil)
+        #expect(AuthorizationRedirect(authorization: page, redirectURI: "http://example.com/callback") == nil)
+        #expect(AuthorizationRedirect(authorization: page, redirectURI: "http://127.evil.com/callback") == nil)
+        #expect(AuthorizationRedirect(authorization: URL(string: "https://auth.example.com/authorize")!,
+                                      redirectURI: "http://127.0.0.1:53173/mcp/callback") == nil)
     }
 }
 

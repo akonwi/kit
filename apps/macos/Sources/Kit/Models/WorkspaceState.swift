@@ -504,6 +504,26 @@ final class WorkspaceState {
         return true
     }
 
+    /// Opens an authorization page in a browser tab beside `anchor` whose
+    /// redirect goes to `receive` instead of loading. A tab already waiting
+    /// for the same redirect, or still showing the page, as after a
+    /// relaunch, is shown instead of opening another.
+    @discardableResult
+    func openAuthorization(_ url: URL, redirect: AuthorizationRedirect, beside anchor: WorkspacePane,
+                           receive: @escaping @MainActor (URL) -> Bool) -> BrowserTab {
+        let receiver = BrowserRedirectReceiver(redirect: redirect, receive: receive)
+        let tabs = panes.compactMap(browser)
+        if let waiting = tabs.first(where: { $0.redirectReceiver?.redirect == redirect })
+            ?? tabs.first(where: { $0.redirectReceiver == nil && $0.url == url }) {
+            if waiting.redirectReceiver == nil { waiting.redirectReceiver = receiver }
+            open(.browser(waiting.id), beside: anchor)
+            return waiting
+        }
+        let tab = openBrowser(url, beside: anchor)
+        tab.redirectReceiver = receiver
+        return tab
+    }
+
     /// Stops every page and ends every shell when the session tab closes.
     func closeLiveTabs() {
         for tab in browsers.values { tab.close() }

@@ -483,6 +483,8 @@ final class SessionStore {
     }
     var approval: Bool { !interactions.isEmpty }
     private var liveInteractions: [String: [InteractionFlow]] = [:]
+    /// Authorization requests whose page has opened by itself.
+    @ObservationIgnored private var openedAuthorizations: Set<String> = []
     var interactions: [InteractionFlow] { unavailable ? [] : demo?.interactions ?? liveInteractions[selectedID] ?? [] }
     /// Keeps an answered request docked briefly so a plugin's next one replaces it.
     let interactionHold = InteractionHold()
@@ -609,30 +611,35 @@ final class SessionStore {
     func previewThinking(_ value: String) { demo?.thinking = value }
     func previewInteractions(_ flows: [InteractionFlow]) { demo?.interactions = flows }
 
+    /// Opens an authorization page beside the conversation. The redirect
+    /// it ends at answers the request, so nothing is pasted, even when
+    /// another session is shown by then. Returns false when the request has
+    /// no redirect Kit can receive.
+    func openAuthorization(_ flow: InteractionFlow) -> Bool {
+        guard let url = flow.authorizationURL, let redirect = flow.authorizationRedirect else { return false }
+        let session = selectedID
+        ui.workspace.openAuthorization(url, redirect: redirect, beside: .conversation) { [weak self, weak flow] received in
+            // A request no longer pending lets the page load the redirect.
+            guard let self, let flow, self.liveInteractions[session]?.contains(where: { $0 === flow }) == true else { return false }
+            // Otherwise the redirect is the answer: sent now, or left in the
+            // dock's field when it can't be.
+            if flow.receiveRedirect(received) { self.respond(to: flow, in: session, cancelled: false) }
+            return true
+        }
+        return true
+    }
+
+    /// Opens a docked authorization's page the first time it's shown, so
+    /// the user needn't click Open. Closing the page doesn't reopen it.
+    func openAuthorizationOnce(_ flow: InteractionFlow) {
+        guard !isDemo, !flow.submitting, let id = flow.request?.id, flow.authorizationRedirect != nil,
+              interactions.first === flow, !openedAuthorizations.contains(id), openAuthorization(flow) else { return }
+        openedAuthorizations.insert(id)
+    }
+
     func finishInteraction(cancelled: Bool) {
         if !isDemo {
-            guard let client = composerClient, let flow = interactions.first, !flow.submitting,
-                  let input = flow.response(cancelled: cancelled) else { return }
-            let id = selectedID
-            flow.submitting = true; flow.error = nil
-            Task { [weak self] in
-                do {
-                    try await client.respond(id, input: input)
-                    guard let self, self.selectedID == id else { flow.submitting = false; return }
-                    // Held before resynchronizing, so the dock never empties
-                    // while a plugin's next request is on its way. It stays in
-                    // its sending state until something replaces it.
-                    self.interactionHold.hold(flow) { [weak self] in
-                        guard let self, self.selectedID == id else { return }
-                        if self.interactions.isEmpty { self.ui.composerFocus += 1 }
-                    }
-                    _ = try? await self.replica.resynchronize()
-                } catch {
-                    flow.error = error.localizedDescription
-                    flow.submitting = false
-                    if let self, self.selectedID == id { _ = try? await self.replica.resynchronize() }
-                }
-            }
+            if let flow = interactions.first { respond(to: flow, in: selectedID, cancelled: cancelled) }
             return
         }
         guard let demo, let flow = demo.interactions.first else { return }
@@ -643,6 +650,33 @@ final class SessionStore {
         }
         if demo.interactions.isEmpty { ui.composerFocus += 1 }
     }
+    /// Sends a request's answer for session `id`. Returns false when there
+    /// is nothing to send or no client to send it with.
+    @discardableResult
+    private func respond(to flow: InteractionFlow, in id: String, cancelled: Bool) -> Bool {
+        guard let client = composerClient, !flow.submitting, let input = flow.response(cancelled: cancelled) else { return false }
+        flow.submitting = true; flow.error = nil
+        Task { [weak self] in
+            do {
+                try await client.respond(id, input: input)
+                guard let self, self.selectedID == id else { flow.submitting = false; return }
+                // Held before resynchronizing, so the dock never empties
+                // while a plugin's next request is on its way. It stays in
+                // its sending state until something replaces it.
+                self.interactionHold.hold(flow) { [weak self] in
+                    guard let self, self.selectedID == id else { return }
+                    if self.interactions.isEmpty { self.ui.composerFocus += 1 }
+                }
+                _ = try? await self.replica.resynchronize()
+            } catch {
+                flow.error = error.localizedDescription
+                flow.submitting = false
+                if let self, self.selectedID == id { _ = try? await self.replica.resynchronize() }
+            }
+        }
+        return true
+    }
+
     func send() {
         if !isDemo, shellMode != nil { sendBash(); return }
         guard let demo else { submitLive(); return }

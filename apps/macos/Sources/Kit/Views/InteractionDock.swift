@@ -131,7 +131,9 @@ struct InteractionDock: View {
                 if let url = flow.authorizationURL {
                     Link(url.absoluteString, destination: url)
                         .font(.kit(size: 12)).lineLimit(1).truncationMode(.middle)
-                    Text("Approve access in your browser, then paste the address it ends up at.")
+                    Text(flow.authorizationRedirect == nil
+                         ? "Approve access in your browser, then paste the address it ends up at."
+                         : "Approve access at this address in Kit's browser, and Kit continues. In another browser, paste the address it ends up at.")
                         .font(.kit(size: 12)).foregroundStyle(theme.muted)
                 }
                 if flow.guided {
