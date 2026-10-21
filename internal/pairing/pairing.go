@@ -136,15 +136,28 @@ func ValidServedURL(value string) bool {
 		parsed.Scheme+"://"+parsed.Host == value
 }
 
+// MaxServedURLs bounds the URLs ServedURLs lists, so every pairing code it
+// produces fits the protocol's limit.
+const MaxServedURLs = 32
+
 // ServedURLs lists the URLs a server can be reached at, for pairing links:
 // each allowed host as an HTTPS URL, or as the allowed origin naming that host
-// when one exists, then the extra URLs, then the loopback URL. Duplicates are
-// removed.
+// when one exists, then the extra URLs, then the loopback URL. Duplicates and
+// values that are not origins are removed, and the list keeps at most
+// MaxServedURLs entries, always ending with the loopback URL.
 func ServedURLs(allowedHosts, allowedOrigins []string, loopbackURL string, extra ...string) []string {
+	loopback := strings.TrimSuffix(loopbackURL, "/")
+	if !ValidServedURL(loopback) {
+		loopback = ""
+	}
+	limit := MaxServedURLs
+	if loopback != "" {
+		limit--
+	}
 	var urls []string
 	add := func(value string) {
 		value = strings.TrimSuffix(value, "/")
-		if value != "" && !slices.Contains(urls, value) {
+		if len(urls) < limit && value != loopback && ValidServedURL(value) && !slices.Contains(urls, value) {
 			urls = append(urls, value)
 		}
 	}
@@ -161,7 +174,9 @@ func ServedURLs(allowedHosts, allowedOrigins []string, loopbackURL string, extra
 	for _, value := range extra {
 		add(value)
 	}
-	add(loopbackURL)
+	if loopback != "" {
+		urls = append(urls, loopback)
+	}
 	return urls
 }
 

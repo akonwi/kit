@@ -37,7 +37,7 @@ type DeviceList struct {
 }
 
 // MaxPairingURLs bounds the served URLs a pairing code lists.
-const MaxPairingURLs = 32
+const MaxPairingURLs = pairing.MaxServedURLs
 
 // PairingCode is a single-use code another device redeems for a device token.
 type PairingCode struct {
