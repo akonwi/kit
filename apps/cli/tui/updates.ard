@@ -116,7 +116,7 @@ private fn inspect(client: mut api::Client, local: Bool, ctx: context::Context, 
     ok(info) => info.KitVersion,
     err => "",
   }
-  let restart = local and server_version != installed
+  let restart = local and updatebridge::Restarts(server_version, installed)
   let active = match restart {
     true => {
       match client.SessionActivity(attempt.Context) {
@@ -175,6 +175,35 @@ impl Updater {
   // Whether the footer offers anything.
   fn shown() Bool {
     self.stage != Stage::idle
+  }
+
+  // refresh learns again what finishing an installed update restarts, since
+  // sessions may have started working since it installed.
+  fn mut refresh() {
+    if self.stage == Stage::installed {
+      match self.dispatch {
+        dispatch => {
+          match self.lifetime {
+            lifetime => {
+              let effects = self.effects
+              let installed = self.update.Version
+              (effects.spawn)(
+                fn() {
+                  let finish = (effects.inspect)(lifetime.Context, installed)
+                  let _ = dispatch(fn() {
+                    if self.stage == Stage::installed {
+                      self.finish = finish
+                    }
+                  })
+                },
+              )
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
   }
 
   // Whether the update dialog can open: to install, retry, or finish.

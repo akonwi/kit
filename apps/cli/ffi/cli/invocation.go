@@ -410,8 +410,8 @@ func (p Prepared) Finish(ctx context.Context, failure string, stderr io.Writer) 
 	if ctx.Err() != nil {
 		return 130
 	}
-	if sessionID, restartServer, requested := p.Options.Relaunch.take(); requested {
-		return p.relaunch(ctx, sessionID, restartServer, stderr)
+	if request, requested := p.Options.Relaunch.take(); requested {
+		return p.relaunch(ctx, request, stderr)
 	}
 	return 0
 }

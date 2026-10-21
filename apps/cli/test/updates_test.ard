@@ -200,6 +200,41 @@ test fn a_failed_install_can_be_retried() Void!Str {
   testing::assert(calls.installs == 2, "installs {calls.installs}")
 }
 
+struct Activity {
+  active: Int,
+}
+
+test fn opening_the_restart_dialog_counts_sessions_again() Void!Str {
+  let activity = mut Activity{active: 0}
+  let updater = updates::custom(
+    updates::Effects{
+      check: fn(ctx: context::Context) updatebridge::Update!Error {
+        Result::ok(release())
+      },
+      install: fn(ctx: context::Context, chosen: updatebridge::Update, progress: fn(Int)) Void!Error {
+        Result::ok(())
+      },
+      inspect: fn(ctx: context::Context, installed: Str) updates::Finish {
+        local_finish(activity.active)
+      },
+      wait: fn(ctx: context::Context, milliseconds: Int) Bool {
+        false
+      },
+      spawn: fn(work: fn()) {
+        work()
+      },
+    },
+    true,
+  )
+  updater.bind(immediate, lifetime())
+  updater.install()
+  try testing::assert(updater.finish.active == 0, "idle when installed")
+  // A session starts working before the user finishes the update.
+  activity.active = 1
+  updater.refresh()
+  testing::assert(updater.finish.active == 1, "active {updater.finish.active}")
+}
+
 test fn the_footer_item_follows_the_update() Void!Str {
   let calls = mut Calls{checks: 0, installs: 0}
   let updater = subject(release(), "", local_finish(0), calls)

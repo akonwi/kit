@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseVersionAcceptsReleaseVersionsOnly(t *testing.T) {
@@ -95,8 +97,16 @@ func TestSummaryIsTheFirstParagraphAfterTheTitle(t *testing.T) {
 	}
 }
 
+func TestSummaryReplacesControlCharacters(t *testing.T) {
+	release := Release{Notes: "# Kit\n\nSafe \x1b]8;;https://example.invalid\x07text\x1b[2J."}
+	want := "Safe  ]8;;https://example.invalid text [2J."
+	if got := release.Summary(); got != want {
+		t.Fatalf("Summary() = %q; want %q", got, want)
+	}
+}
+
 func releaseJSON(tag string, draft, prerelease bool, assets ...githubAsset) githubRelease {
-	return githubRelease{TagName: tag, Body: "# " + tag, HTMLURL: "https://github.com/akonwi/kit/releases/tag/" + tag, Draft: draft, Prerelease: prerelease, Assets: assets}
+	return githubRelease{TagName: tag, Body: "# " + tag, Draft: draft, Prerelease: prerelease, Assets: assets}
 }
 
 func serveReleases(t *testing.T, releases []githubRelease, files map[string][]byte) *httptest.Server {
@@ -200,7 +210,7 @@ func TestLocateRecognizesHomebrewCellar(t *testing.T) {
 	want := Installation{
 		Method:     MethodHomebrew,
 		Executable: filepath.Join(resolvedPrefix, "Cellar", "kit", "0.48.0", "bin", "kit"),
-		Launcher:   filepath.Join(resolvedPrefix, "bin", "kit"),
+		Launcher:   filepath.Join(resolvedPrefix, "opt", "kit", "bin", "kit"),
 		Brew:       filepath.Join(resolvedPrefix, "bin", "brew"),
 	}
 	if installation != want {
@@ -208,6 +218,21 @@ func TestLocateRecognizesHomebrewCellar(t *testing.T) {
 	}
 	if got := installation.Describe(Release{Tag: "v0.49.0"}); got != "brew upgrade akonwi/tap/kit" {
 		t.Fatalf("Describe() = %q", got)
+	}
+
+	if err := os.Remove(filepath.Join(bin, "brew")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	installation, err = Locate(filepath.Join(bin, "kit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installation.Brew != "" {
+		t.Fatalf("Locate() found brew %q; want none", installation.Brew)
+	}
+	if err := (Installer{}).Install(context.Background(), installation, Release{Tag: "v0.49.0"}, nil); err == nil || err.Error() != "Homebrew's brew command was not found" {
+		t.Fatalf("Install() error = %v; want brew reported missing", err)
 	}
 }
 
@@ -250,6 +275,55 @@ func TestHomebrewInstallReportsAnUnchangedVersionAndBrewFailures(t *testing.T) {
 	if err == nil || err.Error() != "brew upgrade failed: Error: no space left on device" {
 		t.Fatalf("Install() error = %v", err)
 	}
+}
+
+func TestCancelledHomebrewInstallInterruptsBrewAndWaitsForIt(t *testing.T) {
+	prefix := t.TempDir()
+	launcher := filepath.Join(prefix, "kit")
+	writeScript(t, launcher, "echo 'kit 0.48.0 (old)'")
+	started := filepath.Join(prefix, "started")
+	rolledBack := filepath.Join(prefix, "rolled-back")
+	brew := filepath.Join(prefix, "brew")
+	// Homebrew rolls an interrupted upgrade back before exiting.
+	writeScript(t, brew, "trap 'sleep 0.2; touch \""+rolledBack+"\"; exit 130' INT\ntouch \""+started+"\"\nwhile :; do sleep 0.05; done")
+	installation := Installation{Method: MethodHomebrew, Executable: launcher, Launcher: launcher, Brew: brew}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		for {
+			if _, err := os.Stat(started); err == nil {
+				cancel()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	err := Installer{}.Install(ctx, installation, Release{Tag: "v0.49.0", Version: Version{0, 49, 0}}, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Install() error = %v; want cancellation", err)
+	}
+	if _, err := os.Stat(rolledBack); err != nil {
+		t.Fatalf("brew did not finish handling the interrupt: %v", err)
+	}
+}
+
+func TestArchiveInstallRemovesStagingLeftByAKilledUpdate(t *testing.T) {
+	directory := t.TempDir()
+	stale := filepath.Join(directory, ".kit-update-111")
+	fresh := filepath.Join(directory, ".kit-update-222")
+	for _, path := range []string{stale, fresh} {
+		if err := os.WriteFile(path, []byte("partial"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	removeStaleStaging(directory, time.Now())
+
+	assertOnlyFiles(t, directory, ".kit-update-222")
 }
 
 func TestArchiveInstallVerifiesAndReplacesTheExecutable(t *testing.T) {

@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"sync"
 
 	"github.com/akonwi/kit/internal/selfupdate"
 	"github.com/akonwi/kit/internal/version"
@@ -30,6 +32,8 @@ type Update struct {
 	URL string
 	// Install is how it installs, such as "brew upgrade akonwi/tap/kit".
 	Install string
+	// Launcher runs the installed Kit once the update is installed.
+	Launcher string
 
 	release      selfupdate.Release
 	installation selfupdate.Installation
@@ -72,15 +76,70 @@ func check(ctx context.Context, checker selfupdate.Checker, current string, exec
 		Summary:      release.Summary(),
 		URL:          release.URL,
 		Install:      installation.Describe(release),
+		Launcher:     installation.Launcher,
 		release:      release,
 		installation: installation,
 	}, nil
 }
 
+// installs tracks installs in progress, which the process waits for before
+// it exits: exiting while Homebrew relinks Kit could leave none on PATH.
+var installs struct {
+	sync.Mutex
+	running int
+	stopped chan struct{}
+}
+
+func beginInstall() {
+	installs.Lock()
+	defer installs.Unlock()
+	if installs.running == 0 {
+		installs.stopped = make(chan struct{})
+	}
+	installs.running++
+}
+
+func endInstall() {
+	installs.Lock()
+	defer installs.Unlock()
+	installs.running--
+	if installs.running == 0 {
+		close(installs.stopped)
+	}
+}
+
 // Install installs update, reporting download progress as a percentage, or
-// -1 while the progress is unknown, as when Homebrew installs it.
+// -1 while the progress is unknown, as when Homebrew installs it. Cancelling
+// ctx stops the install, leaving the previous Kit installed.
 func Install(ctx context.Context, update Update, progress func(int)) error {
+	beginInstall()
+	defer endInstall()
 	return install(ctx, selfupdate.Installer{}, update, progress)
+}
+
+// Settle waits for any install still stopping after the terminal client
+// exits, telling stderr why the exit waits.
+func Settle(stderr io.Writer) {
+	installs.Lock()
+	running, stopped := installs.running, installs.stopped
+	installs.Unlock()
+	if running == 0 {
+		return
+	}
+	fmt.Fprintln(stderr, "Stopping the update…")
+	<-stopped
+}
+
+// Restarts reports whether finishing an update to installed restarts a
+// server running serverVersion: only when that is an older release. An
+// unknown or development version is left running.
+func Restarts(serverVersion, installed string) bool {
+	server, ok := selfupdate.ParseVersion(serverVersion)
+	if !ok {
+		return false
+	}
+	target, ok := selfupdate.ParseVersion(installed)
+	return ok && server.Compare(target) < 0
 }
 
 func install(ctx context.Context, installer selfupdate.Installer, update Update, progress func(int)) error {

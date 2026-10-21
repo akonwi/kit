@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/akonwi/kit/internal/selfupdate"
 )
@@ -66,6 +67,9 @@ func TestCheckAndInstallANewerRelease(t *testing.T) {
 		Install: "replace " + resolved + " with " + name,
 	}
 	got := shown{Available: update.Available, Current: update.Current, Version: update.Version, Summary: update.Summary, URL: update.URL, Install: update.Install}
+	if update.Launcher != resolved {
+		t.Fatalf("Launcher = %q; want %q", update.Launcher, resolved)
+	}
 	if got != want {
 		t.Fatalf("check() = %+v; want %+v", got, want)
 	}
@@ -89,6 +93,55 @@ func TestCheckAndInstallANewerRelease(t *testing.T) {
 	}
 	if err := install(context.Background(), selfupdate.Installer{}, Update{}, nil); err == nil {
 		t.Fatal("installing no update succeeded")
+	}
+}
+
+func TestRestartsOnlyAnOlderReleaseServer(t *testing.T) {
+	cases := []struct {
+		server string
+		want   bool
+	}{
+		{"0.48.0", true},
+		{"0.49.0", false},
+		{"0.50.0", false},
+		{"dev", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := Restarts(c.server, "0.49.0"); got != c.want {
+			t.Errorf("Restarts(%q, 0.49.0) = %v; want %v", c.server, got, c.want)
+		}
+	}
+}
+
+func TestSettleWaitsForAnInstallToStop(t *testing.T) {
+	beginInstall()
+	released := make(chan struct{})
+	go func() {
+		<-released
+		endInstall()
+	}()
+	var stderr bytes.Buffer
+	settled := make(chan struct{})
+	go func() {
+		Settle(&stderr)
+		close(settled)
+	}()
+	select {
+	case <-settled:
+		t.Fatal("Settle returned while an install ran")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(released)
+	<-settled
+	if stderr.String() != "Stopping the update…\n" {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	stderr.Reset()
+	Settle(&stderr)
+	if stderr.Len() != 0 {
+		t.Fatalf("Settle without an install wrote %q", stderr.String())
 	}
 }
 

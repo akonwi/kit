@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -25,6 +26,10 @@ const HomebrewFormula = "akonwi/tap/kit"
 
 // maxExecutableBytes bounds the executable extracted from a release archive.
 const maxExecutableBytes = 512 << 20
+
+// brewStopDelay is how long an interrupted Homebrew has to roll back an
+// upgrade before it is killed.
+const brewStopDelay = 2 * time.Minute
 
 // Method is how an installed executable is updated.
 type Method string
@@ -42,10 +47,12 @@ type Installation struct {
 	Method Method
 	// Executable is the installed executable with symbolic links resolved.
 	Executable string
-	// Launcher runs the newest installed executable: Homebrew's link in its
-	// bin directory, which moves to each new version, or Executable.
+	// Launcher runs the newest installed executable: the formula's link in
+	// Homebrew's opt directory, which moves to each new version even when the
+	// formula is unlinked, or Executable.
 	Launcher string
-	// Brew is Homebrew's executable, for MethodHomebrew.
+	// Brew is Homebrew's executable for MethodHomebrew, or empty when it
+	// cannot be found.
 	Brew string
 }
 
@@ -63,16 +70,16 @@ func Locate(executable string) (Installation, error) {
 	}
 	if prefix, _, ok := strings.Cut(filepath.ToSlash(resolved), "/Cellar/kit/"); ok {
 		prefix = filepath.FromSlash(prefix)
+		// The prefix's own brew manages this Cellar; one on PATH is a
+		// fallback for an unusual layout.
 		brew := filepath.Join(prefix, "bin", "brew")
 		if _, err := os.Stat(brew); err != nil {
-			if found, lookErr := exec.LookPath("brew"); lookErr == nil {
-				brew = found
-			}
+			brew, _ = exec.LookPath("brew")
 		}
 		return Installation{
 			Method:     MethodHomebrew,
 			Executable: resolved,
-			Launcher:   filepath.Join(prefix, "bin", "kit"),
+			Launcher:   filepath.Join(prefix, "opt", "kit", "bin", "kit"),
 			Brew:       brew,
 		}, nil
 	}
@@ -144,6 +151,13 @@ func (in Installer) brewUpgrade(ctx context.Context, installation Installation) 
 		return errors.New("Homebrew's brew command was not found")
 	}
 	command := exec.CommandContext(ctx, installation.Brew, "upgrade", HomebrewFormula)
+	// Killing Homebrew while it relinks can leave no kit on PATH. Its own
+	// process group keeps a terminal's Ctrl+C from reaching it directly; a
+	// cancellation interrupts it once, which it handles by rolling back, and
+	// it is killed only if that takes too long.
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.Cancel = func() error { return command.Process.Signal(os.Interrupt) }
+	command.WaitDelay = brewStopDelay
 	var captured tailBuffer
 	var output io.Writer = &captured
 	if in.Output != nil {
@@ -151,7 +165,6 @@ func (in Installer) brewUpgrade(ctx context.Context, installation Installation) 
 	}
 	command.Stdout = output
 	command.Stderr = output
-	command.WaitDelay = 5 * time.Second
 	if err := command.Run(); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -181,9 +194,10 @@ func (in Installer) replace(ctx context.Context, installation Installation, rele
 		return fmt.Errorf("GitHub reports no SHA-256 digest for %s", name)
 	}
 	directory := filepath.Dir(installation.Executable)
+	removeStaleStaging(directory, time.Now())
 	// Staging beside the executable makes the final rename atomic, and fails
 	// early when the directory is not writable.
-	staged, err := os.CreateTemp(directory, ".kit-update-*")
+	staged, err := os.CreateTemp(directory, stagingPattern)
 	if err != nil {
 		return fmt.Errorf("cannot write to %s: %w", directory, err)
 	}
@@ -233,7 +247,35 @@ func (in Installer) replace(ctx context.Context, installation Installation, rele
 		return fmt.Errorf("replace %s: %w", installation.Executable, err)
 	}
 	published = true
+	syncDirectory(directory)
 	return nil
+}
+
+// stagingPattern names an executable being staged beside the installed one.
+const stagingPattern = ".kit-update-*"
+
+// staleStaging is how old a staged executable must be before it is taken to
+// be left behind by an update that was killed, not one still running.
+const staleStaging = time.Hour
+
+// removeStaleStaging removes staged executables in directory that an update
+// left behind when it was killed.
+func removeStaleStaging(directory string, now time.Time) {
+	matches, _ := filepath.Glob(filepath.Join(directory, stagingPattern))
+	for _, match := range matches {
+		if info, err := os.Lstat(match); err == nil && info.Mode().IsRegular() && now.Sub(info.ModTime()) > staleStaging {
+			_ = os.Remove(match)
+		}
+	}
+}
+
+// syncDirectory makes a rename in directory durable where the platform
+// allows it.
+func syncDirectory(directory string) {
+	if handle, err := os.Open(directory); err == nil {
+		_ = handle.Sync()
+		_ = handle.Close()
+	}
 }
 
 func (in Installer) download(ctx context.Context, asset Asset, destination io.Writer, progress Progress) error {

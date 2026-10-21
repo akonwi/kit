@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Repository is the GitHub repository Kit releases are published in.
@@ -133,10 +134,21 @@ func (r Release) Summary() string {
 		case trimmed == "", strings.HasPrefix(trimmed, "#"):
 			continue
 		default:
-			lines = append(lines, trimmed)
+			lines = append(lines, printable(trimmed))
 		}
 	}
 	return strings.Join(lines, " ")
+}
+
+// printable replaces control characters, such as terminal escapes, with
+// spaces so text from GitHub cannot steer the terminal it is printed to.
+func printable(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, text)
 }
 
 // ReleaseURL is the GitHub page of the release with tag, or the releases list
@@ -263,7 +275,6 @@ func (a Artifact) describe() string {
 type githubRelease struct {
 	TagName    string        `json:"tag_name"`
 	Body       string        `json:"body"`
-	HTMLURL    string        `json:"html_url"`
 	Draft      bool          `json:"draft"`
 	Prerelease bool          `json:"prerelease"`
 	Assets     []githubAsset `json:"assets"`
@@ -277,10 +288,9 @@ type githubAsset struct {
 }
 
 func (r githubRelease) release(parsed Version) Release {
-	release := Release{Tag: r.TagName, Version: parsed, Notes: r.Body, URL: r.HTMLURL}
-	if release.URL == "" {
-		release.URL = ReleaseURL(r.TagName)
-	}
+	// The page is built from the tag rather than taken from the response, so
+	// a client only ever opens Kit's own release pages.
+	release := Release{Tag: r.TagName, Version: parsed, Notes: r.Body, URL: ReleaseURL(r.TagName)}
 	for _, asset := range r.Assets {
 		digest := ""
 		if hex, ok := strings.CutPrefix(asset.Digest, "sha256:"); ok {

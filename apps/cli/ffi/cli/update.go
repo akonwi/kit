@@ -47,8 +47,9 @@ type updater struct {
 	newer        func(context.Context, selfupdate.Version) (selfupdate.Release, bool, error)
 	install      func(context.Context, selfupdate.Installation, selfupdate.Release, io.Writer, selfupdate.Progress) error
 	// server reports this home's running server, or false when none runs.
-	server  func(context.Context) (localServer, bool)
-	restart func(context.Context, selfupdate.Installation, io.Writer, io.Writer) error
+	server func(context.Context) (localServer, bool)
+	// restart restarts this home's server with the Kit at a launcher path.
+	restart func(context.Context, string, io.Writer, io.Writer) error
 }
 
 func defaultUpdater() updater {
@@ -193,7 +194,7 @@ func (u updater) offerRestart(
 		fmt.Fprintln(stdout, "Restart it later with `kit server restart`.")
 		return 0
 	}
-	if err := u.restart(ctx, installation, stdout, stderr); err != nil {
+	if err := u.restart(ctx, installation.Launcher, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "kit: restart server: %v\n", err)
 		return interrupted(ctx, 1)
 	}
@@ -264,13 +265,13 @@ func inspectLocalServer(ctx context.Context) (localServer, bool) {
 
 // restartLocalServer restarts this home's server with the newly installed
 // executable, which the server then runs.
-func restartLocalServer(ctx context.Context, installation selfupdate.Installation, stdout, stderr io.Writer) error {
-	command := exec.CommandContext(ctx, installation.Launcher, "server", "restart")
+func restartLocalServer(ctx context.Context, launcher string, stdout, stderr io.Writer) error {
+	command := exec.CommandContext(ctx, launcher, "server", "restart")
 	command.Stdout = stdout
 	command.Stderr = stderr
 	command.WaitDelay = 5 * time.Second
 	if err := command.Run(); err != nil {
-		return fmt.Errorf("%s server restart: %w", installation.Launcher, err)
+		return fmt.Errorf("%s server restart: %w", launcher, err)
 	}
 	return nil
 }

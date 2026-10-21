@@ -44,8 +44,8 @@ func (f *fakeUpdate) updater(current, stdin string, interactive bool) updater {
 			return f.installErr
 		},
 		server: func(context.Context) (localServer, bool) { return f.server, f.running },
-		restart: func(_ context.Context, installation selfupdate.Installation, stdout, _ io.Writer) error {
-			f.restarted = installation.Launcher == "/brew/bin/kit"
+		restart: func(_ context.Context, launcher string, stdout, _ io.Writer) error {
+			f.restarted = launcher == "/brew/bin/kit"
 			io.WriteString(stdout, "server restarted\n")
 			return nil
 		},

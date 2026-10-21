@@ -439,6 +439,7 @@ impl Shell {
       context => {
         let _ = context.dispatch(fn() {
           if self.modal_closed() and self.updates.openable() {
+            self.updates.refresh()
             self.active_modal = UpdateModal{}
           }
         })
@@ -461,7 +462,7 @@ impl Shell {
           match self.updates.stage == updates::Stage::installed {
             true => {
               let session = self.attached.info.or(protocol::SessionInfo{}).ID
-              self.props.options.Relaunch.Request(session, self.updates.finish.restart)
+              self.props.options.Relaunch.Request(session, update.Launcher, self.updates.finish.restart)
               self.props.quit()
             },
             false => {
