@@ -175,6 +175,35 @@ final class SessionWindowModel: Identifiable {
         placement == .side ? rows.map(\.content) : familyOrder.map { .tab($0) }
     }
 
+    /// How many rows have a numbered shortcut, ⌘1 to ⌘9.
+    static let numberedShortcuts = 9
+
+    /// The number of each row a numbered shortcut reaches.
+    func shortcutNumbers(_ placement: SessionTabPlacement) -> TabShortcutNumbers {
+        var numbers = TabShortcutNumbers()
+        for (index, content) in numberedRows(placement).prefix(Self.numberedShortcuts).enumerated() {
+            switch content {
+            case .tab(let tab): numbers.tabs[tab.id] = index + 1
+            case .closedParent(let key, _): numbers.closedParents[key] = index + 1
+            }
+        }
+        return numbers
+    }
+
+    /// Shows each tab's ⌘ number while ⌘ is held in this window.
+    let tabHints = TabNumberHints()
+
+    /// Whether a dialog over the window has the keyboard, so holding ⌘
+    /// doesn't number the tabs behind it.
+    var dialogCoversTabs: Bool {
+        creatingIn != nil || selectedTab.store.map { $0.ui.palette || $0.ui.filePicker } == true
+    }
+
+    /// The numbers the tabs show now: while ⌘ is held, unless a dialog is up.
+    func tabNumberHints(_ placement: SessionTabPlacement) -> TabShortcutNumbers {
+        tabHints.shown && !dialogCoversTabs ? shortcutNumbers(placement) : .none
+    }
+
     /// The parent's title for a tab whose session came from another.
     func parentTitle(of tab: SessionTab) -> String? {
         guard let parent = tab.parentSessionID else { return nil }
