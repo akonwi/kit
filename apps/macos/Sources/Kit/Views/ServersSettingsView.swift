@@ -69,7 +69,9 @@ struct ServerRowPresentation: Equatable {
         case .url(let origin, _): origin
         case .ssh(let destination): "SSH · " + destination
         }
-        let version = status.identity?.kitVersion
+        // A server too old for this app still reports its version, and it
+        // is the one most in need of Update….
+        let version = if case .incompatible(let mismatch) = status { mismatch.serverKitVersion } else { status.identity?.kitVersion }
         detail = [place, version.map { "Kit " + $0 }].compactMap { $0 }.joined(separator: " · ")
         if local, let newest, let running = version.flatMap(ReleaseVersion.init), newest > running {
             available = newest.description
@@ -119,7 +121,7 @@ struct ServersSettingsView: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border) }
-                if problem != nil || servers.connections.contains(where: { presentation($0).available != nil }) {
+                if updateAvailable {
                     Text(problem?.message
                          ?? "Update… opens a terminal tab that runs kit update on this Mac. It asks before restarting the server, so running turns aren’t cut off. Servers on other machines are updated there.")
                         .font(.kit(size: 12)).foregroundStyle(problem == nil ? theme.muted : theme.warning)
@@ -132,7 +134,10 @@ struct ServersSettingsView: View {
             }
         }
         .task { if updater.newestCLI == nil { _ = await updater.check() } }
+        .onChange(of: updateAvailable) { if !updateAvailable { problem = nil } }
     }
+
+    private var updateAvailable: Bool { servers?.connections.contains { presentation($0).available != nil } ?? false }
 
     private func presentation(_ connection: ServerConnection) -> ServerRowPresentation {
         ServerRowPresentation(name: connection.name, connector: connection.connector, status: connection.status,
@@ -388,7 +393,7 @@ enum KitUpdateTerminal {
 
         var message: String {
             switch self {
-            case .noSession: "Open a session first: Update… runs kit update in one of its terminal tabs."
+            case .noSession: "Open a session on this Mac first: Update… runs kit update in one of its terminal tabs."
             case .unusualHome: "Kit’s home path can’t be typed into a terminal. Run kit update in a terminal yourself."
             }
         }
@@ -403,11 +408,12 @@ enum KitUpdateTerminal {
         return "KIT_HOME='\(path.replacingOccurrences(of: "'", with: "'\\''"))' kit update\n"
     }
 
-    /// Opens the tab and brings its window forward.
+    /// Opens the tab and brings its window forward. Only a session on this
+    /// Mac's server has local terminals, so a remote session's tab is skipped.
     @MainActor
     static func open(in windows: SessionWindowRegistry) -> Problem? {
         guard let command = command() else { return .unusualHome }
-        guard let model = windows.frontmost(where: { $0.selectedTab.store?.selected != nil }),
+        guard let model = windows.frontmost(where: { $0.selectedTab.store?.terminalDirectory != nil }),
               let store = model.selectedTab.store else { return .noSession }
         store.ui.workspace.openTerminal(directory: NSHomeDirectory(), initialInput: command)
         model.window?.makeKeyAndOrderFront(nil)
