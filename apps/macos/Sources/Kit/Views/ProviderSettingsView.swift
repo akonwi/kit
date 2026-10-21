@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Which Settings section is showing, kept so other windows can open one.
 enum SettingsSection: String {
-    case appearance, workspace, models, providers
+    case appearance, workspace, servers, models, providers
     static let storageKey = "settingsSection"
 
     /// Opens Settings at this section.

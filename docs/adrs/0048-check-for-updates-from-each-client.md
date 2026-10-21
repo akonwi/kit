@@ -94,9 +94,8 @@ running bundle when the user clicks **Relaunch to update** or quits Kit, so an
 update never interrupts work; relaunching is an ordinary quit that restores
 windows, tabs, and drafts. A failure leaves the installed app untouched.
 
-Settings › Servers shows the version of each server. For this Mac's server,
-when a newer CLI release exists, **Update…** opens a Terminal tab running
-`kit update`. The app never updates or restarts a server itself.
+Settings › Servers shows the version of the server on this Mac. When a newer
+CLI release exists, **Update…** opens a terminal tab running `kit update`. The app never updates or restarts a server itself.
 
 ### Release notes open on GitHub
 

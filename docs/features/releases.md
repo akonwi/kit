@@ -69,9 +69,10 @@ Kit's Developer ID and notarized. It replaces the app when you click
 **Relaunch to update** or quit Kit. Relaunching restores windows, tabs, and
 drafts, and sessions keep running on their servers.
 
-Settings › Servers shows each server's version. When a newer CLI release
-exists, **Update…** beside this Mac's server opens a Terminal tab running
-`kit update`.
+Settings › Servers shows the version of the server on this Mac. When a newer
+CLI release exists, **Update…** opens a terminal tab in the frontmost session
+window running `kit update`, which asks before restarting the server. The app
+never updates or restarts a server itself.
 
 ## Release notes
 

@@ -85,8 +85,9 @@ struct SessionSidebar: View {
                 .padding(.top, 8)
             }
             .scrollIndicators(.never)
-            HStack {
-                Spacer()
+            HStack(spacing: 8) {
+                AppUpdateChip()
+                Spacer(minLength: 0)
                 SessionTabPlacementToggle(placement: $placement)
             }
             .padding(.leading, 8).padding(.trailing, 4)
@@ -493,6 +494,7 @@ struct SessionTopTabs: View {
                 SessionTabOverflowMenu(hidden: hidden) { model.select($0) }
             }
             ChromeIconButton(icon: .plus, frame: 28, help: "New session tab (⌘T)") { model.openLauncher() }
+            AppUpdateChip().padding(.leading, 6)
             SessionTabPlacementToggle(placement: $placement).padding(.leading, 6)
         }
         .padding(.leading, 16).padding(.trailing, 10)
