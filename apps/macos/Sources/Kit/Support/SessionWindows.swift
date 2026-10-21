@@ -131,6 +131,7 @@ final class SessionWindowRegistry: NSObject {
             NotificationCenter.default.addObserver(self, selector: #selector(windowKeyChanged(_:)), name: name, object: window)
         }
         model.isFocused = window.isKeyWindow
+        model.tabHints.attach(to: window)
         capture(model)
     }
 
@@ -146,6 +147,7 @@ final class SessionWindowRegistry: NSObject {
         guard let window = notification.object as? NSWindow,
               let model = liveModels.first(where: { $0.window === window }) else { return }
         model.isFocused = window.isKeyWindow
+        if !window.isKeyWindow { model.tabHints.windowResignedKey() }
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
@@ -153,6 +155,7 @@ final class SessionWindowRegistry: NSObject {
               let model = liveModels.first(where: { $0.window === window }) else { return }
         NotificationCenter.default.removeObserver(self, name: nil, object: window)
         model.closeAll()
+        model.tabHints.detach()
         model.window = nil
         model.trafficLights = nil
         models[model.id] = nil

@@ -142,7 +142,7 @@ private struct SessionCommands: Commands {
                 .disabled(navigable < 2)
             Divider()
             let numbered = window?.numberedRows(placement).count ?? 0
-            ForEach(1...9, id: \.self) { number in
+            ForEach(1...SessionWindowModel.numberedShortcuts, id: \.self) { number in
                 Button("Show Tab \(number)") {
                     // A closed parent opens as clicking its row does.
                     if let window, let parent = window.select(index: number - 1, in: placement) {

@@ -61,6 +61,7 @@ struct SessionSidebar: View {
     var body: some View {
         let rows = model.rows
         let dragged = drag.family(in: rows)
+        let numbers = model.tabNumberHints(.side)
         VStack(spacing: 0) {
             HStack {
                 Spacer()
@@ -76,6 +77,7 @@ struct SessionSidebar: View {
                         SessionTreeRowView(row: row,
                                            rails: SessionTreeRails(depth: row.depth, next: next?.depth),
                                            selected: row.tab?.id == model.selectedTabID,
+                                           number: numbers.number(for: row.content),
                                            model: model, drag: drag)
                         .opacity(dragged.contains(row.id) ? 0.4 : 1)
                     }
@@ -233,6 +235,8 @@ private struct SessionTreeRowView: View {
     let row: SessionTreeRow
     let rails: SessionTreeRails
     let selected: Bool
+    /// The row's ⌘ number, while ⌘ is held.
+    let number: Int?
     let model: SessionWindowModel
     let drag: SessionTreeDrag
 
@@ -273,9 +277,9 @@ private struct SessionTreeRowView: View {
     @ViewBuilder private var content: some View {
         switch row.content {
         case .tab(let tab):
-            SessionSidebarRow(tab: tab, selected: selected, row: row, model: model)
+            SessionSidebarRow(tab: tab, selected: selected, row: row, number: number, model: model)
         case .closedParent(let session, let title):
-            ClosedParentRow(session: session, title: title, row: row, model: model)
+            ClosedParentRow(session: session, title: title, row: row, number: number, model: model)
         }
     }
 }
@@ -285,6 +289,7 @@ private struct SessionSidebarRow: View {
     let tab: SessionTab
     let selected: Bool
     let row: SessionTreeRow
+    let number: Int?
     let model: SessionWindowModel
     @State private var hovering = false
 
@@ -301,8 +306,9 @@ private struct SessionSidebarRow: View {
                 // A family shares its server, so only its top row names it.
                 if row.depth == 0, let server = tab.serverLabel { ServerLabel(name: server) }
                 HStack(spacing: 0) {
-                    SessionTreeDisclosure(row: row, model: model)
-                    if hovering {
+                    SessionTreeDisclosure(row: row, number: number, model: model)
+                    // The hint takes the close button's place.
+                    if hovering, number == nil {
                         ChromeIconButton(icon: .x, size: 10, frame: 18, help: "Close tab") { model.requestClose(tab) }
                     }
                 }
@@ -332,6 +338,7 @@ private struct ClosedParentRow: View {
     let session: String
     let title: String
     let row: SessionTreeRow
+    let number: Int?
     let model: SessionWindowModel
     @State private var hovering = false
 
@@ -347,7 +354,7 @@ private struct ClosedParentRow: View {
                 if row.depth == 0, let server = SessionWindowModel.identity(treeKey: session).serverLabel {
                     ServerLabel(name: server)
                 }
-                SessionTreeDisclosure(row: row, model: model)
+                SessionTreeDisclosure(row: row, number: number, model: model)
             }
             .padding(.leading, 8).padding(.trailing, 4)
             .frame(height: SessionTreeRails.rowHeight)
@@ -367,14 +374,18 @@ private struct ClosedParentRow: View {
 }
 
 /// A family's caret. A collapsed family also shows how many tabs it hides
-/// and the most urgent of their markers.
+/// and the most urgent of their markers. While ⌘ is held, the row's number
+/// takes the caret's place.
 private struct SessionTreeDisclosure: View {
     @Environment(\.mica) private var theme
     let row: SessionTreeRow
+    let number: Int?
     let model: SessionWindowModel
 
     var body: some View {
-        if row.hasChildren {
+        if let number, !row.hasChildren {
+            hint(number)
+        } else if row.hasChildren {
             HStack(spacing: 6) {
                 if row.collapsed {
                     if let urgent = SessionTreeRollUp(row.hiddenTabs).marker {
@@ -385,17 +396,26 @@ private struct SessionTreeDisclosure: View {
                         .font(.kit(size: 11, design: .monospaced))
                         .foregroundStyle(theme.muted)
                 }
-                Button { model.toggleCollapsed(row.id) } label: {
-                    IconView(row.collapsed ? .caretRight : .caretDown, size: 10)
-                        .foregroundStyle(theme.muted)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
+                if let number {
+                    hint(number)
+                } else {
+                    Button { model.toggleCollapsed(row.id) } label: {
+                        IconView(row.collapsed ? .caretRight : .caretDown, size: 10)
+                            .foregroundStyle(theme.muted)
+                            .frame(width: 18, height: 18)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(row.collapsed ? "Show sessions from this one" : "Hide sessions from this one")
+                    .accessibilityHidden(true)
                 }
-                .buttonStyle(.plain)
-                .help(row.collapsed ? "Show sessions from this one" : "Hide sessions from this one")
-                .accessibilityHidden(true)
             }
         }
+    }
+
+    /// The hint sits in the caret's 18 pt slot.
+    private func hint(_ number: Int) -> some View {
+        TabNumberHint(number: number).frame(width: 18, height: 18)
     }
 }
 
@@ -448,6 +468,7 @@ struct SessionTopTabs: View {
         let tabs = model.familyOrder
         let overflow = SessionTabOverflow(frames: frames, offset: offset, viewport: viewportWidth)
         let hidden = tabs.filter { overflow.hides($0.id) }
+        let hints = model.tabNumberHints(.top)
         HStack(spacing: 6) {
             // The traffic lights occupy this space.
             Color.clear.frame(width: 68, height: 1)
@@ -459,6 +480,7 @@ struct SessionTopTabs: View {
                                           project: tab.directory != selectedDirectory && !tab.directory.isEmpty
                                             ? URL(fileURLWithPath: tab.directory).lastPathComponent : nil,
                                           parent: model.parentTitle(of: tab),
+                                          number: hints.tabs[tab.id],
                                           select: { model.select(tab) },
                                           close: { model.requestClose(tab) })
                             .id(tab.id)
@@ -491,7 +513,7 @@ struct SessionTopTabs: View {
             }
             .onChange(of: tabs.map(\.id)) { frames = frames.filter { id, _ in tabs.contains { $0.id == id } } }
             if !hidden.isEmpty {
-                SessionTabOverflowMenu(hidden: hidden) { model.select($0) }
+                SessionTabOverflowMenu(hidden: hidden, numbers: model.shortcutNumbers(.top)) { model.select($0) }
             }
             ChromeIconButton(icon: .plus, frame: 28, help: "New session tab (⌘T)") { model.openLauncher() }
             AppUpdateChip().padding(.leading, 6)
@@ -525,12 +547,17 @@ struct SessionTabOverflow {
 private struct SessionTabOverflowMenu: View {
     @Environment(\.mica) private var theme
     let hidden: [SessionTab]
+    /// Each tab's ⌘ number, shown as the item's shortcut. The item handles
+    /// it while it's here, so it must select what Show Tab N would: on top,
+    /// every numbered row is a tab.
+    let numbers: TabShortcutNumbers
     let select: (SessionTab) -> Void
 
     var body: some View {
         Menu {
             ForEach(hidden) { tab in
                 Button(tab.statusLabel.map { "\(tab.title) — \($0)" } ?? tab.title) { select(tab) }
+                    .keyboardShortcut(numbers.tabs[tab.id].map { KeyboardShortcut(KeyEquivalent(Character("\($0)")), modifiers: .command) })
             }
         } label: {
             Text("+\(hidden.count)")
@@ -557,6 +584,8 @@ private struct SessionTopTab: View {
     let project: String?
     /// The title of the session this one came from.
     let parent: String?
+    /// The tab's ⌘ number, while ⌘ is held.
+    let number: Int?
     let select: () -> Void
     let close: () -> Void
     @State private var hovering = false
@@ -572,11 +601,14 @@ private struct SessionTopTab: View {
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let server = tab.serverLabel { ServerLabel(name: server) }
-                if selected || hovering {
+                if let number {
+                    // The hint takes the close button's place; labels stay.
+                    if tab.serverLabel == nil, let project { projectLabel(project) }
+                    TabNumberHint(number: number)
+                } else if selected || hovering {
                     ChromeIconButton(icon: .x, size: 10, frame: 16, help: "Close tab", action: close)
                 } else if tab.serverLabel == nil, let project {
-                    Text(project).font(.kit(size: 10, design: .monospaced)).foregroundStyle(theme.strongBorder)
-                        .lineLimit(1).truncationMode(.middle)
+                    projectLabel(project)
                 }
             }
             .padding(.horizontal, 10)
@@ -591,6 +623,11 @@ private struct SessionTopTab: View {
         .accessibilityValue(tab.statusLabel ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .contextMenu { Button("Close Tab", action: close) }
+    }
+
+    private func projectLabel(_ project: String) -> some View {
+        Text(project).font(.kit(size: 10, design: .monospaced)).foregroundStyle(theme.strongBorder)
+            .lineLimit(1).truncationMode(.middle)
     }
 
     private var help: String {
