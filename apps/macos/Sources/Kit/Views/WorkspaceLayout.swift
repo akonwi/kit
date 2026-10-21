@@ -359,6 +359,10 @@ private struct WorkspaceTabActions: View {
     let pane: WorkspacePane
 
     var body: some View {
+        if case .file(let file) = pane {
+            FileTabMenuItems(actions: FileTabActions(file: file, cwd: state.selected?.cwd, gate: state.thisMacGate))
+            Divider()
+        }
         Button("Split Right") { workspace.split(pane, .right) }.disabled(!workspace.canSplit(pane))
         Button("Split Down") { workspace.split(pane, .bottom) }.disabled(!workspace.canSplit(pane))
         if workspace.root.tiles.count > 1 {
@@ -374,6 +378,29 @@ private struct WorkspaceTabActions: View {
             Divider()
             Button("Close Tab") { state.closePane(pane) }
         }
+    }
+}
+
+/// A file tab's own menu items. Copy Path works on any server; Reveal in
+/// Finder and Open in Default App work on this Mac's files, so on another
+/// machine's server they stay in the menu, dimmed with the reason.
+struct FileTabMenuItems: View {
+    let actions: FileTabActions
+
+    var body: some View {
+        Button("Copy Path") { actions.copyPath() }.disabled(actions.path == nil)
+        Divider()
+        item("Reveal in Finder") { actions.revealInFinder() }
+        item("Open in Default App") { actions.openInDefaultApp() }
+    }
+
+    /// A menu item, with the reason it is unavailable as its subtitle.
+    private func item(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+            if let reason = actions.localReason { Text("⊘ " + reason) }
+        }
+        .disabled(actions.localReason != nil)
     }
 }
 

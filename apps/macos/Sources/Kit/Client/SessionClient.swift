@@ -140,12 +140,6 @@ enum ServerConnector: Hashable, Sendable {
         }
     }
 
-    /// Whether the server runs on this Mac, judged by how it is reached.
-    /// Phase B replaces this with the server's machine identifier.
-    var isThisMac: Bool {
-        if case .home = self { true } else { false }
-    }
-
     /// Resolves and verifies the server, reporting who it is.
     func handshake(serverID: String, tokens: any DeviceTokenStore = DeviceTokens.standard) async throws -> (client: HTTPClient, identity: ServerIdentity) {
         switch self {

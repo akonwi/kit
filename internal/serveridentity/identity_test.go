@@ -85,6 +85,20 @@ func TestMalformedServerIDIsNotReplaced(t *testing.T) {
 	}
 }
 
+// TestMachineIDHashIsStable pins the hash that clients compute locally to
+// recognize a same-machine server. The macOS app's LocalMachineTests expect
+// the same values; change both together.
+func TestMachineIDHashIsStable(t *testing.T) {
+	for raw, want := range map[string]string{
+		"4C1E7F7A-0000-4000-8000-1234567890AB":                                  "ad2a367531a7e696b1abf4c27c8546746e2a69e2a8eb356e369f242709105f0c",
+		"home:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef": "a8d7cb180f049965e92d42a5cf76f003d7f8423f7e97ae42d92a3cc2381aaee4",
+	} {
+		if got := hashMachineID(raw); got != want {
+			t.Errorf("hashMachineID(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
 // Tests that replace platformID run sequentially.
 
 func TestMachineIDHashesThePlatformIdentifier(t *testing.T) {

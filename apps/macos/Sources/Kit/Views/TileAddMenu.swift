@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// The + after a tile's tabs. It opens a menu of panes to add to the tile:
-/// Terminal (with a server on this Mac), Browser, Diff, Scratchpad, then
-/// Open file…. Panes already open are dimmed; choosing one selects it.
+/// Terminal, Browser, Diff, Scratchpad, then Open file…. Panes already open
+/// are dimmed; choosing one selects it. A terminal runs on this Mac, so on
+/// another machine's server it stays in the menu, dimmed with the reason.
 struct TileAddButton: View {
     @Environment(\.mica) private var theme
     let state: SessionStore
@@ -54,10 +55,14 @@ struct TileAddButton: View {
         }
     }
 
-    private var items: [TileAddMenu.Item] {
+    private var items: [TileAddMenu.Item] { Self.items(state: state, workspace: workspace) }
+
+    /// The menu's items for a tab showing `state`'s session.
+    static func items(state: SessionStore, workspace: WorkspaceState) -> [TileAddMenu.Item] {
         var items: [TileAddMenu.Item] = []
-        if state.terminalDirectory != nil {
-            items.append(.init(choice: .terminal, title: "Terminal", icon: .terminalWindow))
+        if state.offersTerminal {
+            items.append(.init(choice: .terminal, title: "Terminal", icon: .terminalWindow,
+                               unavailableReason: state.terminalUnavailableReason))
         }
         items.append(.init(choice: .browser, title: "Browser", icon: .browser))
         if state.catalogClient is any DiffClient {
@@ -76,12 +81,14 @@ struct TileAddButton: View {
 
 struct TileAddMenu: View {
     enum Choice { case terminal, browser, diff, scratchpad, file }
-    struct Item: Identifiable {
+    struct Item: Identifiable, Equatable {
         var id: Choice { choice }
         let choice: Choice
         let title: String
         let icon: Icon
         var dimmed = false
+        /// Why the item can't be chosen, shown after it; it is then disabled.
+        var unavailableReason: String? = nil
         var shortcut: String? = nil
         /// Drawn after a rule.
         var separated = false
@@ -106,27 +113,48 @@ struct TileAddMenu: View {
         .foregroundStyle(theme.text)
         .background(theme.raised)
         .popoverCard(theme)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Add tab")
     }
 
-    private func row(_ item: Item) -> some View {
-        Button { choose(item.choice) } label: {
-            HStack(spacing: 8) {
-                IconView(item.icon).foregroundStyle(theme.muted)
-                Text(item.title).font(.kit(size: 12))
-                Spacer(minLength: 0)
-                if let shortcut = item.shortcut {
-                    Text(shortcut).font(.kit(size: 12)).foregroundStyle(theme.muted)
-                }
-            }
-            .opacity(item.dimmed ? 0.5 : 1)
-            .padding(.horizontal, 8)
-            .frame(height: 28)
-            .background(hovered == item.choice ? theme.hover : .clear, in: RoundedRectangle(cornerRadius: 3))
-            .contentShape(Rectangle())
+    @ViewBuilder private func row(_ item: Item) -> some View {
+        if let reason = item.unavailableReason {
+            // Not a button, so the system doesn't dim it further: the item
+            // and its reason are drawn as unavailable on their own.
+            label(item)
+                .help(item.title + " · " + reason)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(item.title)
+                .accessibilityValue("Unavailable, " + reason)
+        } else {
+            Button { choose(item.choice) } label: { label(item) }
+                .buttonStyle(.plain)
+                .onHover { hovered = $0 ? item.choice : (hovered == item.choice ? nil : hovered) }
+                .accessibilityHint(item.dimmed ? "Already open" : "")
         }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 ? item.choice : (hovered == item.choice ? nil : hovered) }
-        .accessibilityHint(item.dimmed ? "Already open" : "")
+    }
+
+    private func label(_ item: Item) -> some View {
+        let unavailable = item.unavailableReason != nil
+        return HStack(spacing: 8) {
+            IconView(item.icon).foregroundStyle(unavailable ? theme.strongBorder : theme.muted)
+            Text(item.title).font(.kit(size: 12))
+                .foregroundStyle(unavailable ? theme.strongBorder : theme.text)
+            Spacer(minLength: 0)
+            if let reason = item.unavailableReason {
+                HStack(spacing: 4) {
+                    IconView(.prohibit, size: 11)
+                    Text(reason).font(.kit(size: 11))
+                }
+                .foregroundStyle(theme.muted)
+            } else if let shortcut = item.shortcut {
+                Text(shortcut).font(.kit(size: 12)).foregroundStyle(theme.muted)
+            }
+        }
+        .opacity(item.dimmed ? 0.5 : 1)
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .background(hovered == item.choice && !unavailable ? theme.hover : .clear, in: RoundedRectangle(cornerRadius: 3))
+        .contentShape(Rectangle())
     }
 }

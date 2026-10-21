@@ -38,7 +38,8 @@ struct ServerStatePresentation: Equatable {
         "Kit for Mac " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")
     }
 
-    init(name: String, connector: ServerConnector, status: ServerStatus, sessionTab: Bool,
+    /// `thisMac` is whether the server last verified as running on this Mac.
+    init(name: String, connector: ServerConnector, status: ServerStatus, sessionTab: Bool, thisMac: Bool? = nil,
          appVersion: String = Self.appVersion) {
         let local = name == ServerClient.localID
         // The local server is the app's own, so it goes unnamed.
@@ -59,7 +60,8 @@ struct ServerStatePresentation: Equatable {
                 title = local ? "The Kit server needs a newer Kit" : "\(name) needs a newer Kit"
                 message = "\(server) runs an older Kit than this app can use. Update kit, then restart the server. Restarting stops work running there, so Kit leaves it to you."
                 action = .restart(command: Self.restartCommand(connector: connector),
-                                  prompt: connector.isThisMac ? "After updating kit, run:" : "After updating kit on \(name), run there:")
+                                  prompt: Self.runsHere(connector: connector, thisMac: thisMac)
+                                      ? "After updating kit, run:" : "After updating kit on \(name), run there:")
             } else {
                 title = local ? "Update Kit for Mac" : "Update Kit to use \(name)"
                 message = local
@@ -95,6 +97,14 @@ struct ServerStatePresentation: Equatable {
         case .url(let origin, _): return "url · " + origin
         case .ssh(let destination): return "ssh · " + destination
         }
+    }
+
+    /// Whether the restart command is run on this Mac: a Kit home's command
+    /// names a path on this Mac, and a served server's runs here only when it
+    /// verified as this Mac's.
+    static func runsHere(connector: ServerConnector, thisMac: Bool?) -> Bool {
+        if case .home = connector { return true }
+        return thisMac == true
     }
 
     /// The command that restarts a server once it is updated. A home other
@@ -137,7 +147,8 @@ struct ServerStateView: View {
 
     var body: some View {
         let presentation = ServerStatePresentation(name: connection.name, connector: connection.connector,
-                                                   status: connection.status, sessionTab: sessionTab)
+                                                   status: connection.status, sessionTab: sessionTab,
+                                                   thisMac: connection.isThisMac)
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
