@@ -43,6 +43,8 @@ type TUIOptions struct {
 	// DiffLayout is the saved diff layout, "unified" or "split".
 	DiffLayout            string
 	DiffPreferenceService DiffPreferenceService
+	// Relaunch receives the client's request to relaunch after an update.
+	Relaunch *Relaunch
 }
 
 // DeviceLogin performs OpenAI Codex device-code login on the attached server.

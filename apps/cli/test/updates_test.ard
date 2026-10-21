@@ -1,0 +1,349 @@
+use ard/testing
+
+use go:context
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use go:errors
+use go:kit/ffi/contextbridge
+use go:kit/ffi/updatebridge
+use kit/tui/chrome
+use kit/tui/theme
+use kit/tui/updates
+use go:strings
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn render(width: Int, height: Int, view: cui::View) [Str] {
+  let terminal = headless::new(width, height)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    cui::box(
+      [view],
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        flex_direction: ui::FlexDirection::column,
+      ),
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  rows(terminal)
+}
+
+fn immediate(action: fn()) Void!event::DispatchError {
+  action()
+  Result::ok(())
+}
+
+fn noop(id: Str) keymap::SimpleCommand {
+  keymap::simple_command(id, id, fn() Bool {
+    true
+  })
+}
+
+fn themes() theme::Context {
+  theme::context(theme::store(theme::system()))
+}
+
+fn release() updatebridge::Update {
+  updatebridge::Update{
+    Available: true,
+    Current: "0.48.0",
+    Version: "0.49.0",
+    Summary: "Kit tells you when an update is out.",
+    URL: "https://github.com/akonwi/kit/releases/tag/v0.49.0",
+    Install: "brew upgrade akonwi/tap/kit",
+  }
+}
+
+struct Calls {
+  checks: Int,
+  installs: Int,
+}
+
+// subject builds an updater whose work runs synchronously: each check finds
+// update, and installing reports 40% then succeeds, or fails with failure.
+fn subject(update: updatebridge::Update, failure: Str, finish: updates::Finish, calls: mut Calls) mut updates::Updater {
+  updates::custom(
+    updates::Effects{
+      // One check runs; the schedule then ends.
+      check: fn(ctx: context::Context) updatebridge::Update!Error {
+        calls.checks =+ 1
+        Result::ok(update)
+      },
+      install: fn(ctx: context::Context, chosen: updatebridge::Update, progress: fn(Int)) Void!Error {
+        calls.installs =+ 1
+        progress(40)
+        match failure == "" {
+          true => Result::ok(()),
+          false => {
+            match errors::New(failure) {
+              err(reason) => Result::err(reason),
+              ok => Result::ok(()),
+            }
+          },
+        }
+      },
+      inspect: fn(ctx: context::Context, installed: Str) updates::Finish {
+        finish
+      },
+      wait: fn(ctx: context::Context, milliseconds: Int) Bool {
+        false
+      },
+      spawn: fn(work: fn()) {
+        work()
+      },
+    },
+    true,
+  )
+}
+
+fn lifetime() contextbridge::Cancellation {
+  contextbridge::WithCancel(context::Background())
+}
+
+fn local_finish(active: Int) updates::Finish {
+  updates::Finish{
+    restart: true,
+    server_version: "0.48.0",
+    active: active,
+  }
+}
+
+test fn a_newer_release_is_offered_and_installed() Void!Str {
+  let calls = mut Calls{checks: 0, installs: 0}
+  let updater = subject(release(), "", local_finish(2), calls)
+  updater.bind(immediate, lifetime())
+  try testing::assert(calls.checks == 1, "checks {calls.checks}")
+  try testing::assert(updater.stage == updates::Stage::available, "a newer release is available")
+  updater.install()
+  try testing::assert(calls.installs == 1, "installs {calls.installs}")
+  try testing::assert(updater.stage == updates::Stage::installed, "the update installed")
+  try testing::assert(updater.percent == 40, "progress {updater.percent}")
+  testing::assert(
+    updater.finish.restart and updater.finish.active == 2,
+    "the local server is restarted",
+  )
+}
+
+test fn an_up_to_date_or_development_build_offers_nothing() Void!Str {
+  let calls = mut Calls{checks: 0, installs: 0}
+  let current = subject(updatebridge::Update{}, "", local_finish(0), calls)
+  current.bind(immediate, lifetime())
+  try testing::assert(current.stage == updates::Stage::idle and not current.shown(), "up to date")
+  let development = updates::custom(
+    updates::Effects{
+      check: fn(ctx: context::Context) updatebridge::Update!Error {
+        calls.checks =+ 1
+        Result::ok(release())
+      },
+      install: fn(ctx: context::Context, chosen: updatebridge::Update, progress: fn(Int)) Void!Error {
+        Result::ok(())
+      },
+      inspect: fn(ctx: context::Context, installed: Str) updates::Finish {
+        local_finish(0)
+      },
+      wait: fn(ctx: context::Context, milliseconds: Int) Bool {
+        false
+      },
+      spawn: fn(work: fn()) {
+        work()
+      },
+    },
+    false,
+  )
+  development.bind(immediate, lifetime())
+  testing::assert(
+    calls.checks == 1 and development.stage == updates::Stage::idle,
+    "a development build never checks",
+  )
+}
+
+test fn a_failed_install_can_be_retried() Void!Str {
+  let calls = mut Calls{checks: 0, installs: 0}
+  let updater = subject(release(), "brew upgrade failed: no space left", local_finish(0), calls)
+  updater.bind(immediate, lifetime())
+  updater.install()
+  try testing::assert(updater.stage == updates::Stage::failed, "the install failed")
+  try testing::assert(updater.failure == "brew upgrade failed: no space left", updater.failure)
+  try testing::assert(updater.openable(), "a failure reopens the dialog to retry")
+  // A later check does not hide the failure.
+  updater.checked(Result::ok(release()))
+  try testing::assert(updater.stage == updates::Stage::failed, "the failure stays")
+  updater.install()
+  testing::assert(calls.installs == 2, "installs {calls.installs}")
+}
+
+test fn the_footer_item_follows_the_update() Void!Str {
+  let calls = mut Calls{checks: 0, installs: 0}
+  let updater = subject(release(), "", local_finish(0), calls)
+  updater.bind(immediate, lifetime())
+  let item = fn() cui::View {
+    chrome::footer(
+      themes(),
+      "",
+      "",
+      chrome::location_only("~/src/kit"),
+      update: updates::footer_item(themes(), updater.@, noop("open")),
+    )
+  }
+  try expect_rows(
+    render(80, 1, item()),
+    ["  Update available: v0.49.0                                           ~/src/kit"],
+  )
+  updater.stage = updates::Stage::updating
+  updater.percent = 40
+  try expect_rows(
+    render(100, 1, item()),
+    [
+      " ⠋ Updating Kit to 0.49.0… 40%                                                            ~/src/kit",
+    ],
+  )
+  updater.stage = updates::Stage::installed
+  updater.finish = local_finish(0)
+  try expect_rows(
+    render(100, 1, item()),
+    [
+      "  Restart to finish update                                                                ~/src/kit",
+    ],
+  )
+  updater.finish = updates::Finish{
+    restart: false,
+    server_version: "0.48.0",
+    active: -1,
+  }
+  try expect_rows(
+    render(100, 1, item()),
+    [
+      "  Relaunch to finish update                                                               ~/src/kit",
+    ],
+  )
+  updater.stage = updates::Stage::failed
+  updater.failure = "disk full"
+  try expect_rows(
+    render(100, 1, item()),
+    [
+      "  ✕ Update failed: disk full                                                              ~/src/kit",
+    ],
+  )
+  // A session's status outranks the update.
+  expect_rows(
+    render(
+      80,
+      1,
+      chrome::footer(
+        themes(),
+        "",
+        "2 queued · ↑ restore",
+        chrome::location_only("~/src/kit"),
+        update: updates::footer_item(themes(), updater.@, noop("open")),
+      ),
+    ),
+    [" 2 queued · ↑ restore                                                 ~/src/kit"],
+  )
+}
+
+test fn the_dialog_asks_to_update_and_then_to_restart() Void!Str {
+  let calls = mut Calls{checks: 0, installs: 0}
+  let updater = subject(release(), "", local_finish(1), calls)
+  updater.bind(immediate, lifetime())
+  let actions = updates::Actions{
+    later: noop("later"),
+    confirm: noop("confirm"),
+    open_release: noop("open"),
+  }
+  let offered = render(60, 20, updates::dialog(themes(), updater.@, actions))
+  try expect_rows(
+    offered,
+    [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "      ┌──────────────────────────────────────────────┐",
+      "      │ Update Kit                   0.48.0 → 0.49.0 │",
+      "      ├──────────────────────────────────────────────┤",
+      "      │                                              │",
+      "      │ Kit tells you when an update is out.         │",
+      "      │                                              │",
+      "      │ Kit updates with                             │",
+      "      │   brew upgrade akonwi/tap/kit                │",
+      "      │                                              │",
+      "      ├──────────────────────────────────────────────┤",
+      "      │ o open on GitHub             Later   Update  │",
+      "      └──────────────────────────────────────────────┘",
+      "",
+    ],
+  )
+  updater.install()
+  let finishing = render(60, 20, updates::dialog(themes(), updater.@, actions))
+  expect_rows(
+    finishing,
+    [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "      ┌──────────────────────────────────────────────┐",
+      "      │ Restart Kit                 0.49.0 installed │",
+      "      ├──────────────────────────────────────────────┤",
+      "      │                                              │",
+      "      │ Kit 0.49.0 is installed.                     │",
+      "      │                                              │",
+      "      │ The local server still runs 0.48.0.          │",
+      "      │ Restarting it interrupts 1 session that is   │",
+      "      │ working or waiting on you.                   │",
+      "      │                                              │",
+      "      ├──────────────────────────────────────────────┤",
+      "      │                             Later   Restart  │",
+      "      └──────────────────────────────────────────────┘",
+    ],
+  )
+}
+
+test fn interruption_counts_the_sessions_a_restart_interrupts() Void!Str {
+  try testing::assert(
+    updates::interruption(0) == "No sessions are working, so restarting it interrupts nothing.",
+    updates::interruption(0),
+  )
+  try testing::assert(
+    updates::interruption(3) == "Restarting it interrupts 3 sessions that are working or waiting on you.",
+    updates::interruption(3),
+  )
+  testing::assert(
+    updates::interruption(-1) == "Restarting it interrupts any session that is working.",
+    updates::interruption(-1),
+  )
+}

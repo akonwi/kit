@@ -115,7 +115,7 @@ private fn sorted_catalog(items: [palette::Item]) [palette::Item] {
 // Commands that need no server: diagnostics and MCP status read the last
 // snapshot, provider connection, themes, and quitting are local, and settings keeps this
 // terminal's preferences usable while it explains the server's.
-let local_commands = ["connect", "debug", "mcp", "quit", "settings", "theme"]
+let local_commands = ["connect", "debug", "mcp", "quit", "release-notes", "settings", "theme"]
 
 // command_catalog preserves the established command vocabulary while this
 // client reaches feature parity. Commands whose owning surface is not ported
@@ -195,6 +195,12 @@ private fn available_catalog(
         false => "",
       },
     ),
+    command_item(
+      "release-notes",
+      "Open this version's release notes",
+      "changelog version news update",
+      "",
+    ),
     command_item("reload", "Reload session context", "agents context refresh", ""),
     command_item("scratchpad", "Open shared working notes", "notes memory", ""),
     command_item("sessions", "Browse sessions", "list resume switch threads", ""),
@@ -268,6 +274,7 @@ enum ActionKind {
   fork,
   pair,
   refresh_models,
+  release_notes,
   reload,
   sessions,
   settings,
@@ -444,6 +451,7 @@ private fn resolve_arguments(
       "fork" => builtin(ActionKind::fork),
       "pair" => builtin(ActionKind::pair),
       "refresh-models" => builtin(ActionKind::refresh_models),
+      "release-notes" => builtin(ActionKind::release_notes),
       "reload" => builtin(ActionKind::reload),
       "sessions" => builtin(ActionKind::sessions),
       "settings" => builtin(ActionKind::settings),
