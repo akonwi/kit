@@ -136,6 +136,8 @@ type Environment struct {
 	serverPaths apphome.Paths
 	// server labels an attached server other than this home's own.
 	server string
+	// target is the attached server, for relaunching on it.
+	target attachTarget
 	// serverURL is the origin of a URL server.
 	serverURL  string
 	cwd        string
@@ -239,6 +241,7 @@ func OpenEnvironment(ctx context.Context, invocation Invocation, stderr io.Write
 		paths:           paths,
 		serverPaths:     serverPaths,
 		server:          target.Name,
+		target:          target,
 		serverURL:       target.URL,
 		cwd:             cwd,
 		settings:        settingsStore,
@@ -263,6 +266,7 @@ type Prepared struct {
 
 	client      *kit.Client
 	temporaryID string
+	target      attachTarget
 }
 
 // Prepare resolves the session to attach, reads the server's providers, and
@@ -345,8 +349,10 @@ func (e Environment) prepared(
 			DiffWrapLines:         e.diffWrap,
 			DiffLayout:            e.diffLayout,
 			DiffPreferenceService: interactiveDiffPreferenceService{settings: e.settings},
+			Relaunch:              &Relaunch{},
 		},
 		client: e.Client,
+		target: e.target,
 	}
 	if options.Temporary {
 		prepared.temporaryID = options.NewSessionID
@@ -383,6 +389,8 @@ func serverCWD(info kit.ServerInfo, server, requested string) (string, error) {
 
 // Finish disposes a temporary session and returns the process exit code for
 // a terminal client that ended with failure, or with no failure when empty.
+// A client that asked to relaunch after an update is replaced by the newly
+// installed Kit instead of returning.
 func (p Prepared) Finish(ctx context.Context, failure string, stderr io.Writer) int {
 	if p.temporaryID != "" {
 		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -401,6 +409,9 @@ func (p Prepared) Finish(ctx context.Context, failure string, stderr io.Writer) 
 	}
 	if ctx.Err() != nil {
 		return 130
+	}
+	if request, requested := p.Options.Relaunch.take(); requested {
+		return p.relaunch(ctx, request, stderr)
 	}
 	return 0
 }

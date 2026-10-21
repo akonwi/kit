@@ -455,7 +455,7 @@ test fn without_a_compatible_server_only_local_commands_remain() Void!Str {
       false => "{keys} {item.key}",
     }
   }
-  testing::assert(keys == "connect debug mcp quit settings theme", keys)
+  testing::assert(keys == "connect debug mcp quit release-notes settings theme", keys)
 }
 
 test fn prompt_commands_show_their_source_with_claude_code_commands_as_claude() Void!Str {

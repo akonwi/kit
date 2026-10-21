@@ -142,6 +142,7 @@ Available Commands:
   server      Manage the local Kit server
   servers     Manage the servers kit attach connects to
   sessions    Manage and open saved sessions
+  update      Update Kit to the newest release
   version     Print version information
 
 Flags:

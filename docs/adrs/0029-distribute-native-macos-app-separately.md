@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. Its update stance is superseded by
+[ADR 0048](0048-check-for-updates-from-each-client.md).
 
 ## Context
 

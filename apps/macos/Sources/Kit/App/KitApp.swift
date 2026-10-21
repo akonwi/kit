@@ -34,9 +34,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         // Saved servers connect when Kit opens, whether or not a tab uses them.
         sessionWindows.servers.start()
+        let windows = sessionWindows
+        AppUpdater.shared.frontWindow = { windows.frontmost()?.window }
+        AppUpdater.shared.start()
     }
+
     func applicationDidBecomeActive(_ notification: Notification) {
         sessionWindows.servers.refresh()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // A verified update replaces the app as it quits (ADR 0048).
+        AppUpdater.shared.installOnQuit()
     }
 }
 
@@ -70,12 +79,25 @@ struct KitApp: App {
         .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
         .commands {
+            UpdateCommands()
             SessionCommands(windows: windows)
             TileCommands()
         }
         Settings {
-            SettingsView(themeLibrary: themeLibrary)
+            SettingsView(themeLibrary: themeLibrary, windows: windows)
                 .environment(\.installedThemes, themeLibrary.themes)
+        }
+    }
+}
+
+/// Kit › Check for Updates… and Kit › Release Notes (ADR 0048).
+private struct UpdateCommands: Commands {
+    @Environment(\.openURL) private var openURL
+
+    var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { Task { await AppUpdater.shared.checkFromMenu() } }
+            Button("Release Notes") { openURL(AppUpdater.shared.releaseNotesURL) }
         }
     }
 }

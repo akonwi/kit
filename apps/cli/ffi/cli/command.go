@@ -37,6 +37,8 @@ type commandDependencies struct {
 	// attach runs the terminal client for the named server, or picks one when
 	// the name is empty.
 	attach func(context.Context, interactiveOptions, string, io.Writer, io.Writer) int
+	// update installs the newest Kit release.
+	update func(context.Context, updateOptions, io.Writer, io.Writer) int
 }
 
 func defaultCommandDependencies() commandDependencies {
@@ -53,6 +55,7 @@ func defaultCommandDependencies() commandDependencies {
 		},
 		devices: runServerDevices,
 		expose:  runExpose,
+		update:  runUpdateCommand,
 	}
 }
 
@@ -166,6 +169,7 @@ func newRootCommand(deps commandDependencies) *cobra.Command {
 		newServersCommand(deps),
 		newAttachCommand(deps),
 		newPairCommand(deps),
+		newUpdateCommand(deps),
 		newVersionCommand(),
 		newInternalServerCommand(deps),
 	)
@@ -554,6 +558,23 @@ func newHelpCommand(root *cobra.Command) *cobra.Command {
 			return target.Help()
 		},
 	}
+}
+
+func newUpdateCommand(deps commandDependencies) *cobra.Command {
+	var options updateOptions
+	command := &cobra.Command{
+		Use:   "update",
+		Short: "Update Kit to the newest release",
+		Long: "Install the newest Kit release: with Homebrew when Kit was installed with it, otherwise\n" +
+			"from the release archive, checked against its digest on GitHub. Then offer to restart\n" +
+			"this home's server when it runs an older Kit. Servers on other machines are not changed.",
+		Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return resultForCode(deps.update(command.Context(), options, command.OutOrStdout(), command.ErrOrStderr()))
+		},
+	}
+	command.Flags().BoolVarP(&options.Yes, "yes", "y", false, "install without asking, and restart the local server only if no session is working")
+	return command
 }
 
 func newVersionCommand() *cobra.Command {
