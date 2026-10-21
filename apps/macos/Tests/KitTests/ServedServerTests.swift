@@ -439,6 +439,11 @@ struct ServersSettingsPresentationTests {
                                         status: .connected(identity), newest: newest)
         #expect(vps == ServerRowPresentation(name: "vps", detail: "https://kit.example.dev · Kit 0.48.0", status: "Connected", tone: .success,
                                              action: .menu))
+        let mismatch = ServerMismatch(serverKitVersion: "0.45.0", serverProtocol: 46, appProtocol: kitWireVersion, reason: .daemonProtocolOlder)
+        let old = ServerRowPresentation(name: "local", connector: .home(path: user + "/.kit"), status: .incompatible(mismatch), newest: newest)
+        #expect(old.detail == "This Mac · ~/.kit · Kit 0.45.0")
+        #expect(old.action == .update)
+        #expect(old.available == "0.49.0")
     }
 
     @Test func addServerSaysWhatItFound() {
