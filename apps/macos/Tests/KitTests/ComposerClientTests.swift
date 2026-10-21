@@ -9,10 +9,15 @@ private actor ComposerMock: ComposerClient {
     nonisolated let isDemo = false
     var uploads = 0
     var failUpload = true
+    var modelsError: (any Error)?
+    func failModels(_ error: any Error) { modelsError = error }
     func sessions() async throws -> [SessionExcerpt] { [] }
     func snapshot(_ id: String) async throws -> SessionExcerpt { throw ClientError.disconnected }
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {}
-    func models() async throws -> [WireModelCapability] { [] }
+    func models() async throws -> [WireModelCapability] {
+        if let modelsError { throw modelsError }
+        return []
+    }
     func files(_ session: String) async throws -> [String] { ["README.md"] }
     func configure(_ session: String, input: WireConfigureSessionInput) async throws -> WireConfigureSessionResult { throw ClientError.http(409) }
     func respond(_ session: String, input: WireInteractionResponse) async throws {}
@@ -48,6 +53,17 @@ private actor ComposerMock: ComposerClient {
         #expect(ui.uploads.items.first?.id == id)
         ui.uploads.acknowledge(["attachment_2"])
         #expect(ui.uploads.items.isEmpty)
+    }
+    // Regression: renaming a server rebuilt the session view, and the model
+    // load it cancelled showed URLSession's "cancelled" error above the composer.
+    @Test func aCancelledModelLoadIsNotAnError() async {
+        let client = ComposerMock(), configuration = ComposerConfiguration()
+        await client.failModels(URLError(.cancelled))
+        await configuration.load(client: client)
+        #expect(configuration.error == nil)
+        await client.failModels(ClientError.http(503))
+        await configuration.load(client: client)
+        #expect(configuration.error == ClientError.http(503).localizedDescription)
     }
     @Test func draftsOfOtherSessionsFollowTheirServersNewName() {
         let ui = SessionUIState(demo: false)

@@ -17,7 +17,8 @@ final class ComposerConfiguration {
         loading = true
         defer { loading = false }
         do { models = try await client.models(); error = nil }
-        catch is CancellationError {} catch { self.error = error.localizedDescription }
+        catch let failure where isCancellation(failure) {}
+        catch { self.error = error.localizedDescription }
     }
 
     func change(client: any ComposerClient, session: SessionExcerpt, model: String, thinking: String,

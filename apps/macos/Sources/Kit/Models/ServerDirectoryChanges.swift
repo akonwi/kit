@@ -50,15 +50,15 @@ extension ServerDirectory {
                       redeem: (URL, String, String) async throws -> String) async throws {
         guard let url = URL(string: link.server) else { throw PairingError.invalidLink }
         let token = try await redeem(url, link.code, deviceName)
-        let credential = DeviceCredential(home: home.path, name: name)
-        try tokens.save(token, for: credential, url: link.server)
         // The server may have been removed or renamed while the link was
-        // redeemed; then nothing would ever use or delete the token.
+        // redeemed. Then its token isn't saved: nothing would use or delete
+        // it, and it could replace the token of another server saved under
+        // the name meanwhile.
         let current = (try? SavedServerList.read(list)) ?? []
         guard current.contains(where: { $0.name == name && $0.kind == .url && $0.address == link.server }) else {
-            try? tokens.delete(credential)
             throw SavedServerError.notFound(name)
         }
+        try tokens.save(token, for: DeviceCredential(home: home.path, name: name), url: link.server)
     }
 
     /// Saves the server `name` under `newName`. Its device token moves with
@@ -66,9 +66,15 @@ extension ServerDirectory {
     func rename(_ name: String, to newName: String) throws {
         let server = savedServers.first { $0.name == name }
         try SavedServerList.rename(name, to: newName, in: list)
-        if let server, server.kind == .url {
-            try? tokens.rename(DeviceCredential(home: home.path, name: name), to: newName, url: server.address)
-            try? TerminalDeviceTokens.rename(name, to: newName, home: home.path)
+        if let server {
+            if server.kind == .url {
+                try? tokens.rename(DeviceCredential(home: home.path, name: name), to: newName, url: server.address)
+                try? TerminalDeviceTokens.rename(name, to: newName, home: home.path)
+            }
+            // Clients some views still hold for the old name reach the
+            // server as it's now saved, with its token under the new name.
+            let renamed = SavedServer(name: newName, kind: server.kind, address: server.address)
+            connection(named: name)?.client.address.repoint(to: .saved(renamed, home: home))
         }
         refresh()
         if launcherServer == name { launcherServer = newName }

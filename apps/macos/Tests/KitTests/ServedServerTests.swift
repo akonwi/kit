@@ -109,6 +109,23 @@ struct ServedServerConnectionTests {
         #expect(try await client.resolve() !== verified)
     }
 
+    @Test func aVerifiedTransportDoesntKeepItsAddressAlive() async throws {
+        let server = try LoopbackHTTPServer(body: Self.health)
+        let url = try await server.start()
+        defer { server.stop() }
+        let credential = DeviceCredential(home: "/Users/me/.kit", name: "vps")
+        let tokens = MemoryDeviceTokens([credential: (url.absoluteString, Self.token)])
+        weak var address: ServerAddress?
+        weak var transport: HTTPClient?
+        do {
+            let client = ServerClient(serverID: "vps", connector: .url(url.absoluteString, credential: credential), tokens: tokens)
+            address = client.address
+            transport = try await client.resolve()
+        }
+        #expect(address == nil)
+        #expect(transport == nil)
+    }
+
     @Test func aRequestTheServerRefusesIsReported() async throws {
         let server = try LoopbackHTTPServer(status: "401 Unauthorized", body: #"{"error":{"code":"unauthorized","message":"no"}}"#)
         let url = try await server.start()
@@ -271,7 +288,10 @@ struct PairingLinkTests {
         try await servers.add(name: "vps", link: PairingLink(server: "https://kit.example.dev", code: code), deviceName: "Mac") { _, _, _ in token }
         var renamed: (String, String)?
         servers.serverRenamed = { renamed = ($0, $1) }
+        let old = try #require(servers.connection(named: "vps"))
         try servers.rename("vps", to: "cloud")
+        // Clients still held for the old name reach the server with the moved token.
+        #expect(old.client.connector == .url("https://kit.example.dev", credential: DeviceCredential(home: home.path, name: "cloud")))
         #expect(renamed?.0 == "vps")
         #expect(renamed?.1 == "cloud")
         #expect(servers.connections.map(\.name) == ["local", "cloud"])
@@ -318,6 +338,23 @@ struct PairingLinkTests {
         }
         #expect(tokens.token(for: DeviceCredential(home: home.path, name: "vps"), url: "https://kit.example.dev") == nil)
         #expect(servers.savedServers.isEmpty)
+    }
+
+    @Test func aServerPairedAgainMeanwhileKeepsItsToken() async throws {
+        let tokens = MemoryDeviceTokens()
+        let (servers, home) = try directory(tokens: tokens)
+        let credential = DeviceCredential(home: home.path, name: "vps")
+        let other = "kit_device_" + String(repeating: "G", count: 43)
+        await #expect(throws: SavedServerError.notFound("vps")) {
+            try await servers.add(name: "vps", link: PairingLink(server: "https://kit.example.dev", code: code), deviceName: "Mac") { _, _, _ in
+                // Meanwhile the name is removed and saved again for another server.
+                try SavedServerList.remove("vps", from: servers.list)
+                try SavedServerList.add(SavedServer(name: "vps", kind: .url, address: "https://other.example.dev"), to: servers.list)
+                try tokens.save(other, for: credential, url: "https://other.example.dev")
+                return token
+            }
+        }
+        #expect(tokens.token(for: credential, url: "https://other.example.dev") == other)
     }
 
     @Test func removingForgetsTheTokenAndTellsWindows() async throws {

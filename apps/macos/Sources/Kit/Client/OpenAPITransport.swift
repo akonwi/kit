@@ -124,8 +124,7 @@ final class TransportFailures: Sendable {
         let result: (URLSession.AsyncBytes, URLResponse)
         do { result = try await session.bytes(for: request) }
         catch {
-            let cancelled = Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled
-            if !cancelled { failures?.report(.unreachable) }
+            if !isCancellation(error) { failures?.report(.unreachable) }
             throw error
         }
         switch (result.1 as? HTTPURLResponse)?.statusCode {

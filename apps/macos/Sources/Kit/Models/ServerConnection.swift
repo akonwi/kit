@@ -127,6 +127,7 @@ final class ServerConnection: Identifiable {
     func retire() {
         retired = true
         stop()
+        client.address.forget()
     }
 
     /// Reaches the server another way, as when its saved name is pointed at

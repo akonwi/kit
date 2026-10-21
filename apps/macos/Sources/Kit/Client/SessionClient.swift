@@ -1,4 +1,5 @@
 import Foundation
+import OpenAPIRuntime
 import Synchronization
 
 /// Endpoints and sessions have independent identities; session IDs are not global.
@@ -160,6 +161,14 @@ enum ServerConnector: Hashable, Sendable {
     }
 }
 
+/// Whether `error` means the operation was cancelled, as when its view went
+/// away, rather than that it failed. Cancellation says nothing about the server.
+func isCancellation(_ error: any Error) -> Bool {
+    if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { return true }
+    if let wrapped = error as? OpenAPIRuntime.ClientError { return isCancellation(wrapped.underlyingError) }
+    return false
+}
+
 /// Tells a server's connection that an operation couldn't reach the server,
 /// so it checks the server now rather than at its next scheduled check.
 final class ServerSignal: Sendable {
@@ -259,9 +268,7 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
         if let client = address.verifiedClient(for: connector) { return client }
         do { return try await verify(connector).client }
         catch {
-            // An operation that was cancelled says nothing about the server.
-            let cancelled = Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled
-            if !cancelled { unreachable?.fire() }
+            if !isCancellation(error) { unreachable?.fire() }
             throw error
         }
     }
@@ -278,9 +285,10 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
             throw error
         }
         guard case .url = connector else { return result }
-        let address = self.address, unreachable = self.unreachable, id = ObjectIdentifier(result.client)
-        result.client.failures.connect { failure in
-            address.forget(id)
+        // The address keeps the transport, so the transport mustn't keep the address.
+        let unreachable = self.unreachable, id = ObjectIdentifier(result.client)
+        result.client.failures.connect { [weak address] failure in
+            address?.forget(id)
             if failure != .changed { unreachable?.fire() }
         }
         address.remember(result.client, for: connector)
