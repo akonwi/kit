@@ -245,6 +245,8 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
         try await resolve().watchSubagent(session: session, conversation: conversation, receive: receive)
     }
     func sessions() async throws -> [SessionExcerpt] { try await resolve().sessions() }
+    /// Issues a pairing code for another device.
+    func createPairing() async throws -> PairingCode { try await resolve().createPairing() }
     func history(_ id: String, before: String) async throws -> TranscriptHistoryPage {
         try await resolve().history(id, before: before)
     }

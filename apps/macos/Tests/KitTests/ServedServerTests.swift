@@ -290,3 +290,58 @@ struct ServerPairingPresentationTests {
         #expect(ServerStatePresentation.restartCommand(connector: .url("https://kit.example.dev", credential: credential)) == "kit server restart")
     }
 }
+
+struct ServersSettingsPresentationTests {
+    private let credential = DeviceCredential(home: "/Users/me/.kit", name: "staging")
+    private let identity = ServerIdentity(id: "server_" + String(repeating: "a", count: 32), instance: "i", kitVersion: "0.48.0",
+                                          protocolVersion: kitWireVersion, machine: String(repeating: "b", count: 64), home: "/Users/me")
+
+    @Test func rowsSayWhereEachServerIsAndHowItIs() {
+        let user = FileManager.default.homeDirectoryForCurrentUser.path
+        let local = ServerRowPresentation(name: "local", connector: .home(path: user + "/.kit"), status: .connected(identity))
+        #expect(local == ServerRowPresentation(name: "local", detail: "This Mac · ~/.kit", status: "Running", tone: .success, action: .menu))
+        let devbox = ServerRowPresentation(name: "devbox", connector: .ssh("me@devbox"), status: .unreachable(reason: "no", retry: nil))
+        #expect(devbox == ServerRowPresentation(name: "devbox", detail: "SSH · me@devbox", status: "Can’t connect", tone: .hollow, action: .menu))
+        let staging = ServerRowPresentation(name: "staging", connector: .url("https://staging.example.dev", credential: credential),
+                                            status: .needsPairing(.expired))
+        #expect(staging == ServerRowPresentation(name: "staging", detail: "https://staging.example.dev", status: "Pairing expired",
+                                                 tone: .warning, action: .pairAgain))
+        let vps = ServerRowPresentation(name: "vps", connector: .url("https://kit.example.dev", credential: credential), status: .connected(identity))
+        #expect(vps.status == "Connected")
+    }
+
+    @Test func addServerSaysWhatItFound() {
+        let code = String(repeating: "a", count: 26)
+        #expect(AddServerHint("me@gpu-01.lab", location: .ssh("me@gpu-01.lab"))?.kind == .ssh)
+        let link = AddServerHint("x", location: .link(PairingLink(server: "http://100.64.0.7:4517", code: code)))
+        #expect(link?.text == "Pairing link for 100.64.0.7. Kit keeps this Mac’s device token in the Keychain.")
+        #expect(link?.warning == "Plain HTTP: the code and token cross the network unencrypted unless it’s private, like a tailnet.")
+        let loopback = AddServerHint("x", location: .link(PairingLink(server: "http://127.0.0.1:58925", code: code)))
+        #expect(loopback?.text == "Pairing link for 127.0.0.1. Kit keeps this Mac’s device token in the Keychain.")
+        #expect(loopback?.warning == nil)
+        #expect(AddServerHint("https://kit.example.dev", location: nil)?.text
+                == "A server URL needs pairing. Run kit server pair on that server and paste the link it prints.")
+        #expect(AddServerHint("  ", location: nil) == nil)
+    }
+
+    @Test func pairingOffersAddressesOtherDevicesCanReach() {
+        let home = ServerConnector.home(path: "/Users/me/.kit")
+        #expect(PairingAddresses(connector: home, reported: ["https://mac.tail1a2b.ts.net", "http://192.168.1.20:4517", "http://127.0.0.1:4517"])
+            .addresses.map(\.url) == ["https://mac.tail1a2b.ts.net", "http://192.168.1.20:4517"])
+        #expect(PairingAddresses(connector: home, reported: ["http://127.0.0.1:4517"]).addresses.isEmpty)
+        let served = ServerConnector.url("https://kit.example.dev", credential: credential)
+        #expect(PairingAddresses(connector: served, reported: ["https://kit.example.dev", "http://[::1]:4517"]).addresses.map(\.url)
+                == ["https://kit.example.dev"])
+        #expect(PairingAddresses.Address(url: "http://192.168.1.20:4517").insecure)
+        #expect(PairDeviceDialog.exposeCommand(connector: .home(DevHomeResolver.defaultHome)) == "kit server expose --tailscale")
+        #expect(PairDeviceDialog.exposeCommand(connector: .home(path: "/work/kit home"))
+                == "KIT_HOME='/work/kit home' kit server expose --tailscale")
+    }
+
+    @Test func removingSaysWhatGoes() {
+        #expect(RemoveServerDialog.message(name: "vps", token: true, tabs: 2)
+                == "Kit and the kit command forget vps. Its device token is removed from the Keychain. Its 2 open tabs close. The server and its sessions keep running.")
+        #expect(RemoveServerDialog.message(name: "devbox", token: false, tabs: 0)
+                == "Kit and the kit command forget devbox. The server and its sessions keep running.")
+    }
+}

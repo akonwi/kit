@@ -128,6 +128,7 @@ struct ServerStatePresentation: Equatable {
 struct ServerStateView: View {
     @Environment(\.mica) private var theme
     @Environment(\.openURL) private var openURL
+    @Environment(\.openSettings) private var openSettings
     let connection: ServerConnection
     var sessionTab = true
 
@@ -192,6 +193,8 @@ struct ServerStateView: View {
                 Circle().strokeBorder(theme.muted).frame(width: 6, height: 6)
                 RetryCountdown(retry: retry).font(.kit(size: 12)).foregroundStyle(theme.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Server Settings…") { SettingsSection.servers.open(with: openSettings, server: connection.name) }
+                    .buttonStyle(FormButtonStyle())
                 Button("Try Now") { connection.checkNow() }
                     .buttonStyle(FormButtonStyle(fill: .primary))
                     .keyboardShortcut(.defaultAction)
@@ -329,6 +332,8 @@ struct ServerPairingView: View {
 struct PairingLinkField: View {
     @Environment(\.mica) private var theme
     let placeholder: String
+    /// Takes focus when it appears, as the only field in a dialog does.
+    var autofocus = false
     let pair: (PairingLink) async throws -> Void
     @State private var text = ""
     @State private var pending = false
@@ -354,6 +359,7 @@ struct PairingLinkField: View {
             if let error { ProviderErrorLine(message: error) }
         }
         .onChange(of: text) { error = nil }
+        .task { if autofocus { focused = true } }
     }
 
     private func submit() {

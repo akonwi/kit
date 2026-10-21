@@ -229,6 +229,8 @@ final class ServerDirectory {
     @ObservationIgnored var serverRenamed: (_ from: String, _ to: String) -> Void = { _, _ in }
     /// Called after a saved server is removed, so windows close its tabs.
     @ObservationIgnored var serverRemoved: (_ name: String) -> Void = { _ in }
+    /// How many session tabs are open on a server across windows.
+    @ObservationIgnored var openTabs: (_ name: String) -> Int = { _ in 0 }
     @ObservationIgnored private let saved: () -> [SavedServer]
     @ObservationIgnored private let makeConnection: (String, ServerConnector) -> ServerConnection
     @ObservationIgnored private var started = false

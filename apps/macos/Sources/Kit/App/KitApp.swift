@@ -76,6 +76,7 @@ struct KitApp: App {
         Settings {
             SettingsView(themeLibrary: themeLibrary)
                 .environment(\.installedThemes, themeLibrary.themes)
+                .environment(\.serverDirectory, windows.servers)
         }
     }
 }
