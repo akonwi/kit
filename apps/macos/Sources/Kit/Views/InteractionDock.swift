@@ -334,24 +334,34 @@ private struct StepTrail: View {
     }
 }
 
-/// Lettered options with a shared label column and a detail column. Six rows
-/// show; the rest scroll, with the hidden count at each edge.
+/// Lettered options, each with its whole label and up to three lines of
+/// detail below it. A list taller than `maxScrollHeight` scrolls, with the
+/// hidden count at each edge.
 struct DockOptionList: View {
     @Environment(\.mica) private var theme
     let flow: InteractionFlow
     let choose: (Int) -> Void
     @State private var hovered: Int?
-    @State private var offset: CGFloat = 0
+    /// The scrolled-to part of the options.
+    @State private var visible = CGRect.zero
+    @State private var opened = false
+    /// Each row's vertical extent within the scrolled content.
+    @State private var frames: [Int: ClosedRange<CGFloat>] = [:]
 
-    static let visibleRows = 6
-    static let rowHeight: CGFloat = 30
+    static let minimumRowHeight: CGFloat = 30
     static let spacing: CGFloat = 2
+    /// The tallest a scrolling list grows before it scrolls.
+    static let maxScrollHeight: CGFloat = 280
+    /// Detail lines a row shows; the rest is in its tooltip.
+    static let detailLines = 3
+    private nonisolated static let space = "dock.options"
 
-    /// Options hidden above and below a list scrolled this far.
-    static func hidden(count: Int, offset: CGFloat) -> (above: Int, below: Int) {
-        guard count > visibleRows else { return (0, 0) }
-        let above = min(count - visibleRows, max(0, Int((offset / (rowHeight + spacing)).rounded())))
-        return (above, count - visibleRows - above)
+    /// Options hidden above and below a list scrolled this far: those whose
+    /// middle is outside the viewport.
+    static func hidden(frames: [ClosedRange<CGFloat>], offset: CGFloat, viewport: CGFloat) -> (above: Int, below: Int) {
+        guard viewport > 0 else { return (0, 0) }
+        let middles = frames.map { ($0.lowerBound + $0.upperBound) / 2 }
+        return (middles.filter { $0 < offset }.count, middles.filter { $0 > offset + viewport }.count)
     }
 
     /// A–Z, then AA, AB, and so on, as in the TUI.
@@ -374,71 +384,49 @@ struct DockOptionList: View {
         return index < count ? index : nil
     }
 
-    /// The label column fits the longest label, within limits.
-    @MainActor static func labelWidth(_ labels: [String]) -> CGFloat {
-        let font = Typography.shared.font(size: 13, weight: .medium)
-        let widest = labels.map { ceil(($0 as NSString).size(withAttributes: [.font: font]).width) }.max() ?? 0
-        return min(220, max(64, widest))
-    }
-
     var body: some View {
         let options = flow.question.options
-        let width = Self.labelWidth(options.map { flow.question.optionLabels[$0] ?? $0 })
-        let hidden = Self.hidden(count: options.count, offset: offset)
+        let hidden = Self.hidden(frames: options.indices.compactMap { frames[$0] },
+                                 offset: visible.minY, viewport: visible.height)
         VStack(spacing: Self.spacing) {
-            if options.count > Self.visibleRows {
-                if hidden.above > 0 { overflow(hidden.above, up: true) }
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        rows(options, width: width)
-                    }
-                    .scrollIndicators(.never)
-                    .frame(height: CGFloat(Self.visibleRows) * (Self.rowHeight + Self.spacing) - Self.spacing)
-                    .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, y in offset = y }
-                    .onChange(of: flow.cursor) { _, cursor in proxy.scrollTo(cursor) }
-                    .onChange(of: flow.step) { proxy.scrollTo(flow.cursor, anchor: .top) }
+            if hidden.above > 0 { overflow(hidden.above, up: true) }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    rows(options)
                 }
-                if hidden.below > 0 { overflow(hidden.below, up: false) }
-            } else {
-                rows(options, width: width)
+                .scrollIndicators(.never)
+                .scrollBounceBehavior(.basedOnSize)
+                // As tall as the options, up to the limit.
+                .frame(maxHeight: Self.maxScrollHeight)
+                .fixedSize(horizontal: false, vertical: true)
+                .onScrollGeometryChange(for: CGRect.self) { $0.visibleRect } action: { _, rect in visible = rect }
+                .onChange(of: flow.cursor) { _, cursor in proxy.scrollTo(cursor) }
+                // Each question mounts its own list; one answered earlier
+                // opens on its answer once the options are laid out.
+                .onScrollGeometryChange(for: Bool.self) { $0.contentSize.height > 0 } action: { _, laidOut in
+                    guard laidOut, !opened else { return }
+                    opened = true
+                    proxy.scrollTo(flow.cursor)
+                }
             }
+            if hidden.below > 0 { overflow(hidden.below, up: false) }
         }
         .padding(.horizontal, -6)
     }
 
-    private func rows(_ options: [String], width: CGFloat) -> some View {
+    private func rows(_ options: [String]) -> some View {
         VStack(spacing: Self.spacing) {
             ForEach(Array(options.enumerated()), id: \.offset) { index, option in
-                row(index, option: option, width: width).id(index)
+                DockOptionRow(flow: flow, index: index, option: option, hovered: hovered == index,
+                              hover: { hovered = $0 ? index : (hovered == index ? nil : hovered) }, choose: choose)
+                    .onGeometryChange(for: ClosedRange<CGFloat>.self) { proxy in
+                        let frame = proxy.frame(in: .named(Self.space))
+                        return frame.minY...max(frame.minY, frame.maxY)
+                    } action: { frames[index] = $0 }
+                    .id(index)
             }
         }
-    }
-
-    private func row(_ index: Int, option: String, width: CGFloat) -> some View {
-        let highlighted = index == flow.cursor
-        let checked = flow.answers[flow.step].choices.contains(option)
-        return HStack(spacing: 10) {
-            Text(Self.marker(index)).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
-                .frame(width: 12, alignment: .leading)
-            if flow.mode == .multiple { DockCheckbox(checked: checked) }
-            Text(flow.question.optionLabels[option] ?? option)
-                .font(.kit(size: 13, weight: highlighted ? .medium : .regular))
-                .lineLimit(1).truncationMode(.tail)
-                .frame(width: width, alignment: .leading)
-            Text(flow.question.optionDetails[option] ?? "").font(.kit(size: 12)).foregroundStyle(theme.muted)
-                .lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.leading, 12).padding(.trailing, 10)
-        .frame(height: Self.rowHeight)
-        .background(highlighted ? theme.accent.opacity(0.18) : hovered == index ? theme.hover : .clear,
-                    in: RoundedRectangle(cornerRadius: 3))
-        .contentShape(Rectangle())
-        .onHover { hovered = $0 ? index : (hovered == index ? nil : hovered) }
-        .onTapGesture { if !flow.submitting { choose(index) } }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(checked ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction { choose(index) }
+        .coordinateSpace(.named(Self.space))
     }
 
     private func overflow(_ count: Int, up: Bool) -> some View {
@@ -447,21 +435,103 @@ struct DockOptionList: View {
             Text(String(count) + " more").font(.kit(size: 11))
         }
         .foregroundStyle(theme.muted)
-        .padding(.leading, 34)
+        // Under the labels.
+        .padding(.leading, DockOptionRow.padding.leading + DockOptionRow.markerWidth + DockOptionRow.spacing)
         .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
     }
 }
 
-private struct DockCheckbox: View {
+/// One lettered option. The letter and checkbox sit on the label's first
+/// line, and the label is never cut short. The highlight is a fill, so moving
+/// it never rewraps a row.
+struct DockOptionRow: View {
+    @Environment(\.mica) private var theme
+    let flow: InteractionFlow
+    let index: Int
+    let option: String
+    var hovered = false
+    var hover: (Bool) -> Void = { _ in }
+    let choose: (Int) -> Void
+
+    static let padding = EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 10)
+    static let markerWidth: CGFloat = 12
+    static let spacing: CGFloat = 10
+    /// Between the label and its detail.
+    static let detailSpacing: CGFloat = 2
+
+    private static var capHeight: CGFloat { Typography.shared.font(size: 13, weight: .medium).capHeight }
+
+    var body: some View {
+        let highlighted = index == flow.cursor
+        let checked = flow.answers[flow.step].choices.contains(option)
+        let detail = flow.question.optionDetails[option] ?? ""
+        let capHeight = Self.capHeight
+        HStack(alignment: .firstTextBaseline, spacing: Self.spacing) {
+            Text(DockOptionList.marker(index)).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
+                .frame(width: Self.markerWidth, alignment: .leading)
+            if flow.mode == .multiple {
+                // Centred on the label's capitals.
+                DockCheckbox(checked: checked).alignmentGuide(.firstTextBaseline) { $0.height / 2 + capHeight / 2 }
+            }
+            VStack(alignment: .leading, spacing: Self.detailSpacing) {
+                Text(flow.question.optionLabels[option] ?? option)
+                    .font(.kit(size: 13, weight: .medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                if !detail.isEmpty { DockOptionDetail(text: detail) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(Self.padding)
+        .frame(minHeight: DockOptionList.minimumRowHeight)
+        .background(highlighted ? theme.accent.opacity(0.18) : hovered ? theme.hover : .clear,
+                    in: RoundedRectangle(cornerRadius: 3))
+        .contentShape(Rectangle())
+        .onHover(perform: hover)
+        .onTapGesture { if !flow.submitting { choose(index) } }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(checked ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { choose(index) }
+    }
+}
+
+/// An option's detail, up to `DockOptionList.detailLines` lines. Detail cut
+/// short is in full in its tooltip.
+private struct DockOptionDetail: View {
+    @Environment(\.mica) private var theme
+    let text: String
+    @State private var shown: CGFloat = 0
+    @State private var full: CGFloat = 0
+
+    var body: some View {
+        let detail = Text(text).font(.kit(size: 12))
+        detail.foregroundStyle(theme.muted)
+            .lineLimit(DockOptionList.detailLines).truncationMode(.tail)
+            .fixedSize(horizontal: false, vertical: true)
+            // The column's width, for the measurement and the tooltip's target.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { shown = $0 }
+            // The whole detail at this width, measured to tell if it's cut.
+            .background(alignment: .top) {
+                detail.fixedSize(horizontal: false, vertical: true).hidden()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { full = $0 }
+            }
+            .help(full > shown + 0.5 ? text : "")
+            // The row already reads the whole detail.
+            .accessibilityHint("")
+    }
+}
+
+struct DockCheckbox: View {
     @Environment(\.mica) private var theme
     let checked: Bool
+    static let size: CGFloat = 14
 
     var body: some View {
         if checked {
-            RoundedRectangle(cornerRadius: 2).fill(theme.accent).frame(width: 14, height: 14)
+            RoundedRectangle(cornerRadius: 2).fill(theme.accent).frame(width: Self.size, height: Self.size)
                 .overlay(IconView(.check, size: 10).foregroundStyle(theme.surface))
         } else {
-            RoundedRectangle(cornerRadius: 2).strokeBorder(theme.strongBorder).frame(width: 14, height: 14)
+            RoundedRectangle(cornerRadius: 2).strokeBorder(theme.strongBorder).frame(width: Self.size, height: Self.size)
         }
     }
 }

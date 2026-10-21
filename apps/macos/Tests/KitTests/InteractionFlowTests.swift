@@ -134,10 +134,14 @@ struct InteractionFlowTests {
         #expect(DockOptionList.index(forKey: "C", count: 3) == 2)
         #expect(DockOptionList.index(forKey: "d", count: 3) == nil)
         #expect(DockOptionList.index(forKey: "1", count: 3) == nil)
-        #expect(DockOptionList.hidden(count: 4, offset: 0) == (0, 0))
-        #expect(DockOptionList.hidden(count: 11, offset: 0) == (0, 5))
-        #expect(DockOptionList.hidden(count: 11, offset: 64) == (2, 3))
-        #expect(DockOptionList.hidden(count: 11, offset: 900) == (5, 0))
+        // Rows of 30, 50, 40, 30, and 50 points with 2 between: an option is hidden
+        // once its middle leaves the viewport.
+        let frames: [ClosedRange<CGFloat>] = [0...30, 32...82, 84...124, 126...156, 158...208]
+        #expect(DockOptionList.hidden(frames: frames, offset: 0, viewport: 0) == (0, 0))
+        #expect(DockOptionList.hidden(frames: frames, offset: 0, viewport: 208) == (0, 0))
+        #expect(DockOptionList.hidden(frames: frames, offset: 0, viewport: 100) == (0, 3))
+        #expect(DockOptionList.hidden(frames: frames, offset: 60, viewport: 100) == (2, 1))
+        #expect(DockOptionList.hidden(frames: frames, offset: 108, viewport: 100) == (3, 0))
     }
 
     @Test func answeredRequestsStayDockedUntilTheHoldEnds() async throws {
