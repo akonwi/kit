@@ -493,6 +493,10 @@ final class SessionWindowModel: Identifiable {
         tab.attachedRoute = route
         let catalog = servers.connection(named: client.serverID)?.catalog.sessions ?? []
         let store = SessionStore(fixture: Fixture(sessions: catalog), client: client, sessionID: tab.identity.session)
+        store.serverIsThisMac = { [weak servers = self.servers, weak store] in
+            guard let store else { return nil }
+            return servers?.isThisMac(store.serverID)
+        }
         if let arrangement = tab.savedArrangement { store.ui.workspace.restore(arrangement) }
         tab.savedArrangement = nil
         tab.store = store

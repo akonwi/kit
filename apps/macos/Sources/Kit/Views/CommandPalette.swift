@@ -31,7 +31,7 @@ struct CommandPalette: View {
         PaletteCommand.catalog(
             builtIns: PaletteCommand.builtIns(scratchpad: state.canOpenScratchpad,
                                               temporary: state.isTemporary,
-                                              terminal: state.terminalDirectory != nil),
+                                              terminal: state.offersTerminal),
             prompts: state.selected?.promptCommands ?? [],
             plugins: state.pluginCommands
         ).map { row in
@@ -124,6 +124,7 @@ struct CommandPalette: View {
         case "model", "thinking": configurationUnavailableReason
         case "diff": state.catalogClient is any DiffClient ? nil : "Unavailable for this connection"
         case "files": state.unavailable ? "Session unavailable" : nil
+        case "terminal": state.terminalUnavailableReason
         case "split-right", "split-down": workspace.canSplit(workspace.selected) ? nil : "needs another tab"
         case "zoom", "equalize", "join-tabs": workspace.root.tiles.count < 2 ? "needs two tiles" : nil
         default: nil

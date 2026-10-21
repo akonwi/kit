@@ -71,6 +71,22 @@ final class ServerConnection: Identifiable {
     let client: ServerClient
     let catalog: SessionCatalog
     private(set) var status: ServerStatus = .connecting
+    /// This Mac's Kit-scoped machine identifiers, which the directory sets
+    /// (`LocalMachine.identifiers`); empty while unknown.
+    var localMachines: Set<String> = []
+    /// The machine identifier the server last verified. It is kept while the
+    /// server can't be reached or verified, and forgotten when the server is
+    /// reached another way.
+    private(set) var machine: String?
+
+    /// Whether the server runs on this Mac: the machine identifier it last
+    /// verified is this Mac's. Nil until it verifies, or while this Mac's
+    /// identifiers are unknown; features that need this Mac stay unavailable
+    /// then. Never judged by the address.
+    var isThisMac: Bool? {
+        guard let machine, !localMachines.isEmpty else { return nil }
+        return localMachines.contains(machine)
+    }
 
     @ObservationIgnored private let handshake: Handshake
     /// A handshake is underway.
@@ -138,6 +154,7 @@ final class ServerConnection: Identifiable {
         self.connector = connector
         route += 1
         status = .connecting
+        machine = nil
         catalog.reset()
         if monitor != nil { checkNow() }
     }
@@ -174,6 +191,7 @@ final class ServerConnection: Identifiable {
                 let identity = try result.get()
                 let restarted = status.identity?.instance != identity.instance
                 status = .connected(identity)
+                if machine != identity.machine { machine = identity.machine }
                 delay = schedule.firstRetry
                 wait = schedule.check
                 if restarted || !catalog.loaded {
@@ -220,6 +238,10 @@ final class ServerDirectory {
     private(set) var connections: [ServerConnection]
     /// The app's own Kit home.
     let home: URL
+    /// This Mac's Kit-scoped machine identifiers, given to every connection.
+    private(set) var localMachines: Set<String>
+    /// Reads this Mac's machine identifiers again, as on `refresh()`.
+    @ObservationIgnored private let readLocalMachines: () -> Set<String>
     /// The saved servers, as last read, including those this app can't reach yet.
     private(set) var savedServers: [SavedServer] = []
     /// The saved-server list this directory changes.
@@ -248,7 +270,8 @@ final class ServerDirectory {
     /// Reads the saved servers of `home` and connects to them through their connectors.
     convenience init(home: URL = DevHomeResolver.resolve(), tokens: any DeviceTokenStore = DeviceTokens.standard) {
         let list = home.appendingPathComponent("servers.json")
-        self.init(home: home, tokens: tokens, defaults: .standard, saved: { (try? SavedServerList.read(list)) ?? [] }) { name, connector in
+        self.init(home: home, tokens: tokens, defaults: .standard, localMachines: { LocalMachine.identifiers(home: home) },
+                  saved: { (try? SavedServerList.read(list)) ?? [] }) { name, connector in
             ServerConnection(name: name, connector: connector, tokens: tokens)
         }
     }
@@ -256,8 +279,11 @@ final class ServerDirectory {
     /// Creates a directory from explicit parts, as tests do. Changes are
     /// written to `home`'s list, which `saved` should read.
     init(home: URL, tokens: any DeviceTokenStore = MemoryDeviceTokens(), defaults: UserDefaults? = nil,
-         saved: @escaping () -> [SavedServer], makeConnection: @escaping (String, ServerConnector) -> ServerConnection) {
+         localMachines: @escaping () -> Set<String> = { [] }, saved: @escaping () -> [SavedServer],
+         makeConnection: @escaping (String, ServerConnector) -> ServerConnection) {
         self.defaults = defaults
+        readLocalMachines = localMachines
+        self.localMachines = localMachines()
         launcherServer = defaults?.string(forKey: Self.launcherServerKey) ?? ServerClient.localID
         self.home = URL(fileURLWithPath: home.path).standardizedFileURL
         list = self.home.appendingPathComponent("servers.json")
@@ -266,8 +292,16 @@ final class ServerDirectory {
         self.makeConnection = makeConnection
         let servers = saved()
         savedServers = servers
-        connections = [makeConnection(ServerClient.localID, .home(path: self.home.path))]
-        connections += Self.reachable(servers, home: self.home).map { makeConnection($0.name, $0.connector) }
+        connections = []
+        connections = [connect(ServerClient.localID, .home(path: self.home.path))]
+            + Self.reachable(servers, home: self.home).map { connect($0.name, $0.connector) }
+    }
+
+    /// A new connection to a server, which knows this Mac's machine.
+    private func connect(_ name: String, _ connector: ServerConnector) -> ServerConnection {
+        let connection = makeConnection(name, connector)
+        connection.localMachines = localMachines
+        return connection
     }
 
     /// A directory that knows only an idle local server, for views and models
@@ -282,6 +316,12 @@ final class ServerDirectory {
 
     func connection(named name: String) -> ServerConnection? {
         connections.first { $0.name == name }
+    }
+
+    /// Whether the named server runs on this Mac; nil while it is unknown or
+    /// unverified. See `ServerConnection.isThisMac`.
+    func isThisMac(_ name: String) -> Bool? {
+        connection(named: name)?.isThisMac
     }
 
     /// The client of the named server, for operations that pick a server.
@@ -299,6 +339,12 @@ final class ServerDirectory {
     /// and changed ones are repointed. Then every server is checked now, as
     /// when the app becomes active.
     func refresh() {
+        // A server may have written the home's machine value since launch.
+        let machines = readLocalMachines()
+        if machines != localMachines {
+            localMachines = machines
+            for connection in connections { connection.localMachines = machines }
+        }
         let servers = saved()
         if servers != savedServers { savedServers = servers }
         var next = [local]
@@ -307,7 +353,7 @@ final class ServerDirectory {
                 existing.repoint(to: entry.connector)
                 next.append(existing)
             } else {
-                let connection = makeConnection(entry.name, entry.connector)
+                let connection = connect(entry.name, entry.connector)
                 if started { connection.start() }
                 next.append(connection)
             }

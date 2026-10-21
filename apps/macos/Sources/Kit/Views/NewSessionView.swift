@@ -60,10 +60,11 @@ enum NewSessionPlace: Equatable {
 }
 
 extension NewSessionPlace {
-    /// Where a new session on `connection` keeps its folder. Until servers
-    /// report their machine, only a Kit home counts as this Mac.
+    /// Where a new session on `connection` keeps its folder: chosen on this
+    /// Mac only when the server's verified machine is this Mac's, otherwise
+    /// typed as a path on the server, from its home.
     @MainActor init(_ connection: ServerConnection) {
-        if !connection.connector.isThisMac, let home = connection.status.identity?.home {
+        if connection.isThisMac != true, let home = connection.status.identity?.home {
             self = .elsewhere(connection.name, home: home)
         } else {
             self = .thisMac(connection.name)

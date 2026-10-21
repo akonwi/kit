@@ -60,8 +60,12 @@ struct ServerRowPresentation: Equatable {
 
     /// A server's row. Connected servers show their Kit version; this Mac's
     /// server offers Update… when `newest` is newer than it (ADR 0048).
-    /// Servers on other machines are updated there.
-    init(name: String, connector: ServerConnector, status: ServerStatus, newest: ReleaseVersion? = nil) {
+    /// Servers on other machines are updated there. `thisMac` is whether the
+    /// server verified as running on this Mac: the app's own home's server
+    /// offers Update… unless it verified elsewhere, since a server too old
+    /// for this app never verifies.
+    init(name: String, connector: ServerConnector, status: ServerStatus, newest: ReleaseVersion? = nil,
+         thisMac: Bool? = nil) {
         self.name = name
         let local = name == ServerClient.localID
         let place = switch connector {
@@ -73,7 +77,7 @@ struct ServerRowPresentation: Equatable {
         // is the one most in need of Update….
         let version = if case .incompatible(let mismatch) = status { mismatch.serverKitVersion } else { status.identity?.kitVersion }
         detail = [place, version.map { "Kit " + $0 }].compactMap { $0 }.joined(separator: " · ")
-        if local, let newest, let running = version.flatMap(ReleaseVersion.init), newest > running {
+        if local, thisMac != false, let newest, let running = version.flatMap(ReleaseVersion.init), newest > running {
             available = newest.description
         } else {
             available = nil
@@ -141,7 +145,7 @@ struct ServersSettingsView: View {
 
     private func presentation(_ connection: ServerConnection) -> ServerRowPresentation {
         ServerRowPresentation(name: connection.name, connector: connection.connector, status: connection.status,
-                              newest: updater.newestCLI?.version)
+                              newest: updater.newestCLI?.version, thisMac: connection.isThisMac)
     }
 
     private func row(_ connection: ServerConnection) -> some View {

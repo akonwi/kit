@@ -646,10 +646,25 @@ final class SessionStore {
         ui.closeLiveTabs()
     }
 
+    /// Whether the tab's server runs on this Mac, as its connection last
+    /// verified; nil until it does. The window sets it.
+    @ObservationIgnored var serverIsThisMac: @MainActor () -> Bool? = { nil }
+
+    /// Whether this tab can use features that work on this Mac's files and
+    /// programs, such as terminals.
+    var thisMacGate: ThisMacGate { ThisMacGate(thisMac: isDemo ? false : serverIsThisMac()) }
+
+    /// Whether the tab offers a terminal, available or dimmed: it shows a session.
+    var offersTerminal: Bool { !isDemo && !unavailable && selected != nil }
+
+    /// Why a terminal can't open, such as "needs this Mac", while the tab
+    /// offers one.
+    var terminalUnavailableReason: String? { offersTerminal ? thisMacGate.reason : "Session unavailable" }
+
     /// Where a new terminal starts: the session's working directory. Nil
     /// unless the server runs on this Mac, since a terminal runs here.
     var terminalDirectory: String? {
-        guard !isDemo, !unavailable, serverID == SessionWindowModel.defaultServer, let session = selected else { return nil }
+        guard offersTerminal, thisMacGate == .available, let session = selected else { return nil }
         return session.cwd ?? session.workspace
     }
 
