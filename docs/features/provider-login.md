@@ -39,6 +39,13 @@ offers the providers' logins. Each runs on the attached server:
   client cannot listen on that port, it says so; then, or when the browser
   runs on another machine, paste the final page's URL or the code it shows.
 - **API key.** The key is sent to the server once and never returned.
+  Saving a key for a provider that has one replaces it.
+
+`/connect` opens the same logins at any time. In its provider list, Ctrl+D
+logs the selected provider out of the attached server; the Claude and
+Anthropic rows share one credential. A notification reports the outcome,
+including the server's reason when it refuses, such as for credentials from
+its environment. Closing the list does not cancel a logout in progress.
 
 ## In the macOS app
 

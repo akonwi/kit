@@ -49,6 +49,14 @@ final class SessionWindowRegistry: NSObject {
         return models.values.compactMap(\.value)
     }
 
+    /// The frontmost window with a model matching `include`, by window order.
+    func frontmost(where include: (SessionWindowModel) -> Bool = { _ in true }) -> SessionWindowModel? {
+        let order = NSApp.orderedWindows
+        return liveModels.filter { $0.window != nil && include($0) }.min { lhs, rhs in
+            (lhs.window.flatMap { order.firstIndex(of: $0) } ?? .max) < (rhs.window.flatMap { order.firstIndex(of: $0) } ?? .max)
+        }
+    }
+
     /// The window to open when SwiftUI asks for one without a value.
     func defaultRequest() -> SessionWindowRequest {
         let live = Set(liveModels.map(\.id))

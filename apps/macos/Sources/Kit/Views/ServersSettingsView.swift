@@ -44,27 +44,39 @@ enum ServersDialog: Identifiable, Equatable {
 /// How Settings › Servers shows one server.
 struct ServerRowPresentation: Equatable {
     enum Tone: Equatable { case success, warning, muted, hollow }
-    enum Action: Equatable { case menu, pairAgain }
+    enum Action: Equatable { case menu, pairAgain, update }
 
     let name: String
     let detail: String
     let status: String
     let tone: Tone
     let action: Action
+    /// A newer `kit` release this Mac's server can update to.
+    let available: String?
 
-    init(name: String, detail: String, status: String, tone: Tone, action: Action) {
-        (self.name, self.detail, self.status, self.tone, self.action) = (name, detail, status, tone, action)
+    init(name: String, detail: String, status: String, tone: Tone, action: Action, available: String? = nil) {
+        (self.name, self.detail, self.status, self.tone, self.action, self.available) = (name, detail, status, tone, action, available)
     }
 
-    init(name: String, connector: ServerConnector, status: ServerStatus) {
+    /// A server's row. Connected servers show their Kit version; this Mac's
+    /// server offers Update… when `newest` is newer than it (ADR 0048).
+    /// Servers on other machines are updated there.
+    init(name: String, connector: ServerConnector, status: ServerStatus, newest: ReleaseVersion? = nil) {
         self.name = name
         let local = name == ServerClient.localID
-        switch connector {
-        case .home(let home): detail = "This Mac · " + ServerStatePresentation.abbreviated(home.path)
-        case .url(let origin, _): detail = origin
-        case .ssh(let destination): detail = "SSH · " + destination
+        let place = switch connector {
+        case .home(let home): "This Mac · " + ServerStatePresentation.abbreviated(home.path)
+        case .url(let origin, _): origin
+        case .ssh(let destination): "SSH · " + destination
         }
-        action = if case .needsPairing = status { .pairAgain } else { .menu }
+        let version = status.identity?.kitVersion
+        detail = [place, version.map { "Kit " + $0 }].compactMap { $0 }.joined(separator: " · ")
+        if local, let newest, let running = version.flatMap(ReleaseVersion.init), newest > running {
+            available = newest.description
+        } else {
+            available = nil
+        }
+        action = if case .needsPairing = status { .pairAgain } else if available != nil { .update } else { .menu }
         switch status {
         case .connected:
             (self.status, tone) = (local ? "Running" : "Connected", .success)
@@ -88,6 +100,9 @@ struct ServersSettingsView: View {
     @Environment(\.mica) private var theme
     @Environment(\.serverDirectory) private var servers
     @Binding var dialog: ServersDialog?
+    let windows: SessionWindowRegistry
+    var updater: AppUpdater = .shared
+    @State private var problem: KitUpdateTerminal.Problem?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -104,20 +119,38 @@ struct ServersSettingsView: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border) }
+                if problem != nil || servers.connections.contains(where: { presentation($0).available != nil }) {
+                    Text(problem?.message
+                         ?? "Update… opens a terminal tab that runs kit update on this Mac. It asks before restarting the server, so running turns aren’t cut off. Servers on other machines are updated there.")
+                        .font(.kit(size: 12)).foregroundStyle(problem == nil ? theme.muted : theme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Button { dialog = .add } label: {
                     HStack(spacing: 6) { IconView(.plus, size: 12); Text("Add Server…") }
                 }
                 .buttonStyle(FormButtonStyle())
             }
         }
+        .task { if updater.newestCLI == nil { _ = await updater.check() } }
+    }
+
+    private func presentation(_ connection: ServerConnection) -> ServerRowPresentation {
+        ServerRowPresentation(name: connection.name, connector: connection.connector, status: connection.status,
+                              newest: updater.newestCLI?.version)
     }
 
     private func row(_ connection: ServerConnection) -> some View {
-        let row = ServerRowPresentation(name: connection.name, connector: connection.connector, status: connection.status)
+        let row = presentation(connection)
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.name)
-                Text(row.detail).font(.kit(size: 12)).foregroundStyle(theme.muted).lineLimit(1).truncationMode(.middle)
+                HStack(spacing: 6) {
+                    Text(row.detail).foregroundStyle(theme.muted).lineLimit(1).truncationMode(.middle)
+                    if let available = row.available {
+                        Text("\(available) available").foregroundStyle(theme.accent).fixedSize()
+                    }
+                }
+                .font(.kit(size: 12))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 6) {
@@ -135,6 +168,9 @@ struct ServersSettingsView: View {
                 switch row.action {
                 case .pairAgain:
                     Button("Pair Again") { dialog = .pairAgain(connection.name) }
+                        .buttonStyle(FormButtonStyle(fill: .primary))
+                case .update:
+                    Button("Update…") { problem = KitUpdateTerminal.open(in: windows) }
                         .buttonStyle(FormButtonStyle(fill: .primary))
                 case .menu:
                     menu(connection)
@@ -340,5 +376,41 @@ struct PairAgainDialog: View {
                 Button("Cancel", action: close).buttonStyle(FormButtonStyle()).keyboardShortcut(.cancelAction)
             }
         }
+    }
+}
+
+/// Runs `kit update` in a terminal tab of the frontmost session window.
+enum KitUpdateTerminal {
+    /// Why the tab could not open.
+    enum Problem: Equatable {
+        case noSession
+        case unusualHome
+
+        var message: String {
+            switch self {
+            case .noSession: "Open a session first: Update… runs kit update in one of its terminal tabs."
+            case .unusualHome: "Kit’s home path can’t be typed into a terminal. Run kit update in a terminal yourself."
+            }
+        }
+    }
+
+    /// The command typed into the shell. It names the app's home, so the
+    /// update offers to restart that home's server whatever the shell
+    /// exports. A path with control characters can't be typed safely.
+    static func command(home: URL = DevHomeResolver.resolve()) -> String? {
+        let path = home.path
+        guard !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
+        return "KIT_HOME='\(path.replacingOccurrences(of: "'", with: "'\\''"))' kit update\n"
+    }
+
+    /// Opens the tab and brings its window forward.
+    @MainActor
+    static func open(in windows: SessionWindowRegistry) -> Problem? {
+        guard let command = command() else { return .unusualHome }
+        guard let model = windows.frontmost(where: { $0.selectedTab.store?.selected != nil }),
+              let store = model.selectedTab.store else { return .noSession }
+        store.ui.workspace.openTerminal(directory: NSHomeDirectory(), initialInput: command)
+        model.window?.makeKeyAndOrderFront(nil)
+        return nil
     }
 }

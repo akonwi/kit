@@ -25,6 +25,12 @@ struct Model {
   device_failure: Str,
   device_context: context::Context?,
   browser_received: Str,
+  logout_provider: Str,
+  logout_failure: Str,
+  // logout_gate holds a logout in flight until it receives a value.
+  logout_gate: Chan<Str>,
+  // logged_out records each reported logout as "name|failure".
+  logged_out: [Str],
 }
 
 struct HostProps {
@@ -92,12 +98,23 @@ impl cui::Component for Host {
                   false => errors::New(model.api_failure),
                 }
               },
+              logout: fn(ctx: context::Context, provider: Str) Void!Error {
+                model.logout_provider = provider
+                let _ = model.logout_gate.recv()
+                match model.logout_failure == "" {
+                  true => Result::ok(()),
+                  false => errors::New(model.logout_failure),
+                }
+              },
             },
             dismiss: fn() {
               model.dismissed =+ 1
             },
             authenticated: fn() {
               model.authenticated =+ 1
+            },
+            logged_out: fn(name: Str, failure: Str) {
+              model.logged_out.push("{name}|{failure}")
             },
             copied: fn() {},
           },
@@ -126,6 +143,20 @@ fn modifiers() event::Modifiers {
 
 fn key(name: Str) mut event::KeyEvent {
   event::key(name, "", event::KeyEventType::press, modifiers())
+}
+
+fn ctrl(name: Str) mut event::KeyEvent {
+  event::key(
+    name,
+    "",
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: true,
+      alt: false,
+      super: false,
+    },
+  )
 }
 
 fn type_text(terminal: headless::TestApp, text: Str) {
@@ -178,6 +209,10 @@ fn new_model() mut Model {
     device_failure: "",
     device_context: Maybe::new<context::Context>(),
     browser_received: "",
+    logout_provider: "",
+    logout_failure: "",
+    logout_gate: Chan::new<Str>(1),
+    logged_out: [],
   })
 }
 
@@ -392,4 +427,119 @@ test fn a_browser_login_without_the_redirect_takes_one_pasted_code() Void!Str {
     wait_for_text(terminal, "Connect a provider"),
     "the UI still responds and goes back",
   )
+}
+
+// Waits for the logout service to receive a provider; it runs on a worker.
+fn wait_for_logout_provider(terminal: headless::TestApp, model: mut Model) Str {
+  mut attempts = 0
+  while model.logout_provider == "" and attempts < 200 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  model.logout_provider
+}
+
+// Waits for a logout outcome; the flow reports it from its worker.
+fn wait_for_logout_report(terminal: headless::TestApp, model: mut Model) Str {
+  mut attempts = 0
+  while model.logged_out.size() == 0 and attempts < 200 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  model.logged_out.at(0).or("")
+}
+
+test fn ctrl_d_logs_out_of_the_selected_rows_server_provider() Void!Str {
+  let terminal = headless::new(80, 32)
+  defer terminal.destroy()
+  let model = new_model()
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  try testing::assert(shows(terminal, "ctrl+d log out"), "the picker teaches the logout binding")
+  // Claude shares the anthropic credential with the Anthropic API-key row.
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "down")
+  try testing::assert(
+    strings::HasPrefix(selected_row(terminal), "Claude"),
+    "selection reaches Claude: {selected_row(terminal)}",
+  )
+  terminal.key(ctrl("d"))
+  terminal.flush()
+  try testing::assert(
+    wait_for_text(terminal, "Logging out of Anthropic…"),
+    "the footer reports the logout in flight",
+  )
+  let provider = wait_for_logout_provider(terminal, model)
+  try testing::assert(provider == "anthropic", "the server provider ID is logged out: {provider}")
+
+  model.logout_gate.send("done")
+  let report = wait_for_logout_report(terminal, model)
+  try testing::assert(report == "Anthropic|", "the owner is told the logout succeeded: {report}")
+  try testing::assert(wait_for_text(terminal, "ctrl+d log out"), "the footer returns to its hint")
+  try testing::assert(model.logged_out.size() == 1, "the outcome is reported once")
+  try testing::assert(shows(terminal, "Connect a provider"), "the picker stays open")
+  try testing::assert(
+    strings::HasPrefix(selected_row(terminal), "Claude"),
+    "the selection is kept: {selected_row(terminal)}",
+  )
+  testing::assert(
+    model.dismissed == 0 and model.authenticated == 0,
+    "logout neither dismisses nor authenticates",
+  )
+}
+
+test fn a_refused_logout_reports_the_servers_reason() Void!Str {
+  let terminal = headless::new(80, 32)
+  defer terminal.destroy()
+  let model = new_model()
+  model.logout_failure = "the server's credentials for OpenAI Codex come from its environment; change them there"
+  model.logout_gate.send("go")
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(ctrl("d"))
+  terminal.flush()
+  let report = wait_for_logout_report(terminal, model)
+  try testing::assert(
+    report == "OpenAI Codex|the server's credentials for OpenAI Codex come from its environment; change them there",
+    "the owner is told the server's reason: {report}",
+  )
+  try testing::assert(
+    model.logout_provider == "openai-codex",
+    "the Codex row logs out its server provider: {model.logout_provider}",
+  )
+  try testing::assert(wait_for_text(terminal, "ctrl+d log out"), "the footer returns to its hint")
+  testing::assert(shows(terminal, "Connect a provider"), "the picker stays open")
+}
+
+test fn closing_the_flow_lets_a_logout_finish_and_report() Void!Str {
+  let terminal = headless::new(80, 32)
+  defer terminal.destroy()
+  let model = new_model()
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(ctrl("d"))
+  terminal.flush()
+  let provider = wait_for_logout_provider(terminal, model)
+  try testing::assert(provider == "openai-codex", "the logout is in flight: {provider}")
+  press(terminal, "escape")
+  try testing::assert(model.dismissed == 1, "Escape dismisses the flow during a logout")
+  renderer.update(fn() {
+    model.open = false
+  })
+  terminal.flush()
+
+  model.logout_gate.send("done")
+  let report = wait_for_logout_report(terminal, model)
+  testing::assert(report == "OpenAI Codex|", "the outcome is still reported: {report}")
 }

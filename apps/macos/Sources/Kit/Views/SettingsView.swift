@@ -8,6 +8,7 @@ struct SettingsView: View {
     @Environment(\.serverDirectory) private var servers
     @State private var dialog: ServersDialog?
     let themeLibrary: NativeThemeLibrary
+    let windows: SessionWindowRegistry
 
     var body: some View {
         let scheme = SystemAppearance.shared.resolve(appearance)
@@ -36,7 +37,7 @@ struct SettingsView: View {
                     } else if selection == "workspace" {
                         WorkspaceSettingsView()
                     } else if selection == "servers" {
-                        ServersSettingsView(dialog: $dialog)
+                        ServersSettingsView(dialog: $dialog, windows: windows)
                     } else if selection == "providers" {
                         if let connection = settingsServer {
                             ProviderSettingsView(client: connection.client, server: choice(connection)).id(connection.name)

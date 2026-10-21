@@ -414,7 +414,7 @@ struct ServersSettingsPresentationTests {
     @Test func rowsSayWhereEachServerIsAndHowItIs() {
         let user = FileManager.default.homeDirectoryForCurrentUser.path
         let local = ServerRowPresentation(name: "local", connector: .home(path: user + "/.kit"), status: .connected(identity))
-        #expect(local == ServerRowPresentation(name: "local", detail: "This Mac · ~/.kit", status: "Running", tone: .success, action: .menu))
+        #expect(local == ServerRowPresentation(name: "local", detail: "This Mac · ~/.kit · Kit 0.48.0", status: "Running", tone: .success, action: .menu))
         let devbox = ServerRowPresentation(name: "devbox", connector: .ssh("me@devbox"), status: .unreachable(reason: "no", retry: nil))
         #expect(devbox == ServerRowPresentation(name: "devbox", detail: "SSH · me@devbox", status: "Can’t connect", tone: .hollow, action: .menu))
         let staging = ServerRowPresentation(name: "staging", connector: .url("https://staging.example.dev", credential: credential),
@@ -423,6 +423,22 @@ struct ServersSettingsPresentationTests {
                                                  tone: .warning, action: .pairAgain))
         let vps = ServerRowPresentation(name: "vps", connector: .url("https://kit.example.dev", credential: credential), status: .connected(identity))
         #expect(vps.status == "Connected")
+    }
+
+    @Test func onlyThisMacsServerOffersANewerKit() throws {
+        let user = FileManager.default.homeDirectoryForCurrentUser.path
+        let newest = try #require(ReleaseVersion("0.49.0"))
+        let local = ServerRowPresentation(name: "local", connector: .home(path: user + "/.kit"), status: .connected(identity), newest: newest)
+        #expect(local == ServerRowPresentation(name: "local", detail: "This Mac · ~/.kit · Kit 0.48.0", status: "Running", tone: .success,
+                                               action: .update, available: "0.49.0"))
+        let current = ServerRowPresentation(name: "local", connector: .home(path: user + "/.kit"), status: .connected(identity),
+                                            newest: ReleaseVersion("0.48.0"))
+        #expect(current.action == .menu)
+        #expect(current.available == nil)
+        let vps = ServerRowPresentation(name: "vps", connector: .url("https://kit.example.dev", credential: credential),
+                                        status: .connected(identity), newest: newest)
+        #expect(vps == ServerRowPresentation(name: "vps", detail: "https://kit.example.dev · Kit 0.48.0", status: "Connected", tone: .success,
+                                             action: .menu))
     }
 
     @Test func addServerSaysWhatItFound() {

@@ -113,9 +113,9 @@ private fn sorted_catalog(items: [palette::Item]) [palette::Item] {
 }
 
 // Commands that need no server: diagnostics and MCP status read the last
-// snapshot, login, themes, and quitting are local, and settings keeps this
+// snapshot, provider connection, themes, and quitting are local, and settings keeps this
 // terminal's preferences usable while it explains the server's.
-let local_commands = ["debug", "login", "mcp", "quit", "settings", "theme"]
+let local_commands = ["connect", "debug", "mcp", "quit", "release-notes", "settings", "theme"]
 
 // command_catalog preserves the established command vocabulary while this
 // client reaches feature parity. Commands whose owning surface is not ported
@@ -169,6 +169,7 @@ private fn available_catalog(
         false => "",
       },
     ),
+    command_item("connect", "Connect or log out of providers", "login logout auth provider api key", ""),
     command_item("debug", "Show session diagnostics", "details usage", ""),
     command_item("diff", "Review working-tree changes", "changes working tree", ""),
     command_item("files", "Open a workspace file", "file open browse", ""),
@@ -179,7 +180,6 @@ private fn available_catalog(
       "branch",
       "",
     ),
-    command_item("login", "Connect another provider", "auth connect provider", ""),
     command_item("mcp", "Show configured MCP servers", "tools connections status", ""),
     command_item("model", "Change session model", "engine", ""),
     command_item_with_hint("name", "[name]", "Rename session", "rename title", ""),
@@ -194,6 +194,12 @@ private fn available_catalog(
         true => "idle only",
         false => "",
       },
+    ),
+    command_item(
+      "release-notes",
+      "Open this version's release notes",
+      "changelog version news update",
+      "",
     ),
     command_item("reload", "Reload session context", "agents context refresh", ""),
     command_item("scratchpad", "Open shared working notes", "notes memory", ""),
@@ -255,7 +261,7 @@ private fn available_catalog(
 
 // ActionKind identifies one executable command resolved by the palette.
 enum ActionKind {
-  login,
+  connect,
   quit,
   compact,
   debug,
@@ -268,6 +274,7 @@ enum ActionKind {
   fork,
   pair,
   refresh_models,
+  release_notes,
   reload,
   sessions,
   settings,
@@ -431,7 +438,7 @@ private fn resolve_arguments(
     Result::err(unavailable(item.disabled_reason))
   } else {
     match item.key {
-      "login" => builtin(ActionKind::login),
+      "connect" => builtin(ActionKind::connect),
       "quit" => builtin(ActionKind::quit),
       "compact" => builtin(ActionKind::compact),
       "debug" => builtin(ActionKind::debug),
@@ -444,6 +451,7 @@ private fn resolve_arguments(
       "fork" => builtin(ActionKind::fork),
       "pair" => builtin(ActionKind::pair),
       "refresh-models" => builtin(ActionKind::refresh_models),
+      "release-notes" => builtin(ActionKind::release_notes),
       "reload" => builtin(ActionKind::reload),
       "sessions" => builtin(ActionKind::sessions),
       "settings" => builtin(ActionKind::settings),

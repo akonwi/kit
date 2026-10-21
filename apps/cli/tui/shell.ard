@@ -18,6 +18,7 @@ use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
 use go:kit/ffi/toolpresentation
+use go:kit/ffi/updatebridge
 use kit/tui/after_commit
 use kit/tui/attached_session
 use kit/tui/attachments
@@ -56,6 +57,7 @@ use kit/tui/theme_picker
 use kit/tui/thinking
 use kit/tui/toast
 use kit/tui/transcript_pane
+use kit/tui/updates
 use kit/tui/workspace
 use go:strings
 use go:time
@@ -102,6 +104,8 @@ struct SubagentModelModal {
 struct SubagentThinkingModal {
   conversation: Str,
 }
+// The update dialog: install the available update or finish an installed one.
+struct UpdateModal {}
 
 type Modal =
   | NoModal
@@ -121,6 +125,7 @@ type Modal =
   | SubagentsModal
   | SubagentModelModal
   | SubagentThinkingModal
+  | UpdateModal
   | diff_pane::TargetRequest
 
 // SelectionMenu is the open selection context menu: the text selected when
@@ -193,6 +198,8 @@ struct Shell {
   surface: mut cui::BoxRef,
   // Owns the client-wide model-catalog refresh.
   models: mut model_refresh::Refresher,
+  // Owns update checks and installs; Shell shows them and relaunches.
+  updates: mut updates::Updater,
   // Owns theme selection and preview; Shell only routes picker results.
   theme: mut theme::Owner,
   workspace: mut workspace::Tabs,
@@ -236,6 +243,7 @@ fn new(props: mut Props) mut Shell {
     selection_menu: Maybe::new<SelectionMenu>(),
     surface: cui::box_ref(),
     models: model_refresh::refresher(props.options.Client, notifications),
+    updates: updates::updater(props.options.Client, props.options.Server == ""),
     theme: theme::owner(props.themes, props.options.ThemeName, props.options.ThemeDefinition),
     workspace: workspace::tabs(),
     scratchpad_control: scratchpad::pane_ref(),
@@ -256,6 +264,7 @@ impl cui::Lifecycle for Shell {
     self.context = Maybe::new(ctx)
     self.theme.bind(ctx.dispatch, (ctx.theme)())
     self.models.bind(ctx.dispatch, lifetime)
+    self.updates.bind(ctx.dispatch, lifetime)
     let owner = self.theme
     let _ = ctx.on_theme_changed(fn(next: cooper::Theme) {
       owner.request_terminal(next)
@@ -389,7 +398,7 @@ impl Shell {
     )
   }
 
-  fn footer() cui::View {
+  fn mut footer() cui::View {
     let connection = match self.attached.connected() {
       // The footer's left third must fit this; the persistent toast explains
       // what changed.
@@ -400,12 +409,87 @@ impl Shell {
       self.attached.recovery_status(),
       self.attached.follow_ups.Count,
     )
+    let update = match self.updates.shown() {
+      true => {
+        Maybe::new(
+          updates::footer_item(
+            self.props.themes,
+            self.updates.@,
+            keymap::simple_command("update.open", "Update Kit", fn() Bool {
+              self.open_update()
+            }),
+          ),
+        )
+      },
+      false => Maybe::new<cui::View>(),
+    }
     chrome::footer(
       self.props.themes,
       connection,
       status,
       chrome::Right{location: self.attached.footer_location(), plugin: self.attached.plugin_footer},
+      update: update,
     )
+  }
+
+  // open_update opens the update dialog from the footer when no other dialog
+  // is open.
+  fn mut open_update() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.modal_closed() and self.updates.openable() {
+            self.updates.refresh()
+            self.active_modal = UpdateModal{}
+          }
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  fn mut update_modal() cui::View {
+    let update = self.updates.update
+    updates::dialog(
+      self.props.themes,
+      self.updates.@,
+      updates::Actions{
+        later: keymap::simple_command("update.later", "Later", fn() Bool {
+          self.dismiss_modal()
+        }),
+        confirm: self.command("update.confirm", "Update Kit", fn() {
+          match self.updates.stage == updates::Stage::installed {
+            true => {
+              // Finishing waits until the dialog knows what it interrupts.
+              if not self.updates.refreshing {
+                let session = self.attached.info.or(protocol::SessionInfo{}).ID
+                self.props.options.Relaunch.Request(session, update.Launcher, self.updates.finish.restart)
+                self.props.quit()
+              }
+            },
+            false => {
+              self.updates.install()
+              self.finish_modal()
+            },
+          }
+        }),
+        open_release: keymap::simple_command("update.release", "Open release notes", fn() Bool {
+          self.open_link(update.URL)
+          true
+        }),
+      },
+    )
+  }
+
+  // open_link opens target in the browser, reporting a failure.
+  fn mut open_link(target: Str) {
+    match self.props.open_url(target) {
+      ok => (),
+      err(failure) => {
+        self.notify("Could not open the browser", failure.error(), toast::Variant::warning, false)
+      },
+    }
   }
 }
 
@@ -1593,6 +1677,12 @@ impl cui::Component for Shell {
       SubagentsModal(request) => layers.push(self.subagents_modal(request.confirm)),
       SubagentModelModal(request) => layers.push(self.subagent_model_modal(request.conversation)),
       SubagentThinkingModal(request) => layers.push(self.subagent_thinking_modal(request.conversation)),
+      UpdateModal => {
+        // The dialog closes itself once the update is no longer actionable.
+        if self.updates.openable() {
+          layers.push(self.update_modal())
+        }
+      },
       diff_pane::TargetRequest(request) => layers.push(self.diff_target_modal(request)),
     }
     cui::box(
@@ -2142,7 +2232,7 @@ impl Shell {
   private fn mut run_palette_action(action: command_palette::Action) {
     match action.kind {
       // Replacing the palette mounts the flow's own focus owner.
-      command_palette::ActionKind::login => { self.active_modal = AuthModal{} },
+      command_palette::ActionKind::connect => { self.active_modal = AuthModal{} },
       command_palette::ActionKind::quit => self.props.quit(),
       command_palette::ActionKind::compact => {
         self.finish_modal()
@@ -2151,6 +2241,10 @@ impl Shell {
       command_palette::ActionKind::debug => { self.active_modal = SessionDebugModal{} },
       command_palette::ActionKind::mcp => { self.active_modal = MCPStatusModal{} },
       command_palette::ActionKind::pair => { self.active_modal = PairingModal{} },
+      command_palette::ActionKind::release_notes => {
+        self.finish_modal()
+        self.open_link(updatebridge::ReleaseNotesURL())
+      },
       command_palette::ActionKind::model => { self.active_modal = ModelPickerModal{} },
       command_palette::ActionKind::theme => { self.active_modal = ThemePickerModal{from_settings: false} },
       command_palette::ActionKind::settings => { self.active_modal = SettingsModal{selection: ""} },
@@ -2251,11 +2345,27 @@ impl Shell {
         authenticated: fn() {
           self.apply_authenticated()
         },
+        logged_out: self.logout_reporter(),
         copied: fn() {
           self.notify("Copied to clipboard", "", toast::Variant::info, false)
         },
       },
     )
+  }
+
+  // logout_reporter returns the callback a provider logout's worker calls
+  // with its outcome. It captures Shell's dispatch on the UI thread, so the
+  // worker only dispatches.
+  fn mut logout_reporter() fn(Str, Str) {
+    let dispatch = self.context.expect("mounted shell").dispatch
+    fn(name: Str, failure: Str) {
+      let _ = dispatch(fn() {
+        match failure == "" {
+          true => self.notify("Logged out of {name}", "", toast::Variant::info, false),
+          false => self.notify("Couldn't log out of {name}", failure, toast::Variant::error, true),
+        }
+      })
+    }
   }
 
   fn mut apply_authenticated() {
@@ -2978,5 +3088,64 @@ private fn typed_key(name: Str) mut event::KeyEvent {
       alt: false,
       super: false,
     },
+  )
+}
+
+// Runs a toast's entrance animation to completion and reports whether text
+// is visible.
+private fn settled_frame_contains(terminal: headless::TestApp, text: Str) Bool {
+  terminal.flush()
+  terminal.advance_time(0)
+  terminal.advance_time(350)
+  terminal.render()
+  terminal.flush()
+  terminal.frame().text().contains(text)
+}
+
+test fn logout_outcomes_raise_toasts_from_their_worker() Void!Str {
+  let terminal = headless::new(100, 20)
+  defer terminal.destroy()
+  let subject = new(
+    mut Props{
+      options: cli::TUIOptions{Context: context::Background(), Authenticated: false},
+      themes: theme::context(theme::store(theme::system())),
+      quit: fn() {},
+      attach: bootstrap::attach,
+      terminal: terminal_status::detached(),
+      open_url: fn(target: Str) Void!Error {
+        Result::ok(())
+      },
+    },
+  )
+  let renderer = mount_ready(terminal, subject)
+  defer renderer.destroy()
+  terminal.flush()
+  let report = subject.logout_reporter()
+
+  // The flow reports from its logout worker, off the UI thread.
+  let reported_a = Chan::new<Bool>(1)
+  async::start(fn() {
+    report("Anthropic", "")
+    reported_a.send(true)
+  })
+  let _ = reported_a.recv()
+  try testing::assert(
+    settled_frame_contains(terminal, "Logged out of Anthropic"),
+    "a logout raises an informational toast:\n{terminal.frame().text()}",
+  )
+
+  let reported_b = Chan::new<Bool>(1)
+  async::start(fn() {
+    report("OpenAI Codex", "credentials come from the environment")
+    reported_b.send(true)
+  })
+  let _ = reported_b.recv()
+  try testing::assert(
+    settled_frame_contains(terminal, "Couldn't log out of OpenAI Codex"),
+    "a refused logout raises an error toast titled with the provider:\n{terminal.frame().text()}",
+  )
+  testing::assert(
+    terminal.frame().text().contains("credentials come from the environment"),
+    "the error toast carries the server's reason:\n{terminal.frame().text()}",
   )
 }

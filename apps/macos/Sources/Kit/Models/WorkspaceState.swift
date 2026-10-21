@@ -543,10 +543,11 @@ final class WorkspaceState {
     }
 
     /// Opens a terminal in `tile`, or in the focused tile, starting in
-    /// `directory`: the session's working directory.
+    /// `directory`: the session's working directory. `initialInput` is typed
+    /// into its shell, such as a command to run.
     @discardableResult
-    func openTerminal(in tile: UUID? = nil, directory: String) -> TerminalTab {
-        let tab = TerminalTab(directory: directory)
+    func openTerminal(in tile: UUID? = nil, directory: String, initialInput: String? = nil) -> TerminalTab {
+        let tab = TerminalTab(directory: directory, initialInput: initialInput)
         adopt(tab)
         if let tile { focus(tile: tile) }
         open(.terminal(tab.id))

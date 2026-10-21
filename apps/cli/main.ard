@@ -5,6 +5,7 @@ use go:context
 use go:github.com/akonwi/kit/internal/version
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
+use go:kit/ffi/updatebridge
 use kit/tui
 use go:os
 use go:os/signal
@@ -137,6 +138,8 @@ fn run(ctx: context::Context, environment: cli::Environment, invocation: cli::In
         ok(_) => "",
         err(failure) => failure.error(),
       }
+      // An update stopping with the client finishes before Kit exits.
+      updatebridge::Settle(os::Stderr)
       prepared.Finish(ctx, failure, os::Stderr)
     },
   }

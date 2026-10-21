@@ -1,0 +1,487 @@
+use ard/async
+
+use go:api
+use go:context
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/ui
+use go:kit/ffi/contextbridge
+use go:kit/ffi/updatebridge
+use kit/tui/controls
+use kit/tui/modal
+use kit/tui/spinner
+use kit/tui/theme
+
+// The terminal client's updates (ADR 0048). Updater checks GitHub for a newer
+// Kit when the client starts and every six hours after, installs it in the
+// background when asked, and learns what finishing the update restarts. The
+// shell shows its footer item and dialogs and performs the relaunch.
+
+enum Stage {
+  // No newer release is known.
+  idle,
+  available,
+  updating,
+  installed,
+  failed,
+}
+
+// Finish is what finishing an installed update involves.
+struct Finish {
+  // restart reports that this home's server runs an older Kit, so the
+  // update restarts it before relaunching.
+  restart: Bool,
+  // The server's Kit version, or empty when unknown.
+  server_version: Str,
+  // Sessions working or waiting on their user, or -1 when unknown.
+  active: Int,
+}
+
+// Effects are the updater's work, replaced in tests.
+struct Effects {
+  check: fn(context::Context) updatebridge::Update!Error,
+  install: fn(context::Context, updatebridge::Update, fn(Int)) Void!Error,
+  // inspect learns, after an install, what finishing it restarts.
+  inspect: fn(context::Context, Str) Finish,
+  // wait blocks for milliseconds and reports whether they elapsed before the
+  // context ended.
+  wait: fn(context::Context, Int) Bool,
+  spawn: fn(fn()),
+}
+
+struct Updater {
+  effects: Effects,
+  enabled: Bool,
+  dispatch: (fn(fn()) Void!event::DispatchError)?,
+  lifetime: contextbridge::Cancellation?,
+  stage: Stage,
+  update: updatebridge::Update,
+  // Download progress, or -1 while unknown.
+  percent: Int,
+  failure: Str,
+  finish: Finish,
+  // refreshing reports that finish is being learned again; finishing waits.
+  refreshing: Bool,
+}
+
+// updater checks and installs for a release build attached through client.
+// local reports that client is attached to this home's own server.
+fn updater(client: mut api::Client, local: Bool) mut Updater {
+  custom(
+    Effects{
+      check: fn(ctx: context::Context) updatebridge::Update!Error {
+        updatebridge::Check(ctx)
+      },
+      install: fn(ctx: context::Context, update: updatebridge::Update, progress: fn(Int)) Void!Error {
+        updatebridge::Install(ctx, update, progress)
+      },
+      inspect: fn(ctx: context::Context, installed: Str) Finish {
+        inspect(client, local, ctx, installed)
+      },
+      wait: fn(ctx: context::Context, milliseconds: Int) Bool {
+        contextbridge::Wait(ctx, Int64::from(milliseconds))
+      },
+      spawn: fn(work: fn()) {
+        async::start(work)
+      },
+    },
+    updatebridge::Checks(),
+  )
+}
+
+// custom builds an Updater from injected effects, as tests require.
+fn custom(effects: Effects, enabled: Bool) mut Updater {
+  (mut Updater{
+    effects: effects,
+    enabled: enabled,
+    dispatch: Maybe::new<fn(fn()) Void!event::DispatchError>(),
+    lifetime: Maybe::new<contextbridge::Cancellation>(),
+    stage: Stage::idle,
+    update: updatebridge::Update{},
+    percent: -1,
+    failure: "",
+    finish: Finish{
+      restart: false,
+      server_version: "",
+      active: -1,
+    },
+    refreshing: false,
+  })
+}
+
+// inspect asks the attached server what finishing an update to installed
+// restarts: this home's server when it runs an older Kit, and how many of
+// its sessions that interrupts.
+private fn inspect(client: mut api::Client, local: Bool, ctx: context::Context, installed: Str) Finish {
+  let attempt = contextbridge::WithTimeout(ctx, Int64::from(5000))
+  let server_version = match client.Server(attempt.Context) {
+    ok(info) => info.KitVersion,
+    err => "",
+  }
+  let restart = local and updatebridge::Restarts(server_version, installed)
+  let active = match restart {
+    true => {
+      match client.SessionActivity(attempt.Context) {
+        ok(sessions) => sessions.size(),
+        err => -1,
+      }
+    },
+    false => 0,
+  }
+  attempt.Cancel()
+  Finish{
+    restart: restart,
+    server_version: server_version,
+    active: active,
+  }
+}
+
+impl Updater {
+  // bind adopts the UI dispatch and the application lifetime at mount and
+  // starts checking.
+  fn mut bind(dispatch: fn(fn()) Void!event::DispatchError, lifetime: contextbridge::Cancellation) {
+    self.dispatch = Maybe::new(dispatch)
+    self.lifetime = Maybe::new(lifetime)
+    if self.enabled {
+      let effects = self.effects
+      let interval = updatebridge::CheckIntervalMS()
+      (effects.spawn)(
+        fn() {
+          mut checking = true
+          while checking {
+            let result = (effects.check)(lifetime.Context)
+            let _ = dispatch(fn() {
+              self.checked(result)
+            })
+            checking = (effects.wait)(lifetime.Context, interval)
+          }
+        },
+      )
+    }
+  }
+
+  // checked records a check's result. A failed check changes nothing, and
+  // nothing interrupts an update that has started.
+  fn mut checked(result: updatebridge::Update!Error) {
+    match result {
+      ok(update) => {
+        if update.Available and (self.stage == Stage::idle or self.stage == Stage::available) {
+          self.update = update
+          self.stage = Stage::available
+        }
+      },
+      err => (),
+    }
+  }
+
+  // Whether the footer offers anything.
+  fn shown() Bool {
+    self.stage != Stage::idle
+  }
+
+  // refresh learns again what finishing an installed update restarts, since
+  // sessions may have started working since it installed.
+  fn mut refresh() {
+    if self.stage == Stage::installed {
+      match self.dispatch {
+        dispatch => {
+          match self.lifetime {
+            lifetime => {
+              let effects = self.effects
+              let installed = self.update.Version
+              self.refreshing = true
+              (effects.spawn)(
+                fn() {
+                  let finish = (effects.inspect)(lifetime.Context, installed)
+                  let _ = dispatch(fn() {
+                    self.refreshing = false
+                    if self.stage == Stage::installed {
+                      self.finish = finish
+                    }
+                  })
+                },
+              )
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Whether the update dialog can open: to install, retry, or finish.
+  fn openable() Bool {
+    self.stage == Stage::available or self.stage == Stage::failed or self.stage == Stage::installed
+  }
+
+  // install installs the available update in the background.
+  fn mut install() {
+    if self.stage == Stage::available or self.stage == Stage::failed {
+      match self.dispatch {
+        dispatch => {
+          match self.lifetime {
+            lifetime => {
+              let effects = self.effects
+              let update = self.update
+              self.stage = Stage::updating
+              self.percent = -1
+              self.failure = ""
+              (effects.spawn)(
+                fn() {
+                  let result = (effects.install)(
+                    lifetime.Context,
+                    update,
+                    fn(percent: Int) {
+                      let _ = dispatch(fn() {
+                        self.percent = percent
+                      })
+                    },
+                  )
+                  match result {
+                    ok => {
+                      let finish = (effects.inspect)(lifetime.Context, update.Version)
+                      let _ = dispatch(fn() {
+                        self.finish = finish
+                        self.stage = Stage::installed
+                      })
+                    },
+                    err(failure) => {
+                      let message = failure.error()
+                      let _ = dispatch(fn() {
+                        self.failure = message
+                        self.stage = Stage::failed
+                      })
+                    },
+                  }
+                },
+              )
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+}
+
+// footer_item is the footer's update item; open opens the update dialog.
+fn footer_item(themes: theme::Context, subject: Updater, open: keymap::SimpleCommand) cui::View {
+  let colors = themes.current()
+  match subject.stage {
+    Stage::updating => {
+      let progress = match subject.percent >= 0 {
+        true => " {subject.percent}%",
+        false => "",
+      }
+      cui::box(
+        [
+          spinner::spinner(styles: ui::style(foreground: colors.accent_text)),
+          cui::text(
+            " Updating Kit to {subject.update.Version}…{progress}",
+            text_style: ui::text_style(foreground: colors.muted),
+            wrap: ui::TextWrap::none,
+            overflow: ui::TextOverflow::ellipsis,
+          ),
+        ],
+        styles: ui::style(flex_direction: ui::FlexDirection::row),
+      )
+    },
+    Stage::failed => {
+      cui::box(
+        [
+          controls::button(
+            themes,
+            "✕ Update failed: {subject.failure}",
+            open,
+            variant: controls::ButtonVariant::ghost,
+            compact: true,
+            focusable: false,
+            foreground: colors.danger_text,
+            trailing_padding: 0,
+            styles: ui::style(flex_shrink: 1.0, overflow: ui::Overflow::hidden),
+          ),
+        ],
+        styles: ui::style(flex_direction: ui::FlexDirection::row, overflow: ui::Overflow::hidden),
+      )
+    },
+    _ => {
+      let label = match subject.stage {
+        Stage::installed => {
+          match subject.finish.restart {
+            true => "Restart to finish update",
+            false => "Relaunch to finish update",
+          }
+        },
+        _ => "Update available: v{subject.update.Version}",
+      }
+      controls::button(
+        // The footer's left third holds the label at 80 columns.
+        themes,
+        label,
+        open,
+        variant: controls::ButtonVariant::ghost,
+        compact: true,
+        focusable: false,
+        foreground: colors.warning_text,
+        trailing_padding: 0,
+        styles: ui::style(flex_shrink: 0.0),
+      )
+    },
+  }
+}
+
+// interruption says what restarting a server with active sessions
+// interrupts.
+fn interruption(active: Int) Str {
+  match {
+    active < 0 => "Restarting it interrupts any session that is working.",
+    active == 0 => "No sessions are working, so restarting it interrupts nothing.",
+    active == 1 => "Restarting it interrupts 1 session that is working or waiting on you.",
+    _ => "Restarting it interrupts {active} sessions that are working or waiting on you.",
+  }
+}
+
+// Actions are the update dialog's choices.
+struct Actions {
+  later: keymap::SimpleCommand,
+  // Installs the update, or finishes an installed one.
+  confirm: keymap::SimpleCommand,
+  open_release: keymap::SimpleCommand,
+}
+
+private fn padded(children: [cui::View]) cui::View {
+  cui::box(
+    children,
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::column,
+      padding: ui::Edges{
+        top: ui::cells(1),
+        right: ui::cells(1),
+        bottom: ui::cells(1),
+        left: ui::cells(1),
+      },
+    ),
+  )
+}
+
+private fn footer(themes: theme::Context, hint: Str, actions: Actions, confirm: Str) cui::View {
+  let colors = themes.current()
+  cui::box(
+    [
+      cui::text(
+        hint,
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        text_style: ui::text_style(foreground: colors.muted),
+        wrap: ui::TextWrap::none,
+      ),
+      controls::button(
+        themes,
+        "Later",
+        actions.later,
+        variant: controls::ButtonVariant::ghost,
+        compact: true,
+        focusable: false,
+      ),
+      cui::text(" "),
+      controls::button(themes, confirm, actions.confirm, compact: true, focusable: false),
+    ],
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::row,
+      padding: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(1),
+        bottom: ui::cells(0),
+        left: ui::cells(1),
+      },
+    ),
+  )
+}
+
+// dialog asks to install the available update, or to finish an installed
+// one by restarting or relaunching. Enter confirms; Escape is Later.
+fn dialog(themes: theme::Context, subject: Updater, actions: Actions) cui::View {
+  let colors = themes.current()
+  let update = subject.update
+  let body = mut List::new<cui::View>()
+  mut title = "Update Kit"
+  mut meta = "{update.Current} → {update.Version}"
+  mut confirm = "Update"
+  mut hint = "o open on GitHub"
+  let bindings = mut List::new<keymap::Binding>()
+  bindings.push(keymap::binding(keymap::key("return"), actions.confirm.with()))
+  match subject.stage == Stage::installed {
+    true => {
+      meta = "{update.Version} installed"
+      hint = ""
+      body.push(cui::text("Kit {update.Version} is installed."))
+      body.push(cui::text(" "))
+      match subject.finish.restart {
+        true => {
+          title = "Restart Kit"
+          confirm = "Restart"
+          let running = match subject.finish.server_version == "" {
+            true => "an older Kit",
+            false => subject.finish.server_version,
+          }
+          let consequence = match subject.refreshing {
+            true => "Counting its working sessions…",
+            false => interruption(subject.finish.active),
+          }
+          body.push(
+            cui::text(
+              "The local server still runs {running}. {consequence}",
+              text_style: ui::text_style(foreground: colors.muted),
+            ),
+          )
+        },
+        false => {
+          title = "Relaunch Kit"
+          confirm = "Relaunch"
+          body.push(
+            cui::text(
+              "Relaunch to use it. The server you are attached to keeps its version.",
+              text_style: ui::text_style(foreground: colors.muted),
+            ),
+          )
+        },
+      }
+    },
+    false => {
+      bindings.push(keymap::binding(keymap::key("o"), actions.open_release.with()))
+      if update.Summary != "" {
+        body.push(cui::text(update.Summary))
+        body.push(cui::text(" "))
+      }
+      body.push(cui::text("Kit updates with", text_style: ui::text_style(foreground: colors.muted)))
+      body.push(cui::text("  {update.Install}"))
+      if subject.failure != "" {
+        body.push(cui::text(" "))
+        body.push(
+          cui::text(
+            "The last attempt failed: {subject.failure}",
+            text_style: ui::text_style(foreground: colors.danger_text),
+          ),
+        )
+        confirm = "Try Again"
+      }
+    },
+  }
+  modal::dialog(
+    themes,
+    modal::Dialog{
+      placement: modal::Placement::centered,
+      title: title,
+      meta: meta,
+      header: [],
+      body: padded(body.@),
+      footer: Maybe::new(footer(themes, hint, actions, confirm)),
+      autofocus: true,
+      dismiss: actions.later,
+      commands: Maybe::new([actions.confirm, actions.open_release]),
+      bindings: Maybe::new(bindings.@),
+    },
+  )
+}

@@ -29,10 +29,14 @@ final class TerminalTab: Identifiable {
     private(set) var failure: String?
     @ObservationIgnored private var surface: TerminalSurfaceView?
     @ObservationIgnored var onRequest: (@MainActor (TerminalTabRequest) -> Void)?
+    /// Typed into the shell when it starts, such as a command to run. It is
+    /// not restored with the tab.
+    @ObservationIgnored private let initialInput: String?
 
-    init(id: UUID = UUID(), directory: String) {
+    init(id: UUID = UUID(), directory: String, initialInput: String? = nil) {
         self.id = id
         self.directory = directory
+        self.initialInput = initialInput
     }
 
     /// The tab's name: the shell's title, or "Terminal" until it sets one.
@@ -48,7 +52,7 @@ final class TerminalTab: Identifiable {
             failure = runtime.failure ?? "The terminal couldn’t start."
             return nil
         }
-        guard let view = TerminalSurfaceView(directory: Self.startingDirectory(directory)) else {
+        guard let view = TerminalSurfaceView(directory: Self.startingDirectory(directory), initialInput: initialInput) else {
             failure = "The shell couldn’t start."
             return nil
         }

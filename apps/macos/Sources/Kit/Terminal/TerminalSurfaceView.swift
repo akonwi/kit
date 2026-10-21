@@ -37,8 +37,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var focusedInGhostty = false
     private var windowObservers: [NSObjectProtocol] = []
 
-    /// Starts a login shell in `directory`. Fails if libghostty isn't running.
-    init?(directory: String) {
+    /// Starts a login shell in `directory`, typing `initialInput` into it
+    /// when given. Fails if libghostty isn't running.
+    init?(directory: String, initialInput: String? = nil) {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         guard let app = TerminalRuntime.shared.app else { return nil }
         var config = ghostty_surface_config_new()
@@ -52,7 +53,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         // No command: libghostty runs the user's login shell.
         let created = directory.withCString { path -> ghostty_surface_t? in
             config.working_directory = path
-            return ghostty_surface_new(app, &config)
+            guard let initialInput else { return ghostty_surface_new(app, &config) }
+            return initialInput.withCString { input in
+                config.initial_input = input
+                return ghostty_surface_new(app, &config)
+            }
         }
         guard let created else { return nil }
         handle = SurfaceHandle(created)

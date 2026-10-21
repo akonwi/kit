@@ -148,8 +148,9 @@ fn location_only(text: Str) Right {
 }
 
 // footer shows the session's connection problem or, without one, its status
-// on the left, and the working location with plugin items on the right.
-fn footer(themes: theme::Context, connection: Str, status: Str, right: Right) cui::View {
+// on the left, or else the update item, and the working location with plugin
+// items on the right.
+fn footer(themes: theme::Context, connection: Str, status: Str, right: Right, update: cui::View?) cui::View {
   let colors = themes.current()
   let shown = match connection != "" {
     true => connection,
@@ -159,11 +160,20 @@ fn footer(themes: theme::Context, connection: Str, status: Str, right: Right) cu
     true => colors.warning_text,
     false => colors.muted,
   }
+  let left = match update {
+    item => {
+      match shown == "" {
+        true => item,
+        false => layout::line(shown, ui::text_style(foreground: tone)),
+      }
+    },
+    _ => layout::line(shown, ui::text_style(foreground: tone)),
+  }
   cui::box(
     [
       cui::box(
-        [layout::line(shown, ui::text_style(foreground: tone))],
-        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        [left],
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0), overflow: ui::Overflow::hidden),
       ),
       cui::child(new_right_side, RightProps{themes: themes, right: right}, key: "footer.right"),
     ],
