@@ -70,11 +70,39 @@ struct LauncherServerChoice {
     let choose: (String) -> Void
 }
 
-/// The launcher's server chip, before New session. It opens the server menu.
+/// The launcher's server chip, before New session. It opens the server
+/// menu, which ends with Add Server… and Manage Servers….
 struct LauncherServerButton: View {
-    @Environment(\.mica) private var theme
     @Environment(\.openSettings) private var openSettings
     let choice: LauncherServerChoice
+
+    var body: some View {
+        let openSettings = openSettings
+        ServerMenuButton(choice: choice) { theme, popover, choice in
+            LauncherServerMenu(theme: theme, servers: choice.servers, selected: choice.selected,
+                choose: { name in
+                    popover.dismiss()
+                    choice.choose(name)
+                },
+                add: {
+                    popover.dismiss()
+                    SettingsSection.servers.open(with: openSettings, server: choice.selected, dialog: .add)
+                },
+                manage: {
+                    popover.dismiss()
+                    SettingsSection.servers.open(with: openSettings, server: choice.selected)
+                })
+        }
+    }
+}
+
+/// A server chip that opens a menu of servers below itself.
+struct ServerMenuButton: View {
+    @Environment(\.mica) private var theme
+    let choice: LauncherServerChoice
+    var height: CGFloat = 30
+    /// The menu, given the theme, the popover it shows in, and the choice.
+    let menu: (MicaTheme, AnchoredPopover, LauncherServerChoice) -> LauncherServerMenu
     @State private var popover = AnchoredPopover()
     @State private var anchor = ComposerPickerAnchor()
     @State private var open = false
@@ -86,7 +114,7 @@ struct LauncherServerButton: View {
                 Text(choice.selected).font(.kit(size: 13, weight: .medium)).lineLimit(1)
                 IconView(.caretDown, size: 10).foregroundStyle(theme.muted)
             }
-            .padding(.horizontal, 10).frame(height: 30)
+            .padding(.horizontal, 10).frame(height: height)
             .background(open ? theme.hover : theme.raised, in: RoundedRectangle(cornerRadius: 3))
             .overlay { RoundedRectangle(cornerRadius: 3).strokeBorder(theme.strongBorder) }
             .contentShape(Rectangle())
@@ -105,20 +133,7 @@ struct LauncherServerButton: View {
         // The click that reached the button already closed the menu.
         if let closedAt = popover.closedAt, Date().timeIntervalSince(closedAt) < 0.3 { return }
         guard let frame = anchor.screenFrame, let window = anchor.view?.window else { return }
-        let popover = popover, choice = choice, openSettings = openSettings
-        let menu = LauncherServerMenu(theme: theme, servers: choice.servers, selected: choice.selected,
-            choose: { name in
-                popover.dismiss()
-                choice.choose(name)
-            },
-            add: {
-                popover.dismiss()
-                SettingsSection.servers.open(with: openSettings, server: choice.selected, dialog: .add)
-            },
-            manage: {
-                popover.dismiss()
-                SettingsSection.servers.open(with: openSettings, server: choice.selected)
-            })
+        let menu = menu(theme, popover, choice)
         open = true
         popover.show(anchor: frame, parent: window, edge: .below, alignment: .leading, content: menu) {
             open = false
@@ -133,8 +148,9 @@ struct LauncherServerMenu: View {
     let servers: ServerDirectory
     let selected: String
     let choose: (String) -> Void
-    let add: () -> Void
-    let manage: () -> Void
+    /// Add Server… and Manage Servers…, which the launcher's menu ends with.
+    var add: (() -> Void)? = nil
+    var manage: (() -> Void)? = nil
     @State private var hovered: String?
 
     static let width: CGFloat = 340
@@ -145,12 +161,14 @@ struct LauncherServerMenu: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             ForEach(servers.launcherOptions) { option in server(option) }
-            VStack(alignment: .leading, spacing: 1) {
-                item(Self.addID, "Add Server…", icon: .plus, action: add)
-                item(Self.manageID, "Manage Servers…", icon: nil, action: manage)
+            if let add, let manage {
+                VStack(alignment: .leading, spacing: 1) {
+                    item(Self.addID, "Add Server…", icon: .plus, action: add)
+                    item(Self.manageID, "Manage Servers…", icon: nil, action: manage)
+                }
+                .padding(.top, 4)
+                .overlay(alignment: .top) { Rectangle().fill(theme.border).frame(height: 1) }
             }
-            .padding(.top, 4)
-            .overlay(alignment: .top) { Rectangle().fill(theme.border).frame(height: 1) }
         }
         .padding(4)
         .frame(width: Self.width)
@@ -211,5 +229,25 @@ struct LauncherServerMenu: View {
 
     private func hover(_ id: String, _ inside: Bool) {
         hovered = inside ? id : (hovered == id ? nil : hovered)
+    }
+}
+
+/// The Server menu at the top of Settings › Models and Providers: its
+/// label, then a chip listing every server. Servers that can't be reached
+/// are dimmed.
+struct SettingsServerPicker: View {
+    @Environment(\.mica) private var theme
+    let choice: LauncherServerChoice
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("Server").font(.kit(size: 13)).foregroundStyle(theme.muted)
+            ServerMenuButton(choice: choice, height: 28) { theme, popover, choice in
+                LauncherServerMenu(theme: theme, servers: choice.servers, selected: choice.selected) { name in
+                    popover.dismiss()
+                    choice.choose(name)
+                }
+            }
+        }
     }
 }

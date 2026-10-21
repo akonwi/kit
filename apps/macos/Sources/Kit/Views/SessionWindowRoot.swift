@@ -52,6 +52,16 @@ struct SessionWindowRoot: View {
             SessionWindowAttachment(registry: windows, model: model).frame(width: 0, height: 0)
         }
         .task(id: AttachmentKey(model: model)) { model.attachAll() }
+        // Settings › Models and Providers start on the server of the tab
+        // in the window last used.
+        .onChange(of: tab.identity.server, initial: true) { _, server in
+            if model.window?.isKeyWindow == true { SettingsRoute.shared.server = server }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if let window = model.window, notification.object as? NSWindow === window {
+                SettingsRoute.shared.server = model.selectedTab.identity.server
+            }
+        }
         .onAppear {
             windows.restoreRemaining { openWindow(id: "session", value: $0) }
         }

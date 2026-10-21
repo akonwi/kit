@@ -17,14 +17,23 @@ enum SettingsSection: String {
 struct ProviderSettingsView: View {
     @Environment(\.mica) private var theme
     @Environment(\.scenePhase) private var phase
-    @State private var signIn = ProviderSignIn(client: ServerClient.local())
+    @State private var signIn: ProviderSignIn
+    /// The Server menu, when the app knows more than one server.
+    let server: LauncherServerChoice?
+
+    /// client is the server whose sign-ins these are.
+    init(client: any ProviderClient = ServerClient.local(), server: LauncherServerChoice? = nil) {
+        _signIn = State(initialValue: ProviderSignIn(client: client))
+        self.server = server
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Providers").font(.kit(size: 23, weight: .semibold))
-                Text("The Kit server on this Mac keeps these sign-ins for every session.").foregroundStyle(theme.muted)
+                Text("Sign-ins live on each server and apply to every session there.").foregroundStyle(theme.muted)
             }
+            if let server { SettingsServerPicker(choice: server) }
             if signIn.step == .list && signIn.loaded && signIn.loadError == nil {
                 list
                 if let error = signIn.error { ProviderErrorLine(message: error) }

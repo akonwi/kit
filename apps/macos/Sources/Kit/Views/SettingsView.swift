@@ -38,7 +38,13 @@ struct SettingsView: View {
                     } else if selection == "servers" {
                         ServersSettingsView(dialog: $dialog)
                     } else if selection == "providers" {
-                        ProviderSettingsView()
+                        if let connection = settingsServer {
+                            ProviderSettingsView(client: connection.client, server: choice(connection)).id(connection.name)
+                        } else {
+                            ProviderSettingsView()
+                        }
+                    } else if let connection = settingsServer {
+                        ModelSettingsView(client: connection.client, server: choice(connection)).id(connection.name)
                     } else {
                         ModelSettingsView()
                     }
@@ -54,6 +60,18 @@ struct SettingsView: View {
         .onAppear(perform: takeRoute)
         .onChange(of: SettingsRoute.shared.dialog) { takeRoute() }
         .preferredColorScheme(theme.dark ? .dark : .light)
+    }
+
+    /// The server Models and Providers show: the one asked for, while the
+    /// app knows it, otherwise this Mac's.
+    private var settingsServer: ServerConnection? {
+        guard let servers else { return nil }
+        return servers.connection(named: SettingsRoute.shared.server) ?? servers.local
+    }
+
+    private func choice(_ connection: ServerConnection) -> LauncherServerChoice? {
+        guard let servers else { return nil }
+        return LauncherServerChoice(servers: servers, selected: connection.name) { SettingsRoute.shared.server = $0 }
     }
 
     /// Opens the dialog another window asked for.

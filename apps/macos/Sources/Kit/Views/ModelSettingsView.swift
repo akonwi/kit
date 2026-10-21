@@ -10,10 +10,13 @@ struct ModelSettingsView: View {
     @State private var newModel = ""
     @State private var newTokens = ""
     @FocusState private var addingFocus: Bool
+    /// The Server menu, when the app knows more than one server.
+    let server: LauncherServerChoice?
 
     /// client is the server whose settings these are.
-    init(client: any ServerSettingsClient = ServerClient.local()) {
+    init(client: any ServerSettingsClient = ServerClient.local(), server: LauncherServerChoice? = nil) {
         _editor = State(initialValue: ServerSettingsEditor(client: client))
+        self.server = server
     }
 
     private var settings: ServerSettings { editor.settings }
@@ -23,8 +26,9 @@ struct ModelSettingsView: View {
         VStack(alignment: .leading, spacing: 26) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Models").font(.kit(size: 23, weight: .semibold))
-                Text("The Kit server on this Mac uses these for every session.").foregroundStyle(theme.muted)
+                Text("Settings live on each server and apply to every session there.").foregroundStyle(theme.muted)
             }
+            if let server { SettingsServerPicker(choice: server) }
             if !editor.loaded && editor.loadError == nil { KitSpinner("Loading settings…") }
             if let error = editor.loadError {
                 VStack(alignment: .leading, spacing: 8) {
