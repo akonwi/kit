@@ -25,6 +25,10 @@ type Pairing struct {
 	Code string
 	// ExpiresAt is when the code stops being accepted.
 	ExpiresAt time.Time
+	// URLs are the HTTP(S) origins the server reports it is served at, each
+	// usable with Link: allowed hosts first, then its loopback URL, which only
+	// the server's machine can reach. Older servers report none.
+	URLs []string
 }
 
 // Link returns the pairing link that reaches the server at serverURL, an
@@ -50,7 +54,7 @@ func (c *Client) CreatePairing(ctx context.Context) (Pairing, error) {
 	if err != nil {
 		return Pairing{}, &ProtocolError{Err: err}
 	}
-	return Pairing{Code: code.Code, ExpiresAt: expires}, nil
+	return Pairing{Code: code.Code, ExpiresAt: expires, URLs: code.URLs}, nil
 }
 
 // Devices lists the server's paired devices, most recently used first.

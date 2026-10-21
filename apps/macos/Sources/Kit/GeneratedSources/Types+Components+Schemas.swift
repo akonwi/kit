@@ -6045,21 +6045,27 @@ extension Components {
             internal var code: Swift.String
             /// - Remark: Generated from `#/components/schemas/PairingCode/expiresAt`.
             internal var expiresAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PairingCode/urls`.
+            internal var urls: [Swift.String]?
             /// Creates a new `PairingCode`.
             ///
             /// - Parameters:
             ///   - code:
             ///   - expiresAt:
+            ///   - urls:
             internal init(
                 code: Swift.String,
-                expiresAt: Swift.String
+                expiresAt: Swift.String,
+                urls: [Swift.String]? = nil
             ) {
                 self.code = code
                 self.expiresAt = expiresAt
+                self.urls = urls
             }
             internal enum CodingKeys: String, CodingKey {
                 case code
                 case expiresAt
+                case urls
             }
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -6071,9 +6077,14 @@ extension Components {
                     Swift.String.self,
                     forKey: .expiresAt
                 )
+                self.urls = try container.decodeIfPresent(
+                    [Swift.String].self,
+                    forKey: .urls
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
-                    "expiresAt"
+                    "expiresAt",
+                    "urls"
                 ])
             }
         }

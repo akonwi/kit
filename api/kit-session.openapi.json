@@ -2550,6 +2550,12 @@
           },
           "expiresAt": {
             "type": "string"
+          },
+          "urls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [

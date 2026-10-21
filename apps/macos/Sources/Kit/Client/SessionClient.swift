@@ -1,4 +1,5 @@
 import Foundation
+import OpenAPIRuntime
 import Synchronization
 
 /// Endpoints and sessions have independent identities; session IDs are not global.
@@ -51,6 +52,21 @@ enum ClientError: LocalizedError {
     case noDaemon, invalidEndpoint, incompatible, invalidPayload, daemonNotReady, missingSession, http(Int), disconnected, oversized
     case incompatibleDaemon(daemonVersion: String, appProtocol: Int, daemonProtocol: Int,
                             reason: DaemonCompatibility.Mismatch)
+    /// A served server needs this Mac to pair with it again.
+    case needsPairing(PairingNeed)
+    /// The server is reached over SSH, which this app can't do yet.
+    case sshUnsupported
+
+    /// Why a served server needs pairing.
+    enum PairingNeed: Equatable, Sendable {
+        /// This Mac has no device token for the server.
+        case missing
+        /// The server says the device token expired.
+        case expired
+        /// The server refused the token, as when it was revoked.
+        case refused
+    }
+
     var errorDescription: String? {
         switch self {
         case .discovery(let reason): "Couldn’t read Kit’s server discovery files. \(reason)"
@@ -66,6 +82,10 @@ enum ClientError: LocalizedError {
         case .http(let code): "Server request failed (HTTP \(code))."
         case .disconnected: "The server connection closed."
         case .oversized: "The server response exceeded the client limit."
+        case .needsPairing(.missing): "This Mac isn’t paired with the server."
+        case .needsPairing(.expired): "This Mac’s pairing with the server expired."
+        case .needsPairing(.refused): "The server no longer accepts this Mac’s pairing."
+        case .sshUnsupported: "Kit for Mac can’t connect to SSH servers yet. Use kit attach in a terminal."
         }
     }
 }
@@ -100,18 +120,53 @@ indirect enum WireJSON: Codable, Sendable {
 enum ServerConnector: Hashable, Sendable {
     /// The server of a Kit home on this Mac, found through its discovery files.
     case home(URL)
+    /// A server served at an HTTP(S) origin, reached with the device token
+    /// kept for `credential`.
+    case url(String, credential: DeviceCredential)
+    /// The server of a host's default Kit home, reached over SSH.
+    case ssh(String)
 
     /// The server of the Kit home at `path`, normalized so equal paths are equal connectors.
     static func home(path: String) -> ServerConnector {
         .home(URL(fileURLWithPath: path).standardizedFileURL)
     }
 
-    /// Resolves and verifies the server, reporting who it is.
-    func handshake(serverID: String) async throws -> (client: HTTPClient, identity: ServerIdentity) {
-        switch self {
-        case .home(let home): try await HTTPClient.handshake(home: home, serverID: serverID)
+    /// How the saved server `server` of the Kit home `home` is reached.
+    static func saved(_ server: SavedServer, home: URL) -> ServerConnector {
+        switch server.kind {
+        case .home: .home(path: server.address)
+        case .url: .url(server.address, credential: DeviceCredential(home: home.path, name: server.name))
+        case .ssh: .ssh(server.address)
         }
     }
+
+    /// Whether the server runs on this Mac, judged by how it is reached.
+    /// Phase B replaces this with the server's machine identifier.
+    var isThisMac: Bool {
+        if case .home = self { true } else { false }
+    }
+
+    /// Resolves and verifies the server, reporting who it is.
+    func handshake(serverID: String, tokens: any DeviceTokenStore = DeviceTokens.standard) async throws -> (client: HTTPClient, identity: ServerIdentity) {
+        switch self {
+        case .home(let home):
+            return try await HTTPClient.handshake(home: home, serverID: serverID)
+        case .url(let origin, let credential):
+            guard let url = URL(string: origin) else { throw ClientError.invalidEndpoint }
+            guard let token = tokens.token(for: credential, url: origin) else { throw ClientError.needsPairing(.missing) }
+            return try await HTTPClient.handshake(url: url, token: token, serverID: serverID)
+        case .ssh:
+            throw ClientError.sshUnsupported
+        }
+    }
+}
+
+/// Whether `error` means the operation was cancelled, as when its view went
+/// away, rather than that it failed. Cancellation says nothing about the server.
+func isCancellation(_ error: any Error) -> Bool {
+    if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { return true }
+    if let wrapped = error as? OpenAPIRuntime.ClientError { return isCancellation(wrapped.underlyingError) }
+    return false
 }
 
 /// Tells a server's connection that an operation couldn't reach the server,
@@ -132,7 +187,17 @@ final class ServerSignal: Sendable {
 /// address, so when the server's saved name is pointed elsewhere their next
 /// operations go there too, and open sessions keep their drafts and shells.
 final class ServerAddress: Sendable {
+    private struct Verified {
+        let connector: ServerConnector
+        let client: HTTPClient
+        let at: ContinuousClock.Instant
+    }
+
     private let current: Mutex<ServerConnector>
+    private let verified = Mutex<Verified?>(nil)
+    /// How long a served server's verified transport is reused without
+    /// verifying the server again, when nothing reports it changed sooner.
+    static let verifiedLifetime: Duration = .seconds(60)
 
     init(_ connector: ServerConnector) {
         current = Mutex(connector)
@@ -142,6 +207,26 @@ final class ServerAddress: Sendable {
 
     func repoint(to connector: ServerConnector) {
         current.withLock { $0 = connector }
+        verified.withLock { $0 = nil }
+    }
+
+    /// The transport last verified for `connector`, while it is fresh.
+    func verifiedClient(for connector: ServerConnector) -> HTTPClient? {
+        verified.withLock { entry in
+            guard let entry, entry.connector == connector, ContinuousClock.now - entry.at < Self.verifiedLifetime else { return nil }
+            return entry.client
+        }
+    }
+
+    func remember(_ client: HTTPClient, for connector: ServerConnector) {
+        verified.withLock { $0 = Verified(connector: connector, client: client, at: .now) }
+    }
+
+    /// Forgets the verified transport, or only `client` when given and still remembered.
+    func forget(_ client: ObjectIdentifier? = nil) {
+        verified.withLock { entry in
+            if client == nil || entry.map({ ObjectIdentifier($0.client) }) == client { entry = nil }
+        }
     }
 }
 
@@ -153,10 +238,14 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
     let isDemo = false
     /// Fired when resolving the server fails.
     var unreachable: ServerSignal? = nil
+    /// Where a served server's device token is kept.
+    let tokens: any DeviceTokenStore
 
-    init(serverID: String, connector: ServerConnector, unreachable: ServerSignal? = nil) {
+    init(serverID: String, connector: ServerConnector, tokens: any DeviceTokenStore = DeviceTokens.standard,
+         unreachable: ServerSignal? = nil) {
         self.serverID = serverID
         address = ServerAddress(connector)
+        self.tokens = tokens
         self.unreachable = unreachable
     }
 
@@ -170,15 +259,40 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
         ServerClient(serverID: localID, connector: .home(DevHomeResolver.resolve()))
     }
 
-    /// Resolves the server and returns a transport for one operation.
+    /// Resolves the server and returns a transport for one operation. A
+    /// served server's verified transport is reused, so its operations skip
+    /// the Keychain and the handshake, until a request suggests the server
+    /// changed, its connection checks it again, or the transport ages out.
     func resolve() async throws -> HTTPClient {
-        do { return try await connector.handshake(serverID: serverID).client }
+        let connector = self.connector
+        if let client = address.verifiedClient(for: connector) { return client }
+        do { return try await verify(connector).client }
         catch {
-            // An operation that was cancelled says nothing about the server.
-            let cancelled = Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled
-            if !cancelled { unreachable?.fire() }
+            if !isCancellation(error) { unreachable?.fire() }
             throw error
         }
+    }
+
+    /// Reaches and verifies the server afresh, as its connection's checks do.
+    /// A served server's transport is kept for later operations; a failure
+    /// forgets the one kept.
+    func verify(_ connector: ServerConnector? = nil) async throws -> (client: HTTPClient, identity: ServerIdentity) {
+        let connector = connector ?? self.connector
+        let result: (client: HTTPClient, identity: ServerIdentity)
+        do { result = try await connector.handshake(serverID: serverID, tokens: tokens) }
+        catch {
+            address.forget()
+            throw error
+        }
+        guard case .url = connector else { return result }
+        // The address keeps the transport, so the transport mustn't keep the address.
+        let unreachable = self.unreachable, id = ObjectIdentifier(result.client)
+        result.client.failures.connect { [weak address] failure in
+            address?.forget(id)
+            if failure != .changed { unreachable?.fire() }
+        }
+        address.remember(result.client, for: connector)
+        return result
     }
 
     func scratchpad(session: String) async throws -> ScratchpadRecord {
@@ -195,6 +309,8 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
         try await resolve().watchSubagent(session: session, conversation: conversation, receive: receive)
     }
     func sessions() async throws -> [SessionExcerpt] { try await resolve().sessions() }
+    /// Issues a pairing code for another device.
+    func createPairing() async throws -> PairingCode { try await resolve().createPairing() }
     func history(_ id: String, before: String) async throws -> TranscriptHistoryPage {
         try await resolve().history(id, before: before)
     }

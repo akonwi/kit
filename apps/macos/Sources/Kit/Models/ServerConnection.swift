@@ -27,12 +27,15 @@ enum ServerStatus: Equatable, Sendable {
     /// The server speaks another protocol. It is checked again occasionally,
     /// so restarting it with a compatible Kit resumes its tabs.
     case incompatible(ServerMismatch)
+    /// A served server needs this Mac to pair with it again. It is checked
+    /// again occasionally, so pairing from a terminal resumes its tabs.
+    case needsPairing(ClientError.PairingNeed)
 
     /// The server last verified, while connected or reconnecting.
     var identity: ServerIdentity? {
         switch self {
         case .connected(let identity), .reconnecting(let identity, _): identity
-        case .connecting, .unreachable, .incompatible: nil
+        case .connecting, .unreachable, .incompatible, .needsPairing: nil
         }
     }
     var isConnected: Bool {
@@ -80,11 +83,12 @@ final class ServerConnection: Identifiable {
     var isLocal: Bool { name == ServerClient.localID }
 
     /// Creates a connection that checks the server through its connector.
-    convenience init(name: String, connector: ServerConnector, schedule: Schedule = Schedule()) {
+    convenience init(name: String, connector: ServerConnector, tokens: any DeviceTokenStore = DeviceTokens.standard,
+                     schedule: Schedule = Schedule()) {
         let signal = ServerSignal()
-        let client = ServerClient(serverID: name, connector: connector, unreachable: signal)
+        let client = ServerClient(serverID: name, connector: connector, tokens: tokens, unreachable: signal)
         self.init(client: client, catalogClient: client, schedule: schedule, signal: signal) {
-            try await client.connector.handshake(serverID: name).identity
+            try await client.verify().identity
         }
     }
 
@@ -123,6 +127,7 @@ final class ServerConnection: Identifiable {
     func retire() {
         retired = true
         stop()
+        client.address.forget()
     }
 
     /// Reaches the server another way, as when its saved name is pointed at
@@ -182,6 +187,9 @@ final class ServerConnection: Identifiable {
                     status = .incompatible(ServerMismatch(serverKitVersion: version, serverProtocol: serverProtocol,
                                                           appProtocol: appProtocol, reason: reason))
                     wait = schedule.check
+                } else if case ClientError.needsPairing(let need) = error {
+                    status = .needsPairing(need)
+                    wait = schedule.check
                 } else if case .connected(let identity) = status {
                     status = .reconnecting(identity, retry: Date.now.addingTimeInterval(delay.seconds))
                     wait = delay
@@ -212,26 +220,54 @@ final class ServerDirectory {
     private(set) var connections: [ServerConnection]
     /// The app's own Kit home.
     let home: URL
+    /// The saved servers, as last read, including those this app can't reach yet.
+    private(set) var savedServers: [SavedServer] = []
+    /// The saved-server list this directory changes.
+    let list: URL
+    /// Where served servers' device tokens are kept.
+    @ObservationIgnored let tokens: any DeviceTokenStore
+    /// Called after a saved server is renamed, so windows move its tabs.
+    @ObservationIgnored var serverRenamed: (_ from: String, _ to: String) -> Void = { _, _ in }
+    /// Called after a saved server is removed, so windows close its tabs.
+    @ObservationIgnored var serverRemoved: (_ name: String) -> Void = { _ in }
+    /// How many session tabs are open on a server across windows.
+    @ObservationIgnored var openTabs: (_ name: String) -> Int = { _ in 0 }
+    /// How many terminals in a server's tabs are running commands, across windows.
+    @ObservationIgnored var busyTerminals: (_ name: String) -> Int = { _ in 0 }
     @ObservationIgnored private let saved: () -> [SavedServer]
     @ObservationIgnored private let makeConnection: (String, ServerConnector) -> ServerConnection
     @ObservationIgnored private var started = false
+    /// The server the launcher last listed, which new launchers open on.
+    var launcherServer: String {
+        didSet { if launcherServer != oldValue { defaults?.set(launcherServer, forKey: Self.launcherServerKey) } }
+    }
+    /// Where the launcher's server is kept; none, as in tests, keeps it in memory.
+    @ObservationIgnored private let defaults: UserDefaults?
+    static let launcherServerKey = "launcherServer"
 
     /// Reads the saved servers of `home` and connects to them through their connectors.
-    convenience init(home: URL = DevHomeResolver.resolve()) {
+    convenience init(home: URL = DevHomeResolver.resolve(), tokens: any DeviceTokenStore = DeviceTokens.standard) {
         let list = home.appendingPathComponent("servers.json")
-        self.init(home: home, saved: { (try? SavedServerList.read(list)) ?? [] }) { name, connector in
-            ServerConnection(name: name, connector: connector)
+        self.init(home: home, tokens: tokens, defaults: .standard, saved: { (try? SavedServerList.read(list)) ?? [] }) { name, connector in
+            ServerConnection(name: name, connector: connector, tokens: tokens)
         }
     }
 
-    /// Creates a directory from explicit parts, as tests do.
-    init(home: URL, saved: @escaping () -> [SavedServer],
-         makeConnection: @escaping (String, ServerConnector) -> ServerConnection) {
+    /// Creates a directory from explicit parts, as tests do. Changes are
+    /// written to `home`'s list, which `saved` should read.
+    init(home: URL, tokens: any DeviceTokenStore = MemoryDeviceTokens(), defaults: UserDefaults? = nil,
+         saved: @escaping () -> [SavedServer], makeConnection: @escaping (String, ServerConnector) -> ServerConnection) {
+        self.defaults = defaults
+        launcherServer = defaults?.string(forKey: Self.launcherServerKey) ?? ServerClient.localID
         self.home = URL(fileURLWithPath: home.path).standardizedFileURL
+        list = self.home.appendingPathComponent("servers.json")
+        self.tokens = tokens
         self.saved = saved
         self.makeConnection = makeConnection
+        let servers = saved()
+        savedServers = servers
         connections = [makeConnection(ServerClient.localID, .home(path: self.home.path))]
-        connections += Self.reachable(saved(), home: self.home).map { makeConnection($0.name, $0.connector) }
+        connections += Self.reachable(servers, home: self.home).map { makeConnection($0.name, $0.connector) }
     }
 
     /// A directory that knows only an idle local server, for views and models
@@ -263,8 +299,10 @@ final class ServerDirectory {
     /// and changed ones are repointed. Then every server is checked now, as
     /// when the app becomes active.
     func refresh() {
+        let servers = saved()
+        if servers != savedServers { savedServers = servers }
         var next = [local]
-        for entry in Self.reachable(saved(), home: home) {
+        for entry in Self.reachable(servers, home: home) {
             if let existing = connection(named: entry.name) {
                 existing.repoint(to: entry.connector)
                 next.append(existing)
@@ -280,15 +318,14 @@ final class ServerDirectory {
         if started { for connection in connections { connection.checkNow() } }
     }
 
-    /// The saved servers this app can reach. Served and SSH servers arrive
-    /// with their connectors; a saved home that is the app's own is `local`.
-    /// A server saved under two names connects once, under the first.
+    /// The saved servers, with how each is reached. A saved home that is
+    /// the app's own is `local`, and a home saved under two names connects
+    /// once, under the first.
     private static func reachable(_ servers: [SavedServer], home: URL) -> [(name: String, connector: ServerConnector)] {
         var seen: Set<ServerConnector> = [.home(path: home.path)]
         return servers.compactMap { server in
-            guard server.kind == .home else { return nil }
-            let connector = ServerConnector.home(path: server.address)
-            guard seen.insert(connector).inserted else { return nil }
+            let connector = ServerConnector.saved(server, home: home)
+            if case .home = connector, !seen.insert(connector).inserted { return nil }
             return (server.name, connector)
         }
     }

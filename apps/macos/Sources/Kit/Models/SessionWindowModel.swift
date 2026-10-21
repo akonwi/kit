@@ -47,7 +47,7 @@ final class SessionTab: Identifiable {
     /// The connection to the server the tab is bound to, while that server is known.
     var connection: ServerConnection? { servers?.connection(named: identity.server) }
     /// The server's name when it isn't this app's own, to label the tab.
-    var serverLabel: String? { identity.serverLabel }
+    var serverLabel: String? { isLauncher ? nil : identity.serverLabel }
     /// What the tab's server needs from the user while it can't serve the tab.
     var serverIssue: String? {
         guard !isLauncher, servers != nil else { return nil }
@@ -55,6 +55,7 @@ final class SessionTab: Identifiable {
         switch connection.status {
         case .unreachable: return "Can’t connect"
         case .incompatible(let mismatch): return mismatch.serverIsOlder ? "Server needs a newer Kit" : "Needs a newer Kit for Mac"
+        case .needsPairing: return "Pair again"
         case .connecting, .connected, .reconnecting: return nil
         }
     }
@@ -117,7 +118,7 @@ final class SessionWindowModel: Identifiable {
         self.servers = servers
         self.collapsed = collapsed
         let tabs = sessions.isEmpty
-            ? [SessionTab(identity: Self.launcherIdentity, servers: servers)]
+            ? [SessionTab(identity: Self.launcherIdentity(servers), servers: servers)]
             : sessions.map { identity in
                 let tab = SessionTab(identity: identity, servers: servers)
                 tab.savedArrangement = layouts[identity]
@@ -128,10 +129,12 @@ final class SessionWindowModel: Identifiable {
         selectedTabID = (selected.flatMap { identity in tabs.first { $0.identity == identity } } ?? tabs[0]).id
     }
 
-    static var launcherIdentity: SessionIdentity { SessionIdentity(server: defaultServer, session: "") }
+    /// A new launcher, on the server last chosen in a launcher.
+    static func launcherIdentity(_ servers: ServerDirectory) -> SessionIdentity {
+        SessionIdentity(server: servers.launcherDefault, session: "")
+    }
 
-    /// The launcher's server, whose sessions it lists and where it starts new ones.
-    var launcherServer: ServerConnection { servers.local }
+    var launcherIdentity: SessionIdentity { Self.launcherIdentity(servers) }
 
     /// A session's key in the sidebar tree and in collapsed families. Keys
     /// of the local server's sessions are their IDs, as earlier builds
@@ -244,11 +247,11 @@ final class SessionWindowModel: Identifiable {
 
     /// Session identities to restore, in tab order; launcher tabs are not intent.
     var sessions: [SessionIdentity] { tabs.filter { !$0.isLauncher }.map(\.identity) }
-    /// The status of each of the launcher server's session tabs that is
-    /// working or awaiting a response.
-    var activity: [String: SessionTabStatus] {
+    /// The status of each of `server`'s session tabs that is working or
+    /// awaiting a response, for a launcher listing that server.
+    func activity(on server: String) -> [String: SessionTabStatus] {
         var activity: [String: SessionTabStatus] = [:]
-        for tab in tabs where !tab.isLauncher && tab.status != .idle && tab.identity.server == launcherServer.name {
+        for tab in tabs where !tab.isLauncher && tab.status != .idle && tab.identity.server == server {
             activity[tab.identity.session] = tab.status
         }
         return activity
@@ -365,8 +368,19 @@ final class SessionWindowModel: Identifiable {
         if let launcher = tabs.first(where: \.isLauncher) {
             select(launcher)
         } else {
-            open(Self.launcherIdentity)
+            open(launcherIdentity)
         }
+    }
+
+    /// Points a launcher at another server's sessions. Later launchers open
+    /// on that server too.
+    func point(_ tab: SessionTab, at server: String) {
+        guard tab.isLauncher, tabs.contains(where: { $0 === tab }), servers.connection(named: server) != nil else { return }
+        servers.launcherServer = server
+        guard tab.identity.server != server else { return }
+        if creatingIn === tab { creatingIn = nil }
+        tab.identity = SessionIdentity(server: server, session: "")
+        onChange(self)
     }
 
     /// Opens a session made by the new session form: in the launcher tab that
@@ -415,7 +429,7 @@ final class SessionWindowModel: Identifiable {
         let position = order.firstIndex { $0 === tab } ?? 0
         release(tab)
         tabs.remove(at: index)
-        if tabs.isEmpty { tabs = [SessionTab(identity: Self.launcherIdentity, servers: servers)] }
+        if tabs.isEmpty { tabs = [SessionTab(identity: launcherIdentity, servers: servers)] }
         if selectedTabID == tab.id {
             let next = order[(position + 1)...].first ?? order[..<position].last ?? tabs[0]
             selectedTabID = next.id
@@ -513,6 +527,47 @@ final class SessionWindowModel: Identifiable {
         }
         tab.identity = identity
         onChange(self)
+    }
+
+    /// Moves the tabs of a server saved under a new name to that name. Each
+    /// reattaches through the renamed server, keeping its drafts, terminals,
+    /// and layout.
+    func serverRenamed(from name: String, to newName: String) {
+        var changed = false
+        let connection = servers.connection(named: newName)
+        for tab in tabs where tab.identity.server == name {
+            if let store = tab.store {
+                if let connection {
+                    tab.attachedRoute = connection.route
+                    store.rebind(to: connection.client)
+                } else {
+                    tab.savedArrangement = store.ui.workspace.arrangement
+                    tab.savedTitle = tab.session?.title ?? tab.savedTitle
+                    release(tab)
+                }
+            }
+            tab.identity = SessionIdentity(server: newName, session: tab.identity.session)
+            changed = true
+        }
+        guard changed else { return }
+        collapsed = Set(collapsed.map { key in
+            let identity = Self.identity(treeKey: key)
+            return identity.server == name ? Self.treeKey(SessionIdentity(server: newName, session: identity.session)) : key
+        })
+        onChange(self)
+    }
+
+    /// Closes the tabs of a server that is no longer saved; a launcher on it
+    /// lists this Mac's sessions instead.
+    func serverRemoved(_ name: String) {
+        for tab in tabs where tab.identity.server == name {
+            if tab.isLauncher {
+                tab.identity = launcherIdentity
+                onChange(self)
+            } else {
+                close(tab)
+            }
+        }
     }
 
     /// Detaches every session when the window closes.

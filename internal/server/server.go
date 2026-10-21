@@ -409,6 +409,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		token:          token,
 		devices:        deviceService,
 		pairing:        pairingRegistry,
+		servedURLs:     pairing.ServedURLs(allowed.hosts, allowed.origins, baseURL),
 		store:          store,
 		logger:         logger,
 		sessions: runtimeSessionService{
@@ -487,8 +488,10 @@ type localHandlerOptions struct {
 	identity serverIdentity
 	token    string
 	// devices and pairing serve device tokens; nil accepts only token.
-	devices     *devices.Service
-	pairing     *pairing.Registry
+	devices *devices.Service
+	pairing *pairing.Registry
+	// servedURLs are the origins pairing links can use, loopback last.
+	servedURLs  []string
 	store       *storage.Store
 	sessions    sessionService
 	attachments attachmentService
@@ -537,6 +540,7 @@ func newHandler(options localHandlerOptions) http.Handler {
 		options.pairing = pairing.NewRegistry(nil)
 	}
 	credentials := newAccess(options.token, options.devices, options.pairing)
+	credentials.servedURLs = options.servedURLs
 	if options.devices != nil {
 		registerDeviceRoutes(mux, credentials, options.logger)
 	}

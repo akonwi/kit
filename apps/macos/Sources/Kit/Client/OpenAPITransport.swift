@@ -2,6 +2,7 @@ import Foundation
 import HTTPTypes
 import HTTPTypesFoundation
 import OpenAPIRuntime
+import Synchronization
 
 /// Kit-owned transport for generated OpenAPI clients.
 ///
@@ -35,14 +36,16 @@ final class OpenAPITransport: ClientTransport, @unchecked Sendable {
     private let session: URLSession
     private let streams: [String: StreamBounds]
     private let maximumRequestBytes = 1 * 1024 * 1024
+    private let failures: TransportFailures?
 
     init(endpoint: URL, token: String, instance: String, session: URLSession,
-         streams: [String: StreamBounds] = OpenAPITransport.streamOperations) {
+         streams: [String: StreamBounds] = OpenAPITransport.streamOperations, failures: TransportFailures? = nil) {
         self.endpoint = endpoint
         self.token = token
         self.instance = instance
         self.session = session
         self.streams = streams
+        self.failures = failures
     }
 
     func send(_ request: HTTPRequest, body: HTTPBody?, baseURL: URL, operationID: String) async throws -> (HTTPResponse, HTTPBody?) {
@@ -59,14 +62,16 @@ final class OpenAPITransport: ClientTransport, @unchecked Sendable {
            urlRequest.value(forHTTPHeaderField: "Content-Type") == "application/json; charset=utf-8" {
             urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        urlRequest.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
-        urlRequest.setValue(instance, forHTTPHeaderField: "X-Kit-Instance-ID")
+        // Redeeming a pairing code is the one operation sent without a
+        // credential or instance.
+        if !token.isEmpty { urlRequest.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
+        if !instance.isEmpty { urlRequest.setValue(instance, forHTTPHeaderField: "X-Kit-Instance-ID") }
         urlRequest.setValue(String(kitWireVersion), forHTTPHeaderField: "X-Kit-Protocol-Version")
         if let body {
             urlRequest.httpBody = try await Data(collecting: body, upTo: maximumRequestBytes)
         }
 
-        let (bytes, response) = try await session.bytes(for: urlRequest)
+        let (bytes, response) = try await TransportFailures.bytes(session, urlRequest, reporting: failures)
         guard let response = response as? HTTPURLResponse, let httpResponse = response.httpResponse else {
             bytes.task.cancel()
             throw ClientError.invalidPayload
@@ -86,6 +91,48 @@ final class OpenAPITransport: ClientTransport, @unchecked Sendable {
         if response.expectedContentLength > 0 { data.reserveCapacity(Int(response.expectedContentLength)) }
         for try await byte in bytes { data.append(byte) }
         return (httpResponse, data.isEmpty ? nil : HTTPBody(data))
+    }
+}
+
+/// Reports requests that suggest a transport's verified server has changed:
+/// one that couldn't reach it, or a response refusing its credential or
+/// instance. Its owner then verifies the server again.
+final class TransportFailures: Sendable {
+    enum Failure: Equatable, Sendable {
+        /// The server couldn't be reached.
+        case unreachable
+        /// The server refused the credential (401).
+        case refused
+        /// The server answered as another instance or for another host (409, 421).
+        case changed
+    }
+
+    private let action = Mutex<(@Sendable (Failure) -> Void)?>(nil)
+
+    func connect(_ action: @escaping @Sendable (Failure) -> Void) {
+        self.action.withLock { $0 = action }
+    }
+
+    func report(_ failure: Failure) {
+        action.withLock { $0 }?(failure)
+    }
+
+    /// Sends a request, reporting a failure to `failures`. Cancellation is
+    /// not a failure.
+    static func bytes(_ session: URLSession, _ request: URLRequest,
+                      reporting failures: TransportFailures?) async throws -> (URLSession.AsyncBytes, URLResponse) {
+        let result: (URLSession.AsyncBytes, URLResponse)
+        do { result = try await session.bytes(for: request) }
+        catch {
+            if !isCancellation(error) { failures?.report(.unreachable) }
+            throw error
+        }
+        switch (result.1 as? HTTPURLResponse)?.statusCode {
+        case 401: failures?.report(.refused)
+        case 409, 421: failures?.report(.changed)
+        default: break
+        }
+        return result
     }
 }
 

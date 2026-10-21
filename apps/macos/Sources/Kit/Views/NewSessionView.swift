@@ -7,6 +7,8 @@ struct NewSessionOverlay: View {
     @Environment(\.mica) private var theme
     let client: any SessionCreationClient
     let suggestedModel: String?
+    /// The server the session starts on, and where its folder is.
+    var place = NewSessionPlace.thisMac(ServerClient.localID)
     let close: () -> Void
     /// Reads the server's settings; nil reads them from client.
     var loadDefaults: (@Sendable () async throws -> ServerSettings)? = nil
@@ -18,7 +20,8 @@ struct NewSessionOverlay: View {
         ZStack(alignment: .top) {
             Color.black.opacity(0.45).contentShape(Rectangle())
                 .accessibilityHidden(true)
-            NewSessionView(client: client, suggestedModel: suggestedModel, close: close, open: open, loadDefaults: loadDefaults)
+            NewSessionView(client: client, suggestedModel: suggestedModel, place: place, close: close, open: open,
+                           loadDefaults: loadDefaults)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border))
                 .shadow(color: .black.opacity(theme.dark ? 0.5 : 0.18), radius: 24, y: 18)
@@ -28,11 +31,52 @@ struct NewSessionOverlay: View {
     }
 }
 
+/// The server a new session starts on, and where its folder is: on this
+/// Mac, chosen in a folder panel, or on another machine, typed as a path
+/// on that machine.
+enum NewSessionPlace: Equatable {
+    case thisMac(String)
+    /// Another machine's server, with its user's home folder.
+    case elsewhere(String, home: String)
+
+    var server: String {
+        switch self {
+        case .thisMac(let server), .elsewhere(let server, _): server
+        }
+    }
+
+    /// The absolute folder a typed path names on another machine: `~` is
+    /// the home folder there, and a relative path starts from it. Nil for
+    /// an empty path.
+    static func folder(_ typed: String, home: String) -> String? {
+        let path = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return nil }
+        if path.hasPrefix("/") { return path }
+        let base = home.hasSuffix("/") ? String(home.dropLast()) : home
+        if path == "~" { return base.isEmpty ? "/" : base }
+        let relative = path.hasPrefix("~/") ? String(path.dropFirst(2)) : path
+        return base + "/" + relative
+    }
+}
+
+extension NewSessionPlace {
+    /// Where a new session on `connection` keeps its folder. Until servers
+    /// report their machine, only a Kit home counts as this Mac.
+    @MainActor init(_ connection: ServerConnection) {
+        if !connection.connector.isThisMac, let home = connection.status.identity?.home {
+            self = .elsewhere(connection.name, home: home)
+        } else {
+            self = .thisMac(connection.name)
+        }
+    }
+}
+
 /// The new session form: folder, optional name, model and thinking level,
 /// and whether the session is temporary.
 struct NewSessionView: View {
     let client: any SessionCreationClient
     let suggestedModel: String?
+    var place = NewSessionPlace.thisMac(ServerClient.localID)
     let close: () -> Void
     let open: (SessionExcerpt) -> Void
     /// Reads the server's settings; nil reads them from client.
@@ -43,6 +87,8 @@ struct NewSessionView: View {
     @State private var creationID = "session_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     @State private var name = ""
     @State private var directory = FileManager.default.homeDirectoryForCurrentUser.path
+    /// The folder typed for a server on another machine.
+    @State private var typedPath = "~"
     @State private var models: [WireModelCapability] = []
     @State private var model = ""
     @State private var thinking = ""
@@ -55,19 +101,34 @@ struct NewSessionView: View {
     @State private var modelAnchor = ComposerPickerAnchor()
     @State private var thinkingAnchor = ComposerPickerAnchor()
     @FocusState private var nameFocused: Bool
+    @FocusState private var pathFocused: Bool
 
     static let width: CGFloat = 460
 
     private var levels: [String] { ComposerView.thinkingLevels(model: model, models: models) }
     private var selectedModel: WireModelCapability? { models.first { $0.id == model } }
-    private var canCreate: Bool { !directory.isEmpty && !model.isEmpty && (levels.isEmpty || !thinking.isEmpty) && !loading && !uncertain && !pending }
+    /// The folder the session starts in.
+    private var folder: String? {
+        switch place {
+        case .thisMac: directory.isEmpty ? nil : directory
+        case .elsewhere(_, let home): NewSessionPlace.folder(typedPath, home: home)
+        }
+    }
+    private var canCreate: Bool { folder != nil && !model.isEmpty && (levels.isEmpty || !thinking.isEmpty) && !loading && !uncertain && !pending }
     private var canCancel: Bool { !pending && !(temporary && uncertain) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("New session").font(.kit(size: 15, weight: .semibold))
+            HStack {
+                Text("New session").font(.kit(size: 15, weight: .semibold))
+                Spacer(minLength: 12)
+                serverChip
+            }
             Group {
-                field("Working directory") { directoryField }
+                switch place {
+                case .thisMac: field("Working directory") { directoryField }
+                case .elsewhere(let server, _): typedFolder(on: server)
+                }
                 field("Name") { nameField }
                 if !loading && models.isEmpty { noModels } else { configuration }
                 temporaryToggle
@@ -84,7 +145,9 @@ struct NewSessionView: View {
         .padding(24).frame(width: Self.width)
         .foregroundStyle(theme.text).background(theme.surface).tint(theme.accent)
         .task { await loadModels() }
-        .onAppear { nameFocused = true }
+        .onAppear {
+            if case .elsewhere = place { pathFocused = true } else { nameFocused = true }
+        }
         .onDisappear { popover.dismiss() }
         .onExitCommand { if canCancel { close() } }
     }
@@ -114,6 +177,36 @@ struct NewSessionView: View {
         .fieldBox(theme)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Working directory, \(directory)")
+    }
+
+    /// The server the session starts on.
+    private var serverChip: some View {
+        HStack(spacing: 5) {
+            IconView(.hardDrives, size: 12)
+            Text(place.server).font(.kit(size: 11, design: .monospaced)).lineLimit(1)
+        }
+        .padding(.horizontal, 6).frame(height: 20)
+        .background(theme.raised, in: RoundedRectangle(cornerRadius: 3))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Server, \(place.server)")
+    }
+
+    /// The folder on another machine, typed as a path there.
+    private func typedFolder(on server: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Folder on \(server)").font(.kit(size: 12)).foregroundStyle(theme.muted)
+            HStack(spacing: 8) {
+                IconView(.folderSimple, size: 14).foregroundStyle(theme.muted)
+                TextField("", text: $typedPath)
+                    .textFieldStyle(.plain).font(.kit(size: 12, design: .monospaced))
+                    .focused($pathFocused)
+                    .onSubmit { if canCreate { Task { await create() } } }
+            }
+            .padding(.horizontal, 10).frame(height: 30)
+            .fieldBox(theme, focused: pathFocused)
+            .accessibilityLabel("Folder on \(server)")
+            Text("Type a path. ~ is your home folder on \(server).").font(.kit(size: 12)).foregroundStyle(theme.muted)
+        }
     }
 
     private var nameField: some View {
@@ -167,7 +260,7 @@ struct NewSessionView: View {
             Spacer(minLength: 8)
             Button("Reload") { Task { await loadModels() } }
                 .buttonStyle(FormButtonStyle(fill: .surface))
-            Button("Sign in…") { SettingsSection.providers.open(with: openSettings) }
+            Button("Sign in…") { SettingsSection.providers.open(with: openSettings, server: place.server) }
                 .buttonStyle(FormButtonStyle(fill: .primary))
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
@@ -178,12 +271,21 @@ struct NewSessionView: View {
         Toggle(isOn: $temporary) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Temporary session")
-                Text("Not saved. Gone when you dispose of it or the daemon stops.")
+                Text(temporaryNote)
                     .font(.kit(size: 12)).foregroundStyle(theme.muted)
             }
         }
         .toggleStyle(FormSwitchStyle())
         .disabled(uncertain || !(client is any SessionDisposalClient))
+    }
+
+    private var temporaryNote: String {
+        switch place {
+        case .thisMac(let server) where server == ServerClient.localID:
+            "Not saved. Gone when you dispose of it or the daemon stops."
+        case .thisMac(let server), .elsewhere(let server, _):
+            "Not saved. Gone when you dispose of it or \(server)’s server stops."
+        }
     }
 
     private func errorLine(_ message: String) -> some View {
@@ -307,13 +409,13 @@ struct NewSessionView: View {
     }
 
     private func create() async {
-        guard canCreate else { return }
+        guard canCreate, let folder else { return }
         popover.dismiss()
         pending = true; error = nil
         defer { pending = false }
         if temporary { TemporarySessions.shared.remember(server: client.serverID, session: creationID) }
         do {
-            var session = try await client.createSession(WireCreateSessionInput(id: creationID, cwd: directory,
+            var session = try await client.createSession(WireCreateSessionInput(id: creationID, cwd: folder,
                 name: name.trimmingCharacters(in: .whitespacesAndNewlines), model: model,
                 thinkingLevel: levels.isEmpty ? nil : thinking, temporary: temporary))
             if temporary {

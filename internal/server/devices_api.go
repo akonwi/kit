@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -98,6 +99,8 @@ type access struct {
 	localToken string
 	devices    *devices.Service
 	pairing    *pairing.Registry
+	// servedURLs are the origins a pairing code's links can use.
+	servedURLs []string
 	failures   *failureLimiter
 	// unauthenticated holds "METHOD path" for operations that need no
 	// credential.
@@ -242,7 +245,7 @@ func registerDeviceRoutes(mux *http.ServeMux, a *access, logger *slog.Logger) {
 		if err != nil {
 			return protocol.PairingCode{}, err
 		}
-		return protocol.PairingCode{Code: code, ExpiresAt: expires.Format(time.RFC3339Nano)}, nil
+		return protocol.PairingCode{Code: code, ExpiresAt: expires.Format(time.RFC3339Nano), URLs: slices.Clone(a.servedURLs)}, nil
 	})
 	httpapi.Handle(mux, options, httpapi.ListDevices, func(ctx context.Context, _ httpapi.ServerPath, _ httpapi.NoBody) (protocol.DeviceList, error) {
 		current := requestDevice(ctx)

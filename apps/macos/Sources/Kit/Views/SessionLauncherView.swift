@@ -4,6 +4,8 @@ import SwiftUI
 struct SessionLauncherView: View {
     /// The server whose sessions the launcher lists.
     let connection: ServerConnection
+    /// The server menu before New session.
+    var server: LauncherServerChoice? = nil
     /// The status of each of the window's sessions that is working or
     /// awaiting a response.
     var activity: [String: SessionTabStatus] = [:]
@@ -17,29 +19,113 @@ struct SessionLauncherView: View {
     @State private var refreshRequest = 0
     @State private var target: SessionExcerpt?
     @State private var deleting = false
+    /// Sign-in for a server other than this Mac's that has no provider. This
+    /// Mac's server signs in through the window's first run instead.
+    @State private var signIn: ProviderSignIn?
+    @State private var signingIn = false
 
     var body: some View {
         let scheme = SystemAppearance.shared.resolve(appearance)
         let dark = scheme == .dark
         let theme = ThemeConfiguration.decode(themeConfiguration).resolved(dark: dark, installed: installedThemes)
-        let catalog = connection.catalog
-        SessionLauncherContent(sessions: catalog.sessions, connecting: catalog.loading,
-                               connected: catalog.loaded, error: catalog.error, open: open, refresh: { refreshRequest += 1 },
-                               create: create, focusRequest: target == nil, activity: activity,
-                               rename: { deleting = false; target = $0 },
-                               delete: { deleting = true; target = $0 })
-        .modifier(SessionCatalogActions(client: connection.client, refresh: { await catalog.refresh() },
-                                        target: $target, deleting: $deleting))
+        Group {
+            if signingIn, let signIn {
+                LauncherSignIn(signIn: signIn, server: server) { signingIn = false }
+            } else {
+                launcher
+            }
+        }
         .environment(\.mica, theme)
         .foregroundStyle(theme.text)
         .background(theme.surface)
         .tint(theme.accent)
         .preferredColorScheme(theme.dark ? .dark : .light)
         .frame(minWidth: 680, minHeight: 540)
+        .task(id: SignInKey(server: connection.name, instance: connection.status.identity?.instance)) {
+            await checkProviders(reset: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await checkProviders(reset: false) }
+        }
+    }
+
+    private struct SignInKey: Equatable {
+        let server: String
+        let instance: String?
+    }
+
+    /// Shows sign-in while a connected server other than this Mac's has no
+    /// provider. A server that can't list providers keeps the launcher.
+    private func checkProviders(reset: Bool) async {
+        if reset { signIn = nil; signingIn = false }
+        guard !connection.isLocal, connection.status.isConnected else { return }
+        if signIn == nil { signIn = ProviderSignIn(client: connection.client) }
+        guard let signIn, signIn.step == .list, !signingIn else { return }
+        await signIn.load()
+        if signIn.loadError == nil && !signIn.anyConnected { signingIn = true }
+    }
+
+    private var launcher: some View {
+        let catalog = connection.catalog
+        return SessionLauncherContent(sessions: catalog.sessions, connecting: catalog.loading,
+                               connected: catalog.loaded, error: catalog.error, open: open, refresh: { refreshRequest += 1 },
+                               create: create, server: server, focusRequest: target == nil, activity: activity,
+                               rename: { deleting = false; target = $0 },
+                               delete: { deleting = true; target = $0 })
+        .modifier(SessionCatalogActions(client: connection.client, refresh: { await catalog.refresh() },
+                                        target: $target, deleting: $deleting))
         .onReceive(NotificationCenter.default.publisher(for: .kitSessionDeleted)) { notification in
             if let identity = notification.object as? SessionIdentity { catalog.sessionDeleted(identity) }
         }
         .task(id: refreshRequest) { await catalog.refresh() }
+    }
+}
+
+/// A launcher's sign-in for its server when that server has no provider:
+/// the server menu, then the same steps as first run. Continue returns to
+/// the launcher.
+private struct LauncherSignIn: View {
+    @Environment(\.mica) private var theme
+    let signIn: ProviderSignIn
+    let server: LauncherServerChoice?
+    let done: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                if let server { LauncherServerButton(choice: server) }
+                VStack(alignment: .leading, spacing: 20) {
+                    if signIn.step == .list {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Connect a provider").font(.kit(size: 18, weight: .semibold))
+                                .accessibilityAddTraits(.isHeader)
+                            if let server {
+                                Text("\(server.selected) needs a provider before it can start sessions.")
+                                    .font(.kit(size: 13)).foregroundStyle(theme.muted)
+                            }
+                        }
+                    }
+                    ProviderSignInFlow(signIn: signIn) {
+                        Task {
+                            await signIn.finish()
+                            if signIn.step == .list { done() }
+                        }
+                    }
+                    if signIn.step == .list && signIn.loaded && signIn.loadError == nil && signIn.anyConnected {
+                        HStack {
+                            Spacer()
+                            Button("Continue", action: done)
+                                .buttonStyle(FormButtonStyle(fill: .primary))
+                                .keyboardShortcut(.defaultAction)
+                        }
+                    }
+                }
+                .frame(width: FirstRunView.width, alignment: .leading)
+            }
+            .frame(width: SessionLauncherContent.width, alignment: .leading)
+            .padding(.top, SessionLauncherContent.top).padding(.bottom, 40)
+            .frame(maxWidth: .infinity)
+        }
     }
 }
 
@@ -53,6 +139,8 @@ struct SessionLauncherContent: View {
     let open: (SessionExcerpt) -> Void
     let refresh: () -> Void
     var create: (() -> Void)? = nil
+    /// The launcher's server menu, before New session.
+    var server: LauncherServerChoice? = nil
     var focusRequest = true
     var compact = false
     var currentID: String? = nil
@@ -64,6 +152,10 @@ struct SessionLauncherContent: View {
     @Environment(\.mica) private var theme
     @State private var selection = SessionLauncher()
     @FocusState private var searchFocused: Bool
+
+    /// The launcher's column width, and its distance from the top.
+    static let width: CGFloat = 560
+    static let top: CGFloat = 150
 
     private var sections: (active: [SessionExcerpt], recent: [SessionExcerpt]) {
         selection.sections(in: sessions, activity: compact ? [:] : activity)
@@ -105,7 +197,7 @@ struct SessionLauncherContent: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
-                    if let create { NewSessionButton(action: create).disabled(!connected || connecting) }
+                    actions
                     VStack(alignment: .leading, spacing: 20) {
                         searchField
                         let sections = sections
@@ -115,8 +207,8 @@ struct SessionLauncherContent: View {
                         if let error, !results.isEmpty { connectionNotice(error) }
                     }
                 }
-                .frame(width: 560, alignment: .leading)
-                .padding(.top, 150).padding(.bottom, 40)
+                .frame(width: Self.width, alignment: .leading)
+                .padding(.top, Self.top).padding(.bottom, 40)
                 .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.automatic)
@@ -130,11 +222,21 @@ struct SessionLauncherContent: View {
     private var firstSessionPrompt: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Start your first session").font(.kit(size: 18, weight: .semibold))
-            if let create { NewSessionButton(action: create) }
+            actions
         }
         .frame(width: 440, alignment: .leading)
         .padding(.bottom, 60)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The server menu, then New session.
+    @ViewBuilder private var actions: some View {
+        if server != nil || create != nil {
+            HStack(spacing: 8) {
+                if let server { LauncherServerButton(choice: server) }
+                if let create { NewSessionButton(action: create).disabled(!connected || connecting) }
+            }
+        }
     }
 
     private var searchField: some View {

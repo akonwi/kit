@@ -5,7 +5,7 @@ import Observation
 @MainActor @Observable
 final class SessionReplica {
     var onReceive: (@MainActor (SessionExcerpt) -> Void)?
-    let client: any SessionClient
+    private(set) var client: any SessionClient
     private(set) var sessions: [SessionExcerpt]
     private(set) var selectedID: String
     /// Full merged replica state. Mutations publish only the observed parts
@@ -287,6 +287,13 @@ final class SessionReplica {
         historyGeneration = UUID()
         historyTask?.cancel(); historyTask = nil
         historyLoading = false
+    }
+
+    /// Reads through `client` from now on, as when the server is saved under
+    /// a new name. Streams end; attaching opens them through `client`.
+    func rebind(to client: any SessionClient) {
+        detach()
+        self.client = client
     }
 
     func detach() {

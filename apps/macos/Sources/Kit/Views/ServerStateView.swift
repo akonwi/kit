@@ -59,7 +59,7 @@ struct ServerStatePresentation: Equatable {
                 title = local ? "The Kit server needs a newer Kit" : "\(name) needs a newer Kit"
                 message = "\(server) runs an older Kit than this app can use. Update kit, then restart the server. Restarting stops work running there, so Kit leaves it to you."
                 action = .restart(command: Self.restartCommand(connector: connector),
-                                  prompt: "After updating kit, run:")
+                                  prompt: connector.isThisMac ? "After updating kit, run:" : "After updating kit on \(name), run there:")
             } else {
                 title = local ? "Update Kit for Mac" : "Update Kit to use \(name)"
                 message = local
@@ -76,7 +76,7 @@ struct ServerStatePresentation: Equatable {
             reason = failure
             versions = []
             action = .retry(retry)
-        case .connecting, .connected, .reconnecting:
+        case .connecting, .connected, .reconnecting, .needsPairing:
             title = local ? "Connecting to Kit" : "Connecting to \(name)"
             message = ""
             source = nil
@@ -92,6 +92,8 @@ struct ServerStatePresentation: Equatable {
         case .home(let home):
             let kind = name == ServerClient.localID ? "local" : "home"
             return kind + " · " + abbreviated(home.path)
+        case .url(let origin, _): return "url · " + origin
+        case .ssh(let destination): return "ssh · " + destination
         }
     }
 
@@ -103,6 +105,8 @@ struct ServerStatePresentation: Equatable {
             let path = home.standardizedFileURL.path
             guard path != DevHomeResolver.defaultHome.standardizedFileURL.path else { return "kit server restart" }
             return "KIT_HOME=\(shellQuoted(path)) kit server restart"
+        case .url, .ssh:
+            return "kit server restart"
         }
     }
 
@@ -124,8 +128,12 @@ struct ServerStatePresentation: Equatable {
 struct ServerStateView: View {
     @Environment(\.mica) private var theme
     @Environment(\.openURL) private var openURL
+    @Environment(\.openSettings) private var openSettings
     let connection: ServerConnection
     var sessionTab = true
+
+    /// The width of a server state's column.
+    static let width: CGFloat = 520
 
     var body: some View {
         let presentation = ServerStatePresentation(name: connection.name, connector: connection.connector,
@@ -147,8 +155,8 @@ struct ServerStateView: View {
                 .font(.kit(size: 12)).foregroundStyle(theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 520, alignment: .leading)
-        .padding(.top, 150).padding(.bottom, 40)
+        .frame(width: ServerStateView.width, alignment: .leading)
+        .padding(.top, SessionLauncherContent.top).padding(.bottom, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .textSelection(.enabled)
     }
@@ -188,6 +196,8 @@ struct ServerStateView: View {
                 Circle().strokeBorder(theme.muted).frame(width: 6, height: 6)
                 RetryCountdown(retry: retry).font(.kit(size: 12)).foregroundStyle(theme.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Server Settings…") { SettingsSection.servers.open(with: openSettings, server: connection.name) }
+                    .buttonStyle(FormButtonStyle())
                 Button("Try Now") { connection.checkNow() }
                     .buttonStyle(FormButtonStyle(fill: .primary))
                     .keyboardShortcut(.defaultAction)
@@ -262,8 +272,114 @@ struct UnknownServerView: View {
             }
             Button("Close Tab", action: close).buttonStyle(FormButtonStyle(fill: .primary))
         }
-        .frame(width: 520, alignment: .leading)
-        .padding(.top, 150).padding(.bottom, 40)
+        .frame(width: ServerStateView.width, alignment: .leading)
+        .padding(.top, SessionLauncherContent.top).padding(.bottom, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+/// A tab whose served server needs this Mac to pair with it again (S3): a
+/// field for a new pairing link from that server.
+struct ServerPairingView: View {
+    @Environment(\.mica) private var theme
+    let connection: ServerConnection
+    let need: ClientError.PairingNeed
+    let servers: ServerDirectory
+    var sessionTab = true
+
+    var body: some View {
+        let name = connection.name
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    IconView(.warning, size: 16).foregroundStyle(theme.warning)
+                    Text(Self.title(name: name, need: need)).font(.kit(size: 17, weight: .semibold))
+                }
+                Text(Self.message(name: name, need: need))
+                    .font(.kit(size: 13)).foregroundStyle(theme.muted)
+                    .lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+            }
+            PairingLinkField(placeholder: Self.placeholder(connection.connector)) { link in
+                try await servers.pairAgain(name, link: link)
+            }
+            Text(sessionTab
+                 ? "Your draft and layout stay in this tab. Tabs on other servers keep working."
+                 : "Tabs on other servers keep working.")
+                .font(.kit(size: 12)).foregroundStyle(theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: ServerStateView.width, alignment: .leading)
+        .padding(.top, SessionLauncherContent.top).padding(.bottom, 40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    static func title(name: String, need: ClientError.PairingNeed) -> String {
+        need == .missing ? "Pair with \(name)" : "Pair with \(name) again"
+    }
+
+    static func message(name: String, need: ClientError.PairingNeed) -> String {
+        let steps = "by running kit server pair on \(name), or with Pair a Device on another paired device, and paste it here."
+        return need == .missing
+            ? "This Mac isn’t paired with \(name). Get a link \(steps)"
+            : "This Mac’s pairing with \(name) expired or was revoked. Get a new link \(steps)"
+    }
+
+    /// The shape of a link for the server, to show what to paste.
+    static func placeholder(_ connector: ServerConnector) -> String {
+        if case .url(let origin, _) = connector { return origin + "/pair#…" }
+        return "https://host/pair#…"
+    }
+}
+
+/// A pairing link field with a Pair button, which reports why a link failed.
+struct PairingLinkField: View {
+    @Environment(\.mica) private var theme
+    let placeholder: String
+    /// Takes focus when it appears, as the only field in a dialog does.
+    var autofocus = false
+    let pair: (PairingLink) async throws -> Void
+    @State private var text = ""
+    @State private var pending = false
+    @State private var error: String?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                TextField("", text: $text, prompt: Text(placeholder).foregroundStyle(theme.strongBorder))
+                    .textFieldStyle(.plain).font(.kit(size: 12, design: .monospaced))
+                    .focused($focused)
+                    .onSubmit(submit)
+                    .padding(.horizontal, 10).frame(height: 30)
+                    .fieldBox(theme, focused: focused)
+                    .accessibilityLabel("Pairing link")
+                Button(action: submit) {
+                    if pending { KitSpinner() } else { Text("Pair") }
+                }
+                .buttonStyle(FormButtonStyle(fill: .primary))
+                .disabled(pending || text.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            if let error { ProviderErrorLine(message: error) }
+        }
+        .onChange(of: text) { error = nil }
+        .task { if autofocus { focused = true } }
+    }
+
+    private func submit() {
+        guard !pending else { return }
+        guard let link = PairingLink(text) else {
+            error = PairingError.invalidLink.localizedDescription
+            return
+        }
+        pending = true
+        Task {
+            defer { pending = false }
+            do {
+                try await pair(link)
+                text = ""
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
     }
 }

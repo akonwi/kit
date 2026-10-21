@@ -5,6 +5,8 @@ struct SettingsView: View {
     @AppStorage("themeConfiguration") private var storedConfiguration = ""
     @Environment(\.installedThemes) private var installedThemes
     @AppStorage(SettingsSection.storageKey) private var selection = SettingsSection.appearance.rawValue
+    @Environment(\.serverDirectory) private var servers
+    @State private var dialog: ServersDialog?
     let themeLibrary: NativeThemeLibrary
     let windows: SessionWindowRegistry
 
@@ -35,19 +37,74 @@ struct SettingsView: View {
                     } else if selection == "workspace" {
                         WorkspaceSettingsView()
                     } else if selection == "servers" {
-                        ServersSettingsView(windows: windows)
+                        ServersSettingsView(dialog: $dialog, windows: windows)
                     } else if selection == "providers" {
-                        ProviderSettingsView()
+                        if let connection = settingsServer {
+                            ProviderSettingsView(client: connection.client, server: choice(connection)).id(connection.name)
+                        } else {
+                            ProviderSettingsView()
+                        }
+                    } else if let connection = settingsServer {
+                        ModelSettingsView(client: connection.client, server: choice(connection)).id(connection.name)
                     } else {
                         ModelSettingsView()
                     }
                 }.padding(28).frame(maxWidth: .infinity, alignment: .leading)
             }.background(theme.surface)
         }
+        .disabled(dialog != nil)
+        .accessibilityHidden(dialog != nil)
+        .overlay { dialogOverlay }
         .font(.kit(size: 13)).foregroundStyle(theme.text).tint(theme.accent)
         .environment(\.mica, theme)
         .frame(width: 800, height: 690)
+        .onAppear(perform: takeRoute)
+        .onChange(of: SettingsRoute.shared.dialog) { takeRoute() }
         .preferredColorScheme(theme.dark ? .dark : .light)
+    }
+
+    /// The server Models and Providers show: the one asked for, while the
+    /// app knows it, otherwise this Mac's.
+    private var settingsServer: ServerConnection? {
+        guard let servers else { return nil }
+        return servers.connection(named: SettingsRoute.shared.server) ?? servers.local
+    }
+
+    private func choice(_ connection: ServerConnection) -> LauncherServerChoice? {
+        guard let servers else { return nil }
+        return LauncherServerChoice(servers: servers, selected: connection.name) { SettingsRoute.shared.server = $0 }
+    }
+
+    /// Opens the dialog another window asked for.
+    private func takeRoute() {
+        guard let requested = SettingsRoute.shared.dialog else { return }
+        SettingsRoute.shared.dialog = nil
+        selection = SettingsSection.servers.rawValue
+        dialog = requested
+    }
+
+    @ViewBuilder private var dialogOverlay: some View {
+        if let dialog, let servers {
+            let close = { self.dialog = nil }
+            SettingsDialogOverlay(close: close) {
+                switch dialog {
+                case .add:
+                    AddServerDialog(servers: servers, close: close)
+                case .pair(let name):
+                    if let connection = servers.connection(named: name) {
+                        PairDeviceDialog(connection: connection, close: close)
+                    }
+                case .pairAgain(let name):
+                    if let connection = servers.connection(named: name) {
+                        PairAgainDialog(servers: servers, connection: connection, close: close)
+                    }
+                case .rename(let name):
+                    RenameServerDialog(servers: servers, name: name, close: close)
+                case .remove(let name):
+                    RemoveServerDialog(servers: servers, name: name, close: close)
+                }
+            }
+        }
     }
 
     private func section(_ title: String, icon: Icon, id: String, theme: MicaTheme) -> some View {

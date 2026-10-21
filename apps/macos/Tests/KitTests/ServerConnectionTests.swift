@@ -283,7 +283,7 @@ import Testing
         }
     }
 
-    @Test func localComesFirstThenSavedHomesByName() {
+    @Test func localComesFirstThenSavedServersByName() {
         let saved = Saved()
         saved.servers = [
             SavedServer(name: "beta", kind: .home, address: "/work/beta/home"),
@@ -293,11 +293,14 @@ import Testing
             SavedServer(name: "self", kind: .home, address: "/Users/kit/.kit"),
         ].sorted { $0.name < $1.name }
         let servers = directory(saved)
-        #expect(servers.connections.map(\.name) == ["local", "alpha", "beta"])
+        #expect(servers.connections.map(\.name) == ["local", "alpha", "beta", "mini", "vps"])
         #expect(servers.local.connector == .home(URL(fileURLWithPath: "/Users/kit/.kit")))
         #expect(servers.connection(named: "beta")?.connector == .home(URL(fileURLWithPath: "/work/beta/home")))
+        #expect(servers.connection(named: "vps")?.connector
+                == .url("https://kit.example.com", credential: DeviceCredential(home: "/Users/kit/.kit", name: "vps")))
+        #expect(servers.connection(named: "mini")?.connector == .ssh("akonwi@mini"))
         #expect(servers.client(for: "alpha")?.serverID == "alpha")
-        #expect(servers.connection(named: "vps") == nil)
+        #expect(servers.connection(named: "self") == nil)
     }
 
     @Test func refreshRepointsChangedServersAndFollowsTheSavedList() {
@@ -356,6 +359,93 @@ struct SavedServerListTests {
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
         #expect(try SavedServerList.read(missing) == [])
         #expect(SavedServerList.decode(Data("not json".utf8)) == [])
+    }
+
+    private func list(_ contents: String? = nil) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let url = directory.appendingPathComponent("servers.json")
+        if let contents {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data(contents.utf8).write(to: url)
+        }
+        return url
+    }
+
+    @Test func entriesSavedBeforeKindsAreHomes() {
+        let data = Data(#"{"servers":[{"name":"old","home":"/work/old"}]}"#.utf8)
+        #expect(SavedServerList.decode(data) == [SavedServer(name: "old", kind: .home, address: "/work/old")])
+    }
+
+    @Test func changesKeepEntriesAndFieldsThisAppDoesNotKnow() throws {
+        let url = try list("""
+        {"servers":[
+          {"name":"devbox","kind":"home","home":"/work/devbox","future":{"kept":true}},
+          {"name":"cloud","kind":"carrier-pigeon","coop":"roof"}
+        ]}
+        """)
+        try SavedServerList.add(SavedServer(name: "vps", kind: .url, address: "https://kit.example.com"), to: url)
+        try SavedServerList.rename("devbox", to: "box", in: url)
+        try SavedServerList.add(SavedServer(name: "mini", kind: .ssh, address: "me@mini.local"), to: url)
+        try SavedServerList.remove("mini", from: url)
+
+        let written = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: [[String: AnyHashable]]]
+        #expect(written?["servers"] == [
+            ["name": "box", "kind": "home", "home": "/work/devbox", "future": ["kept": true] as [String: AnyHashable]],
+            ["name": "cloud", "kind": "carrier-pigeon", "coop": "roof"],
+            ["name": "vps", "kind": "url", "url": "https://kit.example.com"],
+        ])
+        #expect(try SavedServerList.read(url) == [
+            SavedServer(name: "box", kind: .home, address: "/work/devbox"),
+            SavedServer(name: "vps", kind: .url, address: "https://kit.example.com"),
+        ])
+        let permissions = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
+        #expect(permissions == 0o600)
+        #expect(FileManager.default.fileExists(atPath: url.path + ".lock"))
+    }
+
+    @Test func aMissingListIsCreatedByTheFirstAdd() throws {
+        let url = try list()
+        try SavedServerList.add(SavedServer(name: "devbox", kind: .home, address: "/work/devbox"), to: url)
+        #expect(try SavedServerList.read(url) == [SavedServer(name: "devbox", kind: .home, address: "/work/devbox")])
+    }
+
+    @Test func changesRefuseNamesInUseAndInvalidEntries() throws {
+        let url = try list(#"{"servers":[{"name":"cloud","kind":"carrier-pigeon"},{"name":"devbox","kind":"home","home":"/work/devbox"}]}"#)
+        #expect(throws: SavedServerError.exists("cloud")) {
+            try SavedServerList.add(SavedServer(name: "cloud", kind: .home, address: "/work/cloud"), to: url)
+        }
+        #expect(throws: SavedServerError.exists("devbox")) { try SavedServerList.rename("cloud", to: "devbox", in: url) }
+        #expect(throws: SavedServerError.notFound("gone")) { try SavedServerList.remove("gone", from: url) }
+        for invalid in [
+            SavedServer(name: "local", kind: .home, address: "/work/local"),
+            SavedServer(name: "home", kind: .home, address: "work/relative"),
+            SavedServer(name: "vps", kind: .url, address: "https://kit.example.com/path"),
+            SavedServer(name: "vps", kind: .url, address: "HTTPS://Kit.Example.com"),
+            SavedServer(name: "mini", kind: .ssh, address: "-oProxyCommand=evil"),
+        ] {
+            #expect(throws: SavedServerError.invalid(invalid)) { try SavedServerList.add(invalid, to: url) }
+        }
+    }
+
+    @Test func changesRefuseAListTheyCouldNotKeep() throws {
+        for contents in ["not json", #"{"servers":{}}"#, #"{"servers":[{"kind":"home"}]}"#,
+                         #"{"servers":[{"name":"a","kind":"home","home":"/a"},{"name":"a","kind":"home","home":"/b"}]}"#] {
+            let url = try list(contents)
+            #expect(throws: SavedServerError.self) {
+                try SavedServerList.add(SavedServer(name: "devbox", kind: .home, address: "/work/devbox"), to: url)
+            }
+            #expect(try String(contentsOf: url, encoding: .utf8) == contents)
+        }
+    }
+
+    @Test func serverURLsAreSavedAsLowercaseOrigins() {
+        #expect(SavedServer.canonicalURL("https://Kit.Example.com/") == "https://kit.example.com")
+        #expect(SavedServer.canonicalURL(" http://100.64.0.7:4517 ") == "http://100.64.0.7:4517")
+        #expect(SavedServer.canonicalURL("https://[fd7a::1]:8443") == "https://[fd7a::1]:8443")
+        for invalid in ["kit.example.com", "ftp://kit.example.com", "https://kit.example.com/pair", "https://me@kit.example.com",
+                        "https://kit.example.com?x", "https://kit.example.com#code"] {
+            #expect(SavedServer.canonicalURL(invalid) == nil)
+        }
     }
 
     @Test func namesFollowKitServersAdd() {
@@ -506,6 +596,53 @@ struct ServerStatePresentationTests {
         #expect((store.catalogClient as? ServerClient)?.connector == .home(path: "/tmp/devbox2"))
         #expect(store.connectionState == .disconnected)
         model.closeAll()
+    }
+
+    @Test func renamingAServerMovesItsTabs() {
+        let servers = servers { Self.identity }
+        let model = SessionWindowModel(id: UUID(), servers: servers,
+                                       sessions: [SessionIdentity(server: "devbox", session: "a"),
+                                                  SessionIdentity(server: "local", session: "b")],
+                                       collapsed: ["devbox/a", "b"], titles: [SessionIdentity(server: "devbox", session: "a"): "Parser"])
+        model.serverRenamed(from: "devbox", to: "box")
+        #expect(model.tabs.map(\.identity) == [SessionIdentity(server: "box", session: "a"), SessionIdentity(server: "local", session: "b")])
+        #expect(model.collapsed == ["box/a", "b"])
+        #expect(model.titles[SessionIdentity(server: "box", session: "a")] == "Parser")
+    }
+
+    @Test func renamingAServerKeepsItsTabsStores() async throws {
+        var saved = [SavedServer(name: "devbox", kind: .home, address: "/tmp/devbox")]
+        let servers = ServerDirectory(home: URL(fileURLWithPath: "/tmp/kit-home"), saved: { saved }) { name, connector in
+            ServerConnection(client: ServerClient(serverID: name, connector: connector),
+                             catalogClient: FixtureClient(fixture: Fixture(sessions: []))) { Self.identity }
+        }
+        servers.start()
+        defer { for connection in servers.connections { connection.stop() } }
+        let model = SessionWindowModel(id: UUID(), servers: servers, sessions: [SessionIdentity(server: "devbox", session: "a")])
+        let tab = model.tabs[0]
+        try await eventually { servers.connection(named: "devbox")?.status.isConnected == true }
+        let store = try #require(model.store(for: tab))
+        store.ui.draft = "unsent"
+
+        saved = [SavedServer(name: "box", kind: .home, address: "/tmp/devbox")]
+        servers.refresh()
+        model.serverRenamed(from: "devbox", to: "box")
+        #expect(tab.identity == SessionIdentity(server: "box", session: "a"))
+        #expect(tab.store === store)
+        #expect(store.serverID == "box")
+        #expect(store.ui.draft == "unsent")
+        try await eventually { servers.connection(named: "box")?.status.isConnected == true }
+        #expect(model.store(for: tab) === store)
+        model.closeAll()
+    }
+
+    @Test func removingAServerClosesItsTabs() {
+        let servers = servers { Self.identity }
+        let model = SessionWindowModel(id: UUID(), servers: servers,
+                                       sessions: [SessionIdentity(server: "devbox", session: "a"),
+                                                  SessionIdentity(server: "local", session: "b")])
+        model.serverRemoved("devbox")
+        #expect(model.tabs.map(\.identity) == [SessionIdentity(server: "local", session: "b")])
     }
 
     @Test func aStoreWhoseWatchGaveUpResumesWhenItsServerIsBack() async throws {

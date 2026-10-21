@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -92,5 +93,38 @@ func TestServedURLs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ServedURLs() = %q, want %q", got, want)
+	}
+}
+
+func TestServedURLsDropsInvalidAndCaps(t *testing.T) {
+	hosts := []string{"bad host"}
+	for i := range MaxServedURLs + 5 {
+		hosts = append(hosts, fmt.Sprintf("h%d.example", i))
+	}
+	got := ServedURLs(hosts, nil, "http://127.0.0.1:7777/", "https://h0.example/path")
+	if len(got) != MaxServedURLs {
+		t.Fatalf("len(ServedURLs()) = %d, want %d", len(got), MaxServedURLs)
+	}
+	if got[0] != "https://h0.example" || got[len(got)-2] != fmt.Sprintf("https://h%d.example", MaxServedURLs-2) {
+		t.Fatalf("ServedURLs() = %q, want the first %d hosts in order", got, MaxServedURLs-1)
+	}
+	if got[len(got)-1] != "http://127.0.0.1:7777" {
+		t.Fatalf("ServedURLs() ends with %q, want the loopback URL", got[len(got)-1])
+	}
+}
+
+func TestValidServedURL(t *testing.T) {
+	for _, valid := range []string{"https://kit.example.ts.net", "http://127.0.0.1:7777", "https://[fd7a::1]", "http://box.local:8080"} {
+		if !ValidServedURL(valid) {
+			t.Errorf("ValidServedURL(%q) = false", valid)
+		}
+	}
+	for _, invalid := range []string{
+		"", "kit.example.ts.net", "ftp://kit.example", "https://", "https://kit.example/", "https://kit.example/pair",
+		"https://kit.example?", "https://kit.example#", "https://user@kit.example", "HTTPS://kit.example", " https://kit.example",
+	} {
+		if ValidServedURL(invalid) {
+			t.Errorf("ValidServedURL(%q) = true", invalid)
+		}
 	}
 }

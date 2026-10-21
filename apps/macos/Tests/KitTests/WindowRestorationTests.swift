@@ -162,7 +162,7 @@ import Testing
         var session = SessionExcerpt(id: "b", title: "Release notes", sourceTitle: "", model: "m", thinking: "high",
                                      workspace: "/work/kit", date: "", messages: [])
         session.cwd = "/work/kit/apps"
-        model.launcherServer.catalog.recordCreated(session)
+        model.servers.local.catalog.recordCreated(session)
         #expect(tab.title == "Release notes")
         #expect(tab.directory == "/work/kit/apps")
     }
@@ -181,7 +181,7 @@ import Testing
 
         let model = SessionWindowModel(id: window, sessions: saved.sessions, selected: saved.selected, titles: saved.titles)
         #expect(model.tabs.map(\.title) == [String(long.prefix(WindowRestorationStore.maximumTitleLength)), "Devbox planning"])
-        model.launcherServer.catalog.recordCreated(SessionExcerpt(id: "a", title: "Release notes", sourceTitle: "", model: "m",
+        model.servers.local.catalog.recordCreated(SessionExcerpt(id: "a", title: "Release notes", sourceTitle: "", model: "m",
                                                                   thinking: "high", workspace: "/work", date: "", messages: []))
         #expect(model.tabs[0].title == "Release notes")
         #expect(model.titles == [id("a"): "Release notes", id("b", server: "devbox"): "Devbox planning"])
@@ -196,7 +196,7 @@ import Testing
         let window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         registry.attach(model, to: window)
-        model.launcherServer.catalog.recordCreated(SessionExcerpt(id: "a", title: "Release notes", sourceTitle: "", model: "m",
+        model.servers.local.catalog.recordCreated(SessionExcerpt(id: "a", title: "Release notes", sourceTitle: "", model: "m",
                                                                   thinking: "high", workspace: "/work", date: "", messages: []))
         registry.captureBeforeQuit()
         registry.terminating = true

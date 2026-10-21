@@ -350,6 +350,7 @@ const (
 	MaxInteractionTitleBytes              = contract.MaxInteractionTitleBytes
 	MaxLiveAnnotationsPerSession          = contract.MaxLiveAnnotationsPerSession
 	MaxModelOverrides                     = contract.MaxModelOverrides
+	MaxPairingURLs                        = contract.MaxPairingURLs
 	MaxPendingInteractions                = contract.MaxPendingInteractions
 	MaxPromptAnnotationBytes              = contract.MaxPromptAnnotationBytes
 	MaxPromptAttachmentBytes              = contract.MaxPromptAttachmentBytes

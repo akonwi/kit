@@ -296,26 +296,6 @@ struct AppUpdateInstallerTests {
 }
 
 struct ServersSettingsTests {
-    @Test func readsTheLocalServerVersionFromItsRegistry() throws {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("kit-home-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: home) }
-        try FileManager.default.createDirectory(at: home.appendingPathComponent("run"), withIntermediateDirectories: true)
-        let registry = #"{"registryVersion":1,"protocolVersion":1,"kitVersion":"0.48.0","url":"http://127.0.0.1:1","instanceId":"i","pid":\#(ProcessInfo.processInfo.processIdentifier)}"#
-        try Data(registry.utf8).write(to: home.appendingPathComponent("run/server.json"))
-
-        let status = LocalServerStatus.read(home: home)
-
-        #expect(status.running)
-        #expect(status.version == "0.48.0")
-    }
-
-    @Test func aHomeWithoutARegistryHasNoRunningServer() {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("kit-home-\(UUID().uuidString)")
-        let status = LocalServerStatus.read(home: home)
-        #expect(!status.running)
-        #expect(status.version == nil)
-    }
-
     @Test func updateCommandNamesTheAppsHome() {
         #expect(KitUpdateTerminal.command(home: URL(fileURLWithPath: "/Users/me/.kit")) == "KIT_HOME='/Users/me/.kit' kit update\n")
         #expect(KitUpdateTerminal.command(home: URL(fileURLWithPath: "/tmp/it's")) == "KIT_HOME='/tmp/it'\\''s' kit update\n")
