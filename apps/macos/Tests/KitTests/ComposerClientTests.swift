@@ -49,6 +49,14 @@ private actor ComposerMock: ComposerClient {
         ui.uploads.acknowledge(["attachment_2"])
         #expect(ui.uploads.items.isEmpty)
     }
+    @Test func draftsOfOtherSessionsFollowTheirServersNewName() {
+        let ui = SessionUIState(demo: false)
+        ui.draft = "for later"
+        ui.switchSession(from: SessionIdentity(server: "vps", session: "a"), to: SessionIdentity(server: "vps", session: "b"), demo: false)
+        ui.serverRenamed(from: "vps", to: "cloud")
+        ui.switchSession(from: SessionIdentity(server: "cloud", session: "b"), to: SessionIdentity(server: "cloud", session: "a"), demo: false)
+        #expect(ui.draft == "for later")
+    }
     @Test func pendingPasteboardAttachmentBlocksSubmissionUntilProviderResolves() async throws {
         let client = ComposerMock(), uploads = ComposerAttachments()
         let id = try #require(uploads.reserve(filename: "Pasted image.png"))

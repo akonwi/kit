@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import Kit
 
@@ -81,6 +82,42 @@ struct ServedServerConnectionTests {
         await #expect(throws: PairingError.codeRefused) {
             _ = try await HTTPClient.redeemPairing(url: url, code: String(repeating: "a", count: 26), deviceName: "Mac")
         }
+    }
+
+    @Test func aServedServersVerifiedTransportIsReusedUntilARequestFails() async throws {
+        let server = try LoopbackHTTPServer(body: Self.health)
+        let url = try await server.start()
+        defer { server.stop() }
+        let credential = DeviceCredential(home: "/Users/me/.kit", name: "vps")
+        let tokens = MemoryDeviceTokens([credential: (url.absoluteString, Self.token)])
+        let client = ServerClient(serverID: "vps", connector: .url(url.absoluteString, credential: credential), tokens: tokens)
+        let first = try await client.resolve()
+        #expect(try await client.resolve() === first)
+        #expect(server.requests.count == 1)
+        // A refused credential or another instance means verifying again.
+        for failure in [TransportFailures.Failure.refused, .changed, .unreachable] {
+            let current = try await client.resolve()
+            current.failures.report(failure)
+            #expect(try await client.resolve() !== current)
+        }
+        #expect(server.requests.count == 4)
+        // Pointing the name elsewhere forgets the transport too.
+        let verified = try await client.resolve()
+        client.address.repoint(to: .url(url.absoluteString + "/", credential: credential))
+        #expect(client.address.verifiedClient(for: client.connector) == nil)
+        client.address.repoint(to: .url(url.absoluteString, credential: credential))
+        #expect(try await client.resolve() !== verified)
+    }
+
+    @Test func aRequestTheServerRefusesIsReported() async throws {
+        let server = try LoopbackHTTPServer(status: "401 Unauthorized", body: #"{"error":{"code":"unauthorized","message":"no"}}"#)
+        let url = try await server.start()
+        defer { server.stop() }
+        let client = try HTTPClient(endpoint: url, token: Self.token, instance: "instance_remote", serverID: "vps", remote: true)
+        let reported = Mutex<[TransportFailures.Failure]>([])
+        client.failures.connect { failure in reported.withLock { $0.append(failure) } }
+        _ = try? await client.sessions()
+        #expect(reported.withLock { $0 } == [.refused])
     }
 
     @Test func onlyLoopbackEndpointsAreAcceptedUnlessRemote() {
@@ -242,6 +279,47 @@ struct PairingLinkTests {
         #expect(tokens.token(for: DeviceCredential(home: home.path, name: "vps"), url: "https://kit.example.dev") == nil)
     }
 
+    @Test func renamingAndRemovingCarryTheKitCommandsToken() async throws {
+        let (servers, home) = try directory()
+        try await servers.add(name: "vps", link: PairingLink(server: "https://kit.example.dev", code: code), deviceName: "Mac") { _, _, _ in token }
+        let file = home.appendingPathComponent("server-tokens.json")
+        let other = "kit_device_" + String(repeating: "F", count: 43)
+        try Data(#"""
+        {"tokens":{"vps":{"url":"https://kit.example.dev","token":"\#(token)"},"lab":{"url":"https://lab.example.dev","token":"\#(other)"}},"note":"kept"}
+        """#.utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        func document() throws -> NSDictionary {
+            try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? NSDictionary)
+        }
+
+        try servers.rename("vps", to: "cloud")
+        #expect(try document() == [
+            "tokens": ["cloud": ["url": "https://kit.example.dev", "token": token],
+                       "lab": ["url": "https://lab.example.dev", "token": other]],
+            "note": "kept",
+        ] as NSDictionary)
+        #expect(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int == 0o600)
+
+        try servers.remove("cloud")
+        #expect(try document() == [
+            "tokens": ["lab": ["url": "https://lab.example.dev", "token": other]],
+            "note": "kept",
+        ] as NSDictionary)
+    }
+
+    @Test func aServerRemovedWhilePairingKeepsNoToken() async throws {
+        let tokens = MemoryDeviceTokens()
+        let (servers, home) = try directory(tokens: tokens)
+        await #expect(throws: SavedServerError.notFound("vps")) {
+            try await servers.add(name: "vps", link: PairingLink(server: "https://kit.example.dev", code: code), deviceName: "Mac") { _, _, _ in
+                try SavedServerList.remove("vps", from: servers.list)
+                return token
+            }
+        }
+        #expect(tokens.token(for: DeviceCredential(home: home.path, name: "vps"), url: "https://kit.example.dev") == nil)
+        #expect(servers.savedServers.isEmpty)
+    }
+
     @Test func removingForgetsTheTokenAndTellsWindows() async throws {
         let tokens = MemoryDeviceTokens()
         let (servers, home) = try directory(tokens: tokens)
@@ -336,6 +414,13 @@ struct ServersSettingsPresentationTests {
         #expect(PairDeviceDialog.exposeCommand(connector: .home(DevHomeResolver.defaultHome)) == "kit server expose --tailscale")
         #expect(PairDeviceDialog.exposeCommand(connector: .home(path: "/work/kit home"))
                 == "KIT_HOME='/work/kit home' kit server expose --tailscale")
+    }
+
+    @Test func removingSaysWhichRunningCommandsEnd() {
+        #expect(RemoveServerDialog.message(name: "vps", token: false, tabs: 1, running: 2)
+            == "Kit and the kit command forget vps. Its open tab closes. 2 commands still running in its terminals end. The server and its sessions keep running.")
+        #expect(RemoveServerDialog.message(name: "vps", token: false, tabs: 1, running: 1)
+            == "Kit and the kit command forget vps. Its open tab closes. A command still running in its terminals ends. The server and its sessions keep running.")
     }
 
     @Test func removingSaysWhatGoes() {

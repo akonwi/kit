@@ -610,6 +610,32 @@ struct ServerStatePresentationTests {
         #expect(model.titles[SessionIdentity(server: "box", session: "a")] == "Parser")
     }
 
+    @Test func renamingAServerKeepsItsTabsStores() async throws {
+        var saved = [SavedServer(name: "devbox", kind: .home, address: "/tmp/devbox")]
+        let servers = ServerDirectory(home: URL(fileURLWithPath: "/tmp/kit-home"), saved: { saved }) { name, connector in
+            ServerConnection(client: ServerClient(serverID: name, connector: connector),
+                             catalogClient: FixtureClient(fixture: Fixture(sessions: []))) { Self.identity }
+        }
+        servers.start()
+        defer { for connection in servers.connections { connection.stop() } }
+        let model = SessionWindowModel(id: UUID(), servers: servers, sessions: [SessionIdentity(server: "devbox", session: "a")])
+        let tab = model.tabs[0]
+        try await eventually { servers.connection(named: "devbox")?.status.isConnected == true }
+        let store = try #require(model.store(for: tab))
+        store.ui.draft = "unsent"
+
+        saved = [SavedServer(name: "box", kind: .home, address: "/tmp/devbox")]
+        servers.refresh()
+        model.serverRenamed(from: "devbox", to: "box")
+        #expect(tab.identity == SessionIdentity(server: "box", session: "a"))
+        #expect(tab.store === store)
+        #expect(store.serverID == "box")
+        #expect(store.ui.draft == "unsent")
+        try await eventually { servers.connection(named: "box")?.status.isConnected == true }
+        #expect(model.store(for: tab) === store)
+        model.closeAll()
+    }
+
     @Test func removingAServerClosesItsTabs() {
         let servers = servers { Self.identity }
         let model = SessionWindowModel(id: UUID(), servers: servers,

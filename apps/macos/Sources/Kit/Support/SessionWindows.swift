@@ -37,6 +37,11 @@ final class SessionWindowRegistry: NSObject {
                 count + model.tabs.filter { !$0.isLauncher && $0.identity.server == name }.count
             }
         }
+        servers.busyTerminals = { [weak self] name in
+            (self?.liveModels ?? []).reduce(0) { count, model in
+                count + model.tabs.filter { $0.identity.server == name }.reduce(0) { $0 + ($1.store?.busyTerminals.count ?? 0) }
+            }
+        }
     }
 
     var liveModels: [SessionWindowModel] {

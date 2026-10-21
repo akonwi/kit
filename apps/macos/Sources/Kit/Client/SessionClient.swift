@@ -178,7 +178,17 @@ final class ServerSignal: Sendable {
 /// address, so when the server's saved name is pointed elsewhere their next
 /// operations go there too, and open sessions keep their drafts and shells.
 final class ServerAddress: Sendable {
+    private struct Verified {
+        let connector: ServerConnector
+        let client: HTTPClient
+        let at: ContinuousClock.Instant
+    }
+
     private let current: Mutex<ServerConnector>
+    private let verified = Mutex<Verified?>(nil)
+    /// How long a served server's verified transport is reused without
+    /// verifying the server again, when nothing reports it changed sooner.
+    static let verifiedLifetime: Duration = .seconds(60)
 
     init(_ connector: ServerConnector) {
         current = Mutex(connector)
@@ -188,6 +198,26 @@ final class ServerAddress: Sendable {
 
     func repoint(to connector: ServerConnector) {
         current.withLock { $0 = connector }
+        verified.withLock { $0 = nil }
+    }
+
+    /// The transport last verified for `connector`, while it is fresh.
+    func verifiedClient(for connector: ServerConnector) -> HTTPClient? {
+        verified.withLock { entry in
+            guard let entry, entry.connector == connector, ContinuousClock.now - entry.at < Self.verifiedLifetime else { return nil }
+            return entry.client
+        }
+    }
+
+    func remember(_ client: HTTPClient, for connector: ServerConnector) {
+        verified.withLock { $0 = Verified(connector: connector, client: client, at: .now) }
+    }
+
+    /// Forgets the verified transport, or only `client` when given and still remembered.
+    func forget(_ client: ObjectIdentifier? = nil) {
+        verified.withLock { entry in
+            if client == nil || entry.map({ ObjectIdentifier($0.client) }) == client { entry = nil }
+        }
     }
 }
 
@@ -220,15 +250,41 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
         ServerClient(serverID: localID, connector: .home(DevHomeResolver.resolve()))
     }
 
-    /// Resolves the server and returns a transport for one operation.
+    /// Resolves the server and returns a transport for one operation. A
+    /// served server's verified transport is reused, so its operations skip
+    /// the Keychain and the handshake, until a request suggests the server
+    /// changed, its connection checks it again, or the transport ages out.
     func resolve() async throws -> HTTPClient {
-        do { return try await connector.handshake(serverID: serverID, tokens: tokens).client }
+        let connector = self.connector
+        if let client = address.verifiedClient(for: connector) { return client }
+        do { return try await verify(connector).client }
         catch {
             // An operation that was cancelled says nothing about the server.
             let cancelled = Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled
             if !cancelled { unreachable?.fire() }
             throw error
         }
+    }
+
+    /// Reaches and verifies the server afresh, as its connection's checks do.
+    /// A served server's transport is kept for later operations; a failure
+    /// forgets the one kept.
+    func verify(_ connector: ServerConnector? = nil) async throws -> (client: HTTPClient, identity: ServerIdentity) {
+        let connector = connector ?? self.connector
+        let result: (client: HTTPClient, identity: ServerIdentity)
+        do { result = try await connector.handshake(serverID: serverID, tokens: tokens) }
+        catch {
+            address.forget()
+            throw error
+        }
+        guard case .url = connector else { return result }
+        let address = self.address, unreachable = self.unreachable, id = ObjectIdentifier(result.client)
+        result.client.failures.connect { failure in
+            address.forget(id)
+            if failure != .changed { unreachable?.fire() }
+        }
+        address.remember(result.client, for: connector)
+        return result
     }
 
     func scratchpad(session: String) async throws -> ScratchpadRecord {

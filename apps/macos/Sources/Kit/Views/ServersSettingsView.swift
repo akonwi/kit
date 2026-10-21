@@ -278,7 +278,8 @@ struct RemoveServerDialog: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             DialogHeading(title: "Remove \(name)?",
-                          message: Self.message(name: name, token: hasToken, tabs: servers.openTabs(name)))
+                          message: Self.message(name: name, token: hasToken, tabs: servers.openTabs(name),
+                                                 running: servers.busyTerminals(name)))
             if let error { ProviderErrorLine(message: error) }
             Rule()
             HStack(spacing: 8) {
@@ -303,14 +304,19 @@ struct RemoveServerDialog: View {
         return servers.connections.first { $0.name == name }?.status != .needsPairing(.missing)
     }
 
-    static func message(name: String, token hasToken: Bool, tabs: Int) -> String {
+    static func message(name: String, token hasToken: Bool, tabs: Int, running: Int = 0) -> String {
         let token = hasToken ? " Its device token is removed from the Keychain." : ""
         let closing = switch tabs {
         case 0: ""
         case 1: " Its open tab closes."
         default: " Its \(tabs) open tabs close."
         }
-        return "Kit and the kit command forget \(name).\(token)\(closing) The server and its sessions keep running."
+        let ending = switch running {
+        case 0: ""
+        case 1: " A command still running in its terminals ends."
+        default: " \(running) commands still running in its terminals end."
+        }
+        return "Kit and the kit command forget \(name).\(token)\(closing)\(ending) The server and its sessions keep running."
     }
 }
 

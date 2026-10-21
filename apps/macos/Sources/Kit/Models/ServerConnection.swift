@@ -88,7 +88,7 @@ final class ServerConnection: Identifiable {
         let signal = ServerSignal()
         let client = ServerClient(serverID: name, connector: connector, tokens: tokens, unreachable: signal)
         self.init(client: client, catalogClient: client, schedule: schedule, signal: signal) {
-            try await client.connector.handshake(serverID: name, tokens: tokens).identity
+            try await client.verify().identity
         }
     }
 
@@ -231,6 +231,8 @@ final class ServerDirectory {
     @ObservationIgnored var serverRemoved: (_ name: String) -> Void = { _ in }
     /// How many session tabs are open on a server across windows.
     @ObservationIgnored var openTabs: (_ name: String) -> Int = { _ in 0 }
+    /// How many terminals in a server's tabs are running commands, across windows.
+    @ObservationIgnored var busyTerminals: (_ name: String) -> Int = { _ in 0 }
     @ObservationIgnored private let saved: () -> [SavedServer]
     @ObservationIgnored private let makeConnection: (String, ServerConnector) -> ServerConnection
     @ObservationIgnored private var started = false

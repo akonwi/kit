@@ -30,6 +30,13 @@ final class TemporarySessions {
         save()
     }
 
+    /// Keeps a server's temporary sessions under the server's new name.
+    func serverRenamed(from name: String, to newName: String) {
+        guard identities.contains(where: { $0.server == name }) else { return }
+        identities = Set(identities.map { $0.server == name ? SessionIdentity(server: newName, session: $0.session) : $0 })
+        save()
+    }
+
     private func save() {
         if let data = try? JSONEncoder().encode(identities) { defaults.set(data, forKey: key) }
     }

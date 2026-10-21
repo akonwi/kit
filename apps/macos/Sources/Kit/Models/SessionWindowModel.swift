@@ -530,14 +530,21 @@ final class SessionWindowModel: Identifiable {
     }
 
     /// Moves the tabs of a server saved under a new name to that name. Each
-    /// reattaches through the renamed server, keeping its layout and title.
+    /// reattaches through the renamed server, keeping its drafts, terminals,
+    /// and layout.
     func serverRenamed(from name: String, to newName: String) {
         var changed = false
+        let connection = servers.connection(named: newName)
         for tab in tabs where tab.identity.server == name {
-            if !tab.isLauncher {
-                tab.savedArrangement = tab.store?.ui.workspace.arrangement ?? tab.savedArrangement
-                tab.savedTitle = tab.session?.title ?? tab.savedTitle
-                release(tab)
+            if let store = tab.store {
+                if let connection {
+                    tab.attachedRoute = connection.route
+                    store.rebind(to: connection.client)
+                } else {
+                    tab.savedArrangement = store.ui.workspace.arrangement
+                    tab.savedTitle = tab.session?.title ?? tab.savedTitle
+                    release(tab)
+                }
             }
             tab.identity = SessionIdentity(server: newName, session: tab.identity.session)
             changed = true

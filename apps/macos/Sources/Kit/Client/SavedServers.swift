@@ -194,23 +194,13 @@ enum SavedServerList {
     }
 
     private static func mutate(_ url: URL, _ change: (inout [RawEntry]) throws -> Void) throws {
-        let directory = url.deletingLastPathComponent()
-        do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]) }
-        catch { throw SavedServerError.io(error.localizedDescription) }
-        let lock = open(url.path + ".lock", O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
-        guard lock >= 0 else { throw SavedServerError.io(String(cString: strerror(errno))) }
-        defer { close(lock) }
-        guard flock(lock, LOCK_EX) == 0 else { throw SavedServerError.io(String(cString: strerror(errno))) }
-        defer { flock(lock, LOCK_UN) }
-        var entries = try rawEntries(url)
-        try change(&entries)
-        entries.sort { $0.name < $1.name }
-        let document: [String: Any] = ["servers": entries.map(\.fields)]
-        var data: Data
-        do { data = try JSONSerialization.data(withJSONObject: document, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) }
-        catch { throw SavedServerError.io(error.localizedDescription) }
-        data.append(0x0A)
-        try replace(url, with: data)
+        try PrivateFile.withLock(url) {
+            var entries = try rawEntries(url)
+            try change(&entries)
+            entries.sort { $0.name < $1.name }
+            let document: [String: Any] = ["servers": entries.map(\.fields)]
+            try PrivateFile.replace(url, with: PrivateFile.encode(document))
+        }
     }
 
     /// The entries of the list at `url`, refusing a list that `kit servers`
@@ -239,9 +229,36 @@ enum SavedServerList {
             return RawEntry(name: name, fields: fields)
         }
     }
+}
+
+/// Files Kit's Go side also writes, changed the way it changes them: under an
+/// exclusive lock on a sibling `.lock` file and replaced atomically, readable
+/// only by their owner.
+enum PrivateFile {
+    /// Runs `body` holding the lock for `url`, creating its directory.
+    static func withLock<T>(_ url: URL, _ body: () throws -> T) throws -> T {
+        let directory = url.deletingLastPathComponent()
+        do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]) }
+        catch { throw SavedServerError.io(error.localizedDescription) }
+        let lock = open(url.path + ".lock", O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        guard lock >= 0 else { throw SavedServerError.io(String(cString: strerror(errno))) }
+        defer { close(lock) }
+        guard flock(lock, LOCK_EX) == 0 else { throw SavedServerError.io(String(cString: strerror(errno))) }
+        defer { flock(lock, LOCK_UN) }
+        return try body()
+    }
+
+    /// A JSON document as Kit writes it, ending with a newline.
+    static func encode(_ document: [String: Any]) throws -> Data {
+        var data: Data
+        do { data = try JSONSerialization.data(withJSONObject: document, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) }
+        catch { throw SavedServerError.io(error.localizedDescription) }
+        data.append(0x0A)
+        return data
+    }
 
     /// Replaces `url` with `data` atomically, readable only by its owner.
-    private static func replace(_ url: URL, with data: Data) throws {
+    static func replace(_ url: URL, with data: Data) throws {
         let temporary = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent)-\(UUID().uuidString)")
         let descriptor = open(temporary.path, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw SavedServerError.io(String(cString: strerror(errno))) }

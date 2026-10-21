@@ -89,6 +89,19 @@ private struct RestartedServerClient: SessionClient, @unchecked Sendable {
         #expect(TemporarySessions(defaults: defaults).identities == relaunched.identities)
     }
 
+    @Test func temporarySessionsFollowTheirServersNewName() throws {
+        let suite = "TemporarySessionTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let references = TemporarySessions(defaults: defaults)
+        references.remember(server: "vps", session: "scratch")
+        references.remember(server: "other", session: "elsewhere")
+        references.serverRenamed(from: "vps", to: "cloud")
+        #expect(references.identities == [SessionIdentity(server: "cloud", session: "scratch"),
+                                          SessionIdentity(server: "other", session: "elsewhere")])
+        #expect(TemporarySessions(defaults: defaults).identities == references.identities)
+    }
+
     // Regression: the HTTP client reported a missing session as an invalid
     // payload, so a temporary session lost in a server restart failed every
     // catalog load with "The server identity or response does not match local

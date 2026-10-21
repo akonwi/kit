@@ -116,8 +116,9 @@ struct KeychainDeviceTokens: DeviceTokenStore {
 }
 
 /// The device tokens the terminal client keeps in `server-tokens.json`
-/// beside the saved-server list. The app only reads them, so a server paired
-/// with `kit attach` connects here too.
+/// beside the saved-server list. The app reads them, so a server paired with
+/// `kit attach` connects here too, and moves or forgets them when it renames
+/// or removes a server, so the kit command follows. It never saves new ones.
 enum TerminalDeviceTokens {
     private struct Document: Decodable {
         struct Entry: Decodable {
@@ -138,6 +139,52 @@ enum TerminalDeviceTokens {
               let entry = document.tokens?[credential.name],
               entry.url == url, isDeviceToken(entry.token) else { return nil }
         return entry.token
+    }
+
+    /// Saves the token kept for `name` in `home` under `newName` instead.
+    /// Nothing is written when there's no token under `name`.
+    static func rename(_ name: String, to newName: String, home: String) throws {
+        try change(home) { tokens in
+            guard let entry = tokens.removeValue(forKey: name) else { return false }
+            tokens[newName] = entry
+            return true
+        }
+    }
+
+    /// Forgets the token kept for `name` in `home`.
+    static func delete(_ name: String, home: String) throws {
+        try change(home) { tokens in tokens.removeValue(forKey: name) != nil }
+    }
+
+    /// Changes the tokens under the file's lock, as the terminal client does,
+    /// keeping fields this app doesn't know. A missing file is left missing;
+    /// a file others can read is refused, as the terminal client refuses it.
+    private static func change(_ home: String, _ body: (inout [String: Any]) -> Bool) throws {
+        let url = URL(fileURLWithPath: home).appendingPathComponent("server-tokens.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try PrivateFile.withLock(url) {
+            let attributes: [FileAttributeKey: Any]
+            do { attributes = try FileManager.default.attributesOfItem(atPath: url.path) }
+            catch let error as CocoaError where error.code == .fileReadNoSuchFile { return }
+            catch { throw SavedServerError.io(error.localizedDescription) }
+            guard let permissions = attributes[.posixPermissions] as? Int, permissions & 0o077 == 0 else {
+                throw SavedServerError.unreadable("others can read it.")
+            }
+            guard let size = attributes[.size] as? Int, size <= SavedServerList.maximumSize,
+                  let data = FileManager.default.contents(atPath: url.path),
+                  var document = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw SavedServerError.unreadable("it isn’t valid JSON.")
+            }
+            var tokens: [String: Any]
+            switch document["tokens"] {
+            case nil, is NSNull: tokens = [:]
+            case let existing as [String: Any]: tokens = existing
+            default: throw SavedServerError.unreadable("its tokens aren’t a map.")
+            }
+            guard body(&tokens) else { return }
+            document["tokens"] = tokens
+            try PrivateFile.replace(url, with: PrivateFile.encode(document))
+        }
     }
 }
 

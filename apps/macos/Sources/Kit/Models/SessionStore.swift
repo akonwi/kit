@@ -630,6 +630,16 @@ final class SessionStore {
         feedback.clearTransientPluginNotifications()
         replica.detach()
     }
+    /// Reads the session through `client`, the same server under a new name,
+    /// keeping the tab's drafts, terminals, and layout, and reattaches.
+    func rebind(to client: any SessionClient) {
+        let old = serverID
+        detach()
+        replica.rebind(to: client)
+        ui.serverRenamed(from: old, to: client.serverID)
+        attach()
+    }
+
     /// Ends the session tab's work, including its browser pages and shells.
     func stop() {
         demo?.stop()

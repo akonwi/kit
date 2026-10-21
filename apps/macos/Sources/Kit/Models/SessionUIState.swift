@@ -51,6 +51,13 @@ final class SessionUIState {
             previews: saved.previews, workspace: saved.workspace, transcript: saved.transcript)
     }
 
+    /// Keeps the drafts of a server's sessions under the server's new name.
+    func serverRenamed(from name: String, to newName: String) {
+        drafts = Dictionary(uniqueKeysWithValues: drafts.map { identity, draft in
+            (identity.server == name ? SessionIdentity(server: newName, session: identity.session) : identity, draft)
+        })
+    }
+
     /// Stops every browser page and ends every shell this tab holds for its sessions.
     func closeLiveTabs() {
         for workspace in workspaces { workspace.closeLiveTabs() }

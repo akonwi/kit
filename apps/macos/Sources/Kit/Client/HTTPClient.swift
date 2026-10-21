@@ -131,6 +131,8 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     private let instance: String
     private let session: URLSession
     private let api: Client
+    /// Requests that suggest the server has changed since it was verified.
+    let failures = TransportFailures()
 
     /// How long a request may wait for more data before failing.
     static let requestTimeout: TimeInterval = 45
@@ -151,7 +153,8 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         configuration.timeoutIntervalForResource = .infinity
         let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
         self.session = session
-        api = Client(serverURL: endpoint, transport: OpenAPITransport(endpoint: endpoint, token: token, instance: instance, session: session))
+        api = Client(serverURL: endpoint, transport: OpenAPITransport(endpoint: endpoint, token: token, instance: instance,
+                                                                       session: session, failures: failures))
     }
 
     private static func validLoopback(_ endpoint: URL) -> Bool {
@@ -167,7 +170,8 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     // URLSession retains its connections until explicitly invalidated, including
-    // abandoned SSE requests. ServerClient creates a transport per operation.
+    // abandoned SSE requests. ServerClient creates a transport per operation,
+    // or for a served server reuses one until the server must be verified again.
     deinit { session.invalidateAndCancel() }
 
     /// The server of the app's own Kit home.
@@ -239,9 +243,15 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
         let session = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
         guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
-        guard data.count <= 64 * 1024 else { throw ClientError.oversized }
+        // The server is on the network, so its answer is read only up to the bound.
+        var data = Data()
+        for try await byte in bytes {
+            data.append(byte)
+            guard data.count <= 64 * 1024 else { throw ClientError.oversized }
+        }
         if response.statusCode == 401 {
             let failure = try? JSONDecoder().decode(ErrorEnvelope.self, from: data)
             throw ClientError.needsPairing(failure?.error.code == "credential_expired" ? .expired : .refused)
@@ -1076,7 +1086,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     // labels the binary part as text/plain, while reads do not expose the
     // integrity headers this client validates before displaying content.
     private func sendAttachmentUpload(_ request: URLRequest) async throws -> WireAttachmentInfo {
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await TransportFailures.bytes(session, request, reporting: failures)
         defer { bytes.task.cancel() }
         return try await withTaskCancellationHandler {
             guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
@@ -1122,7 +1132,8 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     func attachmentContent(_ id: String, info: WireAttachmentInfo) async throws -> Data {
         guard info.sessionId == id, info.size > 0, info.size <= 16 * 1024 * 1024,
               info.id.hasPrefix("attachment_"), info.id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { throw ClientError.invalidPayload }
-        let (bytes, response) = try await session.bytes(for: request("v1/sessions/" + id + "/attachments/" + info.id))
+        let (bytes, response) = try await TransportFailures.bytes(session, request("v1/sessions/" + id + "/attachments/" + info.id),
+                                                                  reporting: failures)
         defer { bytes.task.cancel() }
         return try await withTaskCancellationHandler {
             try check(response)
