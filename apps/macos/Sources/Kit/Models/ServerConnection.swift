@@ -234,19 +234,28 @@ final class ServerDirectory {
     @ObservationIgnored private let saved: () -> [SavedServer]
     @ObservationIgnored private let makeConnection: (String, ServerConnector) -> ServerConnection
     @ObservationIgnored private var started = false
+    /// The server the launcher last listed, which new launchers open on.
+    var launcherServer: String {
+        didSet { if launcherServer != oldValue { defaults?.set(launcherServer, forKey: Self.launcherServerKey) } }
+    }
+    /// Where the launcher's server is kept; none, as in tests, keeps it in memory.
+    @ObservationIgnored private let defaults: UserDefaults?
+    static let launcherServerKey = "launcherServer"
 
     /// Reads the saved servers of `home` and connects to them through their connectors.
     convenience init(home: URL = DevHomeResolver.resolve(), tokens: any DeviceTokenStore = DeviceTokens.standard) {
         let list = home.appendingPathComponent("servers.json")
-        self.init(home: home, tokens: tokens, saved: { (try? SavedServerList.read(list)) ?? [] }) { name, connector in
+        self.init(home: home, tokens: tokens, defaults: .standard, saved: { (try? SavedServerList.read(list)) ?? [] }) { name, connector in
             ServerConnection(name: name, connector: connector, tokens: tokens)
         }
     }
 
     /// Creates a directory from explicit parts, as tests do. Changes are
     /// written to `home`'s list, which `saved` should read.
-    init(home: URL, tokens: any DeviceTokenStore = MemoryDeviceTokens(), saved: @escaping () -> [SavedServer],
-         makeConnection: @escaping (String, ServerConnector) -> ServerConnection) {
+    init(home: URL, tokens: any DeviceTokenStore = MemoryDeviceTokens(), defaults: UserDefaults? = nil,
+         saved: @escaping () -> [SavedServer], makeConnection: @escaping (String, ServerConnector) -> ServerConnection) {
+        self.defaults = defaults
+        launcherServer = defaults?.string(forKey: Self.launcherServerKey) ?? ServerClient.localID
         self.home = URL(fileURLWithPath: home.path).standardizedFileURL
         list = self.home.appendingPathComponent("servers.json")
         self.tokens = tokens

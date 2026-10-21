@@ -62,6 +62,7 @@ extension ServerDirectory {
             try? tokens.rename(DeviceCredential(home: home.path, name: name), to: newName, url: server.address)
         }
         refresh()
+        if launcherServer == name { launcherServer = newName }
         serverRenamed(name, newName)
     }
 
@@ -71,6 +72,7 @@ extension ServerDirectory {
         try SavedServerList.remove(name, from: list)
         if server?.kind == .url { try? tokens.delete(DeviceCredential(home: home.path, name: name)) }
         refresh()
+        if launcherServer == name { launcherServer = ServerClient.localID }
         serverRemoved(name)
     }
 

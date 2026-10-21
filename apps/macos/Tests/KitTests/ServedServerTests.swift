@@ -345,3 +345,89 @@ struct ServersSettingsPresentationTests {
                 == "Kit and the kit command forget devbox. The server and its sessions keep running.")
     }
 }
+
+private func launcherIdentity(_ name: String) -> ServerIdentity {
+    ServerIdentity(id: name, instance: "a", kitVersion: "0.42.0", protocolVersion: kitWireVersion, machine: "m", home: "/h")
+}
+
+struct LauncherServerOptionTests {
+    private let identity = launcherIdentity("srv")
+
+    @Test func availableServersShowWhereTheyAre() {
+        #expect(LauncherServerOption(name: "local", connector: .home(path: "/Users/kit/.kit"), status: .connected(identity))
+            == LauncherServerOption(name: "local", detail: "This Mac", address: false, available: true))
+        #expect(LauncherServerOption(name: "devbox", connector: .ssh("me@devbox"), status: .connecting)
+            == LauncherServerOption(name: "devbox", detail: "me@devbox", address: true, available: true))
+        let credential = DeviceCredential(home: "/Users/kit/.kit", name: "vps")
+        #expect(LauncherServerOption(name: "vps", connector: .url("https://kit.example.dev", credential: credential),
+                                     status: .reconnecting(identity, retry: .distantFuture))
+            == LauncherServerOption(name: "vps", detail: "kit.example.dev", address: true, available: true))
+        #expect(LauncherServerOption(name: "lan", connector: .url("http://192.168.1.20:4517", credential: credential),
+                                     status: .connected(identity)).detail == "192.168.1.20:4517")
+    }
+
+    @Test func unavailableServersSayWhatTheyNeedAndCantBeChosen() {
+        let credential = DeviceCredential(home: "/Users/kit/.kit", name: "staging")
+        #expect(LauncherServerOption(name: "staging", connector: .url("https://staging.example.dev", credential: credential),
+                                     status: .needsPairing(.expired))
+            == LauncherServerOption(name: "staging", detail: "Pair again", address: false, available: false, needsPairing: true))
+        #expect(LauncherServerOption(name: "old-mini", connector: .ssh("me@old-mini"),
+                                     status: .unreachable(reason: "ssh failed", retry: nil))
+            == LauncherServerOption(name: "old-mini", detail: "Can’t connect", address: false, available: false))
+    }
+}
+
+@MainActor struct LauncherServerTests {
+    private func directory(_ servers: [SavedServer], defaults: UserDefaults? = nil,
+                           check: @escaping @Sendable (String) throws -> Void = { _ in }) throws -> ServerDirectory {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        for server in servers { try SavedServerList.add(server, to: home.appendingPathComponent("servers.json")) }
+        let list = home.appendingPathComponent("servers.json")
+        return ServerDirectory(home: home, defaults: defaults, saved: { (try? SavedServerList.read(list)) ?? [] }) { name, connector in
+            ServerConnection(client: ServerClient(serverID: name, connector: connector),
+                             schedule: .init(firstRetry: .seconds(60), maximumRetry: .seconds(60), check: .seconds(60))) {
+                try check(name)
+                return launcherIdentity(name)
+            }
+        }
+    }
+
+    @Test func choosingAServerPointsTheLauncherAndLaterLaunchers() throws {
+        let servers = try directory([SavedServer(name: "devbox", kind: .ssh, address: "me@devbox")])
+        let model = SessionWindowModel(id: UUID(), servers: servers)
+        let launcher = model.tabs[0]
+        model.point(launcher, at: "devbox")
+        #expect(launcher.identity == SessionIdentity(server: "devbox", session: ""))
+        #expect(launcher.serverLabel == nil)
+        #expect(servers.launcherServer == "devbox")
+        #expect(SessionWindowModel(id: UUID(), servers: servers).tabs[0].identity == SessionIdentity(server: "devbox", session: ""))
+    }
+
+    @Test func aLauncherOpensOnThisMacWhenTheLastServerCantListSessions() async throws {
+        let servers = try directory([SavedServer(name: "devbox", kind: .ssh, address: "me@devbox")]) { name in
+            if name == "devbox" { throw ClientError.needsPairing(.refused) }
+        }
+        servers.launcherServer = "devbox"
+        #expect(servers.launcherDefault == "devbox")
+        servers.start()
+        defer { for connection in servers.connections { connection.stop() } }
+        try await eventually { servers.connection(named: "devbox")?.status == .needsPairing(.refused) }
+        #expect(servers.launcherDefault == "local")
+        #expect(servers.launcherOptions.map(\.available) == [true, false])
+    }
+
+    @Test func theLauncherServerFollowsRenamesAndRemovals() throws {
+        let defaults = try #require(UserDefaults(suiteName: "launcher-\(UUID().uuidString)"))
+        let servers = try directory([SavedServer(name: "devbox", kind: .ssh, address: "me@devbox")], defaults: defaults)
+        servers.launcherServer = "devbox"
+        try servers.rename("devbox", to: "gpu")
+        #expect(servers.launcherServer == "gpu")
+        #expect(defaults.string(forKey: ServerDirectory.launcherServerKey) == "gpu")
+        let model = SessionWindowModel(id: UUID(), servers: servers)
+        servers.serverRemoved = { model.serverRemoved($0) }
+        try servers.remove("gpu")
+        #expect(servers.launcherServer == "local")
+        #expect(model.tabs[0].identity == SessionIdentity(server: "local", session: ""))
+    }
+}

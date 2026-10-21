@@ -132,6 +132,9 @@ struct ServerStateView: View {
     let connection: ServerConnection
     var sessionTab = true
 
+    /// The width of a server state's column.
+    static let width: CGFloat = 520
+
     var body: some View {
         let presentation = ServerStatePresentation(name: connection.name, connector: connection.connector,
                                                    status: connection.status, sessionTab: sessionTab)
@@ -152,8 +155,8 @@ struct ServerStateView: View {
                 .font(.kit(size: 12)).foregroundStyle(theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 520, alignment: .leading)
-        .padding(.top, 150).padding(.bottom, 40)
+        .frame(width: ServerStateView.width, alignment: .leading)
+        .padding(.top, SessionLauncherContent.top).padding(.bottom, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .textSelection(.enabled)
     }
@@ -269,8 +272,8 @@ struct UnknownServerView: View {
             }
             Button("Close Tab", action: close).buttonStyle(FormButtonStyle(fill: .primary))
         }
-        .frame(width: 520, alignment: .leading)
-        .padding(.top, 150).padding(.bottom, 40)
+        .frame(width: ServerStateView.width, alignment: .leading)
+        .padding(.top, SessionLauncherContent.top).padding(.bottom, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
@@ -305,8 +308,8 @@ struct ServerPairingView: View {
                 .font(.kit(size: 12)).foregroundStyle(theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 520, alignment: .leading)
-        .padding(.top, 150).padding(.bottom, 40)
+        .frame(width: ServerStateView.width, alignment: .leading)
+        .padding(.top, SessionLauncherContent.top).padding(.bottom, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 

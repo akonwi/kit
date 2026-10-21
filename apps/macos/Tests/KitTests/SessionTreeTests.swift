@@ -125,7 +125,7 @@ struct SessionTreeTests {
                        closed: [String] = [], collapsed: Set<String> = []) -> SessionWindowModel {
         let model = SessionWindowModel(id: UUID(), sessions: sessions.map(id), selected: id(selected), collapsed: collapsed)
         for session in (sessions + closed).reversed() {
-            model.launcherServer.catalog.recordCreated(SessionExcerpt(id: session, title: session.uppercased(), parentSessionID: parents[session],
+            model.servers.local.catalog.recordCreated(SessionExcerpt(id: session, title: session.uppercased(), parentSessionID: parents[session],
                                                    sourceTitle: "", model: "m", thinking: "high", workspace: "",
                                                    date: "", messages: []))
         }

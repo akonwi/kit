@@ -19,7 +19,8 @@ struct SessionWindowRoot: View {
 
     var body: some View {
         let model = windows.model(for: request)
-        let launcher = model.launcherServer
+        // First run signs in this Mac's server; other servers sign in from their launchers.
+        let launcher = model.servers.local
         let scheme = SystemAppearance.shared.resolve(appearance)
         let theme = ThemeConfiguration.decode(themeConfiguration).resolved(dark: scheme == .dark, installed: installedThemes)
         let tab = model.selectedTab
@@ -94,8 +95,7 @@ struct SessionWindowRoot: View {
 
     /// The new session form, over the whole window while a launcher asks for it.
     @ViewBuilder private func newSessionForm(model: SessionWindowModel, theme: MicaTheme) -> some View {
-        let server = model.launcherServer
-        if let launcher = model.creatingIn, server.status.isConnected {
+        if let launcher = model.creatingIn, let server = launcher.connection, server.status.isConnected {
             let client = server.client
             NewSessionOverlay(client: client, suggestedModel: server.catalog.sessions.first?.model,
                               close: { model.creatingIn = nil }) { session in
@@ -143,15 +143,19 @@ private struct SessionTabContent: View {
             case .connecting where tab.isLauncher || tab.store == nil:
                 KitSpinner(connection.isLocal ? "Connecting to Kit" : "Connecting to \(connection.name)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .top) { launcherMenu(connection, width: SessionLauncherContent.width) }
             case .reconnecting where tab.isLauncher || tab.store == nil:
                 KitSpinner(connection.isLocal ? "Reconnecting to Kit" : "Reconnecting to \(connection.name)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .top) { launcherMenu(connection, width: SessionLauncherContent.width) }
             case .connecting, .reconnecting:
                 connected(connection)
             case .unreachable, .incompatible:
-                ServerStateView(connection: connection)
+                ServerStateView(connection: connection, sessionTab: !tab.isLauncher)
+                    .overlay(alignment: .top) { launcherMenu(connection, width: ServerStateView.width) }
             case .needsPairing(let need):
                 ServerPairingView(connection: connection, need: need, servers: model.servers, sessionTab: !tab.isLauncher)
+                    .overlay(alignment: .top) { launcherMenu(connection, width: ServerStateView.width) }
             }
         } else {
             UnknownServerView(name: tab.identity.server) { model.requestClose(tab) }
@@ -160,7 +164,8 @@ private struct SessionTabContent: View {
 
     @ViewBuilder private func connected(_ connection: ServerConnection) -> some View {
         if tab.isLauncher {
-            SessionLauncherView(connection: connection, activity: model.activity, create: { model.creatingIn = tab }) { session in
+            SessionLauncherView(connection: connection, server: choice(connection), activity: model.activity(on: connection.name),
+                                create: { model.creatingIn = tab }) { session in
                 model.show(SessionIdentity(server: connection.name, session: session.id), in: tab)
             }
         } else if let store = tab.store {
@@ -168,6 +173,20 @@ private struct SessionTabContent: View {
         } else {
             KitSpinner("Opening session").frame(maxWidth: .infinity, maxHeight: .infinity)
                 .task { model.store(for: tab) }
+        }
+    }
+
+    private func choice(_ connection: ServerConnection) -> LauncherServerChoice {
+        LauncherServerChoice(servers: model.servers, selected: connection.name) { [model, tab] in model.point(tab, at: $0) }
+    }
+
+    /// A launcher keeps its server menu above whatever its server shows
+    /// while it can't list sessions, so another server can be chosen.
+    @ViewBuilder private func launcherMenu(_ connection: ServerConnection, width: CGFloat) -> some View {
+        if tab.isLauncher {
+            LauncherServerButton(choice: choice(connection))
+                .frame(width: width, alignment: .leading)
+                .padding(.top, SessionLauncherContent.top - 48)
         }
     }
 }
