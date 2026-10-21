@@ -98,6 +98,7 @@ struct SessionWindowRoot: View {
         if let launcher = model.creatingIn, let server = launcher.connection, server.status.isConnected {
             let client = server.client
             NewSessionOverlay(client: client, suggestedModel: server.catalog.sessions.first?.model,
+                              place: NewSessionPlace(server),
                               close: { model.creatingIn = nil }) { session in
                 server.catalog.recordCreated(session)
                 model.showCreated(SessionIdentity(server: client.serverID, session: session.id), from: launcher)

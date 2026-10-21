@@ -19,29 +19,113 @@ struct SessionLauncherView: View {
     @State private var refreshRequest = 0
     @State private var target: SessionExcerpt?
     @State private var deleting = false
+    /// Sign-in for a server other than this Mac's that has no provider. This
+    /// Mac's server signs in through the window's first run instead.
+    @State private var signIn: ProviderSignIn?
+    @State private var signingIn = false
 
     var body: some View {
         let scheme = SystemAppearance.shared.resolve(appearance)
         let dark = scheme == .dark
         let theme = ThemeConfiguration.decode(themeConfiguration).resolved(dark: dark, installed: installedThemes)
-        let catalog = connection.catalog
-        SessionLauncherContent(sessions: catalog.sessions, connecting: catalog.loading,
-                               connected: catalog.loaded, error: catalog.error, open: open, refresh: { refreshRequest += 1 },
-                               create: create, server: server, focusRequest: target == nil, activity: activity,
-                               rename: { deleting = false; target = $0 },
-                               delete: { deleting = true; target = $0 })
-        .modifier(SessionCatalogActions(client: connection.client, refresh: { await catalog.refresh() },
-                                        target: $target, deleting: $deleting))
+        Group {
+            if signingIn, let signIn {
+                LauncherSignIn(signIn: signIn, server: server) { signingIn = false }
+            } else {
+                launcher
+            }
+        }
         .environment(\.mica, theme)
         .foregroundStyle(theme.text)
         .background(theme.surface)
         .tint(theme.accent)
         .preferredColorScheme(theme.dark ? .dark : .light)
         .frame(minWidth: 680, minHeight: 540)
+        .task(id: SignInKey(server: connection.name, instance: connection.status.identity?.instance)) {
+            await checkProviders(reset: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await checkProviders(reset: false) }
+        }
+    }
+
+    private struct SignInKey: Equatable {
+        let server: String
+        let instance: String?
+    }
+
+    /// Shows sign-in while a connected server other than this Mac's has no
+    /// provider. A server that can't list providers keeps the launcher.
+    private func checkProviders(reset: Bool) async {
+        if reset { signIn = nil; signingIn = false }
+        guard !connection.isLocal, connection.status.isConnected else { return }
+        if signIn == nil { signIn = ProviderSignIn(client: connection.client) }
+        guard let signIn, signIn.step == .list, !signingIn else { return }
+        await signIn.load()
+        if signIn.loadError == nil && !signIn.anyConnected { signingIn = true }
+    }
+
+    private var launcher: some View {
+        let catalog = connection.catalog
+        return SessionLauncherContent(sessions: catalog.sessions, connecting: catalog.loading,
+                               connected: catalog.loaded, error: catalog.error, open: open, refresh: { refreshRequest += 1 },
+                               create: create, server: server, focusRequest: target == nil, activity: activity,
+                               rename: { deleting = false; target = $0 },
+                               delete: { deleting = true; target = $0 })
+        .modifier(SessionCatalogActions(client: connection.client, refresh: { await catalog.refresh() },
+                                        target: $target, deleting: $deleting))
         .onReceive(NotificationCenter.default.publisher(for: .kitSessionDeleted)) { notification in
             if let identity = notification.object as? SessionIdentity { catalog.sessionDeleted(identity) }
         }
         .task(id: refreshRequest) { await catalog.refresh() }
+    }
+}
+
+/// A launcher's sign-in for its server when that server has no provider:
+/// the server menu, then the same steps as first run. Continue returns to
+/// the launcher.
+private struct LauncherSignIn: View {
+    @Environment(\.mica) private var theme
+    let signIn: ProviderSignIn
+    let server: LauncherServerChoice?
+    let done: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                if let server { LauncherServerButton(choice: server) }
+                VStack(alignment: .leading, spacing: 20) {
+                    if signIn.step == .list {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Connect a provider").font(.kit(size: 18, weight: .semibold))
+                                .accessibilityAddTraits(.isHeader)
+                            if let server {
+                                Text("\(server.selected) needs a provider before it can start sessions.")
+                                    .font(.kit(size: 13)).foregroundStyle(theme.muted)
+                            }
+                        }
+                    }
+                    ProviderSignInFlow(signIn: signIn) {
+                        Task {
+                            await signIn.finish()
+                            if signIn.step == .list { done() }
+                        }
+                    }
+                    if signIn.step == .list && signIn.loaded && signIn.loadError == nil && signIn.anyConnected {
+                        HStack {
+                            Spacer()
+                            Button("Continue", action: done)
+                                .buttonStyle(FormButtonStyle(fill: .primary))
+                                .keyboardShortcut(.defaultAction)
+                        }
+                    }
+                }
+                .frame(width: FirstRunView.width, alignment: .leading)
+            }
+            .frame(width: SessionLauncherContent.width, alignment: .leading)
+            .padding(.top, SessionLauncherContent.top).padding(.bottom, 40)
+            .frame(maxWidth: .infinity)
+        }
     }
 }
 

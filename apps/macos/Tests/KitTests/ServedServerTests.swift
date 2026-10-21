@@ -431,3 +431,13 @@ struct LauncherServerOptionTests {
         #expect(model.tabs[0].identity == SessionIdentity(server: "local", session: ""))
     }
 }
+
+struct NewSessionPlaceTests {
+    @Test func typedFoldersOnAnotherMachineStartFromItsHome() {
+        #expect(NewSessionPlace.folder("~", home: "/home/me") == "/home/me")
+        #expect(NewSessionPlace.folder(" ~/src/kit ", home: "/home/me") == "/home/me/src/kit")
+        #expect(NewSessionPlace.folder("src/kit", home: "/home/me/") == "/home/me/src/kit")
+        #expect(NewSessionPlace.folder("/srv/app", home: "/home/me") == "/srv/app")
+        #expect(NewSessionPlace.folder("  ", home: "/home/me") == nil)
+    }
+}
