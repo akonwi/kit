@@ -61,6 +61,8 @@ struct Updater {
   percent: Int,
   failure: Str,
   finish: Finish,
+  // refreshing reports that finish is being learned again; finishing waits.
+  refreshing: Bool,
 }
 
 // updater checks and installs for a release build attached through client.
@@ -104,6 +106,7 @@ fn custom(effects: Effects, enabled: Bool) mut Updater {
       server_version: "",
       active: -1,
     },
+    refreshing: false,
   })
 }
 
@@ -187,10 +190,12 @@ impl Updater {
             lifetime => {
               let effects = self.effects
               let installed = self.update.Version
+              self.refreshing = true
               (effects.spawn)(
                 fn() {
                   let finish = (effects.inspect)(lifetime.Context, installed)
                   let _ = dispatch(fn() {
+                    self.refreshing = false
                     if self.stage == Stage::installed {
                       self.finish = finish
                     }
@@ -421,9 +426,13 @@ fn dialog(themes: theme::Context, subject: Updater, actions: Actions) cui::View 
             true => "an older Kit",
             false => subject.finish.server_version,
           }
+          let consequence = match subject.refreshing {
+            true => "Counting its working sessions…",
+            false => interruption(subject.finish.active),
+          }
           body.push(
             cui::text(
-              "The local server still runs {running}. {interruption(subject.finish.active)}",
+              "The local server still runs {running}. {consequence}",
               text_style: ui::text_style(foreground: colors.muted),
             ),
           )

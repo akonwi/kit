@@ -102,20 +102,56 @@ struct AppUpdateInstallerTests {
         let installed = root.appendingPathComponent("Applications/Kit.app")
         let staged = root.appendingPathComponent("staged/Kit.app")
         for (app, marker) in [(installed, "old"), (staged, "new")] {
-            try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents"), withIntermediateDirectories: true)
             try Data(marker.utf8).write(to: app.appendingPathComponent("marker"))
         }
+        let info: [String: Any] = ["CFBundleIdentifier": AppUpdateInstaller.bundleIdentifier, "CFBundleShortVersionString": "0.5.1"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: staged.appendingPathComponent("Contents/Info.plist"))
+        let release = KitRelease(tag: "macos-v0.5.1", version: ReleaseVersion("0.5.1")!, notes: "",
+                                 url: KitReleases.page(tag: "macos-v0.5.1"), publishedAt: nil, assets: [])
 
-        try AppUpdateInstaller.install(staged, over: installed)
+        try AppUpdateInstaller.install(staged, over: installed, release: release, verifyCode: { _ in nil })
 
         #expect(try String(contentsOf: installed.appendingPathComponent("marker"), encoding: .utf8) == "new")
+    }
+
+    @Test func installChecksTheStagedAppAgainAndKeepsTheInstalledOne() throws {
+        let fixture = try AppUpdateFixture.archive(identifier: AppUpdateInstaller.bundleIdentifier, version: "0.5.1")
+        defer { fixture.remove() }
+        let staged = try AppUpdateInstaller.prepare(archive: fixture.archive, release: fixture.release, asset: fixture.asset,
+                                                    in: fixture.staging, verifySignature: { _ in nil })
+        let installed = fixture.root.appendingPathComponent("Applications/Kit.app")
+        try FileManager.default.createDirectory(at: installed, withIntermediateDirectories: true)
+        try Data("old".utf8).write(to: installed.appendingPathComponent("marker"))
+
+        #expect(throws: AppUpdateInstaller.Failure.notSigned) {
+            try AppUpdateInstaller.install(staged, over: installed, release: fixture.release, verifyCode: { _ in .notSigned })
+        }
+        // The system cleaned the staged app away while it waited.
+        try FileManager.default.removeItem(at: staged.appendingPathComponent("Contents/Info.plist"))
+        #expect(throws: AppUpdateInstaller.Failure.wrongApp) {
+            try AppUpdateInstaller.install(staged, over: installed, release: fixture.release, verifyCode: { _ in nil })
+        }
+        #expect(try String(contentsOf: installed.appendingPathComponent("marker"), encoding: .utf8) == "old")
+    }
+
+    @Test func discardRemovesTheFolderTheAppWasUnpackedInto() throws {
+        let fixture = try AppUpdateFixture.archive(identifier: AppUpdateInstaller.bundleIdentifier, version: "0.5.1")
+        defer { fixture.remove() }
+        let staged = try AppUpdateInstaller.prepare(archive: fixture.archive, release: fixture.release, asset: fixture.asset,
+                                                    in: fixture.staging, verifySignature: { _ in nil })
+
+        AppUpdateInstaller.discard(staged)
+
+        #expect(!FileManager.default.fileExists(atPath: fixture.staging.path))
     }
 }
 
 @MainActor struct AppUpdaterTests {
     @Test func checkOffersANewerAppAndRemembersTheNewestCLI() async throws {
         let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
-                                 effects: .fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1"), .init(tag: "v0.49.0")])))
+                                 effects: .fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1"), .init(tag: "v0.49.0")])), defaults: AppUpdateFixture.defaults())
 
         #expect(await updater.check() == true)
         #expect(updater.state == .available(try #require(try KitReleases.newest(.app, in: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")])))))
@@ -124,7 +160,7 @@ struct AppUpdateInstallerTests {
 
     @Test func checkLeavesAnUpToDateAppIdle() async {
         let updater = AppUpdater(current: ReleaseVersion("0.5.1"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
-                                 effects: .fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")])))
+                                 effects: .fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")])), defaults: AppUpdateFixture.defaults())
 
         #expect(await updater.check() == false)
         #expect(updater.state == .idle)
@@ -134,7 +170,7 @@ struct AppUpdateInstallerTests {
         var fetched = false
         var effects = AppUpdater.Effects.fixture(list: Data())
         effects.fetchList = { fetched = true; return Data() }
-        let updater = AppUpdater(current: nil, installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects)
+        let updater = AppUpdater(current: nil, installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects, defaults: AppUpdateFixture.defaults())
 
         #expect(await updater.check() == false)
         #expect(!fetched)
@@ -143,16 +179,19 @@ struct AppUpdateInstallerTests {
 
     @Test func releaseNotesOpenTheRunningAppsRelease() {
         let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
-                                 effects: .fixture(list: Data()))
+                                 effects: .fixture(list: Data()), defaults: AppUpdateFixture.defaults())
         #expect(updater.releaseNotesURL == URL(string: "https://github.com/akonwi/kit/releases/tag/macos-v0.5.0"))
     }
 
     @Test func aVerifiedUpdateWaitsForQuitToInstall() async throws {
         var installs: [(URL, URL)] = []
+        var discarded: [URL] = []
         var effects = AppUpdater.Effects.fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")]))
         effects.prepare = { _, _, _ in URL(fileURLWithPath: "/tmp/staged/Kit.app") }
-        effects.install = { staged, installed in installs.append((staged, installed)) }
-        let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects)
+        effects.install = { staged, installed, _ in installs.append((staged, installed)) }
+        effects.discard = { discarded.append($0) }
+        let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
+                                 effects: effects, defaults: AppUpdateFixture.defaults())
         await updater.check()
         let release = try #require(updater.state.release)
 
@@ -163,14 +202,72 @@ struct AppUpdateInstallerTests {
         updater.installOnQuit()
         #expect(installs.map(\.0.path) == ["/tmp/staged/Kit.app"])
         #expect(installs.map(\.1.path) == ["/Applications/Kit.app"])
+        #expect(discarded.map(\.path) == ["/tmp/staged/Kit.app"])
+    }
+
+    @Test func aFailedInstallAtQuitReopensTheOldAppAndShowsTheFailureNextTime() async throws {
+        let defaults = AppUpdateFixture.defaults()
+        var relaunched: [URL] = []
+        var effects = AppUpdater.Effects.fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")]))
+        effects.prepare = { _, _, _ in URL(fileURLWithPath: "/tmp/staged/Kit.app") }
+        effects.install = { _, _, _ throws(AppUpdateInstaller.Failure) in throw .install("The disk is full.") }
+        effects.relaunch = { relaunched.append($0) }
+        // Quitting proceeds, so the app installs as it would on quit.
+        let installed = URL(fileURLWithPath: "/Applications/Kit.app")
+        var updater: AppUpdater?
+        effects.terminate = { updater?.installOnQuit() }
+        updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: installed, effects: effects, defaults: defaults)
+        let quitting = try #require(updater)
+        await quitting.check()
+        await quitting.update()?.value
+
+        quitting.relaunch()
+        #expect(relaunched == [installed])
+
+        let reopened = AppUpdater(current: ReleaseVersion("0.5.0"), installed: installed, effects: effects, defaults: defaults)
+        await reopened.check()
+        let release = try #require(reopened.state.release)
+        #expect(reopened.state == .failed(release, .install("The disk is full.")))
+    }
+
+    @Test func aCancelledQuitDoesNotRelaunchALaterOne() async throws {
+        var relaunched = 0
+        var effects = AppUpdater.Effects.fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")]))
+        effects.prepare = { _, _, _ in URL(fileURLWithPath: "/tmp/staged/Kit.app") }
+        effects.relaunch = { _ in relaunched += 1 }
+        effects.terminate = {}
+        let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
+                                 effects: effects, defaults: AppUpdateFixture.defaults())
+        await updater.check()
+        await updater.update()?.value
+
+        updater.relaunch()
+        updater.installOnQuit()
+
+        #expect(relaunched == 0)
+    }
+
+    @Test func anAppKitCannotReplaceFailsBeforeDownloading() async throws {
+        var downloads = 0
+        var effects = AppUpdater.Effects.fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")]))
+        effects.canReplace = { _ in false }
+        effects.download = { _, _ in downloads += 1; return URL(fileURLWithPath: "/tmp/none.zip") }
+        let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
+                                 effects: effects, defaults: AppUpdateFixture.defaults())
+        await updater.check()
+        let release = try #require(updater.state.release)
+
+        #expect(updater.update() == nil)
+        #expect(downloads == 0)
+        #expect(updater.state == .failed(release, .install("Kit can’t change /Applications.")))
     }
 
     @Test func aFailedVerificationLeavesTheAppAndOffersARetry() async throws {
         var installed = false
         var effects = AppUpdater.Effects.fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")]))
         effects.prepare = { _, _, _ throws(AppUpdateInstaller.Failure) in throw .digestMismatch }
-        effects.install = { _, _ in installed = true }
-        let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects)
+        effects.install = { _, _, _ in installed = true }
+        let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects, defaults: AppUpdateFixture.defaults())
         await updater.check()
         let release = try #require(updater.state.release)
 
@@ -186,7 +283,7 @@ struct AppUpdateInstallerTests {
         var effects = AppUpdater.Effects.fixture(list: Data())
         effects.fetchList = { list }
         effects.prepare = { _, _, _ in URL(fileURLWithPath: "/tmp/staged/Kit.app") }
-        let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects)
+        let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects, defaults: AppUpdateFixture.defaults())
         await updater.check()
         await updater.update()?.value
         let ready = updater.state
@@ -219,14 +316,22 @@ struct ServersSettingsTests {
         #expect(status.version == nil)
     }
 
-    @Test func updateCommandNamesAHomeOtherThanTheShared() {
-        let shared = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kit")
-        #expect(KitUpdateTerminal.command(home: shared) == "kit update\n")
+    @Test func updateCommandNamesTheAppsHome() {
+        #expect(KitUpdateTerminal.command(home: URL(fileURLWithPath: "/Users/me/.kit")) == "KIT_HOME='/Users/me/.kit' kit update\n")
         #expect(KitUpdateTerminal.command(home: URL(fileURLWithPath: "/tmp/it's")) == "KIT_HOME='/tmp/it'\\''s' kit update\n")
+        #expect(KitUpdateTerminal.command(home: URL(fileURLWithPath: "/tmp/line\nbreak")) == nil)
     }
 }
 
 enum AppUpdateFixture {
+    /// Defaults no other test shares.
+    static func defaults() -> UserDefaults {
+        let suite = "kit-update-tests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return defaults
+    }
+
     struct Listed {
         var tag: String
         var draft = false
@@ -294,8 +399,10 @@ extension AppUpdater.Effects {
                 return file
             },
             prepare: { _, _, _ throws(AppUpdateInstaller.Failure) in throw .unpack },
-            install: { _, _ in },
+            install: { _, _, _ in },
+            discard: { _ in },
             relaunch: { _ in },
-            canReplace: { _ in true })
+            canReplace: { _ in true },
+            terminate: {})
     }
 }

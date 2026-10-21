@@ -31,9 +31,20 @@ final class AppUpdater {
         var download: (KitRelease.Asset, @escaping @MainActor (Double?) -> Void) async throws -> URL
         /// Checks an archive and unpacks the verified app.
         var prepare: (URL, KitRelease, KitRelease.Asset) async throws(AppUpdateInstaller.Failure) -> URL
-        var install: (URL, URL) throws(AppUpdateInstaller.Failure) -> Void
+        /// Checks the staged app again and puts it in place of the installed one.
+        var install: (URL, URL, KitRelease) throws(AppUpdateInstaller.Failure) -> Void
+        /// Removes what staging the app left behind.
+        var discard: (URL) -> Void
         var relaunch: (URL) -> Void
         var canReplace: (URL) -> Bool
+        /// Quits the app; it returns only when quitting was cancelled.
+        var terminate: () -> Void
+    }
+
+    /// An install that failed as the app quit, shown when it opens again.
+    struct QuitFailure: Codable, Equatable {
+        let tag: String
+        let failure: AppUpdateInstaller.Failure
     }
 
     static let shared = AppUpdater()
@@ -41,22 +52,28 @@ final class AppUpdater {
     private(set) var state: State = .idle
     /// The newest `kit` release, for Settings › Servers.
     private(set) var newestCLI: KitRelease?
-    /// Asks the key window to show the update sheet; bumped by the menu.
-    private(set) var sheetRequest = 0
+    /// The menu found an update for a session window's chip to show.
+    private(set) var sheetPending = false
+    /// The frontmost session window, which shows the menu's update sheet.
+    @ObservationIgnored var frontWindow: (() -> NSWindow?)?
     /// This app's release version, or nil for a development build.
     let current: ReleaseVersion?
     /// The installed app this updater replaces.
     let installed: URL
     @ObservationIgnored private let effects: Effects
+    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var schedule: Task<Void, Never>?
     @ObservationIgnored private var staged: URL?
     @ObservationIgnored private var relaunchRequested = false
 
+    static let quitFailureKey = "AppUpdateQuitFailure"
+
     init(current: ReleaseVersion? = AppUpdater.releaseVersion(), installed: URL = Bundle.main.bundleURL,
-         effects: Effects = .live) {
+         effects: Effects = .live, defaults: UserDefaults = .standard) {
         self.current = current
         self.installed = installed
         self.effects = effects
+        self.defaults = defaults
     }
 
     /// The running bundle's release version: nil for a development bundle,
@@ -93,14 +110,28 @@ final class AppUpdater {
         guard let data = try? await effects.fetchList() else { return nil }
         newestCLI = try? KitReleases.newest(.cli, in: data)
         guard let newest = try? KitReleases.newest(.app, in: data) else { return nil }
-        guard newest.version > current else { return false }
+        guard newest.version > current else {
+            defaults.removeObject(forKey: Self.quitFailureKey)
+            return false
+        }
         // A newer release replaces an older offer, but never interrupts an
-        // update that has started.
+        // update that has started. An install of it that failed as Kit quit
+        // shows as the failure.
         switch state {
-        case .idle, .available, .failed: state = .available(newest)
+        case .idle, .available, .failed:
+            if let failed = takeQuitFailure(), failed.tag == newest.tag {
+                state = .failed(newest, failed.failure)
+            } else {
+                state = .available(newest)
+            }
         case .updating, .ready: break
         }
         return true
+    }
+
+    private func takeQuitFailure() -> QuitFailure? {
+        defer { defaults.removeObject(forKey: Self.quitFailureKey) }
+        return defaults.data(forKey: Self.quitFailureKey).flatMap { try? JSONDecoder().decode(QuitFailure.self, from: $0) }
     }
 
     /// Kit › Check for Updates…: shows the sheet for an update, or says
@@ -111,10 +142,21 @@ final class AppUpdater {
             return
         }
         switch await check() {
-        case true?: sheetRequest += 1
+        case true?:
+            if let window = frontWindow?() {
+                sheetPending = true
+                window.makeKeyAndOrderFront(nil)
+            } else if let release = state.release {
+                Self.alert("Kit \(release.version) is available", "Open a Kit window to update.")
+            }
         case false?: Self.alert("Kit is up to date", "Kit \(current) is the newest version.")
         case nil: Self.alert("Kit couldn’t check for updates", "GitHub couldn’t be reached. Try again later.")
         }
+    }
+
+    /// A session window's chip shows the sheet the menu asked for.
+    func sheetShown() {
+        sheetPending = false
     }
 
     /// Downloads and verifies the available update in the background,
@@ -128,6 +170,11 @@ final class AppUpdater {
         }
         guard let asset = release.appArchive else {
             state = .failed(release, .noArchive)
+            return nil
+        }
+        // Fail before downloading when the install could never succeed.
+        guard effects.canReplace(installed) else {
+            state = .failed(release, Self.cannotReplace(installed))
             return nil
         }
         state = .updating(release, progress: nil)
@@ -151,33 +198,41 @@ final class AppUpdater {
         }
     }
 
+    private static func cannotReplace(_ installed: URL) -> AppUpdateInstaller.Failure {
+        .install("Kit can’t change \(installed.deletingLastPathComponent().path).")
+    }
+
     /// Relaunch to update: quits, installing the update, and opens the new app.
     func relaunch() {
         guard case .ready(let release) = state else { return }
         guard effects.canReplace(installed) else {
-            state = .failed(release, .install("Kit can’t change \(installed.deletingLastPathComponent().path)."))
+            state = .failed(release, Self.cannotReplace(installed))
             return
         }
         relaunchRequested = true
-        NSApp.terminate(nil)
-    }
-
-    /// Quitting was cancelled, so a relaunch no longer follows it.
-    func terminationCancelled() {
+        effects.terminate()
+        // Quitting was cancelled, so a later quit doesn't relaunch.
         relaunchRequested = false
     }
 
-    /// Installs a verified update as the app quits, then relaunches it when
-    /// that was asked for.
+    /// Installs a verified update as the app quits, then opens it again when
+    /// a relaunch was asked for. A failed install leaves the installed app,
+    /// which still reopens, and is shown when Kit next checks.
     func installOnQuit() {
         guard case .ready(let release) = state, let staged else { return }
-        do throws(AppUpdateInstaller.Failure) {
-            try effects.install(staged, installed)
+        defer {
+            effects.discard(staged)
             self.staged = nil
-            if relaunchRequested { effects.relaunch(installed) }
+        }
+        do throws(AppUpdateInstaller.Failure) {
+            try effects.install(staged, installed, release)
         } catch {
             state = .failed(release, error)
+            if let data = try? JSONEncoder().encode(QuitFailure(tag: release.tag, failure: error)) {
+                defaults.set(data, forKey: Self.quitFailureKey)
+            }
         }
+        if relaunchRequested { effects.relaunch(installed) }
     }
 
     private static func alert(_ title: String, _ message: String) {
@@ -194,16 +249,27 @@ extension AppUpdater.Effects {
             fetchList: { try await KitReleases.fetchList() },
             download: { asset, report in try await AppUpdateDownload.fetch(asset, report: report) },
             prepare: { archive, release, asset throws(AppUpdateInstaller.Failure) in
+                // A folder on the installed app's volume, so the install is
+                // a rename; AppUpdateInstaller.discard removes it.
                 let directory: URL
                 do {
                     directory = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
                                                             appropriateFor: Bundle.main.bundleURL, create: true)
                 } catch { throw .unpack }
-                return try AppUpdateInstaller.prepare(archive: archive, release: release, asset: asset, in: directory)
+                do throws(AppUpdateInstaller.Failure) {
+                    return try AppUpdateInstaller.prepare(archive: archive, release: release, asset: asset, in: directory)
+                } catch {
+                    try? FileManager.default.removeItem(at: directory)
+                    throw error
+                }
             },
-            install: { staged, installed throws(AppUpdateInstaller.Failure) in try AppUpdateInstaller.install(staged, over: installed) },
+            install: { staged, installed, release throws(AppUpdateInstaller.Failure) in
+                try AppUpdateInstaller.install(staged, over: installed, release: release)
+            },
+            discard: AppUpdateInstaller.discard,
             relaunch: { AppUpdateInstaller.relaunch($0, after: ProcessInfo.processInfo.processIdentifier) },
-            canReplace: AppUpdateInstaller.canReplace)
+            canReplace: AppUpdateInstaller.canReplace,
+            terminate: { NSApp.terminate(nil) })
     }
 }
 

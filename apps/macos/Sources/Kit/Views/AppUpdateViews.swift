@@ -31,10 +31,15 @@ struct AppUpdateChip: View {
             AppUpdateSheet(updater: updater) { sheet = false }
                 .environment(\.mica, theme)
         }
-        .onChange(of: updater.sheetRequest) {
-            // The menu asks; the key window answers.
-            if activeState == .key, updater.state.release != nil { sheet = true }
-        }
+        // The menu asks; the key session window answers, once it is key.
+        .onChange(of: updater.sheetPending, initial: true) { presentRequested() }
+        .onChange(of: activeState) { presentRequested() }
+    }
+
+    private func presentRequested() {
+        guard updater.sheetPending, activeState == .key, updater.state.release != nil else { return }
+        updater.sheetShown()
+        sheet = true
     }
 
     private func chip(label: String, dot: Color? = nil, help: String, filled: Bool = false,

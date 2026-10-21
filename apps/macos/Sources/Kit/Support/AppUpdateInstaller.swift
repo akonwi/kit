@@ -10,7 +10,7 @@ enum AppUpdateInstaller {
     static let teamIdentifier = "M7B73F53MK"
 
     /// Why an update could not be installed. The installed app is unchanged.
-    enum Failure: Error, Equatable {
+    enum Failure: Error, Equatable, Codable {
         case download(String)
         case noArchive
         case noDigest
@@ -81,23 +81,44 @@ enum AppUpdateInstaller {
         } catch { throw .unpack }
         guard ditto.terminationStatus == 0 else { throw .unpack }
         let app = destination.appendingPathComponent("Kit.app", isDirectory: true)
-        guard let bundle = Bundle(url: app), bundle.bundleIdentifier == bundleIdentifier,
-              let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
-              ReleaseVersion(version) == release.version else { throw .wrongApp }
+        try checkBundle(app, release: release)
         if let failure = verifySignature(app) { throw failure }
         return app
+    }
+
+    /// Checks that app is Kit at release's version. It reads Info.plist
+    /// itself: Bundle caches what it read from a path before.
+    static func checkBundle(_ app: URL, release: KitRelease) throws(Failure) {
+        let plist = app.appendingPathComponent("Contents/Info.plist")
+        guard let data = try? Data(contentsOf: plist),
+              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              info["CFBundleIdentifier"] as? String == bundleIdentifier,
+              let version = info["CFBundleShortVersionString"] as? String,
+              ReleaseVersion(version) == release.version else { throw .wrongApp }
+    }
+
+    /// The code requirement of Kit's Developer ID builds: Apple's Developer
+    /// ID intermediate and leaf markers, Kit's identifier, and its team.
+    static let requirement = "anchor apple generic and identifier \"\(bundleIdentifier)\""
+        + " and certificate 1[field.1.2.840.113635.100.6.2.6] exists"
+        + " and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
+        + " and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
+
+    /// Checks that app's code is intact and signed by Kit's Developer ID.
+    static func verifyCode(_ app: URL) -> Failure? {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code else { return .notSigned }
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(Self.requirement as CFString, [], &requirement) == errSecSuccess,
+              let requirement else { return .notSigned }
+        let flags = SecCSFlags(rawValue: SecCSFlags.RawValue(kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode))
+        return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess ? nil : .notSigned
     }
 
     /// Checks that app is signed by Kit's Developer ID and that Gatekeeper
     /// accepts it, which requires Apple's notarization.
     static func verifySignature(_ app: URL) -> Failure? {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code else { return .notSigned }
-        let text = "anchor apple generic and identifier \"\(bundleIdentifier)\" and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
-        var requirement: SecRequirement?
-        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess, let requirement else { return .notSigned }
-        let flags = SecCSFlags(rawValue: SecCSFlags.RawValue(kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode))
-        guard SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess else { return .notSigned }
+        if let failure = verifyCode(app) { return failure }
         let assessment = Process()
         assessment.executableURL = URL(fileURLWithPath: "/usr/sbin/spctl")
         assessment.arguments = ["--assess", "--type", "execute", app.path]
@@ -117,13 +138,28 @@ enum AppUpdateInstaller {
             && FileManager.default.isWritableFile(atPath: installed.path)
     }
 
-    /// Replaces the installed app with the verified staged one.
-    static func install(_ staged: URL, over installed: URL) throws(Failure) {
+    /// Replaces the installed app with the staged one after checking it
+    /// again: it may have waited days, in a folder the system cleans. A
+    /// failure puts the installed app back where it was.
+    static func install(_ staged: URL, over installed: URL, release: KitRelease,
+                        verifyCode: (URL) -> Failure? = verifyCode) throws(Failure) {
+        try checkBundle(staged, release: release)
+        if let failure = verifyCode(staged) { throw failure }
         do {
             _ = try FileManager.default.replaceItemAt(installed, withItemAt: staged)
         } catch {
-            throw .install(error.localizedDescription)
+            let failure = error as NSError
+            if let moved = failure.userInfo["NSFileOriginalItemLocationKey"] as? URL,
+               !FileManager.default.fileExists(atPath: installed.path) {
+                try? FileManager.default.moveItem(at: moved, to: installed)
+            }
+            throw .install(failure.localizedDescription)
         }
+    }
+
+    /// Removes the folder a staged app was unpacked into.
+    static func discard(_ staged: URL) {
+        try? FileManager.default.removeItem(at: staged.deletingLastPathComponent().deletingLastPathComponent())
     }
 
     /// Opens app once the process pid has exited.

@@ -10,7 +10,7 @@ struct ServersSettingsView: View {
     let windows: SessionWindowRegistry
     var updater: AppUpdater = .shared
     @State private var server = LocalServerStatus.read()
-    @State private var noSession = false
+    @State private var problem: KitUpdateTerminal.Problem?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -21,10 +21,9 @@ struct ServersSettingsView: View {
             row
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border) }
-            Text(noSession
-                 ? "Open a session first: Update… runs kit update in one of its terminal tabs."
-                 : "Update… opens a terminal tab that runs kit update on this Mac. It asks before restarting the server, so running turns aren’t cut off. Servers on other machines are updated there.")
-                .font(.kit(size: 12)).foregroundStyle(noSession ? theme.warning : theme.muted)
+            Text(problem?.message
+                 ?? "Update… opens a terminal tab that runs kit update on this Mac. It asks before restarting the server, so running turns aren’t cut off. Servers on other machines are updated there.")
+                .font(.kit(size: 12)).foregroundStyle(problem == nil ? theme.muted : theme.warning)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .task { await refresh() }
@@ -48,7 +47,7 @@ struct ServersSettingsView: View {
             }
             .frame(width: 110, alignment: .leading)
             if newer != nil {
-                Button("Update…") { noSession = !KitUpdateTerminal.open(in: windows) }
+                Button("Update…") { problem = KitUpdateTerminal.open(in: windows) }
                     .buttonStyle(MicaButtonStyle(compact: true))
             }
         }
@@ -90,26 +89,36 @@ struct LocalServerStatus: Equatable {
 
 /// Runs `kit update` in a terminal tab of the frontmost session window.
 enum KitUpdateTerminal {
-    /// The command typed into the shell. A home other than ~/.kit is named
-    /// so the update offers to restart that home's server.
-    static func command(home: URL = DevHomeResolver.resolve()) -> String {
-        let shared = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kit").standardizedFileURL
-        guard home.standardizedFileURL != shared else { return "kit update\n" }
-        return "KIT_HOME='\(home.path.replacingOccurrences(of: "'", with: "'\\''"))' kit update\n"
+    /// Why the tab could not open.
+    enum Problem: Equatable {
+        case noSession
+        case unusualHome
+
+        var message: String {
+            switch self {
+            case .noSession: "Open a session first: Update… runs kit update in one of its terminal tabs."
+            case .unusualHome: "Kit’s home path can’t be typed into a terminal. Run kit update in a terminal yourself."
+            }
+        }
     }
 
-    /// Opens the tab and brings its window forward. Returns false when no
-    /// window shows a session.
+    /// The command typed into the shell. It names the app's home, so the
+    /// update offers to restart that home's server whatever the shell
+    /// exports. A path with control characters can't be typed safely.
+    static func command(home: URL = DevHomeResolver.resolve()) -> String? {
+        let path = home.path
+        guard !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
+        return "KIT_HOME='\(path.replacingOccurrences(of: "'", with: "'\\''"))' kit update\n"
+    }
+
+    /// Opens the tab and brings its window forward.
     @MainActor
-    static func open(in windows: SessionWindowRegistry) -> Bool {
-        let order = NSApp.orderedWindows
-        let candidates = windows.liveModels.filter { $0.selectedTab.store?.selected != nil }
-        let model = candidates.min { lhs, rhs in
-            (lhs.window.flatMap { order.firstIndex(of: $0) } ?? .max) < (rhs.window.flatMap { order.firstIndex(of: $0) } ?? .max)
-        }
-        guard let model, let store = model.selectedTab.store else { return false }
-        store.ui.workspace.openTerminal(directory: NSHomeDirectory(), initialInput: command())
+    static func open(in windows: SessionWindowRegistry) -> Problem? {
+        guard let command = command() else { return .unusualHome }
+        guard let model = windows.frontmost(where: { $0.selectedTab.store?.selected != nil }),
+              let store = model.selectedTab.store else { return .noSession }
+        store.ui.workspace.openTerminal(directory: NSHomeDirectory(), initialInput: command)
         model.window?.makeKeyAndOrderFront(nil)
-        return true
+        return nil
     }
 }

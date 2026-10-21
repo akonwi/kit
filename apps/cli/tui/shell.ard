@@ -461,9 +461,12 @@ impl Shell {
         confirm: self.command("update.confirm", "Update Kit", fn() {
           match self.updates.stage == updates::Stage::installed {
             true => {
-              let session = self.attached.info.or(protocol::SessionInfo{}).ID
-              self.props.options.Relaunch.Request(session, update.Launcher, self.updates.finish.restart)
-              self.props.quit()
+              // Finishing waits until the dialog knows what it interrupts.
+              if not self.updates.refreshing {
+                let session = self.attached.info.or(protocol::SessionInfo{}).ID
+                self.props.options.Relaunch.Request(session, update.Launcher, self.updates.finish.restart)
+                self.props.quit()
+              }
             },
             false => {
               self.updates.install()

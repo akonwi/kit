@@ -22,7 +22,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Quitting ends every shell; ask first if a command is running.
         let busy = sessionWindows.liveModels.flatMap(\.busyTerminals)
         if !busy.isEmpty, TerminalCloseConfirmation.makeAlert(busy, scope: .quit).runModal() != .alertFirstButtonReturn {
-            AppUpdater.shared.terminationCancelled()
             return .terminateCancel
         }
         sessionWindows.captureBeforeQuit()
@@ -35,6 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         // Saved servers connect when Kit opens, whether or not a tab uses them.
         sessionWindows.servers.start()
+        let windows = sessionWindows
+        AppUpdater.shared.frontWindow = { windows.frontmost()?.window }
         AppUpdater.shared.start()
     }
 

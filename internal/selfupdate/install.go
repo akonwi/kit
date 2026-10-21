@@ -153,10 +153,10 @@ func (in Installer) brewUpgrade(ctx context.Context, installation Installation) 
 	command := exec.CommandContext(ctx, installation.Brew, "upgrade", HomebrewFormula)
 	// Killing Homebrew while it relinks can leave no kit on PATH. Its own
 	// process group keeps a terminal's Ctrl+C from reaching it directly; a
-	// cancellation interrupts it once, which it handles by rolling back, and
-	// it is killed only if that takes too long.
+	// cancellation interrupts the group once, as Ctrl+C would, which Homebrew
+	// handles by rolling back, and it is killed only if that takes too long.
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	command.Cancel = func() error { return command.Process.Signal(os.Interrupt) }
+	command.Cancel = func() error { return syscall.Kill(-command.Process.Pid, syscall.SIGINT) }
 	command.WaitDelay = brewStopDelay
 	var captured tailBuffer
 	var output io.Writer = &captured

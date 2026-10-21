@@ -202,10 +202,13 @@ test fn a_failed_install_can_be_retried() Void!Str {
 
 struct Activity {
   active: Int,
+  // held keeps spawned work in pending until the test runs it.
+  held: Bool,
 }
 
 test fn opening_the_restart_dialog_counts_sessions_again() Void!Str {
-  let activity = mut Activity{active: 0}
+  let activity = mut Activity{active: 0, held: false}
+  let pending = mut List::new<fn()>()
   let updater = updates::custom(
     updates::Effects{
       check: fn(ctx: context::Context) updatebridge::Update!Error {
@@ -221,7 +224,10 @@ test fn opening_the_restart_dialog_counts_sessions_again() Void!Str {
         false
       },
       spawn: fn(work: fn()) {
-        work()
+        match activity.held {
+          true => pending.push(work),
+          false => work(),
+        }
       },
     },
     true,
@@ -231,8 +237,45 @@ test fn opening_the_restart_dialog_counts_sessions_again() Void!Str {
   try testing::assert(updater.finish.active == 0, "idle when installed")
   // A session starts working before the user finishes the update.
   activity.active = 1
+  activity.held = true
   updater.refresh()
-  testing::assert(updater.finish.active == 1, "active {updater.finish.active}")
+  try testing::assert(updater.refreshing and updater.finish.active == 0, "counting again")
+  let actions = updates::Actions{
+    later: noop("later"),
+    confirm: noop("confirm"),
+    open_release: noop("open"),
+  }
+  // Restart waits for the count, so the dialog says it is counting.
+  try expect_rows(
+    render(60, 18, updates::dialog(themes(), updater.@, actions)),
+    [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "      ┌──────────────────────────────────────────────┐",
+      "      │ Restart Kit                 0.49.0 installed │",
+      "      ├──────────────────────────────────────────────┤",
+      "      │                                              │",
+      "      │ Kit 0.49.0 is installed.                     │",
+      "      │                                              │",
+      "      │ The local server still runs 0.48.0.          │",
+      "      │ Counting its working sessions…               │",
+      "      │                                              │",
+      "      ├──────────────────────────────────────────────┤",
+      "      │                             Later   Restart  │",
+      "      └──────────────────────────────────────────────┘",
+    ],
+  )
+  for work in pending {
+    work()
+  }
+  testing::assert(
+    not updater.refreshing and updater.finish.active == 1,
+    "active {updater.finish.active}",
+  )
 }
 
 test fn the_footer_item_follows_the_update() Void!Str {
