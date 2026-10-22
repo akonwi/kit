@@ -39,14 +39,14 @@ final class SessionStore {
             guard pluginCommandToken == token, selectedID == session else { return }
         } catch {
             guard pluginCommandToken == token, selectedID == session else { return }
-            let detail = if let notSent = error as? MutationNotSent {
-                "It wasn't sent: " + notSent.reason
-            } else if (error as? PluginCommandFailure)?.unavailable == true {
-                "The command list changed. Choose it again from the palette."
+            if (error as? PluginCommandFailure)?.unavailable == true {
+                // The same notice as when the palette's catalog was already stale.
+                feedback.show(title: "/" + command.name + " is no longer available",
+                              detail: "The command list changed. Choose it again from the palette.", tone: .warning)
             } else {
-                "Its effects may have partially completed. It was not retried."
+                feedback.show(title: "/" + command.name + " failed", detail: PluginCommandFailure.detail(for: error),
+                              tone: .error, persistent: true)
             }
-            feedback.show(title: "/" + command.name + " failed", detail: detail, tone: .error, persistent: true)
         }
         guard pluginCommandToken == token else { return }
         pluginCommandTask = nil

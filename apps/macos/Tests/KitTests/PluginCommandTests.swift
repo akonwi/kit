@@ -89,11 +89,24 @@ private actor PluginCommandMock: PluginCommandClient {
         #expect(state.feedback.visible?.persistent == true)
         await client.fail(with: PluginCommandFailure(unavailable: true))
         await state.runPluginCommand(command, args: "")
-        #expect(state.feedback.visible?.title == "/demo.echo failed")
+        #expect(state.feedback.visible?.title == "/demo.echo is no longer available")
         #expect(state.feedback.visible?.detail == "The command list changed. Choose it again from the palette.")
-        await client.fail(with: MutationNotSent(reason: "Kit isn't connected."))
-        await state.runPluginCommand(command, args: "")
-        #expect(state.feedback.visible?.detail == "It wasn't sent: Kit isn't connected.")
+        #expect(state.feedback.visible?.tone == .warning)
+    }
+    @Test func failureDetailSaysWhetherTheCommandRan() {
+        let partial = "Its effects may have partially completed. It was not retried."
+        #expect(PluginCommandFailure.detail(for: PluginCommandFailure(unavailable: false)) == partial)
+        #expect(PluginCommandFailure.detail(for: MutationNotSent(reason: "Kit isn't connected."))
+                == "It didn't run: Kit isn't connected.")
+        #expect(PluginCommandFailure.detail(for: ClientError.http(429))
+                == "It didn't run: Server request failed (HTTP 429).")
+        #expect(PluginCommandFailure.detail(for: ClientError.http(401))
+                == "It didn't run: Server authentication failed. Reconnect to refresh credentials.")
+        #expect(PluginCommandFailure.detail(for: ClientError.http(500))
+                == "Server request failed (HTTP 500). " + partial)
+        #expect(PluginCommandFailure.detail(for: ClientError.disconnected)
+                == "The server connection closed. " + partial)
+        #expect(PluginCommandFailure.detail(for: URLError(.cannotConnectToHost)).hasPrefix("It didn't run: "))
     }
     @Test func detachCancelsWaitAndSuppressesItsDelayedFeedback() async throws {
         let command = try #require(PluginCommand.project([wire()]).first)

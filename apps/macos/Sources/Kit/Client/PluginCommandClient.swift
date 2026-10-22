@@ -65,4 +65,28 @@ struct PluginCommandFailure: Error, LocalizedError, Sendable {
         unavailable ? "Plugin command is no longer available. Reselect it from the refreshed catalog."
             : "Plugin command failed; effects may have partially completed. It was not retried."
     }
+
+    /// Why a run failed, in words for the user. A run the server refused or
+    /// never received didn't happen; any other failure may have had effects.
+    static func detail(for error: any Error) -> String {
+        let partial = "Its effects may have partially completed. It was not retried."
+        if let notSent = error as? MutationNotSent { return "It didn't run: " + notSent.reason }
+        if error is PluginCommandFailure { return partial }
+        let reason = error.localizedDescription
+        if let error = error as? ClientError {
+            switch error {
+            case .http(let code) where [400, 401, 403, 404, 409, 421, 426, 429].contains(code):
+                return "It didn't run: " + reason
+            case .noDaemon, .invalidEndpoint, .incompatible, .incompatibleDaemon, .daemonNotReady,
+                 .missingSession, .needsPairing, .sshUnsupported, .discovery:
+                return "It didn't run: " + reason
+            default: break
+            }
+        }
+        if let error = error as? URLError,
+           [.cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .notConnectedToInternet].contains(error.code) {
+            return "It didn't run: " + reason
+        }
+        return reason + " " + partial
+    }
 }
