@@ -261,6 +261,7 @@ actor SSHHost {
         forward = nil
         if prompter == nil && waitingForSignIn { throw ClientError.sshSignInRequired }
         let configuration = try await configuration()
+        if closed { throw CancellationError() }
         let attempt = SSHAttempt(destination: destination, account: configuration.account, passwords: environment.passwords,
                                  prompter: prompter)
         let bridge = try environment.bridge()
