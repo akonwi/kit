@@ -148,9 +148,12 @@ type ChildTranscriptReader interface {
 	Close(context.Context) error
 }
 
-// ChildRuntime executes one task in an isolated conversation. Run, Steer, and
-// Transcript may be called concurrently; implementations must synchronize
-// access to shared runtime and store state without blocking cancellation.
+// ChildRuntime executes one task in an isolated conversation. Run, Steer,
+// Transcript, and an optional ConfigureThinking method may be called
+// concurrently, including after Run's context is cancelled; implementations
+// must synchronize access to shared runtime and store state without blocking
+// cancellation. The supervisor calls Close only after Run and every in-flight
+// Steer, Transcript, or ConfigureThinking call has returned.
 type ChildRuntime interface {
 	Run(context.Context, Task, func(childTurnID string) error, func(LiveEvent)) (ChildOutcome, error)
 	Steer(context.Context, string) error

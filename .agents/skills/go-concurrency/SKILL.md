@@ -108,7 +108,10 @@ Acquire nested locks in these orders:
   `conversationLock` → `Supervisor.mu` → `worker.mu`. Through idiom 7,
   `emitChanged` → `SubagentChanged` → `beginOperation` adds the
   cross-component pair `Supervisor.mu` → session `Manager.mu`. So never call
-  the supervisor while holding `Manager.mu`.
+  the supervisor while holding `Manager.mu`. `worker.mu` guards only short
+  state flips: take a runtime lease under it (`acquireRuntimeLocked`) and call
+  the child runtime without it. The worker closes the runtime only after
+  `beginClose` reports that every lease has been released.
 - **Plugins:** `Host.mu` → `Instance.mu` → `RPCEndpoint.mu`. The one reversal
   is a known exception: `pending.validate` runs under `RPCEndpoint.mu`, and
   the initialization validator takes `Instance.mu` (#248). Until that's fixed,
@@ -122,10 +125,6 @@ These are tracked issues; don't treat them as precedent:
 - `Observer.refreshGit` publishes `Git: nil` on any probe error, and
   `vcs.Probe` returns `(nil, nil)` on its own timeout. That turns a slow `git`
   into "not a repository" (#235).
-- The subagent supervisor holds `worker.mu` across runtime
-  `Close`/`Steer`/`Transcript`, and `Supervisor.Shutdown` calls `cancelWorker`
-  before its bounded wait (#244). Its cancellation generation can regress
-  (#245).
 - `WatchStreamIdle` measures idle time through `UnixNano`, losing the
   monotonic clock. Plugin response validation runs under `RPCEndpoint.mu` and
   takes `Instance.mu`, reversing the plugin lock order (#248).

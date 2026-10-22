@@ -69,10 +69,66 @@ type worker struct {
 	cancel     context.CancelCauseFunc
 	generation atomic.Uint64
 
+	// mu guards only the short state flips below. It is never held across
+	// child-runtime calls: callers take a runtime lease under mu and call the
+	// runtime without it, so cancellation and shutdown never wait on runtime I/O.
 	mu             sync.Mutex
 	runtime        ChildRuntime
 	steerable      bool
+	closing        bool
+	leases         int
+	leasesDrained  chan struct{}
 	conversationMu *conversationLock
+}
+
+// advanceGeneration raises the worker's cancellation generation and never
+// lowers it. Reconciliation reads can race with a newer Cancel or Dismiss
+// commit, so a value read earlier must not overwrite a later one.
+func (w *worker) advanceGeneration(generation uint64) {
+	for {
+		current := w.generation.Load()
+		if generation <= current || w.generation.CompareAndSwap(current, generation) {
+			return
+		}
+	}
+}
+
+// acquireRuntimeLocked leases the open runtime for one call made without
+// w.mu. It returns nil once the worker has begun closing the runtime.
+func (w *worker) acquireRuntimeLocked() ChildRuntime {
+	if w.runtime == nil || w.closing {
+		return nil
+	}
+	w.leases++
+	return w.runtime
+}
+
+// releaseRuntime ends a lease taken by acquireRuntimeLocked.
+func (w *worker) releaseRuntime() {
+	w.mu.Lock()
+	w.leases--
+	if w.leases == 0 && w.leasesDrained != nil {
+		close(w.leasesDrained)
+		w.leasesDrained = nil
+	}
+	w.mu.Unlock()
+}
+
+// beginClose stops new leases and returns a channel that closes once every
+// in-flight runtime call has returned. Those calls are bounded by their own
+// callers' contexts.
+func (w *worker) beginClose() <-chan struct{} {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.steerable = false
+	w.closing = true
+	drained := make(chan struct{})
+	if w.leases == 0 {
+		close(drained)
+	} else {
+		w.leasesDrained = drained
+	}
+	return drained
 }
 
 // NewSupervisor constructs one daemon-wide supervisor. Start performs recovery
@@ -342,7 +398,7 @@ func (s *Supervisor) schedule() {
 			// worker is published. Reconcile authoritative state now that later
 			// operations can find the worker in the running map.
 			if current, stateErr := s.repository.Task(context.Background(), claim.Task.ID); stateErr == nil {
-				owned.generation.Store(current.CancellationGeneration)
+				owned.advanceGeneration(current.CancellationGeneration)
 				if TerminalTask(current.State) {
 					owned.cancel(errConversationGone)
 				} else if current.CancellationGeneration != claim.Task.CancellationGeneration {
@@ -376,24 +432,28 @@ func rotateOwners(owners []string, cursor string) []string {
 func (s *Supervisor) execute(owned *worker) {
 	defer s.workerWG.Done()
 	owned.conversationMu.mu.Lock()
-	defer func() {
-		owned.conversationMu.mu.Unlock()
-		s.releaseConversationLock(owned.claim.Conversation.ID, owned.conversationMu)
-	}()
+	var releaseOnce sync.Once
+	releaseConversation := func() {
+		releaseOnce.Do(func() {
+			owned.conversationMu.mu.Unlock()
+			s.releaseConversationLock(owned.claim.Conversation.ID, owned.conversationMu)
+		})
+	}
+	defer releaseConversation()
 	claim := owned.claim
 	if cause := context.Cause(owned.ctx); cause != nil {
-		s.finishWorker(owned, ChildOutcome{State: stateForWorkerError(cause), Error: cause.Error()}, cause)
+		s.finishWorker(owned, ChildOutcome{State: stateForWorkerError(cause), Error: cause.Error()}, cause, releaseConversation)
 		return
 	}
 	runtime, openErr := s.factory.Open(owned.ctx, claim.Conversation)
 	if openErr != nil {
-		s.finishWorker(owned, ChildOutcome{State: stateForWorkerError(context.Cause(owned.ctx)), Error: openErr.Error()}, openErr)
+		s.finishWorker(owned, ChildOutcome{State: stateForWorkerError(context.Cause(owned.ctx)), Error: openErr.Error()}, openErr, releaseConversation)
 		return
 	}
 	if claim.Conversation.DroidInitializedAt == nil {
 		if err := s.repository.MarkConversationInitialized(context.Background(), claim.Conversation.ID, time.Now().UTC()); err != nil {
 			_ = runtime.Close(context.Background())
-			s.finishWorker(owned, ChildOutcome{State: TaskFailed, Error: err.Error()}, err)
+			s.finishWorker(owned, ChildOutcome{State: TaskFailed, Error: err.Error()}, err, releaseConversation)
 			return
 		}
 		now := time.Now().UTC()
@@ -416,9 +476,10 @@ func (s *Supervisor) execute(owned *worker) {
 	}, func(event LiveEvent) {
 		s.publishChildEvent(claim.Task.OwnerSessionID, claim.Task.ConversationID, claim.Task.ID, event)
 	})
-	owned.mu.Lock()
-	owned.steerable = false
+	// Close outside owned.mu so cancellation and shutdown never wait on it.
+	<-owned.beginClose()
 	closeErr := runtime.Close(context.Background())
+	owned.mu.Lock()
 	owned.runtime = nil
 	owned.mu.Unlock()
 	if runErr == nil {
@@ -426,7 +487,7 @@ func (s *Supervisor) execute(owned *worker) {
 	} else if closeErr != nil {
 		runErr = errors.Join(runErr, closeErr)
 	}
-	s.finishWorker(owned, outcome, runErr)
+	s.finishWorker(owned, outcome, runErr, releaseConversation)
 }
 
 func stateForWorkerError(cause error) TaskState {
@@ -440,7 +501,10 @@ func stateForWorkerError(cause error) TaskState {
 	}
 }
 
-func (s *Supervisor) finishWorker(owned *worker, outcome ChildOutcome, runErr error) {
+// finishWorker commits the terminal transition, then calls releaseConversation
+// once the child store is no longer needed and before the worker leaves the
+// running set, so callers that observe a settled conversation can own it.
+func (s *Supervisor) finishWorker(owned *worker, outcome ChildOutcome, runErr error, releaseConversation func()) {
 	claim := owned.claim
 	cause := context.Cause(owned.ctx)
 	state := outcome.State
@@ -470,6 +534,7 @@ func (s *Supervisor) finishWorker(owned *worker, outcome ChildOutcome, runErr er
 	if conversation, loadErr := s.repository.Conversation(context.Background(), claim.Task.ConversationID); loadErr == nil && conversation.DismissedAt != nil {
 		_ = s.factory.Delete(context.Background(), conversation)
 	}
+	releaseConversation()
 	s.mu.Lock()
 	delete(s.running, claim.Task.ID)
 	s.signalChangedLocked()
@@ -636,7 +701,7 @@ func (s *Supervisor) Cancel(ctx context.Context, taskID TaskID, expectedGenerati
 		s.mu.Lock()
 		owned := s.running[task.ID]
 		if owned != nil {
-			owned.generation.Store(task.CancellationGeneration)
+			owned.advanceGeneration(task.CancellationGeneration)
 		}
 		s.mu.Unlock()
 		if owned != nil {
@@ -677,7 +742,7 @@ func (s *Supervisor) Dismiss(ctx context.Context, conversationID ConversationID,
 			hasRunningWorker = true
 		}
 		if owned != nil {
-			owned.generation.Store(task.CancellationGeneration)
+			owned.advanceGeneration(task.CancellationGeneration)
 		}
 		s.mu.Unlock()
 		if owned != nil {
@@ -697,8 +762,10 @@ func (s *Supervisor) Dismiss(ctx context.Context, conversationID ConversationID,
 }
 
 func (s *Supervisor) cancelWorker(owned *worker, cause error) {
-	// Exclude steering before publishing cancellation to ChildRuntime.Run. The
-	// runtime owns translating context cancellation into its bounded abort path.
+	// Refuse new steering before publishing cancellation to ChildRuntime.Run. A
+	// steer already in flight may overlap cancellation, which the ChildRuntime
+	// contract permits. The runtime owns translating context cancellation into
+	// its bounded abort path.
 	owned.mu.Lock()
 	owned.steerable = false
 	owned.cancel(cause)
@@ -1025,23 +1092,25 @@ func (s *Supervisor) configureActiveThinking(ctx context.Context, conversationID
 		s.mu.Unlock()
 		if owned != nil {
 			owned.mu.Lock()
-			runtime := owned.runtime
-			if runtime != nil && context.Cause(owned.ctx) == nil {
+			var runtime ChildRuntime
+			if context.Cause(owned.ctx) == nil {
+				runtime = owned.acquireRuntimeLocked()
+			}
+			owned.mu.Unlock()
+			if runtime != nil {
+				defer owned.releaseRuntime()
 				configurable, ok := runtime.(interface {
 					ConfigureThinking(context.Context, string) error
 				})
 				if !ok {
-					owned.mu.Unlock()
 					return ErrClosed
 				}
 				err := configurable.ConfigureThinking(ctx, thinking)
 				if err != nil {
 					owned.cancel(err)
 				}
-				owned.mu.Unlock()
 				return err
 			}
-			owned.mu.Unlock()
 		}
 		conversation, err := s.repository.Conversation(ctx, conversationID)
 		if err != nil || conversation.ActiveTaskID == "" {
@@ -1092,16 +1161,20 @@ func (s *Supervisor) Steer(ctx context.Context, conversationID ConversationID, m
 		s.mu.Unlock()
 		if owned != nil {
 			owned.mu.Lock()
-			runtime := owned.runtime
-			steerable := owned.steerable && context.Cause(owned.ctx) == nil
-			if runtime != nil && steerable {
-				err = runtime.Steer(ctx, message)
+			opened := owned.runtime != nil
+			var runtime ChildRuntime
+			if owned.steerable && context.Cause(owned.ctx) == nil {
+				runtime = owned.acquireRuntimeLocked()
 			}
 			owned.mu.Unlock()
-			if runtime != nil && !steerable {
+			if opened && runtime == nil {
 				return conversation, ErrConflict
 			}
 			if runtime != nil {
+				err = func() error {
+					defer owned.releaseRuntime()
+					return runtime.Steer(ctx, message)
+				}()
 				if err != nil {
 					return conversation, err
 				}
@@ -1208,12 +1281,14 @@ func (s *Supervisor) Transcript(ctx context.Context, conversationID Conversation
 			continue
 		}
 		owned.mu.Lock()
+		runtime := owned.acquireRuntimeLocked()
+		owned.mu.Unlock()
 		s.mu.Unlock()
-		defer owned.mu.Unlock()
-		if owned.runtime == nil {
+		if runtime == nil {
 			return Transcript{}, ErrConflict
 		}
-		transcript, err := owned.runtime.Transcript(ctx, before)
+		defer owned.releaseRuntime()
+		transcript, err := runtime.Transcript(ctx, before)
 		if transcript.ConversationID == "" {
 			transcript.ConversationID = conversationID
 		}
@@ -1263,19 +1338,13 @@ func (s *Supervisor) Shutdown(ctx context.Context) error {
 	started := s.started
 	if !s.closed {
 		s.closed = true
+		// Every worker context derives from s.ctx, so this cancels them all with
+		// errSupervisorStop; steering checks that cause, so no per-worker pass
+		// is needed before the bounded wait below.
 		s.cancel(errSupervisorStop)
-		workers := make([]*worker, 0, len(s.running))
-		for _, owned := range s.running {
-			workers = append(workers, owned)
-		}
 		s.signalChangedLocked()
-		s.mu.Unlock()
-		for _, owned := range workers {
-			s.cancelWorker(owned, errSupervisorStop)
-		}
-	} else {
-		s.mu.Unlock()
 	}
+	s.mu.Unlock()
 	finished := make(chan struct{})
 	go func() {
 		if started {
