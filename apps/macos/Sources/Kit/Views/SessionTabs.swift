@@ -466,7 +466,7 @@ struct SessionTopTabs: View {
     var body: some View {
         let selectedDirectory = model.selectedTab.directory
         let tabs = model.familyOrder
-        let overflow = SessionTabOverflow(frames: frames, offset: offset, viewport: viewportWidth)
+        let overflow = TabStripOverflow(frames: frames, offset: offset, viewport: viewportWidth)
         let hidden = tabs.filter { overflow.hides($0.id) }
         let hints = model.tabNumberHints(.top)
         HStack(spacing: 6) {
@@ -500,14 +500,10 @@ struct SessionTopTabs: View {
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
                 .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x } action: { _, x in offset = x }
                 .mask {
-                    HStack(spacing: 0) {
-                        LinearGradient(colors: [.black.opacity(overflow.hiddenBefore ? 0 : 1), .black],
-                                       startPoint: .leading, endPoint: .trailing).frame(width: 32)
-                        Rectangle()
-                        LinearGradient(colors: [.black, .black.opacity(overflow.hiddenAfter ? 0 : 1)],
-                                       startPoint: .leading, endPoint: .trailing).frame(width: 96)
-                    }
+                    TabStripEdgeMask(hiddenBefore: overflow.hiddenBefore, hiddenAfter: overflow.hiddenAfter,
+                                     leading: 32, trailing: 96)
                 }
+                .background(HorizontalWheelScrolling())
                 .onChange(of: model.selectedTabID) { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(model.selectedTabID) } }
                 .onAppear { proxy.scrollTo(model.selectedTabID) }
             }
@@ -529,23 +525,8 @@ struct SessionTopTabs: View {
     private static let space = "SessionTopTabs"
 }
 
-/// Which top tabs are not fully visible in the scrolled strip.
-struct SessionTabOverflow {
-    let frames: [UUID: ClosedRange<CGFloat>]
-    let offset: CGFloat
-    let viewport: CGFloat
-
-    func hides(_ id: UUID) -> Bool {
-        guard viewport > 0, let frame = frames[id] else { return false }
-        return frame.lowerBound - offset < -1 || frame.upperBound - offset > viewport + 1
-    }
-    var hiddenBefore: Bool { viewport > 0 && frames.values.contains { $0.lowerBound - offset < -1 } }
-    var hiddenAfter: Bool { viewport > 0 && frames.values.contains { $0.upperBound - offset > viewport + 1 } }
-}
-
 /// The count of hidden session tabs; choosing one selects it.
 private struct SessionTabOverflowMenu: View {
-    @Environment(\.mica) private var theme
     let hidden: [SessionTab]
     /// Each tab's ⌘ number, shown as the item's shortcut. The item handles
     /// it while it's here, so it must select what Show Tab N would: on top,
@@ -560,13 +541,7 @@ private struct SessionTabOverflowMenu: View {
                     .keyboardShortcut(numbers.tabs[tab.id].map { KeyboardShortcut(KeyEquivalent(Character("\($0)")), modifiers: .command) })
             }
         } label: {
-            Text("+\(hidden.count)")
-                .font(.kit(size: 11, design: .monospaced))
-                .foregroundStyle(theme.muted)
-                .padding(.horizontal, 7)
-                .frame(height: 22)
-                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border))
-                .contentShape(Rectangle())
+            TabOverflowCount(count: hidden.count)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)

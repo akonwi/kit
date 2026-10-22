@@ -334,7 +334,7 @@ struct SessionReloadEvidenceView: View {
             if !outerScrollable && (report.sources.count > 4 || report.diagnostics.count > 4
                 || report.diagnostics.contains(where: { $0.message.count > 280 })) {
                 ScrollView { evidence }
-                    .scrollIndicators(.hidden)
+                    .scrollIndicators(.never)
                     .frame(maxHeight: 360)
             } else {
                 evidence

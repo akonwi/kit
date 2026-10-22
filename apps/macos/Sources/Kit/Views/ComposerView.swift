@@ -71,7 +71,8 @@ struct ComposerView: View {
                         }
                     }.padding(.horizontal, 16).padding(.vertical, 10)
                 }
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.never)
+                .background(HorizontalWheelScrolling())
                 .background(theme.raised)
                 Rule()
             }

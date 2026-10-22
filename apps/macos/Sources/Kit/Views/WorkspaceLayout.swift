@@ -136,32 +136,27 @@ private struct TileChrome: View {
         let focused = workspace.focusedTile == id
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 0) {
-                        ForEach(tile?.panes ?? []) { pane in
-                            WorkspaceTab(state: state, workspace: workspace, pane: pane,
-                                selected: tile?.selected == pane, focused: focused,
-                                running: { if case .agent(let name) = pane { return running.contains(name) }; return false }(),
-                                resolve: resolve)
-                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(WorkspaceLayout.space)) } action: {
-                                tabFrames.frames[pane] = $0
-                            }
-                        }
-                        TileAddButton(state: state, workspace: workspace, tile: id)
-                    }.frame(maxHeight: .infinity)
-                }.scrollIndicators(.hidden)
-                if let selected = tile?.selected, focused || hovering {
-                    HStack(spacing: 2) {
-                        TileIconButton(icon: .squareSplitHorizontal, help: "Split Right") { workspace.split(selected, .right) }
-                            .disabled(!workspace.canSplit(selected))
-                        TileIconButton(icon: .squareSplitVertical, help: "Split Down") { workspace.split(selected, .bottom) }
-                            .disabled(!workspace.canSplit(selected))
-                        TileIconButton(icon: workspace.zoomedTile == id ? .cornersIn : .cornersOut,
-                                       help: workspace.zoomedTile == id ? "Unzoom" : "Zoom") {
-                            workspace.focus(tile: id); workspace.toggleZoom()
-                        }.disabled(workspace.root.tiles.count < 2)
-                    }.padding(.leading, 8).padding(.trailing, 2)
+                TileTabStrip(state: state, workspace: workspace, id: id, focused: focused, running: running,
+                             resolve: resolve, tabFrames: tabFrames)
+                // The actions keep their place while hidden, so showing them
+                // on hover doesn't reflow the tabs.
+                let actions = (focused || hovering) && tile?.selected != nil
+                HStack(spacing: 2) {
+                    let selected = tile?.selected
+                    TileIconButton(icon: .squareSplitHorizontal, help: "Split Right") { selected.map { workspace.split($0, .right) } }
+                        .disabled(!(selected.map(workspace.canSplit) ?? false))
+                    TileIconButton(icon: .squareSplitVertical, help: "Split Down") { selected.map { workspace.split($0, .bottom) } }
+                        .disabled(!(selected.map(workspace.canSplit) ?? false))
+                    TileIconButton(icon: workspace.zoomedTile == id ? .cornersIn : .cornersOut,
+                                   help: workspace.zoomedTile == id ? "Unzoom" : "Zoom") {
+                        workspace.focus(tile: id); workspace.toggleZoom()
+                    }.disabled(workspace.root.tiles.count < 2)
                 }
+                .padding(.leading, 8).padding(.trailing, 2)
+                .opacity(actions ? 1 : 0)
+                .allowsHitTesting(actions)
+                .disabled(!actions)
+                .accessibilityHidden(!actions)
             }
             .padding(.horizontal, 6)
             .frame(height: tabStripHeight)
@@ -173,6 +168,193 @@ private struct TileChrome: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .simultaneousGesture(TapGesture().onEnded { workspace.focus(tile: id) })
+    }
+}
+
+/// A tile's tabs and its add button. Tabs shrink to share the strip
+/// (``TileTabWidths``); past that they scroll, with faded edges, the
+/// selected tab kept in view, and a count that lists the hidden ones. The
+/// add button follows the last tab, and stays beside the count while the
+/// tabs scroll.
+private struct TileTabStrip: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let state: SessionStore
+    let workspace: WorkspaceState
+    let id: UUID
+    let focused: Bool
+    let running: Set<String>
+    let resolve: (WorkspacePane, CGPoint) -> TileDropTarget?
+    let tabFrames: TabFrames
+    @State private var width: CGFloat = 0
+    @State private var contentWidth: CGFloat = 0
+    @State private var viewportWidth: CGFloat = 0
+    @State private var spans: [WorkspacePane: ClosedRange<CGFloat>] = [:]
+    @State private var position = ScrollPosition(edge: .leading)
+    /// Read only by the views that follow the scrolling, so the tabs don't
+    /// re-render as it moves.
+    @State private var scroll = TabStripScroll()
+    /// Whether the strip keeps the selected tab in view. Scrolling by hand
+    /// stops it until another tab is selected.
+    @State private var following = true
+
+    var body: some View {
+        let tile = workspace.tiles[id]
+        let panes = tile?.panes ?? []
+        let selected = tile?.selected
+        let available = width > 0 ? width - TileAddButton.width : nil
+        let scrolls = available.map { contentWidth > $0 + 0.5 } ?? false
+        // Until the tabs are measured the strip takes the room it has.
+        let fits = !scrolls && contentWidth > 0
+        HStack(spacing: 0) {
+            ScrollView(.horizontal) {
+                TileTabRow(available: available, selected: selected.flatMap(panes.firstIndex(of:))) {
+                    ForEach(panes) { pane in
+                        WorkspaceTab(state: state, workspace: workspace, pane: pane,
+                            selected: selected == pane, focused: focused,
+                            running: { if case .agent(let name) = pane { return running.contains(name) }; return false }(),
+                            resolve: resolve)
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(WorkspaceLayout.space)) } action: {
+                            tabFrames.frames[pane] = $0
+                        }
+                        .onGeometryChange(for: ClosedRange<CGFloat>.self) {
+                            let frame = $0.frame(in: .named(Self.space))
+                            return frame.minX...frame.maxX
+                        } action: { spans[pane] = $0 }
+                    }
+                }
+                .coordinateSpace(.named(Self.space))
+                .frame(maxHeight: .infinity)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+            }
+            // `.hidden` still shows a legacy scroller, which also squeezes
+            // the tabs, when the system shows scroll bars always.
+            .scrollIndicators(.never)
+            .scrollPosition($position)
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x } action: { [scroll] _, x in scroll.offset = x }
+            .onScrollPhaseChange { _, phase in
+                if phase == .tracking || phase == .interacting || phase == .decelerating { following = false }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
+            .mask { TileTabStripMask(scroll: scroll, spans: spans, viewport: viewportWidth) }
+            .background(HorizontalWheelScrolling())
+            // While the tabs fit, the strip is as wide as they are, so the
+            // add button follows the last one.
+            .frame(maxWidth: fits ? contentWidth : .infinity)
+            if scrolls {
+                TileTabOverflowMenu(workspace: workspace, panes: panes, scroll: scroll, spans: spans,
+                                    viewport: viewportWidth, choose: choose)
+            }
+            TileAddButton(state: state, workspace: workspace, tile: id)
+            if fits { Spacer(minLength: 0) }
+        }
+        .frame(maxWidth: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .onChange(of: panes) { spans = spans.filter { panes.contains($0.key) } }
+        .onChange(of: Reveal(pane: selected, span: selected.flatMap { spans[$0] }, viewport: viewportWidth,
+                             content: contentWidth), initial: true) { old, new in
+            if old.pane != new.pane { following = true }
+            guard following else { return }
+            // A new selection, or the selected tab growing into its
+            // readable width, glides; layout changes follow at once.
+            let width = { (span: ClosedRange<CGFloat>?) in span.map { $0.upperBound - $0.lowerBound } }
+            reveal(animated: old.pane != new.pane || width(old.span) != width(new.span))
+        }
+    }
+
+    /// Selects a tab from the overflow menu. The selected tab, scrolled
+    /// out of view by hand, is listed too; choosing it brings it back.
+    private func choose(_ pane: WorkspacePane) {
+        let reselected = workspace.tiles[id]?.selected == pane
+        workspace.focus(tile: id)
+        workspace.select(pane)
+        following = true
+        if reselected { reveal(animated: true) }
+    }
+
+    /// Scrolls the selected tab into view.
+    private func reveal(animated: Bool) {
+        guard let pane = workspace.tiles[id]?.selected, let span = spans[pane],
+              let x = TabStripOverflow<WorkspacePane>.revealOffset(span, offset: scroll.offset, viewport: viewportWidth,
+                  content: contentWidth, leading: TileTabFade.leading, trailing: TileTabFade.trailing) else { return }
+        if animated && !reduceMotion {
+            withAnimation(.easeOut(duration: 0.15)) { position.scrollTo(x: x) }
+        } else {
+            position.scrollTo(x: x)
+        }
+    }
+
+    /// What moving the selected tab into view depends on.
+    private struct Reveal: Equatable {
+        let pane: WorkspacePane?
+        let span: ClosedRange<CGFloat>?
+        let viewport: CGFloat
+        let content: CGFloat
+    }
+
+    private static let space = "TileTabStrip"
+}
+
+/// Where a strip is scrolled to.
+@Observable private final class TabStripScroll {
+    var offset: CGFloat = 0
+}
+
+/// Fades the edges of a tile's strip where tabs are hidden.
+private struct TileTabStripMask: View {
+    let scroll: TabStripScroll
+    let spans: [WorkspacePane: ClosedRange<CGFloat>]
+    let viewport: CGFloat
+
+    var body: some View {
+        let overflow = TabStripOverflow(frames: spans, offset: scroll.offset, viewport: viewport)
+        TabStripEdgeMask(hiddenBefore: overflow.hiddenBefore, hiddenAfter: overflow.hiddenAfter,
+                         leading: TileTabFade.leading, trailing: TileTabFade.trailing)
+    }
+}
+
+/// The count of a tile's hidden tabs; choosing one selects it.
+private struct TileTabOverflowMenu: View {
+    let workspace: WorkspaceState
+    let panes: [WorkspacePane]
+    let scroll: TabStripScroll
+    let spans: [WorkspacePane: ClosedRange<CGFloat>]
+    let viewport: CGFloat
+    let choose: (WorkspacePane) -> Void
+
+    var body: some View {
+        let overflow = TabStripOverflow(frames: spans, offset: scroll.offset, viewport: viewport)
+        let hidden = panes.filter(overflow.hides)
+        if !hidden.isEmpty {
+            Menu {
+                ForEach(hidden) { pane in
+                    Button { choose(pane) } label: {
+                        Label { Text(workspace.title(of: pane)) } icon: { Image(nsImage: menuIcon(pane)) }
+                    }
+                }
+            } label: {
+                TabOverflowCount(count: hidden.count)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help(Self.label(hidden.count))
+            .accessibilityLabel(Self.label(hidden.count))
+            .padding(.leading, 4)
+        }
+    }
+
+    private static func label(_ count: Int) -> String {
+        "\(count) more tab\(count == 1 ? "" : "s")"
+    }
+
+    /// The pane's tab icon, at menu size. A page keeps its own icon.
+    private func menuIcon(_ pane: WorkspacePane) -> NSImage {
+        if let favicon = workspace.browser(pane)?.favicon, let image = favicon.copy() as? NSImage {
+            image.size = NSSize(width: 16, height: 16)
+            return image
+        }
+        return pane.icon.image
     }
 }
 
@@ -218,6 +400,8 @@ private struct WorkspaceTab: View {
             }
             .buttonStyle(.plain)
             .focused($keyboardFocused)
+            // Shrunk tabs cut their titles short.
+            .help(workspace.title(of: pane))
         }
         .padding(.horizontal, 10)
         .frame(maxHeight: .infinity)
@@ -255,7 +439,8 @@ private struct WorkspaceTab: View {
             .truncationMode(capped ? .tail : .middle)
             .font(.kit(size: 12, weight: selected ? .semibold : .regular))
             .foregroundStyle(selected ? theme.text : theme.muted)
-            .frame(maxWidth: capped ? 180 : nil, alignment: .leading)
+            // A shrunk tab's title fills its slot, so the tab does too.
+            .frame(maxWidth: capped ? 180 : .infinity, alignment: .leading)
     }
 
     /// Every tab shows its icon so activating one never shifts the strip; a
@@ -265,24 +450,12 @@ private struct WorkspaceTab: View {
         let tint = selected && focused ? theme.accent : theme.muted
         if case .agent = pane, running {
             KitSpinner().accessibilityLabel("Running")
+        } else if let favicon = workspace.browser(pane)?.favicon {
+            // The site's icon keeps its own colours.
+            Image(nsImage: favicon).resizable().interpolation(.high).scaledToFit()
+                .frame(width: 14, height: 14).clipShape(RoundedRectangle(cornerRadius: 3))
         } else {
-            switch pane {
-            case .agent: IconView(.robot).foregroundStyle(tint)
-            case .conversation: IconView(.chatCircle).foregroundStyle(tint)
-            case .review: IconView(.gitDiff).foregroundStyle(tint)
-            case .scratchpad: IconView(.note).foregroundStyle(tint)
-            case .file: IconView(.file).foregroundStyle(tint)
-            case .image: IconView(.image).foregroundStyle(tint)
-            case .browser:
-                // The site's icon keeps its own colours.
-                if let favicon = workspace.browser(pane)?.favicon {
-                    Image(nsImage: favicon).resizable().interpolation(.high).scaledToFit()
-                        .frame(width: 14, height: 14).clipShape(RoundedRectangle(cornerRadius: 3))
-                } else {
-                    IconView(.browser).foregroundStyle(tint)
-                }
-            case .terminal: IconView(.terminalWindow).foregroundStyle(tint)
-            }
+            IconView(pane.icon).foregroundStyle(tint)
         }
     }
 
@@ -344,6 +517,23 @@ private struct TabDragOverlay: View {
         let tabs = (workspace.tiles[tile]?.panes ?? []).compactMap { tabFrames.frames[$0] }
         let x = index < tabs.count ? tabs[index].minX : (tabs.last?.maxX ?? frame.minX + 6)
         return min(max(x, frame.minX + 2), frame.maxX - 2)
+    }
+}
+
+extension WorkspacePane {
+    /// The icon its tab shows when nothing more specific, such as a page's
+    /// own icon, replaces it.
+    var icon: Icon {
+        switch self {
+        case .agent: .robot
+        case .conversation: .chatCircle
+        case .review: .gitDiff
+        case .scratchpad: .note
+        case .file: .file
+        case .image: .image
+        case .browser: .browser
+        case .terminal: .terminalWindow
+        }
     }
 }
 
