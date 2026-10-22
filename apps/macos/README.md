@@ -50,9 +50,19 @@ no demo launch mode or packaged private transcript data.
 ## Apple Silicon app release
 
 The macOS 15+ Apple Silicon app is released separately from the Go executable
-as a notarized GitHub Release ZIP and a separate Homebrew Cask with manual
-updates; see [ADR 0029](../../docs/adrs/0029-distribute-native-macos-app-separately.md).
-It **does not include or start** a server. Install and start a compatible Kit
+as a notarized GitHub Release ZIP and a separate Homebrew Cask; see
+[ADR 0029](../../docs/adrs/0029-distribute-native-macos-app-separately.md).
+Installed release builds update themselves
+([ADR 0048](../../docs/adrs/0048-check-for-updates-from-each-client.md)): the
+app checks GitHub's releases at launch and every six hours, and **Kit › Check
+for Updates…** checks now. When you choose **Update**, it downloads the
+`macos-vX.Y.Z` archive and installs it only when the archive matches GitHub's
+SHA-256 digest, is signed with Kit's Developer ID, and passes Gatekeeper. The
+app is replaced when you quit or choose **Relaunch to update**. Development and
+channel builds never check. Users can also replace the app by hand or upgrade
+the Cask, which is marked `auto_updates`.
+
+The app **does not include or start** a server. Install and start a compatible Kit
 server separately. Discovery authenticates the registered server, checks its
 identity and readiness, and checks protocol compatibility. The app attaches to
 any server speaking its session protocol (48 for this build), regardless of the
@@ -82,16 +92,20 @@ file. It fails if required credentials are missing. The development
 Before release, confirm the build number increases over the last app release,
 then run the full macOS tests and prepare curated notes stating the
 source commit, protocol compatibility range, macOS 15+ Apple Silicon support,
-external-server dependency, and manual-update steps. Create a **draft** GitHub
-Release for the tag and upload the ZIP and checksum. Freshly download those
+external-server dependency, and install and upgrade steps (the in-app
+updater, manual replacement, and the Cask). Create a **draft** GitHub
+Release for the tag with `--latest=false`, so the CLI stays the Latest release,
+and upload the ZIP and checksum. Freshly download those
 assets outside the checkout; verify `shasum -c`, bundle contents and source
 commit, Developer ID signature, stapled ticket, Gatekeeper acceptance, launch,
 and a live connection to a compatible server with an isolated `KIT_HOME`.
 Also verify incompatible-server recovery and preservation of settings, drafts,
-and window restoration after manual replacement. Only then publish the draft
-as a regular release. Add/update a **separate** Homebrew Cask referencing the
+and window restoration after replacing the app. Only then publish the draft
+as a regular release; installed apps ignore drafts and prereleases, and install
+only an asset named `kit_macos-vX.Y.Z_darwin_arm64.zip` whose GitHub digest it
+matches. Add/update a **separate** Homebrew Cask referencing the
 published asset URL and exact SHA-256 without changing the CLI formula. Review
-both manual and Cask upgrade paths. This is not release authorization or a claim
+the in-app, manual, and Cask upgrade paths. This is not release authorization or a claim
 that these gates have passed.
 
 ## Navigation

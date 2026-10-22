@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted. Its update stance is superseded by
-[ADR 0048](0048-check-for-updates-from-each-client.md).
+Accepted. [ADR 0048](0048-check-for-updates-from-each-client.md) specifies
+how installed releases update themselves.
 
 ## Context
 
@@ -41,9 +41,18 @@ running server without replacing it automatically. Verify the released app
 against a compatible daemon in an isolated Kit home; do not require one exact
 CLI version.
 
-Updates are manual: download and replace the app or upgrade its Cask. Keep the
-bundle identifier stable and verify settings, drafts, and window restoration
-across replacement. No updater or background update service is included.
+Installed release builds update themselves from these GitHub Releases, as
+[ADR 0048](0048-check-for-updates-from-each-client.md) specifies: the running
+app checks for a newer `macos-vX.Y.Z` release and installs its archive only
+when it matches GitHub's SHA-256 digest, carries Kit's Developer ID signature,
+and passes Gatekeeper. Every release therefore keeps that archive name,
+signature, and notarization, and is published as a regular release: the
+updater skips drafts and prereleases. An app release does not become the
+repository's Latest release, which stays the CLI's. Users can also download
+and replace the app or upgrade its Cask; the Cask is marked `auto_updates` so
+Homebrew does not fight the app's updater. There is no background update
+service. Keep the bundle identifier stable and verify settings, drafts, and
+window restoration across replacement.
 
 Distribution requires a Developer ID Application signature with hardened
 runtime, Apple notarization, and a stapled ticket. Signing identity and
@@ -63,5 +72,8 @@ The existing Go release workflow remains independent.
 - Signing, notarization, fresh-download verification, and an installed-artifact
   daemon compatibility test are release gates, not consequences of a CI build.
 - The CLI formula and macOS Cask have distinct installation and upgrade paths.
-- Bundled daemon management, in-app updates, and Intel coverage remain separate
-  work; none blocks describing this external-server app as a regular release.
+- A release's tag, asset name, signature, notarization, and GitHub digest are
+  part of every installed app's update path; changing any of them breaks
+  in-app updates.
+- Bundled daemon management and Intel coverage remain separate work; neither
+  blocks describing this external-server app as a regular release.
