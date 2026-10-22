@@ -88,14 +88,15 @@ struct SSHHostKey: Equatable, Sendable {
 
     /// Reads ssh's question: "The authenticity of host 'devbox (10.0.4.12)'
     /// can't be established. ED25519 key fingerprint is SHA256:…. … Are you
-    /// sure you want to continue connecting (yes/no/[fingerprint])?"
+    /// sure you want to continue connecting (yes/no/[fingerprint])?" OpenSSH
+    /// 10 writes "fingerprint is: SHA256:…", without the period.
     init?(prompt: String) {
         // ssh's own question starts so; a host's keyboard-interactive
         // question starts with "(user@host) ", so a host can't fake it.
         guard prompt.hasPrefix("The authenticity of host '"), prompt.contains("continue connecting"),
               let host = Self.capture(prompt, #"The authenticity of host '([^']+)' can't be established"#),
-              let type = Self.capture(prompt, #"(?m)^(\S+) key fingerprint is (\S+?)\.?$"#),
-              let fingerprint = Self.capture(prompt, #"(?m)^\S+ key fingerprint is (\S+?)\.?$"#) else { return nil }
+              let type = Self.capture(prompt, #"(?m)^(\S+) key fingerprint is:? (\S+?)\.?$"#),
+              let fingerprint = Self.capture(prompt, #"(?m)^\S+ key fingerprint is:? (\S+?)\.?$"#) else { return nil }
         (self.host, self.type, self.fingerprint) = (host, type, fingerprint)
     }
 
@@ -132,7 +133,10 @@ struct SSHHostKeyChange: Equatable, Sendable {
         guard diagnostics.contains("REMOTE HOST IDENTIFICATION HAS CHANGED"),
               let now = Self.capture(diagnostics, #"sent by the remote host is\s*\n\s*(\S+)\.?"#) else { return nil }
         self.now = now.hasSuffix(".") ? String(now.dropLast()) : now
+        // ssh doesn't always print how to remove the key, but always names
+        // the file that holds it.
         let removal = Self.capture(diagnostics, #"ssh-keygen -f '([^']+)' -R '([^']+)'"#)
+            ?? Self.capture(diagnostics, #"(?m)^Offending \S+ key in (.+):\d+$"#)
         let name = Self.capture(diagnostics, #"ssh-keygen -f '[^']+' -R '([^']+)'"#)
             ?? Self.capture(diagnostics, #"Host key for (\S+) has changed"#)
         guard let name else { return nil }

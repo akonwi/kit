@@ -734,9 +734,22 @@ final class SSHHosts: Sendable {
         try sharedBridge.withLock { bridge in
             if let bridge { return bridge }
             // Each copy of the app has its own socket.
-            let made = try AskpassBridge(path: try directory() + "/askpass-\(getpid())")
+            let directory = try directory()
+            removeAbandonedBridges(in: directory)
+            let made = try AskpassBridge(path: directory + "/askpass-\(getpid())")
             bridge = made
             return made
+        }
+    }
+
+    /// Removes the sockets of copies of the app that have exited, as when
+    /// one crashed.
+    static func removeAbandonedBridges(in directory: String) {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else { return }
+        for name in names where name.hasPrefix("askpass-") {
+            guard let pid = pid_t(name.dropFirst("askpass-".count)), pid != getpid(),
+                  kill(pid, 0) != 0, errno == ESRCH else { continue }
+            unlink(directory + "/" + name)
         }
     }
 

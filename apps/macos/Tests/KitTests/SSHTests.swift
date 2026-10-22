@@ -49,6 +49,16 @@ struct SSHPromptTests {
         """
         #expect(SSHPrompt(hostKey) == .hostKey(SSHHostKey(host: "devbox (10.0.4.12)", type: "ED25519",
                                                          fingerprint: "SHA256:pL0q1QfT8vX2kR9mN4bW7sJcYhE3uA6dGiZo5nKx1Vw")))
+        // OpenSSH 10.3, word for word.
+        let openSSH10 = """
+        The authenticity of host 'kit-ssh-test.exe.xyz (161.210.94.99)' can't be established.
+        RSA key fingerprint is: SHA256:JJOP/lwiBGOMilfONPWZCXUrfK154cnJFXcqlsi6lPo
+        This host key is known by the following other names/addresses:
+            ~/.ssh/known_hosts:5: exe.dev
+        Are you sure you want to continue connecting (yes/no/[fingerprint])? 
+        """
+        #expect(SSHPrompt(openSSH10) == .hostKey(SSHHostKey(host: "kit-ssh-test.exe.xyz (161.210.94.99)", type: "RSA",
+                                                           fingerprint: "SHA256:JJOP/lwiBGOMilfONPWZCXUrfK154cnJFXcqlsi6lPo")))
         #expect(SSHPrompt("me@devbox's password: ") == .password(account: "me@devbox"))
         #expect(SSHPrompt("(me@devbox) Password: ") == .password(account: "me@devbox"))
         #expect(SSHPrompt("Password:") == .password(account: nil))
@@ -79,6 +89,26 @@ struct SSHPromptTests {
         #expect(change?.removeCommand == "ssh-keygen -R devbox")
         let other = SSHHostKeyChange(diagnostics: Self.changed(host: "[devbox]:2222", file: "/etc/ssh/known hosts"))
         #expect(other?.removeCommand == "ssh-keygen -f '/etc/ssh/known hosts' -R '[devbox]:2222'")
+        // OpenSSH 10.3, word for word, which doesn't say how to remove the key.
+        let openSSH10 = SSHHostKeyChange(diagnostics: """
+        @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+        @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+        Someone could be eavesdropping on you right now (man-in-the-middle attack)!
+        It is also possible that a host key has just been changed.
+        The fingerprint for the RSA key sent by the remote host is
+        SHA256:JJOP/lwiBGOMilfONPWZCXUrfK154cnJFXcqlsi6lPo.
+        Please contact your system administrator.
+        Add correct host key in /tmp/kh-wrong to get rid of this message.
+        Offending RSA key in /tmp/kh-wrong:1
+        Host key for kit-ssh-test.exe.xyz has changed and you have requested strict checking.
+        Host key verification failed.
+
+        """)
+        #expect(openSSH10 == SSHHostKeyChange(host: "kit-ssh-test.exe.xyz", saved: nil,
+                                              now: "SHA256:JJOP/lwiBGOMilfONPWZCXUrfK154cnJFXcqlsi6lPo", file: "/tmp/kh-wrong"))
+        #expect(openSSH10?.removeCommand == "ssh-keygen -f /tmp/kh-wrong -R kit-ssh-test.exe.xyz")
         #expect(SSHHostKeyChange(diagnostics: "ssh: connect to host devbox port 22: Operation timed out") == nil)
         #expect(SSHHostKeyChange.savedFingerprint(fromLookup: "# Host devbox found: line 12\ndevbox ED25519 SHA256:pL0q1Qf\n")
                 == "SHA256:pL0q1Qf")
@@ -287,6 +317,19 @@ struct SSHHostTests {
         }
         try await until { !withdrawn.all.isEmpty }
         #expect(withdrawn.all == [true])
+    }
+
+    @Test func socketsOfExitedCopiesAreRemoved() throws {
+        let fake = try FakeSSHHosts()
+        defer { fake.remove() }
+        // A pid no process has: pids stay below 100000 on macOS.
+        let exited = fake.directory + "/askpass-99999999"
+        let running = fake.directory + "/askpass-\(getppid())"
+        let control = fake.directory + "/d0e68efce23aa758"
+        for path in [exited, running, control] { FileManager.default.createFile(atPath: path, contents: nil) }
+        SSHHosts.removeAbandonedBridges(in: fake.directory)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fake.directory).sorted()
+                == ["a", "askpass-\(getppid())", "d0e68efce23aa758"])
     }
 
     @Test func aSavedPasswordGoesOnlyToItsAccount() async throws {
