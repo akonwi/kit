@@ -22,7 +22,7 @@ struct AddServerHint: Equatable {
             }
         case .ssh:
             kind = .ssh
-            text = "SSH host. Kit for Mac can’t connect to SSH servers yet; kit attach can."
+            text = "SSH host. Kit starts its server there if it isn’t running."
         case .home:
             kind = .home
             text = "Kit home on this Mac."
@@ -50,6 +50,8 @@ struct AddServerHint: Equatable {
 struct AddServerDialog: View {
     @Environment(\.mica) private var theme
     let servers: ServerDirectory
+    /// Asks the new SSH host's questions in the Settings window.
+    let signIn: SSHSignIn
     let close: () -> Void
     @State private var location = ""
     @State private var name = ""
@@ -57,6 +59,8 @@ struct AddServerDialog: View {
     @State private var named = false
     @State private var pending = false
     @State private var error: String?
+    /// The server was saved, but connecting failed; only Done is left.
+    @State private var added = false
     @FocusState private var focus: Field?
 
     private enum Field { case location, name }
@@ -95,12 +99,17 @@ struct AddServerDialog: View {
             Rule()
             HStack(spacing: 8) {
                 Spacer()
-                Button("Cancel", action: close).buttonStyle(FormButtonStyle()).keyboardShortcut(.cancelAction).disabled(pending)
-                Button(action: add) {
-                    if pending { KitSpinner("Pairing…") } else { Text("Add Server") }
+                if added {
+                    Button("Done", action: close).buttonStyle(FormButtonStyle(fill: .primary)).keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Cancel", action: close).buttonStyle(FormButtonStyle()).keyboardShortcut(.cancelAction).disabled(pending)
+                    Button(action: add) {
+                        if pending { KitSpinner(parsed.map { if case .ssh = $0 { "Connecting…" } else { "Pairing…" } } ?? "Pairing…") }
+                        else { Text("Add Server") }
+                    }
+                    .buttonStyle(FormButtonStyle(fill: .primary))
+                    .disabled(!canAdd)
                 }
-                .buttonStyle(FormButtonStyle(fill: .primary))
-                .disabled(!canAdd)
             }
         }
         // After the click that opened the dialog finishes, which would take focus back.
@@ -146,18 +155,35 @@ struct AddServerDialog: View {
                 }
             }
         case .ssh(let destination):
-            save(SavedServer(name: name, kind: .ssh, address: destination))
+            guard save(SavedServer(name: name, kind: .ssh, address: destination), closing: false),
+                  let connection = servers.connection(named: name) else { return }
+            // Kit starts the host's server if it isn't running, as kit attach
+            // does; ssh's questions appear as sheets here (S6, S9).
+            pending = true
+            Task {
+                await signIn.signIn(connection, start: true)
+                pending = false
+                if case .unreachable(let reason, _) = connection.status {
+                    self.error = "Kit saved \(name) but couldn’t connect: \(reason)"
+                    added = true
+                } else {
+                    close()
+                }
+            }
         case .home(let path):
             save(SavedServer(name: name, kind: .home, address: path))
         }
     }
 
-    private func save(_ server: SavedServer) {
+    @discardableResult
+    private func save(_ server: SavedServer, closing: Bool = true) -> Bool {
         do {
             try servers.add(server)
-            close()
+            if closing { close() }
+            return true
         } catch {
             self.error = error.localizedDescription
+            return false
         }
     }
 }

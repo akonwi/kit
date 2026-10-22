@@ -7,6 +7,9 @@ struct SettingsView: View {
     @AppStorage(SettingsSection.storageKey) private var selection = SettingsSection.appearance.rawValue
     @Environment(\.serverDirectory) private var servers
     @State private var dialog: ServersDialog?
+    /// Asks an SSH host's questions in this window, as signing in from
+    /// Settings › Servers does.
+    @State private var sshSignIn = SSHSignIn()
     let themeLibrary: NativeThemeLibrary
     let windows: SessionWindowRegistry
 
@@ -37,7 +40,7 @@ struct SettingsView: View {
                     } else if selection == "workspace" {
                         WorkspaceSettingsView()
                     } else if selection == "servers" {
-                        ServersSettingsView(dialog: $dialog, windows: windows)
+                        ServersSettingsView(dialog: $dialog, windows: windows, signIn: sshSignIn)
                     } else if selection == "providers" {
                         if let connection = settingsServer {
                             ProviderSettingsView(client: connection.client, server: choice(connection)).id(connection.name)
@@ -56,6 +59,7 @@ struct SettingsView: View {
         .accessibilityHidden(dialog != nil)
         .overlay { dialogOverlay }
         .font(.kit(size: 13)).foregroundStyle(theme.text).tint(theme.accent)
+        .sshSignInSheet(sshSignIn)
         .environment(\.mica, theme)
         .frame(width: 800, height: 690)
         .onAppear(perform: takeRoute)
@@ -89,7 +93,7 @@ struct SettingsView: View {
             SettingsDialogOverlay(close: close) {
                 switch dialog {
                 case .add:
-                    AddServerDialog(servers: servers, close: close)
+                    AddServerDialog(servers: servers, signIn: sshSignIn, close: close)
                 case .pair(let name):
                     if let connection = servers.connection(named: name) {
                         PairDeviceDialog(connection: connection, close: close)

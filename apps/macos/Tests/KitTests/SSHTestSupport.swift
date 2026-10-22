@@ -102,7 +102,7 @@ final class FakeSSHProcess: SSHProcess, @unchecked Sendable {
     /// Asks through the askpass helper's protocol, as ssh's helper does.
     func ask(_ prompt: String, kind: String?, environment: [String: String]) async -> String? {
         guard let socket = environment[Askpass.socketVariable], let nonce = environment[Askpass.nonceVariable] else { return nil }
-        return await Task.detached { Askpass.ask(socket: socket, request: .init(nonce: nonce, prompt: prompt, kind: kind)) }.value
+        return await askOffThePool(socket: socket, request: .init(nonce: nonce, prompt: prompt, kind: kind))
     }
 
     func exit(_ status: Int32, diagnostics: String = "") {
@@ -154,11 +154,9 @@ struct FakeSSHHosts {
             runner: ssh, bridge: { bridge }, passwords: passwords, directory: { directory }, freePort: { port },
             addKey: { key, environment in
                 // ssh-add asks for the passphrase through the same bridge.
-                let answer = await Task.detached {
-                    Askpass.ask(socket: environment[Askpass.socketVariable] ?? "",
-                                request: .init(nonce: environment[Askpass.nonceVariable] ?? "",
-                                               prompt: "Enter passphrase for \(key): ", kind: nil))
-                }.value
+                let answer = await askOffThePool(socket: environment[Askpass.socketVariable] ?? "",
+                                                 request: .init(nonce: environment[Askpass.nonceVariable] ?? "",
+                                                                prompt: "Enter passphrase for \(key): ", kind: nil))
                 added.append(key + "=" + (answer ?? ""))
             },
             timeout: .seconds(5)))
@@ -172,4 +170,13 @@ final class Recorded<Value: Sendable>: Sendable {
     private let values = Mutex<[Value]>([])
     func append(_ value: Value) { values.withLock { $0.append(value) } }
     var all: [Value] { values.withLock { $0 } }
+}
+
+/// Asks as ssh's helper does. The helper blocks until it's answered, so it
+/// runs on a dispatch thread rather than holding one of the threads Swift
+/// concurrency shares with the code that answers it.
+func askOffThePool(socket: String, request: Askpass.Request) async -> String? {
+    await withCheckedContinuation { continuation in
+        DispatchQueue.global().async { continuation.resume(returning: Askpass.ask(socket: socket, request: request)) }
+    }
 }

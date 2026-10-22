@@ -81,7 +81,7 @@ struct ServerStatePresentation: Equatable {
             title = local ? "Can’t connect to Kit" : "Can’t connect to \(name)"
             message = local
                 ? "Kit couldn’t reach the Kit server on this Mac. It keeps trying, and this tab picks up where it left off when the server is running."
-                : "Kit couldn’t reach \(name). It keeps trying, and this tab picks up where it left off when \(name) is back."
+                : "Kit couldn’t reach \(name)\(Self.overSSH(connector)). It keeps trying, and this tab picks up where it left off when \(name) is back."
             source = Self.source(name: name, connector: connector)
             reason = failure
             versions = []
@@ -117,6 +117,10 @@ struct ServerStatePresentation: Equatable {
             versions = []
             action = .retry(nil)
         }
+    }
+
+    private static func overSSH(_ connector: ServerConnector) -> String {
+        if case .ssh = connector { " over SSH" } else { "" }
     }
 
     /// The connector and its address, such as `home · ~/dev/kit`.

@@ -44,7 +44,7 @@ enum ServersDialog: Identifiable, Equatable {
 /// How Settings › Servers shows one server.
 struct ServerRowPresentation: Equatable {
     enum Tone: Equatable { case success, warning, muted, hollow }
-    enum Action: Equatable { case menu, pairAgain, update }
+    enum Action: Equatable { case menu, pairAgain, update, signIn }
 
     let name: String
     let detail: String
@@ -82,7 +82,11 @@ struct ServerRowPresentation: Equatable {
         } else {
             available = nil
         }
-        action = if case .needsPairing = status { .pairAgain } else if available != nil { .update } else { .menu }
+        action = switch status {
+        case .needsPairing: .pairAgain
+        case .signInRequired: .signIn
+        default: available != nil ? .update : .menu
+        }
         switch status {
         case .connected:
             (self.status, tone) = (local ? "Running" : "Connected", .success)
@@ -113,6 +117,8 @@ struct ServersSettingsView: View {
     @Environment(\.serverDirectory) private var servers
     @Binding var dialog: ServersDialog?
     let windows: SessionWindowRegistry
+    /// Asks an SSH host's questions in the Settings window.
+    let signIn: SSHSignIn
     var updater: AppUpdater = .shared
     @State private var problem: KitUpdateTerminal.Problem?
 
@@ -187,6 +193,10 @@ struct ServersSettingsView: View {
                 case .update:
                     Button("Update…") { problem = KitUpdateTerminal.open(in: windows) }
                         .buttonStyle(FormButtonStyle(fill: .primary))
+                case .signIn:
+                    Button("Sign In…") { Task { await signIn.signIn(connection) } }
+                        .buttonStyle(FormButtonStyle(fill: .primary))
+                        .disabled(signIn.signingIn)
                 case .menu:
                     menu(connection)
                 }
@@ -220,6 +230,13 @@ struct ServersSettingsView: View {
         }
         if case .needsPairing = connection.status {
             Button("Pair Again…") { dialog = .pairAgain(connection.name) }
+        }
+        if connection.status == .signInRequired {
+            Button("Sign In…") { Task { await signIn.signIn(connection) } }.disabled(signIn.signingIn)
+        }
+        if connection.status == .serverStopped {
+            // Runs kit server start on the host, as kit attach does (S16).
+            Button("Start Server") { Task { await signIn.signIn(connection, start: true) } }.disabled(signIn.signingIn)
         }
         if !connection.isLocal {
             Button("Rename…") { dialog = .rename(connection.name) }

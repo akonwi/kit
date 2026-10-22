@@ -117,19 +117,13 @@ struct AskpassBridgeTests {
         #expect(registration.environment["SSH_ASKPASS_REQUIRE"] == "force")
         #expect(registration.environment[Askpass.socketVariable] == directory + "/a")
         let socket = directory + "/a"
-        let answer = await Task.detached {
-            Askpass.ask(socket: socket, request: .init(nonce: registration.nonce, prompt: "me@devbox's password: ", kind: nil))
-        }.value
+        let answer = await askOffThePool(socket: socket, request: .init(nonce: registration.nonce, prompt: "me@devbox's password: ", kind: nil))
         #expect(answer == "hunter2")
         #expect(asked.withLock { $0 } == [.password(account: "me@devbox")])
-        let stranger = await Task.detached {
-            Askpass.ask(socket: socket, request: .init(nonce: String(repeating: "0", count: 64), prompt: "Password:", kind: nil))
-        }.value
+        let stranger = await askOffThePool(socket: socket, request: .init(nonce: String(repeating: "0", count: 64), prompt: "Password:", kind: nil))
         #expect(stranger == nil)
         bridge.unregister(registration.nonce)
-        let late = await Task.detached {
-            Askpass.ask(socket: socket, request: .init(nonce: registration.nonce, prompt: "Password:", kind: nil))
-        }.value
+        let late = await askOffThePool(socket: socket, request: .init(nonce: registration.nonce, prompt: "Password:", kind: nil))
         #expect(late == nil)
         #expect(asked.withLock { $0.count } == 1)
     }

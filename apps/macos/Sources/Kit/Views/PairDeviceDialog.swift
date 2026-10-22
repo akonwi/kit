@@ -17,11 +17,13 @@ struct PairingAddresses: Equatable {
     let addresses: [Address]
 
     /// The served server's own URL comes first, since this Mac reaches it
-    /// there; then the URLs the server reports. Loopback URLs reach only the
-    /// server's machine, so they're left out.
-    init(connector: ServerConnector, reported: [String]) {
+    /// there, or for an SSH server the URL the user gave; then the URLs the
+    /// server reports. Loopback URLs reach only the server's machine, so
+    /// they're left out.
+    init(connector: ServerConnector, reported: [String], given: String? = nil) {
         var urls: [String] = []
         if case .url(let origin, _) = connector { urls.append(origin) }
+        if let given { urls.append(given) }
         for url in reported where !Self.loopback(url) && !urls.contains(url) { urls.append(url) }
         addresses = urls.map(Address.init)
     }
@@ -41,6 +43,15 @@ struct PairDeviceDialog: View {
     @State private var code: PairingCode?
     @State private var error: String?
     @State private var selected: String?
+    /// The URL other devices use for an SSH server, which Kit can't know.
+    @State private var given: String?
+    @State private var givenText = ""
+    @State private var givenError: String?
+    @FocusState private var givenFocused: Bool
+
+    private var ssh: Bool {
+        if case .ssh = connection.connector { true } else { false }
+    }
 
     var body: some View {
         let name = connection.name
@@ -49,8 +60,10 @@ struct PairDeviceDialog: View {
                 DialogHeading(title: "Pair a Device with \(name)",
                               message: "\(name) isn’t connected, so it can’t make a link now. Try again when it is, or run kit server pair on \(name).")
                 footer(note: nil)
+            } else if ssh && given == nil {
+                askForURL(name: name)
             } else if let code {
-                let addresses = PairingAddresses(connector: connection.connector, reported: code.urls)
+                let addresses = PairingAddresses(connector: connection.connector, reported: code.urls, given: given)
                 if addresses.addresses.isEmpty {
                     onlyThisMac(name: name)
                 } else {
@@ -68,16 +81,57 @@ struct PairDeviceDialog: View {
         }
         // A restarted server may answer on new addresses, as after
         // kit server expose; its earlier codes are gone with it.
-        .task(id: connection.status.identity?.instance) { await create() }
+        .task(id: (connection.status.identity?.instance ?? "") + " " + (given ?? "")) { await create() }
+    }
+
+    /// Asks an SSH server's URL, as kit pair --url does (S12).
+    @ViewBuilder private func askForURL(name: String) -> some View {
+        DialogHeading(title: "Pair a Device with \(name)",
+                      message: "Kit reaches \(name) over SSH, so it doesn’t know an address other devices can use.")
+        VStack(alignment: .leading, spacing: 6) {
+            Text("URL other devices use for \(name)").font(.kit(size: 12)).foregroundStyle(theme.muted)
+            TextField("", text: $givenText, prompt: Text("https://\(name).example.dev").foregroundStyle(theme.strongBorder))
+                .textFieldStyle(.plain).font(.kit(size: 12, design: .monospaced)).focused($givenFocused)
+                .onSubmit(useGiven)
+                .padding(.horizontal, 10).frame(height: 30)
+                .fieldBox(theme, focused: givenFocused)
+                .accessibilityLabel("URL other devices use")
+            if let givenError { ProviderErrorLine(message: givenError) }
+            else { Text("Or run kit server pair on \(name).").font(.kit(size: 12)).foregroundStyle(theme.muted) }
+        }
+        .task { givenFocused = true }
+        .onChange(of: givenText) { givenError = nil }
+        Rule()
+        HStack(spacing: 8) {
+            Spacer()
+            Button("Cancel", action: close).buttonStyle(FormButtonStyle()).keyboardShortcut(.cancelAction)
+            Button("Create Link", action: useGiven)
+                .buttonStyle(FormButtonStyle(fill: .primary)).keyboardShortcut(.defaultAction)
+                .disabled(givenText.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+    }
+
+    private func useGiven() {
+        guard let url = Self.servedURL(givenText) else {
+            givenError = "Enter the address other devices reach \(connection.name) at, such as https://\(connection.name).example.dev."
+            return
+        }
+        given = url
+    }
+
+    /// An HTTP(S) origin another device can reach: not this Mac's loopback.
+    static func servedURL(_ text: String) -> String? {
+        guard let url = SavedServer.canonicalURL(text), !PairingAddresses.loopback(url) else { return nil }
+        return url
     }
 
     private func create() async {
-        guard connection.status.isConnected else { return }
+        guard connection.status.isConnected, !ssh || given != nil else { return }
         do {
             let code = try await connection.client.createPairing()
             self.code = code
             error = nil
-            let urls = PairingAddresses(connector: connection.connector, reported: code.urls).addresses.map(\.url)
+            let urls = PairingAddresses(connector: connection.connector, reported: code.urls, given: given).addresses.map(\.url)
             if selected.map({ !urls.contains($0) }) ?? true { selected = urls.first }
         } catch {
             self.error = error.localizedDescription
