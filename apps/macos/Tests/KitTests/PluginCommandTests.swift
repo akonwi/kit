@@ -8,7 +8,9 @@ private actor PluginCommandMock: PluginCommandClient {
     nonisolated let isDemo = false
     let excerpt: SessionExcerpt
     var requests: [WirePluginCommandInput] = []
+    var failure: (any Error & Sendable)?
     init(_ excerpt: SessionExcerpt) { self.excerpt = excerpt }
+    func fail(with failure: (any Error & Sendable)?) { self.failure = failure }
     func sessions() async throws -> [SessionExcerpt] { [excerpt] }
     func snapshot(_ id: String) async throws -> SessionExcerpt { excerpt }
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
@@ -18,6 +20,7 @@ private actor PluginCommandMock: PluginCommandClient {
     func executePluginCommand(_ session: String, input: WirePluginCommandInput) async throws {
         requests.append(input)
         try await Task.sleep(for: .milliseconds(100))
+        if let failure { throw failure }
     }
 }
 
@@ -70,6 +73,27 @@ private actor PluginCommandMock: PluginCommandClient {
         #expect(state.feedback.visible?.title == "/demo.echo is no longer available")
         #expect(state.feedback.visible?.detail == "The command list changed. Choose it again from the palette.")
         #expect(state.feedback.visible?.tone == .warning)
+    }
+    @Test func failedCommandRaisesPersistentErrorNamingIt() async throws {
+        let command = try #require(PluginCommand.project([wire()]).first)
+        let session = excerpt([command]), client = PluginCommandMock(excerpt([command]))
+        let state = SessionStore(fixture: Fixture(sessions: [session]), client: client)
+        state.attach(); defer { state.detach() }
+        for _ in 0..<100 where state.connectionState != .connected { try await Task.sleep(for: .milliseconds(5)) }
+        await client.fail(with: PluginCommandFailure(unavailable: false))
+        await state.runPluginCommand(command, args: "")
+        #expect(state.runningPluginCommand == nil)
+        #expect(state.feedback.items.map(\.title) == ["/demo.echo failed"])
+        #expect(state.feedback.visible?.detail == "Its effects may have partially completed. It was not retried.")
+        #expect(state.feedback.visible?.tone == .error)
+        #expect(state.feedback.visible?.persistent == true)
+        await client.fail(with: PluginCommandFailure(unavailable: true))
+        await state.runPluginCommand(command, args: "")
+        #expect(state.feedback.visible?.title == "/demo.echo failed")
+        #expect(state.feedback.visible?.detail == "The command list changed. Choose it again from the palette.")
+        await client.fail(with: MutationNotSent(reason: "Kit isn't connected."))
+        await state.runPluginCommand(command, args: "")
+        #expect(state.feedback.visible?.detail == "It wasn't sent: Kit isn't connected.")
     }
     @Test func detachCancelsWaitAndSuppressesItsDelayedFeedback() async throws {
         let command = try #require(PluginCommand.project([wire()]).first)

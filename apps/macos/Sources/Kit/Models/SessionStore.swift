@@ -39,9 +39,14 @@ final class SessionStore {
             guard pluginCommandToken == token, selectedID == session else { return }
         } catch {
             guard pluginCommandToken == token, selectedID == session else { return }
-            let detail = (error as? PluginCommandFailure)?.errorDescription
-                ?? "The command did not complete. Effects may have partially completed; it was not retried."
-            feedback.show(title: "Plugin command failed", detail: detail, tone: .error, persistent: true)
+            let detail = if let notSent = error as? MutationNotSent {
+                "It wasn't sent: " + notSent.reason
+            } else if (error as? PluginCommandFailure)?.unavailable == true {
+                "The command list changed. Choose it again from the palette."
+            } else {
+                "Its effects may have partially completed. It was not retried."
+            }
+            feedback.show(title: "/" + command.name + " failed", detail: detail, tone: .error, persistent: true)
         }
         guard pluginCommandToken == token else { return }
         pluginCommandTask = nil
