@@ -263,9 +263,7 @@ struct SessionEventProjectionTests {
         #expect(state.session.providerRetryAt == nil)
         try state.apply(event("turn.completed", ["errorMessage": "Provider unavailable"]))
         #expect(state.session.activeRunID == nil)
-        #expect(state.session.terminalError == "Provider unavailable")
-        let refreshed = try SessionEventProjection(snapshot(), terminalError: state.session.terminalError)
-        #expect(refreshed.session.terminalError == "Provider unavailable")
+        #expect(state.session.messages.last?.marker == .turnEnded(.failed, message: "Provider unavailable"))
     }
 
     @Test func aTurnThatEndsEarlyClosesWithOneRowThatSurvivesARefresh() throws {
@@ -278,7 +276,7 @@ struct SessionEventProjectionTests {
         #expect(state.session.messages.filter { $0.marker != nil }.map(\.id) == ["turn-end:t"])
         #expect(state.session.messages.last?.marker == .turnEnded(.failed, message: "Provider unavailable"))
         // The stored snapshot may hold no reason for a turn that failed early.
-        let refreshed = try SessionEventProjection(snapshot(), terminalError: state.session.terminalError, turnEnd: state.turnEnd)
+        let refreshed = try SessionEventProjection(snapshot(), turnEnd: state.turnEnd)
         #expect(refreshed.session.messages.last?.marker == .turnEnded(.failed, message: "Provider unavailable"))
         // The row stays carried across later refreshes until another turn starts.
         var again = try SessionEventProjection(snapshot(), turnEnd: refreshed.turnEnd)

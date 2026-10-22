@@ -47,9 +47,7 @@ struct SessionAttentionTests {
         #expect(bounces == 1)
         time = 3
         feedback.observe(session("two", run: "r3"), server: "a")
-        var failed = session("two")
-        failed.terminalError = "Provider failed"
-        feedback.observe(failed, server: "a")
+        feedback.observe(session("two"), server: "a")
         #expect(bounces == 2)
     }
 

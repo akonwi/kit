@@ -33,12 +33,11 @@ struct SessionEventProjection {
     /// ending early. It keeps its label and reason across the refresh, and
     /// survives a snapshot that stored no reason, as for a turn that failed
     /// before the model replied.
-    init(_ snapshot: WireSessionSnapshot, terminalError: String? = nil, turnEnd: TranscriptMessage? = nil) throws {
+    init(_ snapshot: WireSessionSnapshot, turnEnd: TranscriptMessage? = nil) throws {
         try self.init(session: SessionProjection.snapshot(snapshot, carried: turnEnd.map { [$0] } ?? []),
             source: snapshot.messages ?? [],
             activeRunID: snapshot.activeTurnId, replayAvailable: snapshot.eventReplayAvailable == true,
             pendingInteractions: Set((snapshot.pendingInteractions ?? []).filter { $0.plugin != nil || $0.turnId == snapshot.activeTurnId }.map(\.id)))
-        if snapshot.activeTurnId == nil && session.terminalError == nil { session.terminalError = terminalError }
         if let turnEnd, session.messages.contains(where: { $0.id == turnEnd.id }) { self.turnEnd = turnEnd }
     }
 
@@ -122,7 +121,6 @@ struct SessionEventProjection {
             session.activeCompactionID = nil
             if activeRunID != event.turnId { retainPluginInteractions() }
             activeRunID = event.turnId
-            session.terminalError = nil
             turnEnd = nil
             session.activity = LiveActivity.working
         case "interaction.requested":
@@ -277,7 +275,6 @@ struct SessionEventProjection {
         case "turn.completed":
             settleTools(at: event.receivedAt)
             session.activeCompactionID = nil
-            session.terminalError = event.errorMessage
             if let error = event.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty,
                !event.turnId.isEmpty {
                 let end: TranscriptMarker.TurnEnd = switch event.status {

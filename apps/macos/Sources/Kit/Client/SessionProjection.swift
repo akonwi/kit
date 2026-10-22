@@ -50,9 +50,6 @@ enum SessionProjection {
         session.followUps = try FollowUpState(snapshot.followUps)
         session.providerRetryAt = snapshot.providerRetry?.retryAt
         session.providerRetryCount = snapshot.providerRetry?.count
-        let lastTurn = history.last?.turnId
-        session.terminalError = snapshot.activeTurnId == nil
-            ? history.last(where: { $0.role == "assistant" && $0.turnId == lastTurn })?.errorMessage : nil
         session.historyStart = history.first?.sequence
         return session
     }
@@ -63,7 +60,9 @@ enum SessionProjection {
     ///
     /// `finished` names turns that are over, which close with a row when they
     /// didn't complete. A turn may store errors from attempts it retried, so
-    /// only its last reply's error says how it ended. `carried` holds rows the
+    /// only its last reply's error says how it ended. Stored replies don't
+    /// record how a turn settled, so an interrupted turn, or one stopped while
+    /// waiting to retry, reads as failed unless the live stream saw it end. `carried` holds rows the
     /// live stream already showed for a turn; they win over the stored reason
     /// so a refresh doesn't relabel them.
     static func transcript(_ source: [WireTranscriptMessage],

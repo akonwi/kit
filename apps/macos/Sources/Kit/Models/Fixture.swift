@@ -48,7 +48,6 @@ struct SessionExcerpt: Decodable, Identifiable, Sendable, Equatable {
     var followUps: FollowUpState? = nil
     var providerRetryAt: String? = nil
     var providerRetryCount: Int? = nil
-    var terminalError: String? = nil
     var configurationRevision: UInt64? = nil
     /// What the session's model accepts in user messages; nil when the server omits it.
     var inputs: [String]? = nil
