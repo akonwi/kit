@@ -33,7 +33,7 @@ private actor ComposerMock: ComposerClient {
 
 @MainActor struct ComposerClientTests {
     private func wait(_ condition: @MainActor () -> Bool) async throws {
-        for _ in 0..<100 where !condition() { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { condition() }
         #expect(condition())
     }
     @Test func attachmentsRetainIdentityAndBytesAcrossFailureRetryAndSessionSwitch() async throws {

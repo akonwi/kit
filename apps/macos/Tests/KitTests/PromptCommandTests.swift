@@ -55,13 +55,11 @@ private actor PalettePromptClient: PromptCommandClient {
         let store = SessionStore(fixture: Fixture(sessions: [session]), client: client)
         store.attach()
         defer { store.detach() }
-        for _ in 0..<100 where store.connectionState != .connected { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { store.connectionState == .connected }
         #expect(store.palettePromptUnavailableReason == nil)
         store.ui.draft = "Existing draft"
         store.runPalettePrompt(prompt, args: "\"auth module\" carefully")
-        for _ in 0..<100 where (await client.requests).isEmpty || store.operations.sending {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await eventually { await !client.requests.isEmpty && !store.operations.sending }
         #expect(await client.requests.map { ($0.name, $0.args ?? "") }.first?.0 == "review")
         #expect(await client.requests.first?.args == "\"auth module\" carefully")
         #expect(store.ui.draft == "Existing draft")
@@ -82,11 +80,11 @@ private actor PalettePromptClient: PromptCommandClient {
         let store = SessionStore(fixture: Fixture(sessions: [session]), client: client)
         store.attach()
         defer { store.detach() }
-        for _ in 0..<100 where store.connectionState != .connected { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { store.connectionState == .connected }
         #expect(store.running)
         #expect(store.palettePromptUnavailableReason == nil)
         store.runPalettePrompt(prompt, args: "123 high")
-        for _ in 0..<100 where (await client.requests).isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { !(await client.requests).isEmpty }
         #expect(await client.requests.first?.name == "claude-fix")
         #expect(await client.requests.first?.args == "123 high")
     }
@@ -102,15 +100,15 @@ private actor PalettePromptClient: PromptCommandClient {
         let store = SessionStore(fixture: Fixture(sessions: [first, second]), client: client)
         store.attach()
         defer { store.detach() }
-        for _ in 0..<100 where store.connectionState != .connected { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { store.connectionState == .connected }
         await client.pause()
         store.runPalettePrompt(prompt, args: "")
         let origin = store.operations
-        for _ in 0..<100 where (await client.requests).isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { !(await client.requests).isEmpty }
         store.select("b")
         let destination = store.operations
         await client.resume()
-        for _ in 0..<100 where origin.sending { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { !origin.sending }
         #expect(origin.acknowledgedDraft == nil)
         #expect(destination.acknowledgedDraft == nil)
         #expect(destination.submission == .idle)
@@ -145,7 +143,7 @@ private actor PalettePromptClient: PromptCommandClient {
             operation.submitCommand(client: client, session: "s", input: .init(name: "review", args: "\"auth module\""),
                 draft: .init(text: "/review \"auth module\"", notes: [:], attachmentIDs: []),
                 uncertain: { recover = true }, acknowledged: { acknowledged = true })
-            for _ in 0..<100 where operation.sending { try await Task.sleep(for: .milliseconds(5)) }
+            try await eventually { !operation.sending }
             #expect(await client.requests.count == 1)
             #expect(acknowledged == !fails)
             #expect(recover == fails)
@@ -160,7 +158,7 @@ private actor PalettePromptClient: PromptCommandClient {
         operation.submitCommand(client: client, session: "s", input: .init(name: "review", args: nil),
             draft: .init(text: "/review", notes: [:], attachmentIDs: []),
             uncertain: {}, acknowledged: {})
-        for _ in 0..<100 where operation.sending { try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually { !operation.sending }
         #expect(operation.submission == .acknowledged("Queued"))
         #expect(operation.queue?.count == 1)
         #expect(operation.receiptTurn == nil)

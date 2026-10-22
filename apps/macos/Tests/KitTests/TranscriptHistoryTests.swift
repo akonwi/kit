@@ -54,11 +54,7 @@ private final class TranscriptPageResponse: URLProtocol, @unchecked Sendable {
             }, historyCursor: String(range.lowerBound), historyStart: Int64(range.lowerBound))
     }
     private func wait(_ predicate: () async -> Bool) async throws {
-        for _ in 0..<100 {
-            if await predicate() { return }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        Issue.record("History operation did not reach expected state")
+        try await eventually { await predicate() }
     }
     private func setup() async throws -> (SessionStore, HistoryClient) {
         let client = HistoryClient()

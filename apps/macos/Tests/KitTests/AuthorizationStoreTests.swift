@@ -52,14 +52,9 @@ private actor AuthorizingClient: ComposerClient {
         let engines = FakeBrowserEngines()
         store.ui.workspace.makeBrowserEngine = engines.make
         store.attach()
-        try await until { await client.ready("a") }
+        try await eventually { await client.ready("a") }
         await client.emit(session("a", authorizing: true))
         return (store, client, engines)
-    }
-
-    private func until(_ condition: () async -> Bool) async throws {
-        for _ in 0..<100 where await !condition() { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(await condition())
     }
 
     @Test func anAuthorizationRequestOpensItsPageOnce() async throws {
@@ -88,10 +83,10 @@ private actor AuthorizingClient: ComposerClient {
         store.openAuthorizationOnce(try #require(store.dockedInteraction))
 
         #expect(!engines.made[0].navigate(callback))
-        try await until { await client.responses.count == 1 }
+        try await eventually { await client.responses.count == 1 }
         #expect(await client.responses.map(\.session) == ["a"])
         #expect(await client.responses.map(\.value) == [callback.absoluteString])
-        try await until { workspace.root.tiles.count == 1 }
+        try await eventually { workspace.root.tiles.count == 1 }
         #expect(workspace.panes == [.conversation])
     }
 
@@ -103,7 +98,7 @@ private actor AuthorizingClient: ComposerClient {
         #expect(store.selectedID == "b")
 
         #expect(!engines.made[0].navigate(callback))
-        try await until { await client.responses.count == 1 }
+        try await eventually { await client.responses.count == 1 }
         #expect(await client.responses.map(\.session) == ["a"])
         #expect(await client.responses.map(\.value) == [callback.absoluteString])
     }

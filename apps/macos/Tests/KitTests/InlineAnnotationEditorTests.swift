@@ -34,7 +34,7 @@ private struct InlineAnnotationClient: AnnotationClient {
     static func waitForFocusedInput(in host: NSView, window: NSWindow,
                                     sourceLocation: SourceLocation = #_sourceLocation) async throws -> ComposerTextView {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
+        let deadline = clock.now.advanced(by: eventuallyLimit)
         while clock.now < deadline {
             if let input = input(in: host), window.firstResponder === input { return input }
             try await Task.sleep(for: .milliseconds(20))

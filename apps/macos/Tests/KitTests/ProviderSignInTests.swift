@@ -167,11 +167,6 @@ struct ProviderSignInTests {
 
     @MainActor final class Box { var opened: [URL] = []; var saved: [String] = [] }
 
-    private func until(_ condition: @MainActor () -> Bool) async throws {
-        for _ in 0..<200 where !condition() { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(condition())
-    }
-
     @Test func listsOneRowPerMethodNamingClaudeForAnthropicsBrowserSignIn() async {
         let (signIn, _) = signIn(FakeProviders(list: Self.providers))
         await signIn.load()
@@ -190,10 +185,10 @@ struct ProviderSignInTests {
         await signIn.load()
         let device = try #require(signIn.options.first)
         signIn.choose(device)
-        try await until { signIn.login?.device?.userCode == "WDJB-MJHT" }
+        try await eventually { signIn.login?.device?.userCode == "WDJB-MJHT" }
         #expect(signIn.step == .signingIn(device))
         await server.queue(.succeeded)
-        try await until { signIn.step == .connected(device) }
+        try await eventually { signIn.step == .connected(device) }
         #expect(signIn.anyConnected)
         #expect(signIn.defaultModel == "openai-codex/gpt-5")
     }
@@ -255,17 +250,17 @@ struct ProviderSignInTests {
         await signIn.load()
         let device = try #require(signIn.options.first)
         signIn.choose(device)
-        try await until { signIn.login != nil }
+        try await eventually { signIn.login != nil }
         await server.queue(.expired, failure: "The code expired.")
-        try await until { signIn.error != nil }
+        try await eventually { signIn.error != nil }
         #expect(signIn.error == "The code expired.")
 
         signIn.retry()
         #expect(signIn.error == nil)
-        try await until { signIn.login?.state == .pending }
+        try await eventually { signIn.login?.state == .pending }
         signIn.back()
         #expect(signIn.step == .list)
-        for _ in 0..<200 where await server.cancelled.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { await !server.cancelled.isEmpty }
         #expect(await server.cancelled == ["login_1"])
     }
 
@@ -277,7 +272,7 @@ struct ProviderSignInTests {
         await signIn.load()
         let claude = try #require(signIn.options.first { $0.method == .browser })
         signIn.choose(claude)
-        try await until { signIn.login?.redirectURI != nil }
+        try await eventually { signIn.login?.redirectURI != nil }
         #expect(box.opened == [URL(string: "https://claude.ai/oauth/authorize?code=true&state=st4te")!])
 
         let receiving = Task { await signIn.receiveRedirect() }
@@ -286,7 +281,7 @@ struct ProviderSignInTests {
         #expect(page == LoopbackRedirectReceiver.page)
         await receiving.value
         #expect(await server.submitted == ["http://localhost:\(port)/callback?code=abc&state=st4te"])
-        try await until { signIn.step == .connected(claude) }
+        try await eventually { signIn.step == .connected(claude) }
         // Listening ended with the redirect; the port is free again.
         try await LoopbackPort.bind(port)
     }
@@ -298,7 +293,7 @@ struct ProviderSignInTests {
         let (signIn, _) = signIn(server)
         await signIn.load()
         signIn.choose(try #require(signIn.options.first { $0.method == .browser }))
-        try await until { signIn.login?.redirectURI != nil }
+        try await eventually { signIn.login?.redirectURI != nil }
         let receiving = Task { await signIn.receiveRedirect() }
         // A request without the login's state is refused and changes nothing.
         let (status, _) = try await LoopbackPort.get("http://127.0.0.1:\(port)/callback?code=abc&state=other")
@@ -320,14 +315,14 @@ struct ProviderSignInTests {
         await signIn.load()
         let claude = try #require(signIn.options.first { $0.method == .browser })
         signIn.choose(claude)
-        try await until { signIn.login?.redirectURI != nil }
+        try await eventually { signIn.login?.redirectURI != nil }
         await signIn.receiveRedirect()
         #expect(signIn.error == nil)
         #expect(signIn.login?.state == .pending)
 
         await signIn.submit(authorization: "abc#st4te")
         #expect(await server.submitted == ["abc#st4te"])
-        try await until { signIn.step == .connected(claude) }
+        try await eventually { signIn.step == .connected(claude) }
     }
 
     @Test func settingsSignInChoosesAmongAProvidersMethods() async throws {
@@ -369,8 +364,11 @@ struct ProviderSignInTests {
         await signIn.save(apiKey: "sk-test")
         signIn.back()
         #expect(signIn.connected == ["openai"])
-        try await Task.sleep(for: .milliseconds(100))
-        try await pressReturn()
+        // Return continues once the list shows Continue.
+        try await eventually {
+            if continued == 0 { try? await pressReturn() }
+            return continued > 0
+        }
         #expect(continued == 1)
     }
 

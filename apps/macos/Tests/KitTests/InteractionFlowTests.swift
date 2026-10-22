@@ -150,7 +150,7 @@ struct InteractionFlowTests {
         hold.hold(flow, for: .milliseconds(20)) { released += 1 }
         #expect(hold.flow === flow)
         // The main actor is shared with other tests, so wait for the timer.
-        for _ in 0..<200 where hold.flow != nil { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { hold.flow == nil }
         #expect(hold.flow == nil)
         #expect(released == 1)
     }

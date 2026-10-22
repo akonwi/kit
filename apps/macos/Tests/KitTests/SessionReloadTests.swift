@@ -124,11 +124,11 @@ private actor ReloadClient: SessionReloadClient {
                 await withCheckedContinuation { finishRefresh = $0 }
             }
         }
-        for _ in 0..<100 where !(await client.reloadWaiting()) { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { await client.reloadWaiting() }
         #expect(operation.pending)
         #expect(operation.progressLabel == "Reloading session context…")
         await client.resumeReload()
-        for _ in 0..<100 where finishRefresh == nil { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { finishRefresh != nil }
         #expect(operation.pending)
         #expect(operation.progressLabel == "Refreshing session…")
         finishRefresh?.resume()
@@ -151,7 +151,7 @@ private actor ReloadClient: SessionReloadClient {
         let session = try await client.snapshot("s")
         let store = SessionStore(fixture: .init(sessions: [session]), client: client)
         store.attach(); defer { store.detach() }
-        for _ in 0..<100 where store.connectionState != .connected { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { store.connectionState == .connected }
         #expect(store.connectionState == .connected)
         await client.setRefreshFailure(true)
         await store.reloadSession(for: "s")
@@ -162,7 +162,7 @@ private actor ReloadClient: SessionReloadClient {
         #expect(await client.calls == 1)
         await client.setRefreshFailure(false)
         toast.action?()
-        for _ in 0..<100 where store.feedback.visible?.title != "Session context reloaded" { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { store.feedback.visible?.title == "Session context reloaded" }
         #expect(store.feedback.visible?.title == "Session context reloaded")
         #expect(store.feedback.visible?.persistent == false)
         #expect(await client.calls == 1)
@@ -174,10 +174,10 @@ private actor ReloadClient: SessionReloadClient {
         let session = try await client.snapshot("s")
         let store = SessionStore(fixture: .init(sessions: [session]), client: client)
         store.attach(); defer { store.detach() }
-        for _ in 0..<100 where store.connectionState != .connected { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { store.connectionState == .connected }
         #expect(store.connectionState == .connected)
         let reload = Task { await store.reloadSession(for: "s") }
-        for _ in 0..<100 where !(await client.reloadWaiting()) { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { await client.reloadWaiting() }
         #expect(await client.reloadWaiting())
         reload.cancel()
         await client.resumeReload()
@@ -196,11 +196,11 @@ private actor ReloadClient: SessionReloadClient {
         let first = try await client.snapshot("s"), second = try await client.snapshot("other")
         let store = SessionStore(fixture: .init(sessions: [first, second]), client: client)
         store.attach(); defer { store.detach() }
-        for _ in 0..<100 where store.connectionState != .connected { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { store.connectionState == .connected }
         #expect(store.connectionState == .connected)
         let originalFeedback = store.feedback
         let reload = Task { await store.reloadSession(for: "s") }
-        for _ in 0..<100 where !(await client.reloadWaiting()) { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { await client.reloadWaiting() }
         #expect(await client.reloadWaiting())
         store.select("other")
         await client.resumeReload()
@@ -212,7 +212,7 @@ private actor ReloadClient: SessionReloadClient {
         #expect(await client.calls == 1)
         store.select("s")
         originalFeedback.visible?.action?()
-        for _ in 0..<100 where originalFeedback.visible?.title != "Session context reloaded" { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { originalFeedback.visible?.title == "Session context reloaded" }
         #expect(originalFeedback.visible?.title == "Session context reloaded")
         #expect(await client.calls == 1)
     }

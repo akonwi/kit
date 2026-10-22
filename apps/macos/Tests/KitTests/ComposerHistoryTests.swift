@@ -26,11 +26,7 @@ private struct HistoryTestClient: ComposerHistoryClient {
 @MainActor
 struct ComposerHistoryTests {
     private func settle(_ condition: @escaping @MainActor () -> Bool) async throws {
-        for _ in 0..<100 {
-            if condition() { return }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        Issue.record("history operation did not settle")
+        try await eventually { condition() }
     }
 
     @Test func historyPanelFitsVisibleRowsAndKeepsItsBottomAnchoredToComposer() {

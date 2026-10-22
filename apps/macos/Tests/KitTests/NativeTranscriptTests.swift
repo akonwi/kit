@@ -146,7 +146,7 @@ import Testing
         window.orderFront(nil)
         defer { adapter.stop(); window.close() }
         func height(matching predicate: (CGFloat) -> Bool) async throws -> CGFloat {
-            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            let deadline = ContinuousClock.now.advanced(by: eventuallyLimit)
             while ContinuousClock.now < deadline {
                 let value = adapter.table.rect(ofRow: 0).height
                 if predicate(value) { return value }
@@ -200,7 +200,7 @@ import Testing
         window.orderFront(nil)
         defer { adapter.stop(); window.close() }
         func height(matching predicate: (CGFloat) -> Bool) async throws -> CGFloat {
-            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            let deadline = ContinuousClock.now.advanced(by: eventuallyLimit)
             while ContinuousClock.now < deadline {
                 let value = adapter.table.rect(ofRow: 0).height
                 if predicate(value) { return value }
@@ -243,7 +243,7 @@ import Testing
         window.orderFront(nil)
         defer { adapter.stop(); window.close() }
         func settle(_ predicate: () -> Bool) async throws {
-            let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+            let deadline = ContinuousClock.now.advanced(by: eventuallyLimit)
             while !predicate(), ContinuousClock.now < deadline {
                 try await Task.sleep(for: .milliseconds(20))
             }

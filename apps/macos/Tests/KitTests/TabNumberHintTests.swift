@@ -170,7 +170,7 @@ private actor IdleClient: SessionClient {
         model.tabHints.delay = delay
         model.tabHints.liveModifiers = { .command }
         model.tabHints.modifiersChanged(.command)
-        for _ in 0..<100 where !model.tabHints.shown { try await Task.sleep(for: .milliseconds(20)) }
+        try await eventually { model.tabHints.shown }
         try #require(model.tabHints.shown)
     }
 

@@ -204,16 +204,10 @@ struct SubagentTests {
         try #require(bitmap.representation(using: .png, properties: [:]))
             .write(to: URL(fileURLWithPath: "/tmp/kit-subagent-streaming.png"))
         store.ui.workspace.select(.conversation)
-        for _ in 0..<50 {
-            if await client.active == 0 { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await eventually { await client.active == 0 }
         #expect(await client.active == 0)
         store.ui.workspace.select(.agent("reviewer"))
-        for _ in 0..<50 {
-            if await client.calls == 2 { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await eventually { await client.calls == 2 }
         #expect(await client.calls == 2)
         #expect(await client.active == 1)
         store.ui.workspace.select(.conversation)

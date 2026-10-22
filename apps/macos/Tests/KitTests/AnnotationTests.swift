@@ -141,10 +141,7 @@ extension AnnotationTests {
         let probe = AnnotationStreamProbe()
         let watch = Task { try await observer.watch(id) { value in await probe.receive(value) } }
         defer { watch.cancel() }
-        for _ in 0..<100 {
-            if await probe.ready { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await eventually { await probe.ready }
         #expect(await probe.ready)
         do {
             let fileRead = try await client.readWorkspaceFile(id, path: "sample.swift")
@@ -152,17 +149,11 @@ extension AnnotationTests {
                 path: fileRead.path, fileRevision: fileRead.revision, startLine: 1, endLine: 2), workingTreeDiff: nil)
             let created = try await client.createAnnotation(id, input: .init(anchor: anchor, body: "Explain this greeting."))
             #expect(created.source == "let greeting = \"🌿\"\nprint(greeting)")
-            for _ in 0..<100 {
-                if await probe.bodies.contains("Explain this greeting.") { break }
-                try await Task.sleep(for: .milliseconds(20))
-            }
+            try await eventually { await probe.bodies.contains("Explain this greeting.") }
             #expect(await probe.bodies.contains("Explain this greeting."))
             let edited = try await client.updateAnnotation(id, input: .init(annotationId: created.id, body: "Keep the Unicode greeting."))
             #expect(edited.body == "Keep the Unicode greeting.")
-            for _ in 0..<100 {
-                if await probe.bodies.contains(edited.body) { break }
-                try await Task.sleep(for: .milliseconds(20))
-            }
+            try await eventually { await probe.bodies.contains(edited.body) }
             #expect(await probe.bodies.contains(edited.body))
             #expect(try await client.annotations(id).map(\.id) == [created.id])
             try "let greeting = \"changed\"\n".write(to: file, atomically: true, encoding: .utf8)
@@ -171,10 +162,7 @@ extension AnnotationTests {
             #expect(stale.source == created.source)
             try await client.deleteAnnotation(id, id: created.id)
             #expect(try await client.annotations(id).isEmpty)
-            for _ in 0..<100 {
-                if await probe.liveIDs.isEmpty { break }
-                try await Task.sleep(for: .milliseconds(20))
-            }
+            try await eventually { await probe.liveIDs.isEmpty }
             #expect(await probe.liveIDs.isEmpty)
             guard ProcessInfo.processInfo.environment["KIT_ANNOTATION_SEND_LIVE_TEST"] == "1" else {
                 try await client.disposeSession(id)

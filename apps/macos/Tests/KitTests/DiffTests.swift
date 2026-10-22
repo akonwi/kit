@@ -424,7 +424,7 @@ extension InlineAnnotationEditorTests {
                 return found(view).sorted { $0.view.convert($0.view.bounds, to: nil).maxY > $1.view.convert($1.view.bounds, to: nil).maxY }
             }
             let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: .seconds(3))
+            let deadline = clock.now.advanced(by: eventuallyLimit)
             var rendered: [TextViewController] = []
             while clock.now < deadline {
                 host.layoutSubtreeIfNeeded()
@@ -482,7 +482,7 @@ extension InlineAnnotationEditorTests {
             }
             gutter.mouseDown(with: try click(.leftMouseDown))
             gutter.mouseUp(with: try click(.leftMouseUp))
-            let editorDeadline = clock.now.advanced(by: .seconds(3))
+            let editorDeadline = clock.now.advanced(by: eventuallyLimit)
             while clock.now < editorDeadline {
                 host.layoutSubtreeIfNeeded()
                 second = editors(in: host).last ?? second

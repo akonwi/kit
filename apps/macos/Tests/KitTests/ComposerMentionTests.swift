@@ -35,7 +35,7 @@ import Testing
         let state = ComposerMentionState()
         state.observe(previous: "see  later", next: "see @ later", pasted: false)
         state.load { _ in FileIndex(paths: ["docs/", "src/main.swift"]) }
-        for _ in 0..<100 where state.loading { try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually { !state.loading }
         #expect(state.selected == "docs/")
         state.move(-1)
         #expect(state.selected == "src/main.swift")

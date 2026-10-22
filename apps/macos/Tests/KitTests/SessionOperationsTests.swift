@@ -68,11 +68,7 @@ private actor MutationStub: SessionMutationClient {
 
 @MainActor struct SessionOperationsTests {
     private func wait(_ condition: () async -> Bool) async throws {
-        for _ in 0..<100 {
-            if await condition() { return }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        Issue.record("Operation did not reach the expected state")
+        try await eventually { await condition() }
     }
     private func store(_ client: MutationStub) async throws -> SessionStore {
         let session = try await client.snapshot("s")

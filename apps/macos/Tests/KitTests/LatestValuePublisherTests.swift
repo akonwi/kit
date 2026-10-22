@@ -9,11 +9,7 @@ private actor Deliveries {
 
 struct LatestValuePublisherTests {
     private func wait(_ predicate: () async -> Bool) async throws {
-        for _ in 0..<200 {
-            if await predicate() { return }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        Issue.record("Publisher did not reach expected state")
+        try await eventually { await predicate() }
     }
 
     @Test func liveBurstDeliversLeadingValueThenOnlyTheLatest() async throws {

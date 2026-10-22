@@ -2,24 +2,6 @@ import Foundation
 import Testing
 @testable import Kit
 
-/// Waits for a condition the main actor reaches asynchronously.
-@MainActor func eventually(_ condition: @MainActor () -> Bool) async throws {
-    for _ in 0..<300 {
-        if condition() { return }
-        try await Task.sleep(for: .milliseconds(10))
-    }
-    Issue.record("Condition was not reached in time")
-}
-
-/// Waits for a condition that has to ask an actor.
-@MainActor func eventually(awaiting condition: @MainActor () async -> Bool) async throws {
-    for _ in 0..<300 {
-        if await condition() { return }
-        try await Task.sleep(for: .milliseconds(10))
-    }
-    Issue.record("Condition was not reached in time")
-}
-
 @MainActor struct SessionCatalogTests {
     private actor CatalogClient: SessionClient {
         nonisolated let serverID = "local"
@@ -69,17 +51,11 @@ import Testing
         let catalog = SessionCatalog(client: client)
         await catalog.load()
         let request = Task { await catalog.refresh() }
-        for _ in 0..<100 {
-            if await client.calls == 2 { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await eventually { await client.calls == 2 }
         #expect(await client.calls == 2)
         request.cancel()
         await request.value
-        for _ in 0..<100 {
-            if await client.cancelled { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await eventually { await client.cancelled }
         #expect(await client.cancelled)
         #expect(catalog.loading == false)
         #expect(catalog.error == nil)
@@ -207,7 +183,7 @@ import Testing
         defer { server.stop() }
         try await eventually { server.status.isConnected }
         signal.fire()
-        try await eventually(awaiting: { await calls.count == 2 })
+        try await eventually { await calls.count == 2 }
         // Failures meanwhile are answered by the check underway.
         signal.fire()
         signal.fire()
@@ -263,12 +239,12 @@ import Testing
         server.start()
         defer { server.stop() }
         try await eventually { server.status.identity?.instance == "first" }
-        try await eventually(awaiting: { await catalog.loads == 1 })
+        try await eventually { await catalog.loads == 1 }
         server.checkNow()
-        try await eventually(awaiting: { await script.calls == 2 })
+        try await eventually { await script.calls == 2 }
         server.checkNow()
         try await eventually { server.status.identity?.instance == "second" }
-        try await eventually(awaiting: { await catalog.loads == 2 })
+        try await eventually { await catalog.loads == 2 }
     }
 }
 

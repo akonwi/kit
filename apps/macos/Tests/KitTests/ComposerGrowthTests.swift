@@ -97,9 +97,9 @@ private struct QuoteComposerHost: View {
             return view.subviews.lazy.compactMap { editor(in: $0) }.first
         }
         func settle(until done: () -> Bool) async throws {
-            for _ in 0..<20 where !done() {
+            try await eventually {
                 host.layoutSubtreeIfNeeded()
-                try await Task.sleep(for: .milliseconds(20))
+                return done()
             }
         }
         try await settle { editor(in: host)?.string == state.draft }

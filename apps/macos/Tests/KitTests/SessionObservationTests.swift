@@ -51,7 +51,7 @@ private actor ObservationClient: SessionClient {
         let client = ObservationClient()
         let state = SessionStore(fixture: Fixture(sessions: [session(messages: [])]), client: client)
         state.attach()
-        for _ in 0..<100 where !(await client.ready()) { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { await client.ready() }
         await client.emit(session(messages: ["a"]))
         return (state, client)
     }

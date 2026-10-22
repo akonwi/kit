@@ -33,20 +33,14 @@ private actor LifecycleClient: SessionClient {
         let store = try #require(model.store(for: tab, client: client))
         #expect(model.store(for: tab, client: client) === store)
         #expect(store.selectedID == "b")
-        for _ in 0..<100 {
-            if await client.started == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await eventually { await client.started == 1 }
         // Switching tabs keeps the stream; only closing the tab releases it.
         model.openLauncher()
         #expect(await client.started == 1)
         #expect(await client.stopped == 0)
         model.close(tab)
         #expect(tab.store == nil)
-        for _ in 0..<100 {
-            if await client.stopped == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await eventually { await client.stopped == 1 }
         #expect(await client.stopped == 1)
     }
 
@@ -55,17 +49,11 @@ private actor LifecycleClient: SessionClient {
         var state: SessionStore? = SessionStore(fixture: fixture, client: client)
         weak var released = state
         state?.attach()
-        for _ in 0..<100 {
-            if await client.started == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await eventually { await client.started == 1 }
         #expect(await client.started == 1)
         state = nil
         #expect(released == nil)
-        for _ in 0..<100 {
-            if await client.stopped == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await eventually { await client.stopped == 1 }
         #expect(await client.stopped == 1)
     }
 }

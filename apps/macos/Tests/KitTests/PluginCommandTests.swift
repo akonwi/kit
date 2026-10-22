@@ -59,7 +59,7 @@ private actor PluginCommandMock: PluginCommandClient {
         let session = excerpt([command]), client = PluginCommandMock(excerpt([command]))
         let state = SessionStore(fixture: Fixture(sessions: [session]), client: client)
         state.attach(); defer { state.detach() }
-        for _ in 0..<100 where state.connectionState != .connected { try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually { state.connectionState == .connected }
         #expect(state.pluginCommands == [command])
         state.ui.draft = "preserved composer draft"
         let args = "  quoted \"hello\" $(literal)\nnext  "
@@ -79,7 +79,7 @@ private actor PluginCommandMock: PluginCommandClient {
         let session = excerpt([command]), client = PluginCommandMock(excerpt([command]))
         let state = SessionStore(fixture: Fixture(sessions: [session]), client: client)
         state.attach(); defer { state.detach() }
-        for _ in 0..<100 where state.connectionState != .connected { try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually { state.connectionState == .connected }
         await client.fail(with: PluginCommandFailure(unavailable: false))
         await state.runPluginCommand(command, args: "")
         #expect(state.runningPluginCommand == nil)
@@ -118,9 +118,9 @@ private actor PluginCommandMock: PluginCommandClient {
         let session = excerpt([command]), client = PluginCommandMock(excerpt([command]))
         let state = SessionStore(fixture: Fixture(sessions: [session]), client: client)
         state.attach()
-        for _ in 0..<100 where state.connectionState != .connected { try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually { state.connectionState == .connected }
         let task = Task { await state.runPluginCommand(command, args: "") }
-        for _ in 0..<100 where !state.pluginCommandRunning { try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually { state.pluginCommandRunning }
         #expect(state.pluginCommandRunning)
         // A running command is an ongoing state: the activity card shows it.
         #expect(state.runningPluginCommand == "demo.echo")
