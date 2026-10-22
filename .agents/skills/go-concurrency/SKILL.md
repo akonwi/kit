@@ -36,8 +36,9 @@ Match these when writing new concurrent code; deviating needs a reason.
 2. **Fence unlocked I/O with an epoch.** Snapshot state and an epoch under the
    lock, do the git/process/network work without it, then re-lock and drop the
    result if the epoch, cwd, or closed state changed. See `Host.refreshGit` in
-   `internal/plugin/git_events.go`. `Observer.refreshGit` fences the same way,
-   but don't copy its failure handling (see "Known exceptions"). A value derived
+   `internal/plugin/git_events.go`. `Observer.refreshGit` fences the same way
+   and keeps its last observation when a probe fails transiently
+   (`vcs.ErrUnavailable` or its own timeout). A value derived
    from a read that can race with a newer write must only move forward: use a
    compare-and-swap rather than storing a value read earlier.
 3. **Idempotent close that never abandons cleanup.** The first caller flips
@@ -122,9 +123,6 @@ Acquire nested locks in these orders:
 
 These are tracked issues; don't treat them as precedent:
 
-- `Observer.refreshGit` publishes `Git: nil` on any probe error, and
-  `vcs.Probe` returns `(nil, nil)` on its own timeout. That turns a slow `git`
-  into "not a repository" (#235).
 - `WatchStreamIdle` measures idle time through `UnixNano`, losing the
   monotonic clock. Plugin response validation runs under `RPCEndpoint.mu` and
   takes `Instance.mu`, reversing the plugin lock order (#248).

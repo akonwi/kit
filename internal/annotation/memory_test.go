@@ -19,7 +19,9 @@ func TestSessionLockLeaseRetainsIdentityWhileWaitersExist(t *testing.T) {
 	}
 	secondAcquired := make(chan struct{})
 	secondRelease := make(chan struct{})
+	secondReleased := make(chan struct{})
 	go func() {
+		defer close(secondReleased)
 		second.Lock()
 		close(secondAcquired)
 		<-secondRelease
@@ -38,6 +40,13 @@ func TestSessionLockLeaseRetainsIdentityWhileWaitersExist(t *testing.T) {
 	close(secondRelease)
 	third.Lock()
 	third.Unlock()
+	// Unlock releases the mutex before dropping its lease, so the third lease
+	// can finish first. Wait for the second lease to be dropped too (#251).
+	select {
+	case <-secondReleased:
+	case <-time.After(3 * time.Second):
+		t.Fatal("second lock lease was not released")
+	}
 	service.locksMu.Lock()
 	_, retained := service.locks["session_lock"]
 	service.locksMu.Unlock()

@@ -326,3 +326,41 @@ func TestCappedBufferCopyCannotBypassLimit(t *testing.T) {
 		t.Fatalf("copy=%d,%v buffer=%q overflow=%t", n, err, buffer.String(), buffer.overflow)
 	}
 }
+
+// Regression for #235: a probe that timed out reported "not a repository".
+// The shim never answers, so the probe deadline always expires, whether or not
+// the shim has started yet. It replaces PATH, so the test is not parallel.
+func TestProbeReportsTimeoutAsUnavailable(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexec sleep 30\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	status, err := probe(t.Context(), t.TempDir(), 100*time.Millisecond)
+	if !errors.Is(err, ErrUnavailable) || status != nil {
+		t.Fatalf("probe(timeout) = %+v, %v; want ErrUnavailable", status, err)
+	}
+}
+
+// Once cwd resolves to a repository, a failing Git command is transient rather
+// than proof that the repository is gone. The shim replaces PATH, so the test
+// is not parallel.
+func TestProbeReportsGitFailureInsideRepositoryAsUnavailable(t *testing.T) {
+	gitExecutable, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is required")
+	}
+	repository := t.TempDir()
+	runGitTest(t, repository, "init", "-b", "main")
+	bin := t.TempDir()
+	shim := "#!/bin/sh\nfor argument in \"$@\"; do\n  if [ \"$argument\" = status ]; then echo 'fatal: index file corrupt' >&2; exit 128; fi\ndone\nexec \"$KIT_VCS_REAL_GIT\" \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KIT_VCS_REAL_GIT", gitExecutable)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	status, err := Probe(t.Context(), repository)
+	if !errors.Is(err, ErrUnavailable) || status != nil {
+		t.Fatalf("Probe(failing status) = %+v, %v; want ErrUnavailable", status, err)
+	}
+}
