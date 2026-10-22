@@ -49,6 +49,9 @@ struct KeychainSSHPasswords: SSHPasswordStore {
         let context = LAContext()
         context.interactionNotAllowed = true
         query[kSecUseAuthenticationContext as String] = context
+        // The legacy keychain's access dialog, as after the app's signature
+        // changes, is refused only this way; it has no replacement there.
+        query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
         return String(data: data, encoding: .utf8)
@@ -133,6 +136,8 @@ actor SSHHost {
     private var waitingForSignIn = false
     /// The host was closed for good; it connects no more.
     private var closed = false
+    /// The master being connected, whose questions may be on screen.
+    private var attempt: SSHAttempt?
     private var tail: Task<Void, Never>?
     private var observers: [UUID: @Sendable () -> Void] = [:]
 
@@ -179,6 +184,8 @@ actor SSHHost {
         master?.stop()
         master = nil
         waitingForSignIn = false
+        // A question on screen is withdrawn; the master it's for is ended.
+        attempt?.finish()
     }
 
     /// Whether the host waits for someone to sign in.
@@ -198,6 +205,7 @@ actor SSHHost {
     private func connect(prompter: SSHPrompter?, start: Bool) async throws -> Endpoint {
         try await ensureMaster(prompter: prompter)
         let report = try await query(start: start)
+        if closed { throw CancellationError() }
         if let reason = DaemonCompatibility.mismatch(clientProtocol: kitWireVersion, daemonProtocol: report.protocolVersion) {
             throw ClientError.incompatibleDaemon(daemonVersion: report.kitVersion, appProtocol: kitWireVersion,
                                                  daemonProtocol: report.protocolVersion, reason: reason)
@@ -210,6 +218,10 @@ actor SSHHost {
             await cancel(old.spec)
         }
         let endpoint = try await open(report)
+        if closed {
+            await cancel(endpoint.spec)
+            throw CancellationError()
+        }
         forward = endpoint
         return endpoint
     }
@@ -252,7 +264,11 @@ actor SSHHost {
                                  prompter: prompter)
         let bridge = try environment.bridge()
         let registration = bridge.register { await attempt.answer($0) }
-        defer { bridge.unregister(registration.nonce) }
+        self.attempt = attempt
+        defer {
+            bridge.unregister(registration.nonce)
+            self.attempt = nil
+        }
         let arguments = ["-M", "-S", control, "-o", "ControlPersist=no", "-T"] + Self.common + configuration.options
             + ["--", destination, Self.shell("echo \(Self.readyMarker); read line")]
         let process = try environment.runner.start(arguments, environment: registration.environment)
@@ -312,13 +328,13 @@ actor SSHHost {
             waitingForSignIn = true
             return CancellationError()
         }
-        if attempt.unanswered {
-            waitingForSignIn = true
-            return ClientError.sshSignInRequired
-        }
         if var change = SSHHostKeyChange(diagnostics: diagnostics) {
             change.saved = await savedFingerprint(change)
             return ClientError.sshHostKeyChanged(change)
+        }
+        if attempt.unanswered {
+            waitingForSignIn = true
+            return ClientError.sshSignInRequired
         }
         return ClientError.ssh(Self.lastLine(diagnostics) ?? "ssh couldn’t connect to \(destination).")
     }
@@ -484,7 +500,11 @@ final class SSHAttempt: Sendable {
         var asked: [String: Int] = [:]
         var asking = 0
         var lastActivity = ContinuousClock.now
+        /// A question no one could answer, which ssh may have done without.
         var unanswered = false
+        /// A question went unanswered whose refusal ssh would send to the
+        /// host as an empty answer, so ssh must be ended instead.
+        var stopped = false
         var cancelled = false
         var finished = false
         /// The user's answer being awaited, cancelled when the attempt ends.
@@ -519,7 +539,7 @@ final class SSHAttempt: Sendable {
     /// The user cancelled a question.
     var cancelled: Bool { state.withLock { $0.cancelled } }
     /// The attempt can't go on, so ssh should be ended.
-    var gaveUp: Bool { state.withLock { $0.unanswered || $0.cancelled } }
+    var gaveUp: Bool { state.withLock { $0.stopped || $0.cancelled } }
 
     /// Answers one question: a saved password first, then the user, if
     /// someone can be asked. Nil refuses it.
@@ -528,7 +548,7 @@ final class SSHAttempt: Sendable {
         let key = Self.kind(prompt)
         let step: Step = state.withLock { state in
             if state.finished { return .done }
-            if state.cancelled || state.unanswered { return .giveUp }
+            if state.cancelled || state.stopped { return .giveUp }
             state.asked[key, default: 0] += 1
             var trySaved = false
             if case .password(let account) = prompt, account == nil || account == self.account {
@@ -544,7 +564,19 @@ final class SSHAttempt: Sendable {
             state.withLock { $0.usedSaved = true }
             return saved
         }
-        guard let prompter else { return await giveUp(\.unanswered) }
+        guard let prompter else {
+            switch prompt {
+            case .passphrase, .hostKey, .confirm:
+                // ssh skips a refused key, and declines a refused host key
+                // or confirmation; nothing reaches the host, so it goes on,
+                // perhaps to sign in another way.
+                state.withLock { $0.unanswered = true }
+                return nil
+            case .password, .other:
+                state.withLock { $0.unanswered = true }
+                return await giveUp(\.stopped)
+            }
+        }
         let request = SSHPromptRequest(prompt: prompt, retry: retry)
         let task = Task { await prompter(request) }
         let open = state.withLock { state -> Bool in

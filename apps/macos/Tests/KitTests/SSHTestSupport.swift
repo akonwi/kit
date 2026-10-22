@@ -1,5 +1,6 @@
 import Foundation
 import Synchronization
+import Testing
 @testable import Kit
 
 /// An ssh stand-in. Commands run to completion are answered by `respond`;
@@ -148,7 +149,8 @@ struct FakeSSHHosts {
     let added: Recorded<String>
 
     /// `port` is where forwards lead, as a loopback stub server listens.
-    init(ssh: FakeSSH = FakeSSH(), port: Int = 1, passwords: [String: String] = [:]) throws {
+    /// ssh-add asks `keyAsks` times, as it does after a passphrase it refuses.
+    init(ssh: FakeSSH = FakeSSH(), port: Int = 1, passwords: [String: String] = [:], keyAsks: Int = 1) throws {
         let directory = "/tmp/kt-" + UUID().uuidString.prefix(8)
         try SSHHosts.privateDirectory(directory)
         let bridge = try AskpassBridge(path: directory + "/a")
@@ -162,15 +164,25 @@ struct FakeSSHHosts {
             runner: ssh, bridge: { bridge }, passwords: passwords, directory: { directory }, freePort: { port },
             addKey: { key, environment in
                 // ssh-add asks for the passphrase through the same bridge.
-                let answer = await askOffThePool(socket: environment[Askpass.socketVariable] ?? "",
-                                                 request: .init(nonce: environment[Askpass.nonceVariable] ?? "",
-                                                                prompt: "Enter passphrase for \(key): ", kind: nil))
-                added.append(key + "=" + (answer ?? ""))
+                for ask in 0..<keyAsks {
+                    let answer = await askOffThePool(socket: environment[Askpass.socketVariable] ?? "",
+                                                     request: .init(nonce: environment[Askpass.nonceVariable] ?? "",
+                                                                    prompt: ask == 0 ? "Enter passphrase for \(key): " : "Bad passphrase, try again for \(key): ",
+                                                                    kind: nil))
+                    added.append(key + "=" + (answer ?? ""))
+                }
             },
             timeout: .seconds(5)))
     }
 
     func remove() { try? FileManager.default.removeItem(atPath: directory) }
+}
+
+/// Waits up to five seconds for `condition`, then expects it.
+func until(isolation: isolated (any Actor)? = #isolation, _ condition: () -> Bool) async throws {
+    let deadline = ContinuousClock.now + .seconds(5)
+    while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(condition())
 }
 
 /// Values recorded from any thread.
