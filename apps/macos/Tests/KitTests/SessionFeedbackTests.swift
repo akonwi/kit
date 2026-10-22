@@ -25,7 +25,7 @@ import Testing
         state.saveRemainingLifetime(3.5, for: item.id)
         #expect(state.remainingLifetime(for: item.id) == 3.5)
         state.expire(item.id)
-        #expect(state.remainingLifetime(for: item.id) == 10)
+        #expect(state.remainingLifetime(for: item.id) == SessionFeedback.Tone.info.lifetime)
     }
 
     @Test func activePersistentFeedbackSurvivesDedupeHistoryRollover() {
@@ -128,19 +128,21 @@ import Testing
         #expect(state.notices.isEmpty)
     }
 
-    @Test func liveCompactionFeedbackIsDeduplicatedAndManualCommandsOwnTheirResult() {
+    @Test func completedCompactionsShowInTheTranscriptAndOnlyAutomaticFailuresToast() {
         let state = SessionFeedback()
         var session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "Test", model: "m", thinking: "high", workspace: "w", date: "", messages: [])
         session.compactionOutcome = CompactionOutcome(id: "auto", failed: false, detail: "")
         state.observe(session); state.observe(session)
-        #expect(state.items.map(\.title) == ["Session compacted"])
-        session.compactionOutcome = CompactionOutcome(id: "manual", failed: false, detail: "")
+        #expect(state.items.isEmpty)
+        session.compactionOutcome = CompactionOutcome(id: "manual", failed: true, detail: "Busy")
         state.observe(session, manualCompaction: true)
         state.observe(session)
-        #expect(state.items.map(\.title) == ["Session compacted"])
+        #expect(state.items.isEmpty)
         session.compactionOutcome = CompactionOutcome(id: "failed", failed: true, detail: "Provider unavailable")
         state.observe(session)
+        #expect(state.notices.map(\.title) == ["Auto-compaction failed"])
         #expect(state.notices.map(\.detail) == ["Provider unavailable"])
+        #expect(state.notices.map(\.tone) == [.error])
     }
 
     @Test func reloadEvidenceExpandsOnlyItsToastAndKeepsOtherCardsCompact() throws {
@@ -206,5 +208,107 @@ import Testing
             try #require(bitmap.representation(using: .png, properties: [:]))
                 .write(to: URL(fileURLWithPath: "/tmp/kit-feedback-\(dark ? "dark" : "light").png"))
         }
+    }
+
+    @Test func lifetimesFollowToneAndErrorsAlwaysPersist() throws {
+        let state = SessionFeedback()
+        state.show(title: "Model catalog refreshed", detail: "83 models available")
+        let info = try #require(state.visible)
+        state.show(title: "Plugin changed", tone: .warning)
+        let warning = try #require(state.visible)
+        state.show(title: "Model refresh failed", detail: "Offline", tone: .error)
+        let error = try #require(state.visible)
+        #expect(state.remainingLifetime(for: info.id) == 5)
+        #expect(state.remainingLifetime(for: warning.id) == 8)
+        #expect(!info.persistent && !warning.persistent)
+        #expect(error.persistent)
+        state.expire(error.id)
+        #expect(state.notices.map(\.title) == ["Model refresh failed"])
+    }
+
+    @Test func repeatedNoticesJoinTheShowingToastAndRestartItsLifetime() throws {
+        let state = SessionFeedback()
+        state.show(title: "Build finished", detail: "server · zsh", icon: .terminalWindow)
+        let first = try #require(state.visible)
+        state.saveRemainingLifetime(1, for: first.id)
+        state.show(title: "Other", detail: "")
+        state.show(title: "Build finished", detail: "server · zsh", icon: .terminalWindow)
+        let repeated = try #require(state.visible)
+        #expect(state.items.map(\.title) == ["Other", "Build finished"])
+        #expect(repeated.count == 2)
+        #expect(repeated.id != first.id)
+        #expect(state.remainingLifetime(for: repeated.id) == 5)
+        state.show(title: "Build finished", detail: "client · zsh", icon: .terminalWindow)
+        #expect(state.items.map(\.count) == [1, 2, 1])
+        // Keyed outcomes are owned by their operation and never merge.
+        state.show(key: "a", title: "Keyed", persistent: true)
+        state.show(key: "b", title: "Keyed", persistent: true)
+        #expect(state.notices.map(\.count) == [1, 1])
+    }
+
+    @Test func repeatedPluginAlertsCoalesceBySource() throws {
+        let state = SessionFeedback()
+        let alert = PluginNotification(pluginID: "deploy", title: "Deploy queued", detail: "staging", variant: "info", persistent: false)
+        state.showPluginNotification(alert)
+        state.showPluginNotification(alert)
+        state.showPluginNotification(PluginNotification(pluginID: "other", title: "Deploy queued", detail: "staging",
+                                                        variant: "info", persistent: false))
+        #expect(state.items.map(\.source) == ["deploy", "other"])
+        #expect(state.items.map(\.count) == [2, 1])
+    }
+
+    @Test func announcementsNameSeverityTitleSourceAndDetail() {
+        let state = SessionFeedback()
+        state.show(title: "Downloaded report.pdf", detail: "Saved to Downloads")
+        state.show(title: "Deploy failed", detail: "Timed out", tone: .error, source: "deploy")
+        state.show(title: "Plugin changed", tone: .warning)
+        #expect(state.items.map(SessionFeedback.announcement) == [
+            "Downloaded report.pdf. Saved to Downloads",
+            "Error: Deploy failed, from deploy. Timed out",
+            "Warning: Plugin changed",
+        ])
+    }
+
+    @Test func subagentDefinitionWarningsShareOneToastThatOpensTheRoster() throws {
+        let state = SessionFeedback()
+        var session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "Test", model: "m", thinking: "high", workspace: "w", date: "", messages: [])
+        func diagnostic(_ message: String, _ path: String) -> WireSubagentDiagnostic {
+            .init(severity: "warning", code: "invalid", message: message, source: .init(kind: "file", path: path, pluginId: nil))
+        }
+        var opened = 0
+        session.subagentDiagnostics = [diagnostic("Missing model", "/w/reviewer.md"), diagnostic("Unknown tool", "/w/scout.md")]
+        state.observe(session) { opened += 1 }
+        state.observe(session) { opened += 1 }
+        let toast = try #require(state.visible)
+        #expect(state.items.count == 1)
+        #expect(toast.title == "2 subagent definition warnings")
+        #expect(toast.detail == "Missing model\n/w/reviewer.md\nUnknown tool\n/w/scout.md")
+        #expect(toast.tone == .warning && toast.persistent)
+        #expect(toast.actionTitle == "Show subagents")
+        toast.action?()
+        #expect(opened == 1)
+        // A changed set replaces the toast; fixing every definition clears it.
+        session.subagentDiagnostics = [diagnostic("Missing model", "/w/reviewer.md")]
+        state.observe(session)
+        #expect(state.items.map(\.title) == ["Subagent definition warning"])
+        session.subagentDiagnostics = []
+        state.observe(session)
+        #expect(state.items.isEmpty)
+    }
+
+    @Test func repeatCountSitsOnTheTitleLine() throws {
+        _ = NSApplication.shared
+        let state = SessionFeedback()
+        state.show(title: "Build finished", detail: "server · zsh")
+        let single = try #require(state.visible)
+        state.show(title: "Build finished", detail: "server · zsh")
+        state.show(title: "Build finished", detail: "server · zsh")
+        let repeated = try #require(state.visible)
+        #expect(repeated.count == 3)
+        func size(_ item: SessionFeedback.Item) -> NSSize {
+            NSHostingView(rootView: SessionFeedbackCard(item: item, close: {})
+                .environment(\.mica, MicaTheme(dark: true)).frame(width: ToastMetrics.width)).fittingSize
+        }
+        #expect(size(repeated) == size(single))
     }
 }

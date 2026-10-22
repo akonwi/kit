@@ -17,6 +17,8 @@ struct CommandPalette: View {
     @State private var deleting = true
     @State private var reloadSessionID: String?
     @State private var query = ""
+    @State private var refusal = PaletteRefusal.none
+    @State private var argumentProblem: String?
 
     /// A nested screen the palette shows in place of the command list.
     enum Screen {
@@ -87,7 +89,9 @@ struct CommandPalette: View {
             emptyMessage: { "No commands match “\($0)”" },
             footer: "tab complete",
             complete: { $0.name + " " },
+            problem: argumentProblem, refusal: refusal,
             activate: run, dismiss: close)
+            .onChange(of: query) { argumentProblem = nil }
     }
 
     private func reloadProgress(operation: SessionReloadOperation) -> some View {
@@ -152,11 +156,16 @@ struct CommandPalette: View {
 
     private func run(_ row: PaletteCommand) {
         // Availability is read live: the row's reason is from the last render.
-        if let reason = unavailableReason(row) {
-            state.feedback.show(title: "Command unavailable", detail: reason, tone: .warning)
+        // The row already shows why; flash it rather than raise a toast.
+        if unavailableReason(row) != nil {
+            refusal = refusal.next(row.id)
             return
         }
         let arguments = PaletteCommand.commandArguments(query)
+        if let problem = row.argumentProblem(arguments) {
+            argumentProblem = problem
+            return
+        }
         let trimmed = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
         if let command = row.prompt {
             close()
@@ -224,7 +233,7 @@ struct CommandPalette: View {
         let open = navigation.openSession
         let server = state.serverID
         Task {
-            if let session = await state.createSibling() { open(SessionIdentity(server: server, session: session.id)) }
+            _ = await state.createSibling { open(SessionIdentity(server: server, session: $0.id)) }
         }
     }
 

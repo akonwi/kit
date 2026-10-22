@@ -114,8 +114,11 @@ final class WorkspaceState {
     private(set) var terminals: [UUID: TerminalTab] = [:]
     /// Makes the engine behind each browser tab.
     @ObservationIgnored var makeBrowserEngine: @MainActor () -> any BrowserEngine = WebKitBrowserEngine.make
-    /// Where browser downloads are reported.
+    /// Where browser downloads and terminal notifications are reported.
     @ObservationIgnored weak var feedback: SessionFeedback?
+    /// Whether Kit is the active app, so a notification from a terminal the
+    /// user is looking at needs no toast.
+    @ObservationIgnored var appIsActive: @MainActor () -> Bool = { NSApp?.isActive ?? false }
 
     struct TabDrag: Equatable {
         var pane: WorkspacePane
@@ -571,6 +574,9 @@ final class WorkspaceState {
             // Only a terminal that isn't on screen keeps a mark.
             if !isVisible(pane) { tab.bell = true }
         case .notification(let title, let body):
+            // A terminal on screen in the active app shows its own output.
+            if isVisible(pane) && appIsActive() { return }
+            if !isVisible(pane) { tab.bell = true }
             let heading = title.isEmpty ? body : title
             let detail = (title.isEmpty ? [] : [body]) + [tab.title]
             feedback?.show(title: heading.isEmpty ? "Terminal" : heading,
@@ -614,12 +620,6 @@ final class WorkspaceState {
             }
         case .downloadFailed(let filename, let message):
             feedback?.show(title: "Couldn’t download " + filename, detail: message, tone: .error, persistent: true)
-        case .downloadBlocked(let source):
-            // One notice per site while it shows, however often the page tries.
-            let host = source.map(BrowserAddress.hostLabel) ?? ""
-            feedback?.show(key: "download-blocked:" + host, title: "Blocked a download",
-                           detail: (host.isEmpty ? "A page" : host) + " tried to download a file without a click.",
-                           tone: .warning)
         }
     }
 

@@ -78,6 +78,35 @@ context progress.
 - Put feedback in a local surface when it has a clear owner (such as attachment
   upload state beside its composer attachment), rather than using global chrome.
 
+### What warrants a toast
+
+A toast is for a point-in-time outcome with no better home in view: a failure,
+an outcome the user can act on, a background event, or the result of an
+explicit request that would otherwise be invisible. Before adding one, check
+for a better owner:
+
+- **Ongoing states** (a running plugin command, compaction, retry countdowns)
+  belong in the activity/pending slot above the composer, not a persistent
+  toast.
+- **Errors tied to a control or input** belong beside it: invalid palette
+  arguments are reported under the palette's search field, which stays open;
+  shell-command failures appear in the composer's activity slot with Retry.
+- **Turn outcomes** belong in the transcript: a turn that fails, stops, or is
+  interrupted closes with a row carrying the server's reason.
+- **Pane-owned events** stay in that pane, such as a browser tab's blocked
+  download strip.
+- **Routine successes the UI already shows** get nothing; a completed
+  compaction is its transcript marker.
+
+Toasts that remain follow these rules: errors always persist until
+acknowledged, with a recovery action where one exists; warnings show for
+about 8 s unless they need acknowledgement; informative toasts show for about
+5 s. A repeat of a showing toast joins it with a `×N` count and restarts its
+lifetime instead of stacking. Group related warnings into one toast with an
+action that opens their owning surface. The native macOS app also speaks new
+toasts to VoiceOver. In the macOS command palette, activating an unavailable
+row flashes the row's inline reason instead of raising a toast.
+
 ## Theme System
 
 Kit does not have a fixed application palette. The system theme is derived at runtime from the terminal's foreground, background, cursor, and ANSI colors. User themes may override semantic tokens from `~/.kit/themes/`.

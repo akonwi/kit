@@ -37,6 +37,18 @@ struct PaletteCommand: Identifiable {
         return String(invocation[invocation.index(after: separator)...])
     }
 
+    /// Why `arguments` can't be sent to this prompt or plugin command, or
+    /// nil when they can. The palette stays open to show it.
+    func argumentProblem(_ arguments: String) -> String? {
+        let limit = prompt != nil ? Self.promptArgumentLimit : plugin != nil ? Self.pluginArgumentLimit : nil
+        guard let limit else { return nil }
+        if arguments.contains("\0") { return "Arguments can’t contain a NUL character." }
+        if arguments.utf8.count > limit { return "Arguments must fit within \(limit / 1024) KiB." }
+        return nil
+    }
+    static let promptArgumentLimit = 128 * 1024
+    static let pluginArgumentLimit = 64 * 1024
+
     // MARK: Matching
 
     /// The text a list filters by: the command word, or for lists that pick

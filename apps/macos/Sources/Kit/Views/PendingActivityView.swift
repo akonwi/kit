@@ -6,9 +6,14 @@ enum ActivityLine: Equatable {
     case failedToStart(String)
     /// The stop request failed; the turn is still running.
     case failedToStop(String)
+    /// A shell command couldn't start, resolve, or stop. A retryable one
+    /// still has an unresolved request to settle.
+    case shellFailed(String, retryable: Bool)
     /// The provider failed and the server retries at this ISO 8601 time.
     case retrying(at: String, attempt: Int?)
     case compacting(String)
+    /// A plugin command the user ran from the palette, by name.
+    case runningCommand(String)
     /// The last non-blank line of the model's streamed thinking, as markdown.
     case thinking(String)
     /// A fixed label: "Working…" or "Thinking…" before a line arrives.
@@ -17,11 +22,14 @@ enum ActivityLine: Equatable {
 
     static func resolve(activity: String?, compaction: String? = nil, retryAt: String? = nil,
                         retryAttempt: Int? = nil, startFailure: String? = nil, stopFailure: String? = nil,
-                        notice: String = "") -> ActivityLine? {
+                        shellFailure: String? = nil, shellRetryable: Bool = false,
+                        command: String? = nil, notice: String = "") -> ActivityLine? {
         if let stopFailure { return .failedToStop(stopFailure) }
         if let startFailure { return .failedToStart(startFailure) }
+        if let shellFailure { return .shellFailed(shellFailure, retryable: shellRetryable) }
         if let retryAt { return .retrying(at: retryAt, attempt: retryAttempt) }
         if let compaction { return .compacting(compaction) }
+        if let command { return .runningCommand(command) }
         if let activity, !activity.isEmpty {
             if activity == LiveActivity.compacting { return .compacting(activity) }
             return LiveActivity.isLabel(activity) ? .working(activity) : .thinking(activity)
@@ -43,12 +51,15 @@ enum ActivityLine: Equatable {
 struct PendingActivityView: View {
     @Environment(\.mica) private var theme
     let line: ActivityLine?
-    /// Retries the failed send or stop.
+    /// Retries the failed send, stop, or shell command.
     var retry: () -> Void = {}
+    /// Clears a failure that has nothing to retry.
+    var dismiss: () -> Void = {}
 
-    init(line: ActivityLine?, retry: @escaping () -> Void = {}) {
+    init(line: ActivityLine?, retry: @escaping () -> Void = {}, dismiss: @escaping () -> Void = {}) {
         self.line = line
         self.retry = retry
+        self.dismiss = dismiss
     }
     init(activity: String?) { line = ActivityLine.resolve(activity: activity) }
 
@@ -81,6 +92,8 @@ struct PendingActivityView: View {
             failure("Couldn’t start the turn: " + message)
         case .failedToStop(let message):
             failure("Couldn’t stop the turn: " + message)
+        case let .shellFailed(message, retryable):
+            failure("Shell command: " + message, retryable: retryable)
         case let .retrying(at, attempt):
             IconView(.arrowClockwise, size: 12).foregroundStyle(theme.warning)
             TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -93,6 +106,11 @@ struct PendingActivityView: View {
         case .compacting(let title):
             spinner
             Text(title).lineLimit(1)
+            Spacer(minLength: 0)
+        case .runningCommand(let name):
+            spinner
+            (Text("Running ") + Text("/" + name).font(.kit(size: 12, design: .monospaced)).foregroundStyle(theme.text)
+                + Text("…")).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 0)
         case .working(let label):
             spinner
@@ -109,11 +127,21 @@ struct PendingActivityView: View {
         }
     }
 
-    @ViewBuilder private func failure(_ message: String) -> some View {
+    @ViewBuilder private func failure(_ message: String, retryable: Bool = true) -> some View {
         IconView(.warningCircle, size: 12).foregroundStyle(theme.danger)
         Text(message).foregroundStyle(theme.danger).lineLimit(1).truncationMode(.tail).help(message)
+            .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
-        Button("Retry", action: retry).buttonStyle(SmallButtonStyle(bordered: true))
+        if retryable {
+            Button("Retry", action: retry).buttonStyle(SmallButtonStyle(bordered: true))
+        } else {
+            Button(action: dismiss) {
+                IconView(.x, size: 10).foregroundStyle(theme.muted)
+                    .frame(width: 18, height: 18).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
     }
 
     private var spinner: some View { KitSpinner().foregroundStyle(theme.accent) }

@@ -10,7 +10,6 @@ enum BrowserTabRequest {
     case close
     case downloadFinished(file: URL, source: URL?)
     case downloadFailed(filename: String, message: String)
-    case downloadBlocked(source: URL?)
 }
 
 /// Takes an authorization's redirect from a browser tab's page in place of
@@ -41,6 +40,9 @@ final class BrowserTab: Identifiable {
     private(set) var page = BrowserPageState()
     private(set) var favicon: NSImage?
     private(set) var failure: BrowserFailure?
+    /// The site that tried to download a file without a click, shown in the
+    /// pane until dismissed or the next page commits. Empty when unknown.
+    private(set) var blockedDownload: String?
     /// Increments when the address field should take the keyboard.
     private(set) var addressFocusRequest = 0
     @ObservationIgnored private var engine: (any BrowserEngine)?
@@ -75,6 +77,7 @@ final class BrowserTab: Identifiable {
     }
 
     var loading: Bool { page.loading && failure == nil }
+    func dismissBlockedDownload() { blockedDownload = nil }
 
     /// The page's view, creating the engine. A waiting load starts after
     /// the view update that asked for it.
@@ -172,6 +175,7 @@ final class BrowserTab: Identifiable {
             if let next = state.url, next != url, failure == nil || state.loading { url = next }
         case .committed:
             failure = nil
+            blockedDownload = nil
             if let next = engine?.state.url, next.host() != url?.host() { favicon = nil }
         case .failed(let failed, let message):
             let target = failed ?? url
@@ -191,7 +195,7 @@ final class BrowserTab: Identifiable {
         case .downloadFailed(let filename, let message):
             onRequest?(.downloadFailed(filename: filename, message: message))
         case .downloadBlocked(let source):
-            onRequest?(.downloadBlocked(source: source))
+            blockedDownload = source.map(BrowserAddress.hostLabel) ?? ""
         }
     }
 }

@@ -6,9 +6,12 @@ struct SessionProjectionTests {
     private func message(_ id: String, turn: String = "turn", role: String = "assistant",
                          content: [[String: Any]] = [], callID: String? = nil, boundary: String? = nil,
                          source: String? = nil, boundaryID: String? = nil,
-                         details: [String: Any]? = nil) throws -> WireTranscriptMessage {
+                         details: [String: Any]? = nil, stopReason: String? = nil,
+                         error: String? = nil) throws -> WireTranscriptMessage {
         var value: [String: Any] = ["id": id, "turnId": turn, "sequence": 1, "role": role,
                                     "content": content, "createdAt": ""]
+        if let stopReason { value["stopReason"] = stopReason }
+        if let error { value["errorMessage"] = error }
         if let callID { value["toolCallId"] = callID }
         if let boundary { value["boundaryKind"] = boundary }
         if let source { value["boundarySource"] = source }
@@ -44,6 +47,21 @@ struct SessionProjectionTests {
         #expect(rows[0].tools.map(\.output) == ["First", "Second", ""])
         #expect(rows[0].tools[0].arguments == "{}")
         #expect(rows[1].text == "Done")
+    }
+    @Test func turnsThatEndEarlyCloseWithTheirReason() throws {
+        let rows = try SessionProjection.transcript([
+            message("q1", turn: "one", role: "user", content: [["kind": "text", "text": "Read it"]]),
+            message("a1", turn: "one", content: [call("read")], stopReason: "error", error: "Provider unavailable"),
+            message("q2", turn: "two", role: "user", content: [["kind": "text", "text": "Again"]]),
+            message("a2", turn: "two", content: [["kind": "text", "text": "Partial"]], stopReason: "aborted",
+                    error: "Request was aborted"),
+            message("q3", turn: "three", role: "user", content: [["kind": "text", "text": "Fine"]]),
+            message("a3", turn: "three", content: [["kind": "text", "text": "Done"]], stopReason: "stop", error: "  "),
+        ])
+        #expect(rows.map(\.id) == ["q1", "tools-read", "turn-end:one", "q2", "a2", "turn-end:two", "q3", "a3"])
+        #expect(rows[2].marker == .turnEnded(.failed, message: "Provider unavailable"))
+        #expect(rows[5].marker == .turnEnded(.stopped, message: "Request was aborted"))
+        #expect(rows[5].text == "Request was aborted") // Copied with the transcript.
     }
     @Test func promptCommandMessagesShowTheirInvocation() throws {
         let rows = try SessionProjection.transcript([

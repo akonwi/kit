@@ -16,6 +16,7 @@ struct TranscriptMarkerRow: View {
         case .compaction(let summary): compaction(summary)
         case .fork(let session): fork(session)
         case .workingDirectory(let path, let previous): workingDirectory(path, previous: previous)
+        case let .turnEnded(end, message): TranscriptTurnEndRow(end: end, message: message)
         }
     }
 
@@ -107,6 +108,47 @@ struct TranscriptMarkerRow: View {
         .font(.kit(size: 12))
         .frame(height: 28)
         .padding(.horizontal, 8)
+    }
+}
+
+/// Closes a turn that didn't complete: a marker-lane line naming how it
+/// ended, then the server's reason, selectable and wrapped beneath it.
+struct TranscriptTurnEndRow: View {
+    @Environment(\.mica) private var theme
+    let end: TranscriptMarker.TurnEnd
+    let message: String
+
+    static let textInset: CGFloat = 34
+
+    var title: String {
+        switch end {
+        case .failed: "Turn failed"
+        case .stopped: "Turn stopped"
+        case .interrupted: "Turn interrupted"
+        }
+    }
+
+    var body: some View {
+        let stopped = end == .stopped
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 10) {
+                IconView(stopped ? .prohibit : .warningCircle)
+                    .foregroundStyle(stopped ? theme.muted : theme.danger).frame(width: 16)
+                Text(title).foregroundStyle(stopped ? theme.muted : theme.danger)
+            }
+            .frame(height: 28)
+            Text(message)
+                .foregroundStyle(stopped ? theme.muted : theme.text)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, Self.textInset - 8)
+                .padding(.bottom, 6)
+        }
+        .font(.kit(size: 12))
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MessageCopyRegion(markdown: message))
+        .accessibilityElement(children: .combine)
     }
 }
 

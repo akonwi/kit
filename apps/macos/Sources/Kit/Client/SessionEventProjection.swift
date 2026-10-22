@@ -29,11 +29,23 @@ struct SessionEventProjection {
     /// verified on use because rare row removals can shift them.
     private var toolRows: [String: Int] = [:]
 
-    init(_ snapshot: WireSessionSnapshot, terminalError: String? = nil) throws {
+    /// `terminalError` and `turnEnd` carry the previous projection's failed
+    /// last turn into a snapshot that stored no reason for it, such as a turn
+    /// that failed before the model replied.
+    init(_ snapshot: WireSessionSnapshot, terminalError: String? = nil, turnEnd: TranscriptMessage? = nil) throws {
         try self.init(session: SessionProjection.snapshot(snapshot), source: snapshot.messages ?? [],
             activeRunID: snapshot.activeTurnId, replayAvailable: snapshot.eventReplayAvailable == true,
             pendingInteractions: Set((snapshot.pendingInteractions ?? []).filter { $0.plugin != nil || $0.turnId == snapshot.activeTurnId }.map(\.id)))
-        if snapshot.activeTurnId == nil && session.terminalError == nil { session.terminalError = terminalError }
+        if snapshot.activeTurnId == nil && session.terminalError == nil && terminalError != nil {
+            session.terminalError = terminalError
+            if let turnEnd, !session.messages.contains(where: { $0.id == turnEnd.id }) { session.messages.append(turnEnd) }
+        }
+    }
+
+    /// The row closing the last turn, when it didn't complete.
+    var turnEnd: TranscriptMessage? {
+        guard let last = session.messages.last, last.id.hasPrefix(SessionProjection.turnEndPrefix) else { return nil }
+        return last
     }
 
     init(session: SessionExcerpt, source: [WireTranscriptMessage], activeRunID: String? = nil,
@@ -267,6 +279,16 @@ struct SessionEventProjection {
             settleTools(at: event.receivedAt)
             session.activeCompactionID = nil
             session.terminalError = event.errorMessage
+            if let error = event.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty,
+               !event.turnId.isEmpty {
+                let end: TranscriptMarker.TurnEnd = switch event.status {
+                case "aborted": .stopped
+                case "interrupted": .interrupted
+                default: .failed
+                }
+                let row = SessionProjection.turnEndRow(turn: event.turnId, end: end, message: error)
+                if !session.messages.contains(where: { $0.id == row.id }) { session.messages.append(row) }
+            }
             session.providerRetryAt = nil
             session.providerRetryCount = nil
             activeRunID = nil

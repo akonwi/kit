@@ -268,6 +268,29 @@ struct SessionEventProjectionTests {
         #expect(refreshed.session.terminalError == "Provider unavailable")
     }
 
+    @Test func aTurnThatEndsEarlyClosesWithOneRowThatSurvivesARefresh() throws {
+        var state = try SessionEventProjection(snapshot())
+        try state.apply(event("turn.started"))
+        try state.apply(event("user.message.added", ["text": "Hello"]))
+        let failed = try event("turn.completed", ["status": "failed", "errorMessage": "Provider unavailable"])
+        try state.apply(failed)
+        try state.apply(failed)
+        #expect(state.session.messages.filter { $0.marker != nil }.map(\.id) == ["turn-end:t"])
+        #expect(state.session.messages.last?.marker == .turnEnded(.failed, message: "Provider unavailable"))
+        // The stored snapshot may hold no reason for a turn that failed early.
+        let refreshed = try SessionEventProjection(snapshot(), terminalError: state.session.terminalError, turnEnd: state.turnEnd)
+        #expect(refreshed.session.messages.last?.marker == .turnEnded(.failed, message: "Provider unavailable"))
+        #expect(try SessionEventProjection(snapshot(), turnEnd: state.turnEnd).session.messages.isEmpty)
+
+        var stopped = try SessionEventProjection(snapshot())
+        try stopped.apply(event("turn.completed", ["turnId": "u", "status": "aborted", "errorMessage": "Stopped by user"]))
+        try stopped.apply(event("turn.completed", ["turnId": "v", "status": "interrupted", "errorMessage": "Server restarted"]))
+        try stopped.apply(event("turn.completed", ["turnId": "w", "status": "completed"]))
+        #expect(stopped.session.messages.compactMap(\.marker) == [
+            .turnEnded(.stopped, message: "Stopped by user"), .turnEnded(.interrupted, message: "Server restarted"),
+        ])
+    }
+
     @Test func renameUpdatesTitleWithoutChangingIdentity() throws {
         var state = try SessionEventProjection(snapshot())
         try state.apply(event("session.name.changed", ["sessionName": "New title"]))

@@ -9,6 +9,12 @@ enum TranscriptMarker: Decodable, Sendable, Equatable {
     case fork(sessionID: String)
     /// The user changed the session's working directory.
     case workingDirectory(path: String, previous: String?)
+    /// The turn ended without completing, with the server's reason.
+    case turnEnded(TurnEnd, message: String)
+
+    enum TurnEnd: String, Decodable, Sendable, Equatable {
+        case failed, stopped, interrupted
+    }
 }
 
 /// A request or reply that another subagent sent to this one.
@@ -88,6 +94,14 @@ extension SessionProjection {
         guard let first = content.first, first.kind.rawValue == "text", first.text == framing else { return content }
         return Array(content.dropFirst())
     }
+
+    /// The row that closes a turn which didn't complete. One per turn, with
+    /// the same identity live and once the turn is stored.
+    static func turnEndRow(turn: String, end: TranscriptMarker.TurnEnd, message: String) -> TranscriptMessage {
+        TranscriptMessage(id: turnEndPrefix + turn, role: "marker", text: message, tools: [],
+                          marker: .turnEnded(end, message: message))
+    }
+    static let turnEndPrefix = "turn-end:"
 
     private static let compactionPrefix = "[context summary]"
     private static let forkPrefix = "session-fork:"

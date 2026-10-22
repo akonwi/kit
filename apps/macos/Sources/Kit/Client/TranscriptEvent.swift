@@ -22,6 +22,8 @@ struct TranscriptEvent {
     var interactionId: String?
     var providerRetry: WireProviderRetry?
     var errorMessage: String?
+    /// How a finished turn ended, such as "failed" or "aborted".
+    var status: String?
     var usage: WireSessionUsage?
     var compactionID: String?
     var contextTokens: Int?
@@ -53,7 +55,7 @@ struct TranscriptEvent {
         contentTruncated = event.contentTruncated
         content = event.content; isError = event.isError; sessionName = event.sessionName
         details = SessionProjection.json(event.details)
-        providerRetry = event.providerRetry; errorMessage = event.errorMessage
+        providerRetry = event.providerRetry; errorMessage = event.errorMessage; status = event.status?.rawValue
         compactionID = event.compactionId
         usage = event.usage
         contextTokens = event.contextTokens; contextWindow = event.contextWindow

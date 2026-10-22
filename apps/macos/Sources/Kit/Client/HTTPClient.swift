@@ -1502,7 +1502,8 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
                     guard snapshot.eventStreamId == stream, (snapshot.eventCursor ?? 0) >= cursor else { throw StreamResync() }
                     // If another turn has already started, reattach using its replay boundary.
                     guard snapshot.activeTurnId == nil else { throw StreamResync() }
-                    projection = try SessionEventProjection(snapshot, terminalError: projection.session.terminalError)
+                    projection = try SessionEventProjection(snapshot, terminalError: projection.session.terminalError,
+                                                            turnEnd: projection.turnEnd)
                     annotationGate = LiveAnnotationGate()
                     cursor = snapshot.eventCursor ?? cursor
                     await receive(projection.session, false)

@@ -74,6 +74,7 @@ enum SessionProjection {
         }
         var pending: [ToolActivity] = []
         var turnID: String?
+        var endedTurns = Set<String>()
         func flush() {
             guard let first = pending.first else { return }
             messages.append(TranscriptMessage(id: "tools-" + first.id, role: "tools", text: "", tools: pending))
@@ -136,6 +137,14 @@ enum SessionProjection {
                     }
                 }
                 try flushText()
+                // A turn that ended early stores its reason on its last reply.
+                if message.role == "assistant",
+                   let error = message.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty,
+                   endedTurns.insert(message.turnId).inserted {
+                    flush()
+                    messages.append(turnEndRow(turn: message.turnId,
+                                               end: message.stopReason == "aborted" ? .stopped : .failed, message: error))
+                }
             }
         }
         flush()

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import Kit
 
@@ -300,11 +301,35 @@ struct BrowserDownloadsTests {
         let failed = try #require(feedback.items.last)
         #expect(failed.title == "Couldn’t download big.zip")
         #expect(failed.tone == .error && failed.persistent)
+    }
+
+    @Test func blockedDownloadsShowInTheirTabUntilDismissedOrTheNextPage() throws {
+        let engines = FakeBrowserEngines()
+        let workspace = workspace(engines)
+        let feedback = SessionFeedback()
+        workspace.feedback = feedback
+        let tab = workspace.openBrowser(URL(string: "http://localhost:5173/reports")!)
         for _ in 0..<3 { engines.made[0].send(.downloadBlocked(source: URL(string: "http://localhost:5173/auto.zip"))) }
-        let blocked = feedback.items.filter { $0.title == "Blocked a download" }
-        #expect(blocked.count == 1)
-        #expect(blocked.first?.detail == "localhost:5173 tried to download a file without a click.")
-        #expect(blocked.first?.tone == .warning)
+        // The tab that tried owns the notice; the session's toasts stay quiet.
+        #expect(feedback.items.isEmpty)
+        #expect(tab.blockedDownload == "localhost:5173")
+        tab.dismissBlockedDownload()
+        #expect(tab.blockedDownload == nil)
+        engines.made[0].send(.downloadBlocked(source: nil))
+        #expect(tab.blockedDownload == "")
+        engines.made[0].send(.committed)
+        #expect(tab.blockedDownload == nil)
+    }
+
+    @MainActor @Test func blockedDownloadBarIsAOneLineStripNamingTheSite() throws {
+        _ = NSApplication.shared
+        let bar = BrowserBlockedDownloadBar(site: "localhost:5173", dismiss: {})
+        #expect(bar.message == "localhost:5173 tried to download a file without a click.")
+        #expect(BrowserBlockedDownloadBar(site: "", dismiss: {}).message == "This page tried to download a file without a click.")
+        let host = NSHostingView(rootView: bar.environment(\.mica, MicaTheme(dark: true)).frame(width: 640))
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        #expect(host.bounds.size == CGSize(width: 640, height: BrowserBlockedDownloadBar.height))
     }
 
     @Test func browserTabsRestoreAtTheirLastAddressWithoutLoading() throws {

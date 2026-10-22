@@ -59,10 +59,17 @@ struct SessionComposerRegion: View {
                     retryAttempt: state.selected?.providerRetryCount,
                     startFailure: state.operations.startFailure,
                     stopFailure: state.operations.abortError,
+                    shellFailure: state.bashOperation.pending ? nil : state.bashOperation.error,
+                    shellRetryable: state.bashOperation.unresolved,
+                    command: state.runningPluginCommand,
                     notice: state.notice)
-                PendingActivityView(line: line) {
-                    if case .failedToStop = line { state.abortRun() } else { state.send() }
-                }
+                PendingActivityView(line: line, retry: {
+                    switch line {
+                    case .failedToStop: state.abortRun()
+                    case .shellFailed: state.retryBash()
+                    default: state.send()
+                    }
+                }, dismiss: { state.bashOperation.dismissError() })
             }
             if let flow = docked {
                 queuedTray(joined: false)
@@ -124,8 +131,6 @@ struct SessionMonitors: View {
     var body: some View {
         Color.clear
             .accessibilityHidden(true)
-            .onChange(of: state.bashOperation.error, initial: true) { state.syncBashFeedback() }
-            .onChange(of: state.bashOperation.pending) { state.syncBashFeedback() }
             .task(id: "bash/\(state.serverID)/\(state.selectedID)/\(state.unavailable)") {
                 if !state.unavailable { await state.monitorBash() }
             }

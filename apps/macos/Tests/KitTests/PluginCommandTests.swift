@@ -67,7 +67,9 @@ private actor PluginCommandMock: PluginCommandClient {
         let stale = try #require(PluginCommand.project([wire("host:old")]).first)
         await state.runPluginCommand(stale, args: "never sent")
         #expect(await client.requests.count == 1)
-        #expect(state.feedback.visible?.title == "Plugin command changed")
+        #expect(state.feedback.visible?.title == "/demo.echo is no longer available")
+        #expect(state.feedback.visible?.detail == "The command list changed. Choose it again from the palette.")
+        #expect(state.feedback.visible?.tone == .warning)
     }
     @Test func detachCancelsWaitAndSuppressesItsDelayedFeedback() async throws {
         let command = try #require(PluginCommand.project([wire()]).first)
@@ -78,11 +80,14 @@ private actor PluginCommandMock: PluginCommandClient {
         let task = Task { await state.runPluginCommand(command, args: "") }
         for _ in 0..<100 where !state.pluginCommandRunning { try await Task.sleep(for: .milliseconds(5)) }
         #expect(state.pluginCommandRunning)
-        #expect(state.feedback.visible?.title == "Running /demo.echo")
+        // A running command is an ongoing state: the activity card shows it.
+        #expect(state.runningPluginCommand == "demo.echo")
+        #expect(state.feedback.items.isEmpty)
         state.detach()
         state.feedback.show(title: "New attachment feedback")
         await task.value
         #expect(!state.pluginCommandRunning)
+        #expect(state.runningPluginCommand == nil)
         #expect(state.feedback.visible?.title == "New attachment feedback")
     }
     @Test func pluginDialogsKeepInitialValuesEmptyInputAndConfirmationLabels() throws {
