@@ -89,6 +89,56 @@ func TestRPCMalformedResponseClosesBeforePublishingResult(t *testing.T) {
 	<-done
 }
 
+// Regression for #248: response validation ran under the endpoint lock, so a
+// validator taking an outer lock (as initialization takes Instance.mu) could
+// deadlock with a holder of that lock calling into the endpoint.
+func TestRPCResponseValidationRunsWithoutEndpointLock(t *testing.T) {
+	endpoint, _, _ := rpcTestPeer(t, RPCHandlers{}, defaultRPCLimits)
+	var outer sync.Mutex
+	validating := make(chan struct{})
+	pending := &rpcPending{
+		result: make(chan rpcResult, 1),
+		validate: func(json.RawMessage) error {
+			close(validating)
+			outer.Lock()
+			defer outer.Unlock()
+			return nil
+		},
+	}
+	id := json.RawMessage(`"validated-call"`)
+	key, _ := requestKey(id)
+	endpoint.mu.Lock()
+	endpoint.pending[key] = pending
+	endpoint.mu.Unlock()
+
+	outer.Lock()
+	accepted := make(chan struct{})
+	go func() {
+		defer close(accepted)
+		endpoint.acceptResponse(rpcMessage{ID: id, Result: json.RawMessage(`{}`)})
+	}()
+	<-validating
+	// The validator now waits for outer. Using the endpoint while holding
+	// outer must not wait for the validator.
+	used := make(chan error, 1)
+	go func() { used <- endpoint.Err() }()
+	select {
+	case err := <-used:
+		if err != nil {
+			t.Fatalf("endpoint error = %v", err)
+		}
+		outer.Unlock()
+	case <-time.After(5 * time.Second):
+		outer.Unlock()
+		<-used
+		t.Fatal("endpoint lock was held while validating a response")
+	}
+	<-accepted
+	if result := <-pending.result; result.err != nil {
+		t.Fatalf("validated result = %v", result.err)
+	}
+}
+
 func TestRPCNestedCallsAndIndependentIDNamespaces(t *testing.T) {
 	var endpoint *RPCEndpoint
 	handlers := RPCHandlers{Request: func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {

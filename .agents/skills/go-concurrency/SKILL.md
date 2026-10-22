@@ -113,19 +113,14 @@ Acquire nested locks in these orders:
   state flips: take a runtime lease under it (`acquireRuntimeLocked`) and call
   the child runtime without it. The worker closes the runtime only after
   `beginClose` reports that every lease has been released.
-- **Plugins:** `Host.mu` → `Instance.mu` → `RPCEndpoint.mu`. The one reversal
-  is a known exception: `pending.validate` runs under `RPCEndpoint.mu`, and
-  the initialization validator takes `Instance.mu` (#248). Until that's fixed,
-  validators must not take `Host.mu`, and nothing may enqueue on the endpoint
-  while holding `Instance.mu` during initialization.
+- **Plugins:** `Host.mu` → `Instance.mu` → `RPCEndpoint.mu`. Response
+  validators run on the reader after the pending entry is claimed, without
+  `RPCEndpoint.mu`, so they may take `Instance.mu` (as initialization does).
 
 ## Known exceptions
 
-These are tracked issues; don't treat them as precedent:
-
-- `WatchStreamIdle` measures idle time through `UnixNano`, losing the
-  monotonic clock. Plugin response validation runs under `RPCEndpoint.mu` and
-  takes `Instance.mu`, reversing the plugin lock order (#248).
+List tracked deviations from these rules here, with their issue, so they
+aren't taken as precedent. None are currently open.
 
 ## Review checklist
 

@@ -182,8 +182,9 @@ func (e *RPCEndpoint) Call(ctx context.Context, method string, params json.RawMe
 	return e.callValidated(ctx, method, params, nil)
 }
 
-// validate runs synchronously on the reader before subsequent frames dispatch.
-// It must not call back into the endpoint or block on external work.
+// validate runs synchronously on the reader before subsequent frames dispatch,
+// without the endpoint lock held. It must not block on external work; a
+// validation error closes the endpoint, so it need not call Close itself.
 func (e *RPCEndpoint) callValidated(ctx context.Context, method string, params json.RawMessage, validate func(json.RawMessage) error) (json.RawMessage, error) {
 	return e.callAdmitted(ctx, method, params, validate, func(enqueue func() error) error { return enqueue() })
 }
@@ -508,7 +509,13 @@ func (e *RPCEndpoint) acceptResponse(message rpcMessage) {
 	e.mu.Lock()
 	pending := e.pending[key]
 	if pending != nil {
+		// Claim the entry under the lock so neither Close nor the caller's
+		// cancellation can publish a competing result, then validate without
+		// it: validators may take outer locks such as Instance.mu, and the
+		// plugin lock order is Host.mu → Instance.mu → RPCEndpoint.mu. This
+		// still runs on the single reader, before later frames dispatch.
 		delete(e.pending, key)
+		e.mu.Unlock()
 		result := rpcResult{value: message.Result}
 		if message.Error != nil {
 			result.err = message.Error
@@ -516,15 +523,11 @@ func (e *RPCEndpoint) acceptResponse(message rpcMessage) {
 			result.err = pending.validate(message.Result)
 		}
 		if message.Error == nil && result.err != nil {
-			e.mu.Unlock()
 			// Revoke the endpoint before exposing a malformed response to its
 			// caller, which may immediately initiate instance shutdown.
 			e.Close(result.err)
-			pending.result <- result
-			return
 		}
 		pending.result <- result
-		e.mu.Unlock()
 		return
 	}
 	if e.cancelled[key] {
