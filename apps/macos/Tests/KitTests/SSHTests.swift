@@ -335,7 +335,8 @@ struct SSHHostTests {
     }
 
     @Test func closingAHostWithdrawsItsQuestion() async throws {
-        let fake = try FakeSSHHosts(ssh: FakeSSH(master: FakeSSH.asking("me@devbox's password: ", expected: "hunter2")))
+        let sent = Recorded<String>()
+        let fake = try FakeSSHHosts(ssh: FakeSSH(master: FakeSSH.asking("me@devbox's password: ", expected: "hunter2", sent: sent)))
         defer { fake.remove() }
         let host = fake.hosts.host("me@devbox")
         let asked = Recorded<Bool>()
@@ -355,6 +356,8 @@ struct SSHHostTests {
         await signingIn
         try await until { !withdrawn.all.isEmpty }
         #expect(withdrawn.all == [true])
+        // ssh was ended before it could send an empty password.
+        #expect(sent.all == [])
     }
 
     @Test func closingAHostWhileItConnectsEndsTheNewMaster() async throws {

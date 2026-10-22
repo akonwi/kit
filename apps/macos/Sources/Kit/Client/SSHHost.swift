@@ -184,8 +184,9 @@ actor SSHHost {
         master?.stop()
         master = nil
         waitingForSignIn = false
-        // A question on screen is withdrawn; the master it's for is ended.
-        attempt?.finish()
+        // A question on screen is withdrawn, and the master it's for ended
+        // before ssh hears the refusal.
+        attempt?.abort()
     }
 
     /// Whether the host waits for someone to sign in.
@@ -590,13 +591,17 @@ final class SSHAttempt: Sendable {
             return nil
         }
         let answer = await task.value
-        let ended = state.withLock { state -> Bool in
+        let (ended, stopped) = state.withLock { state -> (Bool, Bool) in
             state.asking -= 1
             state.prompting = nil
             state.lastActivity = .now
-            return state.finished
+            return (state.finished, state.stopped)
         }
         if ended { return nil }
+        if stopped {
+            await finished()
+            return nil
+        }
         guard let answer else { return await giveUp(\.cancelled) }
         state.withLock { state in
             switch prompt {
@@ -616,6 +621,16 @@ final class SSHAttempt: Sendable {
         state.withLock { $0[keyPath: reason] = true }
         await finished()
         return nil
+    }
+
+    /// Stops the attempt, as when its host is closed: a question on screen
+    /// is withdrawn, and refused only once ssh has been ended.
+    func abort() {
+        let prompting = state.withLock { state in
+            state.stopped = true
+            return state.prompting
+        }
+        prompting?.cancel()
     }
 
     /// Marks the attempt over, as ssh connected or was ended. A question
