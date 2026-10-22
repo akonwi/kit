@@ -54,11 +54,7 @@ private final class TranscriptPageResponse: URLProtocol, @unchecked Sendable {
             }, historyCursor: String(range.lowerBound), historyStart: Int64(range.lowerBound))
     }
     private func wait(_ predicate: () async -> Bool) async throws {
-        for _ in 0..<100 {
-            if await predicate() { return }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        Issue.record("History operation did not reach expected state")
+        try await eventually { await predicate() }
     }
     private func setup() async throws -> (SessionStore, HistoryClient) {
         let client = HistoryClient()
@@ -159,10 +155,10 @@ private final class TranscriptPageResponse: URLProtocol, @unchecked Sendable {
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.close() }
-        try await Task.sleep(for: .milliseconds(250))
         func scrollViews(_ view: NSView) -> [NSScrollView] {
             (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
         }
+        try await eventually { Self.transcriptIsLaidOut(scrollViews(host)) }
         let scroll = try #require(scrollViews(host).max { $0.frame.height < $1.frame.height })
         let document = try #require(scroll.documentView)
         // A partial row offset tests preservation beyond simply restoring its ID.
@@ -180,9 +176,20 @@ private final class TranscriptPageResponse: URLProtocol, @unchecked Sendable {
         let beforeOffset = scroll.contentView.bounds.minY
         try await wait { await client.waiting() }
         await client.finish(TranscriptHistoryPage(sessionID: "s", messages: snapshot(1..<20).messages, previousCursor: nil))
-        try await Task.sleep(for: .milliseconds(250))
+        // The older page lays out above the reading position, which keeps its place.
+        try await eventually {
+            document.frame.height > beforeHeight
+                && abs(scroll.contentView.bounds.minY - (beforeOffset + document.frame.height - beforeHeight)) < 2
+        }
         let expected = beforeOffset + document.frame.height - beforeHeight
         #expect(abs(scroll.contentView.bounds.minY - expected) < 2)
+    }
+
+    /// Whether the tallest scroll view, the transcript, holds more than it shows.
+    private static func transcriptIsLaidOut(_ scrolls: [NSScrollView]) -> Bool {
+        guard let scroll = scrolls.max(by: { $0.frame.height < $1.frame.height }),
+              let document = scroll.documentView else { return false }
+        return document.frame.height > scroll.contentView.bounds.height
     }
 
     private func render(_ state: SessionStore) async throws -> (NSWindow, NSScrollView)? {
@@ -192,10 +199,10 @@ private final class TranscriptPageResponse: URLProtocol, @unchecked Sendable {
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
-        try await Task.sleep(for: .milliseconds(250))
         func scrollViews(_ view: NSView) -> [NSScrollView] {
             (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
         }
+        try await eventually { Self.transcriptIsLaidOut(scrollViews(host)) }
         guard let scroll = scrollViews(host).max(by: { $0.frame.height < $1.frame.height }) else { window.close(); return nil }
         return (window, scroll)
     }

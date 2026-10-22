@@ -55,7 +55,7 @@ private actor ConfigurationStub: SubagentConfigurationClient {
 @MainActor private func connectedStore(_ client: ConfigurationStub, session excerpt: SessionExcerpt) async throws -> SessionStore {
     let store = SessionStore(fixture: .init(sessions: [excerpt]), client: client)
     store.attach()
-    for _ in 0..<200 where store.connectionState != .connected { try await Task.sleep(for: .milliseconds(10)) }
+    try await eventually { store.connectionState == .connected }
     try #require(store.connectionState == .connected)
     return store
 }

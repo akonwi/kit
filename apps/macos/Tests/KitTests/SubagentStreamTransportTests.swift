@@ -53,10 +53,7 @@ struct SubagentStreamTransportTests {
         let updates = ChildUpdates()
         let task = Task { try await client.watchSubagent(session: "s", conversation: "child") { await updates.receive($0) } }
         defer { task.cancel() }
-        for _ in 0..<150 {
-            if await updates.hasOutput("first second") { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await eventually { await updates.hasOutput("first second") }
         let running = await updates.values
         #expect(running.contains { $0.messages.first?.tools.first?.output == "first" })
         let latest = try #require(running.last)
@@ -65,10 +62,7 @@ struct SubagentStreamTransportTests {
         #expect(latest.messages.first?.tools.first?.thinking == "Inspecting resources")
         #expect(latest.activity == "Working…")
         ChildFeedProtocol.feed.finish()
-        for _ in 0..<150 {
-            if await updates.hasOutput("final") { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await eventually { await updates.hasOutput("final") }
         let final = try #require(await updates.values.last)
         #expect(final.messages.first?.tools.first?.output == "final")
         #expect(final.activity == nil)
@@ -84,10 +78,7 @@ struct SubagentStreamTransportTests {
         let client = ReconnectingChild()
         let task = Task { await state.watch(client: client, session: "s", conversation: "child") }
         defer { task.cancel() }
-        for _ in 0..<150 {
-            if await client.calls >= 2 && state.error == nil { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await eventually { await client.calls >= 2 && state.error == nil }
         #expect(await client.calls == 2)
         #expect(state.messages.first?.text == "Retained response")
         #expect(state.activity == "Thinking…")

@@ -189,7 +189,8 @@ struct DiffTests {
         let client = DiffTestClient(), model = DiffState()
         await client.setSlow()
         let task = Task { await model.refresh(client: client, session: "session_test") }
-        try await Task.sleep(for: .milliseconds(50))
+        // Invalidate while the slow read is in flight.
+        try await eventually { await !client.reads.isEmpty }
         model.invalidate()
         await task.value
         #expect(model.catalog == nil && model.document == nil)
@@ -259,7 +260,7 @@ struct DiffTests {
         await client.setSlow()
         var canApply = true
         let task = Task { await model.poll(client: client, session: "session_test", canApply: { canApply }) }
-        try await Task.sleep(for: .milliseconds(50))
+        try await eventually { await client.reads.count > reads }
         canApply = false
         model.error = "Draft started"
         await task.value
@@ -327,7 +328,12 @@ extension InlineAnnotationEditorTests {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 460), styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
             defer { window.close() }
-            try await Task.sleep(for: .milliseconds(650))
+            // The diff lays out with its rows and the note's block.
+            try await eventually {
+                guard let controller = InlineAnnotationEditorTests.controller(in: host),
+                      let gutter = controller.view.subviews.compactMap({ $0 as? AnnotationGutterOverlay }).first else { return false }
+                return gutter.diffRows != nil && controller.textView.layoutManager.blockHeights[1, default: 0] > 40
+            }
             let controller = try #require(InlineAnnotationEditorTests.controller(in: host))
             let gutter = try #require(controller.view.subviews.compactMap { $0 as? AnnotationGutterOverlay }.first)
             let manager = controller.textView.layoutManager!
@@ -374,7 +380,10 @@ extension InlineAnnotationEditorTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 460), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
         defer { window.close() }
-        try await Task.sleep(for: .milliseconds(650))
+        try await eventually {
+            InlineAnnotationEditorTests.controller(in: host)?.view.subviews
+                .compactMap({ $0 as? AnnotationGutterOverlay }).first?.diffRows != nil
+        }
         let controller = try #require(InlineAnnotationEditorTests.controller(in: host))
         let manager = controller.textView.layoutManager!
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
@@ -424,7 +433,7 @@ extension InlineAnnotationEditorTests {
                 return found(view).sorted { $0.view.convert($0.view.bounds, to: nil).maxY > $1.view.convert($1.view.bounds, to: nil).maxY }
             }
             let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: .seconds(3))
+            let deadline = clock.now.advanced(by: eventuallyLimit)
             var rendered: [TextViewController] = []
             while clock.now < deadline {
                 host.layoutSubtreeIfNeeded()
@@ -482,7 +491,7 @@ extension InlineAnnotationEditorTests {
             }
             gutter.mouseDown(with: try click(.leftMouseDown))
             gutter.mouseUp(with: try click(.leftMouseUp))
-            let editorDeadline = clock.now.advanced(by: .seconds(3))
+            let editorDeadline = clock.now.advanced(by: eventuallyLimit)
             while clock.now < editorDeadline {
                 host.layoutSubtreeIfNeeded()
                 second = editors(in: host).last ?? second
@@ -498,12 +507,17 @@ extension InlineAnnotationEditorTests {
             #expect(Self.input(in: host) != nil)
             state.annotationState.cancelEditor()
             window.setContentSize(NSSize(width: 900, height: 280))
-            try await Task.sleep(for: .milliseconds(250))
             let outer = try #require(controller.scrollView.enclosingScrollView)
             outer.contentView.scroll(to: .zero)
             let cgEvent = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -100, wheel2: 0, wheel3: 0))
-            controller.scrollView.scrollWheel(with: try #require(NSEvent(cgEvent: cgEvent)))
-            try await Task.sleep(for: .milliseconds(200))
+            let wheel = try #require(NSEvent(cgEvent: cgEvent))
+            // A wheel over the editor scrolls the pane once the pane has laid
+            // out for the shorter window, so keep scrolling until it does.
+            try await eventually {
+                host.layoutSubtreeIfNeeded()
+                controller.scrollView.scrollWheel(with: wheel)
+                return outer.contentView.bounds.minY > 0
+            }
             #expect(outer.contentView.bounds.minY > 0)
         }
     }
@@ -526,8 +540,10 @@ extension InlineAnnotationEditorTests {
         func scrollViews(_ view: NSView) -> [NSScrollView] {
             (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews($0) }
         }
-        try await Task.sleep(for: .milliseconds(1500))
         let model = state.ui.workspace.diff
+        try await eventually {
+            model.fileStates.count == 20 && model.fileStates.values.allSatisfy { $0.document != nil }
+        }
         #expect(model.files.count == 20)
         // Every file loads in the background before it is scrolled to.
         #expect(model.fileStates.count == 20)
@@ -573,17 +589,33 @@ extension InlineAnnotationEditorTests {
                 if let editor = view.nextResponder as? TextViewController { return [editor] }
                 return view.subviews.flatMap { editors(in: $0) }
             }
-            try await Task.sleep(for: .milliseconds(500))
+            try await eventually {
+                Self.controller(in: host)?.textView.layoutManager.lineStorage.getLine(atIndex: 2) != nil
+            }
             let unified = try #require(Self.controller(in: host))
             let source = unified.textView.string
             let singleHeight = try #require(unified.textView.layoutManager.lineStorage.getLine(atIndex: 2)).height
             model.wrapLines = true
-            try await Task.sleep(for: .milliseconds(400))
+            try await eventually {
+                unified.configuration.appearance.wrapLines
+                    && (unified.textView.layoutManager.lineStorage.getLine(atIndex: 2)?.height ?? 0) > singleHeight
+            }
             #expect(unified.configuration.appearance.wrapLines)
             #expect(unified.textView.string == source)
             #expect(try #require(unified.textView.layoutManager.lineStorage.getLine(atIndex: 2)).height > singleHeight)
+            func aligned(_ old: TextViewController, _ new: TextViewController) -> Bool {
+                (0..<3).allSatisfy { index in
+                    guard let a = old.textView.layoutManager.lineStorage.getLine(atIndex: index),
+                          let b = new.textView.layoutManager.lineStorage.getLine(atIndex: index) else { return false }
+                    return abs(a.yPos - b.yPos) < 1 && abs(a.height - b.height) < 1
+                }
+            }
             model.layout = .split
-            try await Task.sleep(for: .milliseconds(650))
+            try await eventually {
+                let split = editors(in: host)
+                let sides = split.map { $0.view.subviews.compactMap { $0 as? AnnotationGutterOverlay }.first?.fixedSide }
+                return split.count == 2 && sides == ["old", "new"] && aligned(split[0], split[1])
+            }
             let split = editors(in: host)
             #expect(split.count == 2)
             let old = try #require(split.first), new = try #require(split.last)
@@ -614,12 +646,14 @@ extension InlineAnnotationEditorTests {
             state.annotationState.draft = "Keep this comment while changing layout."
             let anchor = try #require(state.annotationState.editor?.anchor.workingTreeDiff)
             #expect(anchor.side == "old" && anchor.startLine == 2)
-            try await Task.sleep(for: .milliseconds(400))
+            try await eventually { old.textView.layoutManager.blockHeights[1, default: 0] > 60 && aligned(old, new) }
             try assertAligned()
             #expect(old.textView.layoutManager.blockHeights[1, default: 0] > 60)
             model.layout = .unified
             model.wrapLines = false
-            try await Task.sleep(for: .milliseconds(450))
+            try await eventually {
+                editors(in: host).count == 1 && Self.input(in: host)?.string == state.annotationState.draft
+            }
             #expect(editors(in: host).count == 1)
             #expect(state.annotationState.draft == "Keep this comment while changing layout.")
             #expect(state.annotationState.editor?.anchor.workingTreeDiff?.side == "old")

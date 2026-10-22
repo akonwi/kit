@@ -65,7 +65,7 @@ struct FileIndexCacheTests {
         let mentions = ComposerMentionState()
         mentions.observe(previous: "", next: "@", pasted: false)
         mentions.load { _ in FileIndex(paths: ["README.md"], truncated: true) }
-        for _ in 0..<100 where mentions.loading { try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually { !mentions.loading }
         #expect(mentions.matches == ["README.md"])
         #expect(mentions.indexNotice == "File index is incomplete; some paths may be missing.")
     }

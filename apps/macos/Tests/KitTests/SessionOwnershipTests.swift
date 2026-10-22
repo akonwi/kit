@@ -53,11 +53,7 @@ private actor SnapshotClient: SessionNamingClient {
                        messages: [TranscriptMessage(id: "message", role: "assistant", text: text, tools: [])])
     }
     private func waitForAttachment(_ id: String, client: SnapshotClient) async throws {
-        for _ in 0..<100 {
-            if await client.ready(id) { return }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        Issue.record("Session did not attach")
+        try await eventually { await client.ready(id) }
     }
 
     @Test func snapshotsUpdateServerDataAndPreserveLocalUI() async throws {
@@ -162,10 +158,7 @@ private actor SnapshotClient: SessionNamingClient {
         await client.emit(initial)
         await client.suspendCatalog()
         let refresh = Task { await store.refreshSessions() }
-        for _ in 0..<100 {
-            if await client.catalogWaiting() { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await eventually { await client.catalogWaiting() }
         #expect(await client.catalogWaiting())
         await store.refreshSessions()
         var renamed = initial

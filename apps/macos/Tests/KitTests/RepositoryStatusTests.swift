@@ -55,14 +55,6 @@ private actor RepositoryClient: SessionVCSClient {
 @MainActor struct RepositoryStatusTests {
     private func settle() async throws { try await Task.sleep(for: .milliseconds(350)) }
 
-    private func eventually(_ condition: () async -> Bool) async throws {
-        for _ in 0..<100 {
-            if await condition() { return }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        #expect(await condition())
-    }
-
     @Test func initialStatusPushUpdatesAndReconnectWithoutPolling() async throws {
         let client = RepositoryClient()
         let replica = SessionReplica(sessions: [RepositoryClient.value], client: client)
@@ -221,10 +213,7 @@ private actor RepositoryClient: SessionVCSClient {
         let replica = SessionReplica(sessions: [session], client: ServerClient.local())
         replica.attach()
         defer { replica.detach() }
-        for _ in 0..<50 {
-            if replica.snapshot?.gitHead != nil { break }
-            try await Task.sleep(for: .milliseconds(100))
-        }
+        try await eventually { replica.snapshot?.gitHead != nil }
         #expect(replica.snapshot?.gitHead == expected.status?.head.name ?? expected.status?.head.oid.map { String($0.prefix(8)) })
         #expect(replica.snapshot?.gitDirty == expected.status?.dirty)
         #expect(replica.snapshot?.gitHeadKind == expected.status?.head.kind.rawValue)

@@ -25,11 +25,7 @@ private actor AvailabilityClient: SessionClient {
 
 @MainActor struct SessionUnavailableTests {
     private func wait(_ predicate: () -> Bool) async throws {
-        for _ in 0..<100 {
-            if predicate() { return }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        Issue.record("Expected session state was not reached")
+        try await eventually { predicate() }
     }
 
     @Test func missingCatalogRetainsLocalWorkAndRecoversInPlace() async throws {

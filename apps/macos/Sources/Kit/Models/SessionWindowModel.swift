@@ -111,13 +111,16 @@ final class SessionWindowModel: Identifiable {
     /// divider drag step.
     @ObservationIgnored private var layoutCapture: Task<Void, Never>?
     static let layoutCaptureDelay: Duration = .milliseconds(500)
+    /// Waits out `layoutCaptureDelay`.
+    @ObservationIgnored private let sleeper: Sleeper
 
     static let defaultServer = ServerClient.localID
 
     init(id: UUID, servers: ServerDirectory = .inert(), sessions: [SessionIdentity] = [], selected: SessionIdentity? = nil,
          layouts: [SessionIdentity: TileArrangement] = [:], collapsed: Set<String> = [],
-         titles: [SessionIdentity: String] = [:]) {
+         titles: [SessionIdentity: String] = [:], sleep: @escaping Sleeper = realTimeSleeper) {
         self.id = id
+        self.sleeper = sleep
         self.servers = servers
         self.collapsed = collapsed
         let tabs = sessions.isEmpty
@@ -543,8 +546,8 @@ final class SessionWindowModel: Identifiable {
 
     private func scheduleLayoutCapture() {
         layoutCapture?.cancel()
-        layoutCapture = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.layoutCaptureDelay)
+        layoutCapture = Task { @MainActor [weak self, sleeper] in
+            try? await sleeper(Self.layoutCaptureDelay)
             guard !Task.isCancelled, let self else { return }
             self.layoutCapture = nil
             self.onChange(self)

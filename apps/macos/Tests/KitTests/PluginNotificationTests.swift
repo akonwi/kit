@@ -85,7 +85,7 @@ private actor NotificationMock: PluginNotificationClient {
         // Every watch retries on the same delay, so once each transient watch
         // has reconnected, a terminal watch would have reconnected as well.
         for client in reconnecting {
-            for _ in 0..<300 { if await client.sessionsSeen.count == 2 { break }; try await Task.sleep(for: .milliseconds(10)) }
+            try await eventually { await client.sessionsSeen.count == 2 }
         }
         for (index, client) in reconnecting.enumerated() {
             let session = "s\(stopping.count + index)"
@@ -99,12 +99,12 @@ private actor NotificationMock: PluginNotificationClient {
     @Test func attachmentGenerationSuppressesOldCallbacksAndStopPreventsDelivery() async throws {
         let client = NotificationMock(), watch = PluginNotificationWatch(), feedback = SessionFeedback()
         watch.start(session: "one", client: client) { feedback.showPluginNotification($0) }
-        for _ in 0..<100 { if await client.callbacks.count == 1 { break }; try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually { await client.callbacks.count == 1 }
         #expect(await client.sessionsSeen == ["one"])
         await client.emit(0, notification("First"))
         #expect(feedback.visible?.title == "First")
         watch.start(session: "two", client: client) { feedback.showPluginNotification($0) }
-        for _ in 0..<100 { if await client.callbacks.count == 2 { break }; try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually { await client.callbacks.count == 2 }
         #expect(await client.sessionsSeen == ["one", "two"])
         await client.emit(1, notification("Current"))
         await client.emit(0, notification("Stale"))

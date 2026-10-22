@@ -89,7 +89,7 @@ private actor DismissalSessionStub: SubagentDismissalClient {
         let store = SessionStore(fixture: .init(sessions: [before]), client: client)
         store.ui.workspace.open(.agent("helper"))
         store.attach()
-        for _ in 0..<100 where store.connectionState != .connected { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { store.connectionState == .connected }
         let agent = try #require(before.subagents?.items.first)
         await store.dismissSubagent(agent, session: "s")
         #expect(store.ui.workspace.panes.contains(.agent("helper")) == replacement)

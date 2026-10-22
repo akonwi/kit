@@ -156,9 +156,7 @@ private actor ShellResults {
         var running = idle
         running.messages = [try execution("bash_row").message]
         await projection.stream(running)
-        for _ in 0..<100 where await sink.latest?.messages.first?.bash?.running != false {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await eventually { await sink.latest?.messages.first?.bash?.running == false }
         #expect(await sink.latest?.messages.map(\.id) == ["bash_row"])
         #expect(await sink.latest?.messages.first?.bash?.output == "done")
         try await Task.sleep(for: .milliseconds(50))
@@ -194,10 +192,7 @@ private actor ShellResults {
             let observed = ShellResults()
             let watch = Task { try await client.watch(session) { await observed.accept($0) } }
             defer { watch.cancel() }
-            for _ in 0..<60 {
-                if await observed.latest?.messages.contains(where: { $0.bash?.id == id && $0.bash?.running == true }) == true { break }
-                try await Task.sleep(for: .milliseconds(100))
-            }
+            try await eventually { await observed.latest?.messages.contains(where: { $0.bash?.id == id && $0.bash?.running == true }) == true }
             #expect(await observed.latest?.messages.contains { $0.bash?.id == id && $0.bash?.running == true } == true)
             try await client.abortBash(session, id: id)
             var result = try await client.bash(session, id: id)
@@ -205,10 +200,7 @@ private actor ShellResults {
                 try await Task.sleep(for: .milliseconds(100)); result = try await client.bash(session, id: id)
             }
             #expect(result.status == "aborted")
-            for _ in 0..<60 {
-                if await observed.latest?.messages.contains(where: { $0.bash?.id == id && $0.bash?.status == "aborted" }) == true { break }
-                try await Task.sleep(for: .milliseconds(100))
-            }
+            try await eventually { await observed.latest?.messages.contains(where: { $0.bash?.id == id && $0.bash?.status == "aborted" }) == true }
             #expect(await observed.latest?.messages.contains { $0.bash?.id == id && $0.bash?.status == "aborted" } == true)
             watch.cancel()
             try await client.disposeSession(session)

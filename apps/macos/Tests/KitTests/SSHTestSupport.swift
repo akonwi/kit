@@ -160,6 +160,9 @@ struct FakeSSHHosts {
         self.passwords = passwords
         self.directory = directory
         self.added = added
+        // ssh's idle timeout stays the app's own: no test waits it out, and a
+        // shorter one could end a fake ssh while a busy test runner is slow to
+        // pass its questions along.
         hosts = SSHHosts(environment: SSHHost.Environment(
             runner: ssh, bridge: { bridge }, passwords: passwords, directory: { directory }, freePort: { port },
             addKey: { key, environment in
@@ -171,18 +174,10 @@ struct FakeSSHHosts {
                                                                     kind: nil))
                     added.append(key + "=" + (answer ?? ""))
                 }
-            },
-            timeout: .seconds(5)))
+            }))
     }
 
     func remove() { try? FileManager.default.removeItem(atPath: directory) }
-}
-
-/// Waits up to five seconds for `condition`, then expects it.
-func until(isolation: isolated (any Actor)? = #isolation, _ condition: () -> Bool) async throws {
-    let deadline = ContinuousClock.now + .seconds(5)
-    while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
-    #expect(condition())
 }
 
 /// Values recorded from any thread.

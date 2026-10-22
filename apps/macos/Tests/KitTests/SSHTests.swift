@@ -315,7 +315,7 @@ struct SSHHostTests {
                 return nil
             }
         }
-        try await until { !withdrawn.all.isEmpty }
+        try await eventually { !withdrawn.all.isEmpty }
         #expect(withdrawn.all == [true])
     }
 
@@ -394,10 +394,10 @@ struct SSHHostTests {
                 }
             }
         }()
-        try await until { !asked.all.isEmpty }
+        try await eventually { !asked.all.isEmpty }
         await host.close()
         await signingIn
-        try await until { !withdrawn.all.isEmpty }
+        try await eventually { !withdrawn.all.isEmpty }
         #expect(withdrawn.all == [true])
         // ssh was ended before it could send an empty password.
         #expect(sent.all == [])
@@ -522,7 +522,7 @@ private enum SHA256Hex {
         let server = ServerConnection(name: "devbox", connector: .ssh("me@devbox"), tokens: MemoryDeviceTokens(), hosts: fake.hosts,
                                       schedule: .init(firstRetry: .milliseconds(10), maximumRetry: .milliseconds(10), check: .milliseconds(10)))
         server.start()
-        try await until { server.status == .signInRequired }
+        try await eventually { server.status == .signInRequired }
         try await Task.sleep(for: .milliseconds(100))
         #expect(fake.ssh.starts.count == 1)
         // Cancelling the question leaves it waiting.
@@ -544,11 +544,11 @@ private enum SHA256Hex {
         let connection = ServerConnection(name: "devbox", connector: .ssh("me@devbox"), tokens: MemoryDeviceTokens(), hosts: fake.hosts,
                                           schedule: .init(firstRetry: .seconds(60), maximumRetry: .seconds(60), check: .seconds(60)))
         connection.start()
-        try await until { connection.status.isConnected }
+        try await eventually { connection.status.isConnected }
         #expect(connection.client.address.verifiedClient(for: connection.connector) != nil)
         try #require(masters.all.first).exit(255, diagnostics: "Connection to devbox closed by remote host.\n")
-        try await until { masters.all.count == 2 }
-        try await until { connection.status.isConnected }
+        try await eventually { masters.all.count == 2 }
+        try await eventually { connection.status.isConnected }
         connection.stop()
     }
 
@@ -559,8 +559,8 @@ private enum SHA256Hex {
         let server = ServerConnection(name: "devbox", connector: .ssh("me@devbox"), tokens: MemoryDeviceTokens(), hosts: fake.hosts,
                                       schedule: .init(firstRetry: .milliseconds(10), maximumRetry: .milliseconds(10), check: .milliseconds(10)))
         server.start()
-        try await until { server.status == .serverStopped }
-        try await until { ssh.runs.filter { $0.last?.contains("kit server status") == true }.count >= 3 }
+        try await eventually { server.status == .serverStopped }
+        try await eventually { ssh.runs.filter { $0.last?.contains("kit server status") == true }.count >= 3 }
         #expect(!ssh.runs.contains { $0.last?.contains("kit server start") == true })
         server.stop()
     }

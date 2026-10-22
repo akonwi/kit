@@ -34,7 +34,7 @@ private struct InlineAnnotationClient: AnnotationClient {
     static func waitForFocusedInput(in host: NSView, window: NSWindow,
                                     sourceLocation: SourceLocation = #_sourceLocation) async throws -> ComposerTextView {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
+        let deadline = clock.now.advanced(by: eventuallyLimit)
         while clock.now < deadline {
             if let input = input(in: host), window.firstResponder === input { return input }
             try await Task.sleep(for: .milliseconds(20))
@@ -63,7 +63,12 @@ private struct InlineAnnotationClient: AnnotationClient {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 460), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
             defer { window.close() }
-            try await Task.sleep(for: .milliseconds(400))
+            // The note's block opens beside its anchor once the editor lays out.
+            try await eventually {
+                guard let controller = Self.controller(in: host) else { return false }
+                return controller.textView.layoutManager.blockHeights[2] != nil
+                    && controller.textView.subviews.contains { $0 is NSHostingView<AnyView> }
+            }
             let controller = try #require(Self.controller(in: host))
             let manager = controller.textView.layoutManager!
             #expect(controller.textView.string == source)
@@ -87,13 +92,13 @@ private struct InlineAnnotationClient: AnnotationClient {
             try #require(bitmap.representation(using: .png, properties: [:]))
                 .write(to: URL(fileURLWithPath: "/tmp/kit-inline-editor-\(dark ? "dark" : "light").png"))
             window.setContentSize(NSSize(width: 380, height: 460))
-            try await Task.sleep(for: .milliseconds(200))
+            try await eventually { noteHost.frame.width < 380 && manager.blockHeights[2, default: 0] > gap }
             #expect(noteHost.frame.width < 380)
             #expect(manager.blockHeights[2, default: 0] > gap)
             window.setContentSize(NSSize(width: 760, height: 460))
-            try await Task.sleep(for: .milliseconds(150))
+            try await eventually { noteHost.frame.width > 600 }
             annotations.begin(anchor: note.anchor, editing: note)
-            try await Task.sleep(for: .milliseconds(200))
+            try await eventually { Self.input(in: host).map { window.firstResponder === $0 } ?? false }
             #expect(annotations.draft == note.body)
             #expect(manager.blockHeights[2, default: 0] > gap)
             let input = try #require(Self.input(in: host))
@@ -107,13 +112,13 @@ private struct InlineAnnotationClient: AnnotationClient {
                 timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
                 charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)))
             #expect(annotations.editor == nil)
-            try await Task.sleep(for: .milliseconds(150))
+            try await eventually { Self.input(in: host) == nil }
             controller.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 350))
             controller.scrollView.reflectScrolledClipView(controller.scrollView.contentView)
-            try await Task.sleep(for: .milliseconds(150))
+            try await eventually { controller.scrollView.contentView.bounds.minY >= 349 }
             #expect(controller.scrollView.contentView.bounds.minY >= 349)
             annotations.observe([])
-            try await Task.sleep(for: .milliseconds(150))
+            try await eventually { manager.blockHeights.isEmpty }
             #expect(manager.blockHeights == [:])
             #expect(controller.textView.string == source)
             #expect(controller.textView.selectedRange() == selection)
@@ -131,7 +136,10 @@ private struct InlineAnnotationClient: AnnotationClient {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 460), styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
             defer { window.close() }
-            try await Task.sleep(for: .milliseconds(250))
+            try await eventually {
+                guard let controller = Self.controller(in: host) else { return false }
+                return controller.textView.layoutManager.lineStorage.getLine(atIndex: 5) != nil
+            }
             let controller = try #require(Self.controller(in: host))
             func findGutter(_ view: NSView) -> AnnotationGutterOverlay? {
                 if let gutter = view as? AnnotationGutterOverlay { return gutter }
@@ -160,7 +168,7 @@ private struct InlineAnnotationClient: AnnotationClient {
             gutter.mouseUp(with: try event(.leftMouseUp, line: 1))
             #expect(annotations.editor?.anchor.workspaceFile?.startLine == 2)
             #expect(annotations.editor?.anchor.workspaceFile?.endLine == 2)
-            try await Task.sleep(for: .milliseconds(200))
+            try await eventually { Self.input(in: host).map { window.firstResponder === $0 } ?? false }
             #expect(window.firstResponder === Self.input(in: host))
             let row = try #require(manager.lineStorage.getLine(atIndex: 1))
             #expect(gutter.line(at: NSPoint(x: 10, y: row.yPos + row.height - 4)) == nil)
@@ -181,7 +189,9 @@ private struct InlineAnnotationClient: AnnotationClient {
                     context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
                 window.sendEvent(mouse)
             }
-            try await Task.sleep(for: .milliseconds(150))
+            try await eventually {
+                annotations.editor == nil && manager.blockHeights.isEmpty && window.firstResponder === controller.textView
+            }
             #expect(annotations.editor == nil)
             #expect(annotations.draft == "")
             #expect(manager.blockHeights == [:])
@@ -199,11 +209,11 @@ private struct InlineAnnotationClient: AnnotationClient {
                 gutter.mouseUp(with: try event(.leftMouseUp, line: end))
                 #expect(annotations.editor?.anchor.workspaceFile?.startLine == 1)
                 #expect(annotations.editor?.anchor.workspaceFile?.endLine == 3)
-                try await Task.sleep(for: .milliseconds(150))
+                try await eventually { manager.blockHeights[2, default: 0] > 40 }
                 #expect(manager.blockHeights[2, default: 0] > 40)
                 #expect(controller.textView.string == source)
                 annotations.cancelEditor()
-                try await Task.sleep(for: .milliseconds(150))
+                try await eventually { manager.blockHeights.isEmpty }
             }
         }
     }
@@ -216,7 +226,9 @@ private struct InlineAnnotationClient: AnnotationClient {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 460), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
         defer { window.close() }
-        try await Task.sleep(for: .milliseconds(250))
+        try await eventually {
+            Self.controller(in: host)?.view.subviews.contains { $0 is AnnotationGutterOverlay } == true
+        }
         let controller = try #require(Self.controller(in: host))
         let gutter = try #require(controller.view.subviews.compactMap { $0 as? AnnotationGutterOverlay }.first)
         func event(_ type: NSEvent.EventType, y: CGFloat) throws -> NSEvent {
@@ -226,20 +238,29 @@ private struct InlineAnnotationClient: AnnotationClient {
         }
         gutter.mouseDown(with: try event(.leftMouseDown, y: 5))
         gutter.mouseDragged(with: try event(.leftMouseDragged, y: gutter.bounds.maxY + 12))
-        try await Task.sleep(for: .milliseconds(250))
+        // Dragging past the bottom scrolls.
+        try await eventually { controller.scrollView.contentView.bounds.minY > 0 && gutter.bounds.minY > 0 }
         #expect(controller.scrollView.contentView.bounds.minY > 0)
         #expect(gutter.bounds.minY > 0)
         let destination = try #require(controller.textView.layoutManager.lineStorage.getLine(atIndex: 250))
         controller.scrollView.contentView.scroll(to: CGPoint(x: 0, y: destination.yPos - 100))
         controller.scrollView.reflectScrolledClipView(controller.scrollView.contentView)
-        try await Task.sleep(for: .milliseconds(150))
+        try await eventually {
+            guard let line = controller.textView.layoutManager.lineStorage.getLine(atIndex: 250) else { return false }
+            return controller.textView.visibleRect.contains(NSPoint(x: 1, y: line.yPos + 5))
+        }
         let last = try #require(controller.textView.layoutManager.lineStorage.getLine(atIndex: 250))
         gutter.mouseDragged(with: try event(.leftMouseDragged, y: last.yPos + 5))
         #expect(gutter.selection == 0...199)
         gutter.mouseUp(with: try event(.leftMouseUp, y: last.yPos + 5))
         #expect(annotations.editor?.anchor.workspaceFile?.startLine == 1)
         #expect(annotations.editor?.anchor.workspaceFile?.endLine == 200)
-        try await Task.sleep(for: .milliseconds(250))
+        // The comment input takes focus and scrolls into view.
+        try await eventually {
+            guard let input = Self.input(in: host) else { return false }
+            return window.firstResponder === input
+                && controller.textView.visibleRect.contains(input.convert(input.bounds, to: controller.textView))
+        }
         let input = try #require(Self.input(in: host))
         #expect(window.firstResponder === input)
         #expect(controller.textView.visibleRect.contains(input.convert(input.bounds, to: controller.textView)))

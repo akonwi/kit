@@ -41,12 +41,12 @@ struct MCPStatusTests {
         #expect(state.mcpStatus.servers.map(\.name) == [])
 
         let monitor = Task { await state.monitorMCPStatus(interval: .milliseconds(10)) }
-        for _ in 0..<100 where state.mcpStatus.servers.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { !state.mcpStatus.servers.isEmpty }
         #expect(state.mcpStatus.servers.map(\.name) == ["granola"])
         #expect(state.mcpStatus.servers.map(\.state) == ["connected"])
         #expect(state.mcpStatus.warnings == ["Ignored invalid server"])
         // Polling continues while the view remains open.
-        for _ in 0..<200 where await client.reads < 2 { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { await client.reads >= 2 }
         #expect(await client.reads >= 2)
 
         monitor.cancel()

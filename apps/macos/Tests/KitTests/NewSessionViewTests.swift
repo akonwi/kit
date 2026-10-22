@@ -40,7 +40,7 @@ struct NewSessionViewTests {
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: view)
-        window.makeKeyAndOrderFront(nil)
+        window.orderFront(nil)
         return window
     }
 
@@ -59,16 +59,13 @@ struct NewSessionViewTests {
         var opened: [String] = []
         let window = host(server, close: { closed += 1 }, open: { opened.append($0.model) })
         defer { window.close() }
-        for _ in 0..<100 {
-            if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor { break }
-            try await Task.sleep(for: .milliseconds(20))
+        // Return does nothing until the form is shown and the models load, so
+        // keep pressing it. It is the default action, so it needs no focus.
+        try await eventually {
+            if server.created.isEmpty { try? await press(36, "\r", in: window) }
+            return !server.created.isEmpty
         }
-        // Return does nothing until the models load, so keep pressing it.
-        for _ in 0..<50 where server.created.isEmpty {
-            window.makeKey()
-            try await press(36, "\r", in: window)
-        }
-        for _ in 0..<50 where opened.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        try await eventually { !opened.isEmpty }
         #expect(server.created.count == 1)
         let input = try #require(server.created.first)
         #expect(input.cwd == FileManager.default.homeDirectoryForCurrentUser.path)
@@ -85,8 +82,11 @@ struct NewSessionViewTests {
         var closed = 0
         let window = host(server, close: { closed += 1 }, open: { _ in })
         defer { window.close() }
-        try await Task.sleep(for: .milliseconds(200))
-        try await press(53, "\u{1b}", in: window)
+        // Esc does nothing until the form is shown, so keep pressing it.
+        try await eventually {
+            if closed == 0 { try? await press(53, "\u{1b}", in: window) }
+            return closed > 0
+        }
         #expect(closed == 1)
         #expect(server.created.isEmpty)
     }

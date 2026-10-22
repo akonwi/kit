@@ -44,11 +44,7 @@ struct HTTPResourceTests {
                               configuration: configuration, requestTimeout: requestTimeout)
     }
     private func waitFor(_ condition: () -> Bool) async throws {
-        for _ in 0..<100 {
-            if condition() { return }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        Issue.record("HTTP request did not release its transport")
+        try await eventually { condition() }
     }
 
     @Test func errorResponsesCloseBodiesWhileClientIsRetained() async throws {

@@ -59,7 +59,8 @@ private func vcsScript(_ port: Int) -> VCSScript {
 }
 
 private final class VCSResponse: URLProtocol, @unchecked Sendable {
-    static let stopped = StopCounts()
+    static let started = PortCounts()
+    static let stopped = PortCounts()
     private let lock = NSLock()
     private var halted = false
 
@@ -68,6 +69,7 @@ private final class VCSResponse: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let url = request.url!
         let port = url.port!
+        Self.started.record(port)
         #expect(url.path == (port >= 19620 ? "/v1/sessions/session_one/vcs" : "/v1/sessions/session_one/vcs/events"))
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test")
         #expect(request.value(forHTTPHeaderField: "X-Kit-Instance-ID") == "server")
@@ -102,7 +104,7 @@ private final class VCSResponse: URLProtocol, @unchecked Sendable {
     }
 }
 
-private final class StopCounts: @unchecked Sendable {
+private final class PortCounts: @unchecked Sendable {
     private let lock = NSLock()
     private var counts: [Int: Int] = [:]
     func record(_ port: Int) { lock.withLock { counts[port, default: 0] += 1 } }
@@ -265,9 +267,10 @@ struct VCSStreamTests {
     @Test func cancellationClosesAnIdleStream() async throws {
         let client = try client(19613)
         let task = Task { try await client.watchVCS("session_one") { _ in Issue.record("unexpected record") } }
-        try await Task.sleep(for: .milliseconds(200))
+        // Cancel once the stream is open and idle.
+        try await eventually { VCSResponse.started.value(19613) > 0 }
         task.cancel()
-        for _ in 0..<100 where VCSResponse.stopped.value(19613) == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually { VCSResponse.stopped.value(19613) != 0 }
         _ = await task.result
         #expect(VCSResponse.stopped.value(19613) == 1)
         withExtendedLifetime(client) {}
