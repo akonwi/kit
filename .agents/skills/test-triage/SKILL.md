@@ -15,6 +15,8 @@ failures precisely, and avoid treating every test failure like a product bug.
 1. Detect the test harness.
    - Use `xcodebuild test` for Xcode-based projects.
    - Use `swift test` for SwiftPM packages.
+   - For Go `-race` reports, hangs, or timing flakes, use the
+     `go-concurrency` skill's testing and triage section.
 
 2. Narrow the scope.
    - If the user gave a target, product, or test filter, use it.

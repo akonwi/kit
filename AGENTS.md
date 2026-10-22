@@ -84,6 +84,8 @@ asked.
 - Thread `context.Context` through blocking work.
 - Make goroutine ownership, cancellation, and channel closure explicit.
 - Prefer bounded queues and concurrency over unbounded goroutine creation.
+- Follow `.agents/skills/go-concurrency/SKILL.md` when writing, reviewing, or
+  debugging concurrent code, `-race` reports, or flaky timing tests.
 - Keep SQLite transactions short and preserve foreign-key enforcement.
 - Keep the release build CGO-free unless an ADR explicitly changes that goal.
 
