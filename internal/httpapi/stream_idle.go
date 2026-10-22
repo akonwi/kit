@@ -13,8 +13,12 @@ import (
 // record. Read the returned reader instead of body; stop releases the watchdog
 // and closes body.
 func WatchStreamIdle(ctx context.Context, body io.ReadCloser, limit time.Duration) (io.Reader, func()) {
-	reader := &boundaryReader{source: body}
-	reader.last.Store(time.Now().UnixNano())
+	// Measure idle time as monotonic offsets from one base reading. Wall-clock
+	// values (UnixNano) would close a healthy stream early after a forward
+	// clock step and delay idle detection after a backward one. The monotonic
+	// clock does not advance during system sleep, so a stream that died while
+	// asleep is detected up to limit after wake rather than on the first tick.
+	reader := &boundaryReader{source: body, base: time.Now()}
 	done := make(chan struct{})
 	var stopped atomic.Bool
 	stop := func() {
@@ -34,7 +38,7 @@ func WatchStreamIdle(ctx context.Context, body io.ReadCloser, limit time.Duratio
 			case <-done:
 				return
 			case <-ticker.C:
-				if time.Since(time.Unix(0, reader.last.Load())) > limit {
+				if time.Since(reader.base)-time.Duration(reader.last.Load()) > limit {
 					_ = body.Close()
 					return
 				}
@@ -44,10 +48,12 @@ func WatchStreamIdle(ctx context.Context, body io.ReadCloser, limit time.Duratio
 	return reader, stop
 }
 
-// boundaryReader records when the most recent blank line completed. Only the
-// reading goroutine touches lineBytes; last is shared with the watchdog.
+// boundaryReader records when the most recent blank line completed, as a
+// duration since base. Only the reading goroutine touches lineBytes; last is
+// shared with the watchdog, and base is immutable.
 type boundaryReader struct {
 	source    io.Reader
+	base      time.Time
 	lineBytes int
 	last      atomic.Int64
 }
@@ -58,7 +64,7 @@ func (r *boundaryReader) Read(p []byte) (int, error) {
 		switch b {
 		case '\n':
 			if r.lineBytes == 0 {
-				r.last.Store(time.Now().UnixNano())
+				r.last.Store(int64(time.Since(r.base)))
 			}
 			r.lineBytes = 0
 		case '\r':

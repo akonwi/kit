@@ -52,6 +52,11 @@ import (
 const (
 	instanceHeader = httpapi.InstanceHeader
 	protocolHeader = httpapi.ProtocolHeader
+	// handlerDrainTimeout bounds the wait for handlers that outlive
+	// http.Server.Shutdown after their contexts are cancelled. Handlers
+	// normally return promptly once cancelled; keep this short so daemon
+	// teardown stays within a client's stop budget.
+	handlerDrainTimeout = 2 * time.Second
 )
 
 // ErrAlreadyRunning indicates that another daemon holds the lifetime lock.
@@ -425,8 +430,14 @@ func Run(ctx context.Context, options RunOptions) error {
 			}
 		},
 	})
+	// Handlers run under requestContext and are tracked so teardown can cancel
+	// and wait for any that outlive Shutdown's deadline.
+	requestContext, cancelRequests := context.WithCancel(context.Background())
+	defer cancelRequests()
+	requests := newRequestTracker()
 	server := &http.Server{
-		Handler:           handler,
+		Handler:           requests.Wrap(handler),
+		BaseContext:       func(net.Listener) context.Context { return requestContext },
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    32 << 10,
@@ -437,6 +448,18 @@ func Run(ctx context.Context, options RunOptions) error {
 	// Pending logins hold their followers' requests open; fail them so
 	// those requests finish, and their flows end, before Shutdown's deadline.
 	server.RegisterOnShutdown(logins.Close)
+
+	// server.Close does not wait for running handlers. Cancel them and give
+	// them a bounded grace period before the deferred teardown closes the
+	// store and releases the lifetime lock.
+	drainRequests := func() {
+		cancelRequests()
+		drainContext, cancelDrain := context.WithTimeout(context.Background(), handlerDrainTimeout)
+		defer cancelDrain()
+		if err := requests.Close(drainContext); err != nil {
+			logger.Error("HTTP handlers still running after shutdown", "error", err)
+		}
+	}
 
 	serveResult := make(chan error, 1)
 	go func() {
@@ -460,6 +483,8 @@ func Run(ctx context.Context, options RunOptions) error {
 		}
 	case <-stop:
 	case err := <-serveResult:
+		_ = server.Close()
+		drainRequests()
 		return err
 	}
 
@@ -471,6 +496,7 @@ func Run(ctx context.Context, options RunOptions) error {
 			runErr = fmt.Errorf("shut down local daemon: %w", err)
 		}
 	}
+	drainRequests()
 	select {
 	case err := <-serveResult:
 		if runErr == nil {
