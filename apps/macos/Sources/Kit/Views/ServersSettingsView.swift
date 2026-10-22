@@ -101,7 +101,7 @@ struct ServerRowPresentation: Equatable {
         case .needsPairing(let need):
             (self.status, tone) = (need == .expired ? "Pairing expired" : need == .missing ? "Not paired" : "Pairing revoked", .warning)
         case .signInRequired:
-            (self.status, tone) = ("Sign in to connect", .warning)
+            (self.status, tone) = ("Waiting to sign in", .warning)
         case .hostKeyChanged:
             (self.status, tone) = ("Host key changed", .warning)
         case .serverStopped:

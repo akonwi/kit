@@ -57,7 +57,7 @@ struct SSHStatePresentationTests {
             ServerRowPresentation(name: "devbox", connector: connector, status: $0)
         }
         #expect(rows == [
-            ServerRowPresentation(name: "devbox", detail: "SSH · me@devbox", status: "Sign in to connect", tone: .warning, action: .signIn),
+            ServerRowPresentation(name: "devbox", detail: "SSH · me@devbox", status: "Waiting to sign in", tone: .warning, action: .signIn),
             ServerRowPresentation(name: "devbox", detail: "SSH · me@devbox", status: "Host key changed", tone: .warning, action: .menu),
             ServerRowPresentation(name: "devbox", detail: "SSH · me@devbox", status: "Server stopped", tone: .hollow, action: .menu),
         ])
@@ -65,7 +65,7 @@ struct SSHStatePresentationTests {
             LauncherServerOption(name: "devbox", connector: connector, status: $0)
         }
         #expect(options == [
-            LauncherServerOption(name: "devbox", detail: "Sign in", address: false, available: true, needsAttention: true),
+            LauncherServerOption(name: "devbox", detail: "Waiting to sign in", address: false, available: true, needsAttention: true),
             LauncherServerOption(name: "devbox", detail: "Host key changed", address: false, available: false),
             LauncherServerOption(name: "devbox", detail: "Server stopped", address: false, available: true, needsAttention: true),
         ])

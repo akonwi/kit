@@ -24,7 +24,7 @@ struct LauncherServerOption: Equatable, Identifiable {
         available = Self.available(status)
         switch status {
         case .needsPairing: (detail, address, needsAttention) = ("Pair again", false, true)
-        case .signInRequired: (detail, address, needsAttention) = ("Sign in", false, true)
+        case .signInRequired: (detail, address, needsAttention) = ("Waiting to sign in", false, true)
         case .serverStopped: (detail, address, needsAttention) = ("Server stopped", false, true)
         case .unreachable, .incompatible, .hostKeyChanged:
             (detail, address, needsAttention) = (ServerRowPresentation(name: name, connector: connector, status: status).status, false, false)
