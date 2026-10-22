@@ -14,6 +14,10 @@ struct TileAddButton: View {
     @State private var open = false
     @State private var hovering = false
 
+    /// The button's width, with its padding.
+    static let width: CGFloat = 22 + 2 * padding
+    private static let padding: CGFloat = 6
+
     var body: some View {
         Button(action: toggle) {
             IconView(.plus, size: 12)
@@ -25,7 +29,7 @@ struct TileAddButton: View {
         .buttonStyle(.plain)
         .background(ComposerPickerAnchorView(anchor: anchor))
         .onHover { hovering = $0 }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, Self.padding)
         .help("Add Tab")
         .accessibilityLabel("Add Tab")
         .onDisappear { popover.dismiss() }

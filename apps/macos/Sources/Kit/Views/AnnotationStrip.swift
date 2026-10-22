@@ -50,6 +50,8 @@ struct AnnotationStrip: View {
                         }
                     }
                 }
+                .scrollIndicators(.never)
+                .background(HorizontalWheelScrolling())
             }
             if let error = annotations.error {
                 Text(error).font(.kit(size: 12)).foregroundStyle(theme.muted)

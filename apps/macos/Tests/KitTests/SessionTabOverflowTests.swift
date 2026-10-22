@@ -5,12 +5,12 @@ import Testing
 struct SessionTabOverflowTests {
     private let ids = (0..<5).map { _ in UUID() }
     /// Five 220 pt tabs, 2 pt apart, in a 500 pt strip.
-    private func overflow(offset: CGFloat) -> SessionTabOverflow {
+    private func overflow(offset: CGFloat) -> TabStripOverflow<UUID> {
         let frames = Dictionary(uniqueKeysWithValues: ids.enumerated().map { index, id in
             let minX = CGFloat(index) * 222
             return (id, minX...(minX + 220))
         })
-        return SessionTabOverflow(frames: frames, offset: offset, viewport: 500)
+        return TabStripOverflow(frames: frames, offset: offset, viewport: 500)
     }
 
     @Test func tabsPastTheTrailingEdgeAreHidden() {
@@ -28,7 +28,7 @@ struct SessionTabOverflowTests {
     }
 
     @Test func tabsThatFitAreNotHidden() {
-        let strip = SessionTabOverflow(frames: [ids[0]: 0...220], offset: 0, viewport: 500)
+        let strip = TabStripOverflow(frames: [ids[0]: 0...220], offset: 0, viewport: 500)
         #expect(!strip.hides(ids[0]))
         #expect(!strip.hiddenBefore && !strip.hiddenAfter)
     }

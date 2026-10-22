@@ -37,7 +37,7 @@ struct ComposerAttachmentStrip: View {
                             .background(theme.raised, in: RoundedRectangle(cornerRadius: 6))
                     }
                 }.padding(12)
-            }.scrollIndicators(.hidden)
+            }.scrollIndicators(.never).background(HorizontalWheelScrolling())
             Rule()
         }
     }

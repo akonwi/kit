@@ -16,7 +16,7 @@ private struct ComposerPickerHost: View {
             ScrollView(.vertical) {
                 content.frame(maxWidth: .infinity, alignment: .leading)
             }
-            .scrollIndicators(.hidden)
+            .scrollIndicators(.never)
             .frame(maxHeight: .infinity)
         }
         .padding(.bottom, 4)
