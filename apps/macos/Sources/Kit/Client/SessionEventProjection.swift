@@ -29,12 +29,21 @@ struct SessionEventProjection {
     /// verified on use because rare row removals can shift them.
     private var toolRows: [String: Int] = [:]
 
-    init(_ snapshot: WireSessionSnapshot, terminalError: String? = nil) throws {
-        try self.init(session: SessionProjection.snapshot(snapshot), source: snapshot.messages ?? [],
+    /// `turnEnd` is the row the previous projection showed for its last turn
+    /// ending early. It keeps its label and reason across the refresh, and
+    /// survives a snapshot that stored no reason, as for a turn that failed
+    /// before the model replied.
+    init(_ snapshot: WireSessionSnapshot, turnEnd: TranscriptMessage? = nil) throws {
+        try self.init(session: SessionProjection.snapshot(snapshot, carried: turnEnd.map { [$0] } ?? []),
+            source: snapshot.messages ?? [],
             activeRunID: snapshot.activeTurnId, replayAvailable: snapshot.eventReplayAvailable == true,
             pendingInteractions: Set((snapshot.pendingInteractions ?? []).filter { $0.plugin != nil || $0.turnId == snapshot.activeTurnId }.map(\.id)))
-        if snapshot.activeTurnId == nil && session.terminalError == nil { session.terminalError = terminalError }
+        if let turnEnd, session.messages.contains(where: { $0.id == turnEnd.id }) { self.turnEnd = turnEnd }
     }
+
+    /// The row closing the last turn this stream saw end early; nil once
+    /// another turn starts.
+    private(set) var turnEnd: TranscriptMessage?
 
     init(session: SessionExcerpt, source: [WireTranscriptMessage], activeRunID: String? = nil,
          replayAvailable: Bool = true, pendingInteractions: Set<String> = [],
@@ -112,7 +121,7 @@ struct SessionEventProjection {
             session.activeCompactionID = nil
             if activeRunID != event.turnId { retainPluginInteractions() }
             activeRunID = event.turnId
-            session.terminalError = nil
+            turnEnd = nil
             session.activity = LiveActivity.working
         case "interaction.requested":
             guard let interaction = event.interaction else { throw ClientError.invalidPayload }
@@ -266,7 +275,17 @@ struct SessionEventProjection {
         case "turn.completed":
             settleTools(at: event.receivedAt)
             session.activeCompactionID = nil
-            session.terminalError = event.errorMessage
+            if let error = event.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty,
+               !event.turnId.isEmpty {
+                let end: TranscriptMarker.TurnEnd = switch event.status {
+                case "aborted": .stopped
+                case "interrupted": .interrupted
+                default: .failed
+                }
+                let row = SessionProjection.turnEndRow(turn: event.turnId, end: end, message: error)
+                if !session.messages.contains(where: { $0.id == row.id }) { session.messages.append(row) }
+                turnEnd = row
+            }
             session.providerRetryAt = nil
             session.providerRetryCount = nil
             activeRunID = nil

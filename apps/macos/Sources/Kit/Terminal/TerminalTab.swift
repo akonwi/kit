@@ -23,7 +23,8 @@ final class TerminalTab: Identifiable {
     /// The title the shell set: the directory at a prompt, or the command
     /// that's running.
     private(set) var shellTitle = ""
-    /// Whether a bell rang while the tab wasn't on screen.
+    /// Whether a bell rang, or the shell posted a notification, while the
+    /// tab wasn't on screen.
     var bell = false
     /// Why the terminal couldn't start.
     private(set) var failure: String?

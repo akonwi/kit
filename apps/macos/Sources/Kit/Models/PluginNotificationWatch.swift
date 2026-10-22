@@ -44,13 +44,14 @@ import Foundation
 extension SessionFeedback {
     func showPluginNotification(_ notification: PluginNotification) {
         // Bound persistent plugin alerts independently of other session feedback.
+        // An error-variant alert persists like any error toast.
         let retained = items.filter { $0.key.hasPrefix("plugin-alert:") && $0.persistent }
-        if notification.persistent, retained.count >= 32 {
+        if notification.persistent || notification.variant == "error", retained.count >= 32 {
             for item in retained.prefix(retained.count - 31) { clear(key: item.key) }
         }
         show(key: "plugin-alert:" + UUID().uuidString, title: notification.title,
              detail: notification.detail, tone: notification.variant == "error" ? .error : notification.variant == "warning" ? .warning : .info,
-             persistent: notification.persistent, source: notification.pluginID)
+             persistent: notification.persistent, source: notification.pluginID, coalesce: true)
     }
     func clearTransientPluginNotifications() {
         for item in items where item.key.hasPrefix("plugin-alert:") && !item.persistent { clear(key: item.key) }

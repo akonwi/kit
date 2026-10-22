@@ -42,9 +42,26 @@ struct SessionReloadReport {
 }
 
 /// Session-local feedback. Dismissal acknowledges a notice across all surfaces.
+///
+/// A toast is for a point-in-time outcome with no better home in view: a
+/// failure, an outcome the user can act on, a background event, or the result
+/// of an explicit request that would otherwise be invisible. Ongoing states,
+/// errors owned by a control, and routine successes the UI already shows
+/// belong elsewhere.
 @MainActor @Observable
 final class SessionFeedback {
-    enum Tone { case info, warning, error }
+    enum Tone {
+        case info, warning, error
+
+        /// How long a toast of this tone shows when it isn't persistent,
+        /// counting only time the stack is visible and unhovered.
+        var lifetime: TimeInterval {
+            switch self {
+            case .info: 5
+            case .warning, .error: 8
+            }
+        }
+    }
     struct Item: Identifiable {
         let id: UUID
         let key: String
@@ -59,6 +76,17 @@ final class SessionFeedback {
         var icon: Icon? = nil
         /// Where the toast came from when that isn't Kit, such as a plugin's id.
         var source: String? = nil
+        /// Whether a repeat of the same notice joins this toast.
+        var coalesces = false
+        /// How many times the notice arrived while this toast showed.
+        var count = 1
+
+        func repeats(_ other: Item) -> Bool {
+            coalesces && other.coalesces && reloadReport == nil && other.reloadReport == nil
+                && title == other.title && detail == other.detail && tone == other.tone
+                && persistent == other.persistent && icon == other.icon && source == other.source
+                && actionTitle == other.actionTitle
+        }
     }
     private(set) var items: [Item] = []
     @ObservationIgnored private var seen = Set<String>()
@@ -68,15 +96,28 @@ final class SessionFeedback {
     var visible: Item? { items.last }
     var notices: [Item] { items.filter(\.persistent) }
 
-    func show(key: String = UUID().uuidString, title: String, detail: String = "", tone: Tone = .info,
+    /// Shows a toast. Errors always persist until acknowledged. A notice
+    /// with no `key` and no action, or with `coalesce`, joins a showing toast
+    /// with the same content instead of stacking, restarting its lifetime and
+    /// counting the repeat. Notices with actions stay apart by default, since
+    /// each may act on a different target.
+    func show(key: String? = nil, title: String, detail: String = "", tone: Tone = .info,
               icon: Icon? = nil, persistent: Bool = false, actionTitle: String? = nil, action: (@MainActor () -> Void)? = nil,
-              reloadReport: SessionReloadReport? = nil, source: String? = nil) {
+              reloadReport: SessionReloadReport? = nil, source: String? = nil, coalesce: Bool = false) {
+        let coalesces = coalesce || (key == nil && action == nil)
+        let key = key ?? UUID().uuidString
         guard !acknowledged.contains(key), !items.contains(where: { $0.key == key }), seen.insert(key).inserted else { return }
         seenOrder.append(key)
         if seenOrder.count > 512 { seen.remove(seenOrder.removeFirst()) }
-        items.append(Item(id: UUID(), key: key, title: title, detail: detail, reloadReport: reloadReport,
-                          tone: tone, persistent: persistent, actionTitle: actionTitle, action: action,
-                          icon: icon, source: source))
+        var item = Item(id: UUID(), key: key, title: title, detail: detail, reloadReport: reloadReport,
+                        tone: tone, persistent: persistent || tone == .error, actionTitle: actionTitle, action: action,
+                        icon: icon, source: source, coalesces: coalesces)
+        if let index = items.lastIndex(where: { $0.repeats(item) }) {
+            let earlier = items.remove(at: index)
+            remainingByID.removeValue(forKey: earlier.id)
+            item.count = earlier.count + 1
+        }
+        items.append(item)
         // Bound short-lived confirmations without ever evicting an item that
         // requires acknowledgement. Visual grouping is a separate concern.
         while items.filter({ !$0.persistent }).count > 10 {
@@ -86,7 +127,9 @@ final class SessionFeedback {
             }
         }
     }
-    func remainingLifetime(for id: UUID) -> TimeInterval { remainingByID[id] ?? 10 }
+    func remainingLifetime(for id: UUID) -> TimeInterval {
+        remainingByID[id] ?? items.first(where: { $0.id == id })?.tone.lifetime ?? Tone.info.lifetime
+    }
     func saveRemainingLifetime(_ remaining: TimeInterval, for id: UUID) {
         if items.contains(where: { $0.id == id && !$0.persistent }) { remainingByID[id] = max(0, remaining) }
     }
@@ -110,28 +153,48 @@ final class SessionFeedback {
         dismiss(id)
     }
 
-    func observe(_ session: SessionExcerpt, manualCompaction: Bool = false) {
+    /// What VoiceOver says when `item` appears.
+    static func announcement(for item: Item) -> String {
+        let severity = switch item.tone { case .info: ""; case .warning: "Warning: "; case .error: "Error: " }
+        let detail = item.reloadReport?.preview ?? item.detail
+        return severity + item.title + (item.source.map { ", from " + $0 } ?? "") + (detail.isEmpty ? "" : ". " + detail)
+    }
+
+    /// Reports a session's background outcomes. A completed compaction is
+    /// shown by its transcript marker and a failed turn by its transcript row,
+    /// so neither raises a toast.
+    func observe(_ session: SessionExcerpt, manualCompaction: Bool = false,
+                 showSubagents: (@MainActor () -> Void)? = nil) {
         if let outcome = session.compactionOutcome {
             let key = "auto-compaction:" + outcome.id
-            if manualCompaction {
+            if manualCompaction || !outcome.failed {
                 // The command owns richer retry feedback for its own operation.
                 if seen.insert(key).inserted { seenOrder.append(key) }
             } else {
-                show(key: key, title: outcome.failed ? "Auto-compaction failed" : "Session compacted",
-                     detail: outcome.detail, tone: outcome.failed ? .error : .info, persistent: outcome.failed)
+                show(key: key, title: "Auto-compaction failed", detail: outcome.detail, tone: .error)
             }
         }
-        for diagnostic in session.subagentDiagnostics ?? [] {
-            let fields = [diagnostic.severity, diagnostic.code, diagnostic.message,
-                          diagnostic.source.kind, diagnostic.source.path, diagnostic.source.pluginId ?? ""]
-            let key = fields.map { "\($0.utf8.count):\($0)" }.joined()
-            show(key: "diagnostic:" + key, title: "Subagent definition warning",
-                 detail: [diagnostic.message, diagnostic.source.path].filter { !$0.isEmpty }.joined(separator: "\n"),
-                 tone: .warning, persistent: true)
+        observeSubagentDiagnostics(session.subagentDiagnostics ?? [], showSubagents: showSubagents)
+    }
+
+    /// One toast for the session's definition warnings, replaced when they change.
+    private func observeSubagentDiagnostics(_ diagnostics: [WireSubagentDiagnostic],
+                                            showSubagents: (@MainActor () -> Void)?) {
+        let prefix = "subagent-diagnostics:"
+        var identities = Set<String>()
+        let diagnostics = diagnostics.filter { diagnostic in
+            identities.insert([diagnostic.severity, diagnostic.code, diagnostic.message,
+                               diagnostic.source.kind, diagnostic.source.path, diagnostic.source.pluginId ?? ""]
+                .map { "\($0.utf8.count):\($0)" }.joined()).inserted
         }
-        if let error = session.terminalError, !error.isEmpty {
-            show(key: "run-error:\(session.messages.last?.id ?? ""):\(error)",
-                 title: "Agent turn failed", detail: error, tone: .error, persistent: true)
-        }
+        let key = prefix + identities.sorted().joined(separator: "|")
+        for item in items where item.key.hasPrefix(prefix) && item.key != key { clear(key: item.key) }
+        guard !diagnostics.isEmpty, !items.contains(where: { $0.key == key }) else { return }
+        let detail = diagnostics.map { [$0.message, $0.source.path].filter { !$0.isEmpty }.joined(separator: "\n") }
+            .joined(separator: "\n")
+        show(key: key, title: diagnostics.count == 1 ? "Subagent definition warning"
+                 : "\(diagnostics.count) subagent definition warnings",
+             detail: detail, tone: .warning, persistent: true,
+             actionTitle: showSubagents == nil ? nil : "Show subagents", action: showSubagents)
     }
 }

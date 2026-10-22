@@ -63,7 +63,8 @@ struct SessionFeedbackView: View {
                 stackControlFocused = true // Move focus to the folded count.
             }
         }
-        .onChange(of: newestFirst.map(\.id)) { _, ids in
+        .onChange(of: newestFirst.map(\.id)) { previous, ids in
+            if let newest = feedback.items.last, !previous.contains(newest.id) { announce(newest) }
             if ids.count < ToastMetrics.foldCount { expanded = false }
             focusedIDs.formIntersection(ids)
             if let expandedReportID, !ids.contains(expandedReportID) { self.expandedReportID = nil }
@@ -125,6 +126,11 @@ struct SessionFeedbackView: View {
             .buttonStyle(.plain).focused($stackControlFocused)
             .accessibilityLabel("List \(newestFirst.count) session toasts; newest: \(newestFirst.first?.title ?? "")")
         }
+    }
+
+    /// Toasts don't take focus, so VoiceOver hears them as announcements.
+    private func announce(_ item: SessionFeedback.Item) {
+        AccessibilityAnnouncement.post(SessionFeedback.announcement(for: item), urgent: item.tone != .info)
     }
 
     private func setFocused(_ id: UUID, _ focused: Bool) {
@@ -222,7 +228,12 @@ struct SessionFeedbackCard: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(item.title).font(.kit(size: 13, weight: .medium)).foregroundStyle(color)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if item.count > 1 {
+                        Text("×\(item.count)").font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
+                            .fixedSize()
+                    }
+                    Spacer(minLength: 0)
                     if let source = item.source {
                         Text(source).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
                             .lineLimit(1)
@@ -252,7 +263,7 @@ struct SessionFeedbackCard: View {
         .shadow(color: .black.opacity(theme.dark ? 0.45 : 0.15), radius: 12, y: 8)
         .onChange(of: focused) { _, value in focusChanged(value) }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(item.title)\(item.source.map { ", from " + $0 } ?? ""). \(item.reloadReport?.accessibilityDetail ?? item.detail)")
+        .accessibilityLabel("\(item.title)\(item.count > 1 ? ", repeated \(item.count) times" : "")\(item.source.map { ", from " + $0 } ?? ""). \(item.reloadReport?.accessibilityDetail ?? item.detail)")
     }
 
     /// Two lines, or the whole text once opened, scrolling past 220 pt.

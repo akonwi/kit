@@ -7,6 +7,8 @@ final class SessionStore {
     @ObservationIgnored private let pluginNotifications = PluginNotificationWatch()
     var pluginCommands: [PluginCommand] { selected?.pluginCommands ?? [] }
     private(set) var pluginCommandRunning = false
+    /// The plugin command the activity card shows as running.
+    private(set) var runningPluginCommand: String?
     @ObservationIgnored private var pluginCommandTask: Task<Void, Error>?
     @ObservationIgnored private var pluginCommandToken = UUID()
     var pluginCommandUnavailableReason: String? {
@@ -20,42 +22,43 @@ final class SessionStore {
         guard let client = catalogClient as? any PluginCommandClient else { return }
         guard pluginCommandUnavailableReason == nil else { return }
         guard pluginCommands.contains(where: { $0.id == command.id && $0.instance == command.instance }) else {
-            feedback.show(title: "Plugin command changed", detail: "Reselect it from the refreshed catalog.", tone: .warning)
+            feedback.show(title: "/" + command.name + " is no longer available",
+                          detail: "The command list changed. Choose it again from the palette.", tone: .warning)
             return
         }
-        guard args.utf8.count <= 64 * 1024, !args.contains("\0") else {
-            feedback.show(title: "Invalid plugin command arguments", detail: "Arguments must fit within 64 KiB and contain no NUL.", tone: .error)
-            return
-        }
+        // The palette refuses these arguments before it closes.
+        guard PaletteCommand(id: "", name: "", description: "", plugin: command).argumentProblem(args) == nil else { return }
         let session = selectedID, token = UUID()
         pluginCommandToken = token
         pluginCommandRunning = true
+        runningPluginCommand = command.name
         let task = Task { try await client.executePluginCommand(session, input: .init(id: command.id, instance: command.instance, args: args)) }
         pluginCommandTask = task
-        let key = "plugin-command-progress"
-        feedback.clear(key: key)
-        feedback.show(key: key, title: "Running /" + command.name, detail: "Session reload interrupts this command.", persistent: true)
         do {
             try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             guard pluginCommandToken == token, selectedID == session else { return }
-            feedback.clear(key: key)
         } catch {
             guard pluginCommandToken == token, selectedID == session else { return }
-            feedback.clear(key: key)
-            let detail = (error as? PluginCommandFailure)?.errorDescription
-                ?? "The command did not complete. Effects may have partially completed; it was not retried."
-            feedback.show(title: "Plugin command failed", detail: detail, tone: .error, persistent: true)
+            if (error as? PluginCommandFailure)?.unavailable == true {
+                // The same notice as when the palette's catalog was already stale.
+                feedback.show(title: "/" + command.name + " is no longer available",
+                              detail: "The command list changed. Choose it again from the palette.", tone: .warning)
+            } else {
+                feedback.show(title: "/" + command.name + " failed", detail: PluginCommandFailure.detail(for: error),
+                              tone: .error, persistent: true)
+            }
         }
         guard pluginCommandToken == token else { return }
         pluginCommandTask = nil
         pluginCommandRunning = false
+        runningPluginCommand = nil
     }
     private func cancelPluginCommandWait() {
         pluginCommandToken = UUID()
         pluginCommandTask?.cancel()
         pluginCommandTask = nil
         pluginCommandRunning = false
-        feedback.clear(key: "plugin-command-progress")
+        runningPluginCommand = nil
     }
 
     @ObservationIgnored private var feedbackBySession: [String: SessionFeedback] = [:]
@@ -92,6 +95,9 @@ final class SessionStore {
         }
         let detail = operation.error ?? operation.refreshError
         let feedback = feedback(for: id)
+        defer { operation.dismissFeedback() }
+        // A compaction that ran shows as its transcript marker.
+        if detail == nil, operation.result?.compacted != false { return }
         let retry: (@MainActor () -> Void)?
         if detail != nil {
             retry = { [weak self] in
@@ -102,7 +108,6 @@ final class SessionStore {
         feedback.show(key: "compaction", title: operation.title, detail: detail ?? "", tone: detail == nil ? .info : .error,
                       persistent: detail != nil, actionTitle: detail == nil ? nil : (operation.result == nil ? "Retry" : "Refresh session"),
                       action: retry)
-        operation.dismissFeedback()
     }
 
     @ObservationIgnored private var reloads: [String: SessionReloadOperation] = [:]
@@ -176,22 +181,6 @@ final class SessionStore {
             guard let self, self.selectedID == id else { throw CancellationError() }
             try await self.replica.refreshWorkspace()
         }
-    }
-
-    func syncBashFeedback() {
-        let operation = bashOperation, id = selectedID
-        guard let error = operation.error else { feedback.clear(key: "shell-error"); return }
-        guard !operation.pending else { return }
-        let retry: (@MainActor () -> Void)?
-        if operation.unresolved {
-            retry = { [weak self] in
-                guard let self, self.selectedID == id else { return }
-                self.retryBash()
-            }
-        } else { retry = nil }
-        feedback.show(key: "shell-error", title: "Shell command needs attention", detail: error,
-                      tone: .error, persistent: true,
-                      actionTitle: operation.unresolved ? "Retry shell command" : nil, action: retry)
     }
 
     var isTemporary: Bool { TemporarySessions.shared.contains(server: serverID, session: selectedID) }
@@ -323,7 +312,8 @@ final class SessionStore {
             feedback.show(title: "Model catalog refreshed", detail: "\(models.count) models available")
         } catch is CancellationError {
         } catch {
-            feedback.show(title: "Model refresh failed", detail: error.localizedDescription, tone: .error)
+            feedback.show(title: "Model refresh failed", detail: error.localizedDescription, tone: .error,
+                          actionTitle: "Retry") { [weak self] in Task { await self?.refreshModelCatalog() } }
         }
     }
     func configure(model: String? = nil, thinking: String? = nil) async {
@@ -526,7 +516,12 @@ final class SessionStore {
         configurations[replica.selectedID] = ComposerConfiguration()
         if let cwd = replica.snapshot?.cwd { knownDirectories[replica.selectedID] = cwd }
         replica.onReceive = { [weak self] session in
-            self?.feedback(for: session.id).observe(session, manualCompaction: self?.compactions[session.id]?.pending == true)
+            self?.feedback(for: session.id).observe(session, manualCompaction: self?.compactions[session.id]?.pending == true) {
+                [weak self] in
+                guard let self, self.selectedID == session.id else { return }
+                self.ui.subagentsPresented = true
+                self.ui.palette = true
+            }
             if let self, !self.isDemo {
                 SessionAttention.shared.observe(session, server: self.serverID)
             }
@@ -588,8 +583,9 @@ final class SessionStore {
     }
     /// Creates a session in this session's working directory with its model
     /// and thinking level, as the TUI's `/new` does. A failure is reported
-    /// as feedback and returns nil.
-    func createSibling() async -> SessionExcerpt? {
+    /// as feedback, whose Retry creates it again and then calls `open`, and
+    /// returns nil.
+    func createSibling(then open: (@MainActor (SessionExcerpt) -> Void)? = nil) async -> SessionExcerpt? {
         guard canCreateSibling, !siblingCreationPending,
               let client = replica.client as? any SessionCreationClient,
               let cwd = selected?.cwd else { return nil }
@@ -597,10 +593,13 @@ final class SessionStore {
         siblingCreationPending = true
         defer { siblingCreationPending = false }
         do {
-            return try await client.createSession(WireCreateSessionInput(id: nil, cwd: cwd, name: nil, model: model,
+            let created = try await client.createSession(WireCreateSessionInput(id: nil, cwd: cwd, name: nil, model: model,
                 thinkingLevel: thinking.isEmpty ? nil : thinking, temporary: false))
+            open?(created)
+            return created
         } catch {
-            feedback.show(title: "New session failed", detail: error.localizedDescription, tone: .error, persistent: true)
+            feedback.show(title: "New session failed", detail: error.localizedDescription, tone: .error,
+                          actionTitle: "Retry") { [weak self] in Task { _ = await self?.createSibling(then: open) } }
             return nil
         }
     }
@@ -773,13 +772,12 @@ final class SessionStore {
         guard let client = catalogClient as? any PromptCommandClient,
               palettePromptUnavailableReason == nil else { return }
         guard selected?.promptCommands?.contains(where: { $0.name == command.name && $0.location == command.location }) == true else {
-            feedback.show(title: "Prompt command changed", detail: "Reselect it from the refreshed catalog.", tone: .warning)
+            feedback.show(title: "/" + command.name + " is no longer available",
+                          detail: "The command list changed. Choose it again from the palette.", tone: .warning)
             return
         }
-        guard args.utf8.count <= 128 * 1024, !args.contains("\0") else {
-            feedback.show(title: "Invalid prompt arguments", detail: "Arguments must fit within 128 KiB and contain no NUL.", tone: .error)
-            return
-        }
+        // The palette refuses these arguments before it closes.
+        guard PaletteCommand(id: "", name: "", description: "", prompt: command).argumentProblem(args) == nil else { return }
         let id = selectedID, operation = operations
         let invocation = "/" + command.name + (args.isEmpty ? "" : " " + args)
         operation.submitCommand(client: client, session: id, input: .init(name: command.name, args: args),

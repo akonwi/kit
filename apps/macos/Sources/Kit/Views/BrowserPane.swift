@@ -13,6 +13,9 @@ struct BrowserPane: View {
     var body: some View {
         VStack(spacing: 0) {
             BrowserToolbar(workspace: workspace, tab: tab)
+            if let site = tab.blockedDownload {
+                BrowserBlockedDownloadBar(site: site) { tab.dismissBlockedDownload() }
+            }
             ZStack {
                 theme.surface
                 if tab.url != nil {
@@ -141,6 +144,41 @@ private struct BrowserToolbar: View {
         addressFocused = false
         let view = tab.view
         DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
+    }
+}
+
+/// A page's attempt to download without a click, owned by its tab: a slim
+/// warning strip under the toolbar until dismissed or the next page loads.
+struct BrowserBlockedDownloadBar: View {
+    @Environment(\.mica) private var theme
+    /// The site's host label, or empty when unknown.
+    let site: String
+    let dismiss: () -> Void
+
+    static let height: CGFloat = 30
+    var message: String { (site.isEmpty ? "This page" : site) + " tried to download a file without a click." }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            IconView(.warning, size: 12).foregroundStyle(theme.warning)
+            Text("Blocked a download").foregroundStyle(theme.text).fixedSize()
+            Text(message).foregroundStyle(theme.muted).lineLimit(1).truncationMode(.middle).help(message)
+            Spacer(minLength: 0)
+            Button(action: dismiss) {
+                IconView(.x, size: 10).foregroundStyle(theme.muted)
+                    .frame(width: 18, height: 18).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss")
+            .accessibilityLabel("Dismiss blocked download notice")
+        }
+        .font(.kit(size: 12))
+        .padding(.leading, 14).padding(.trailing, 8)
+        .frame(height: Self.height)
+        .background(theme.raised)
+        .overlay(alignment: .bottom) { Rule() }
+        .accessibilityElement(children: .contain)
+        .onAppear { AccessibilityAnnouncement.post("Blocked a download. " + message) }
     }
 }
 

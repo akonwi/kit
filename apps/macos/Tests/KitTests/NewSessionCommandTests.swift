@@ -47,5 +47,8 @@ private actor SiblingClient: SessionCreationClient {
         #expect(await state.createSibling() == nil)
         #expect(state.feedback.items.map(\.title) == ["New session failed"])
         #expect(state.feedback.items.map(\.detail) == [ClientError.disconnected.localizedDescription])
+        #expect(state.feedback.items.map(\.tone) == [.error])
+        #expect(state.feedback.items.map(\.persistent) == [true])
+        #expect(state.feedback.items.map(\.actionTitle) == ["Retry"])
     }
 }

@@ -48,6 +48,10 @@ struct PaletteListScreen: View {
     var complete: ((PaletteCommand) -> String?)? = nil
     /// Reports the selected row as it changes, for lists that preview it.
     var selectionChanged: ((PaletteCommand?) -> Void)? = nil
+    /// Why the query can't run, shown beneath the search field until it changes.
+    var problem: String? = nil
+    /// A refused row to flash, so its unavailable reason catches the eye.
+    var refusal: PaletteRefusal? = nil
     let activate: (PaletteCommand) -> Void
     let dismiss: () -> Void
     @State private var selectedID: String?
@@ -67,6 +71,10 @@ struct PaletteListScreen: View {
             }
             .padding(.horizontal, 16).frame(height: PaletteMetrics.searchHeight)
             Rule()
+            if let problem {
+                PaletteProblem(message: problem)
+                Rule()
+            }
             list(rows, key: key).frame(maxHeight: .infinity)
             if let footer {
                 Rule()
@@ -107,7 +115,8 @@ struct PaletteListScreen: View {
                     LazyVStack(spacing: 0) {
                         ForEach(rows) { row in
                             PaletteRow(row: row, columns: columns, selected: selectedID == row.id,
-                                       hovered: hoveredID == row.id)
+                                       hovered: hoveredID == row.id,
+                                       refusal: refusal?.rowID == row.id ? refusal?.generation ?? 0 : 0)
                                 .id(row.id)
                                 .onHover { hoveredID = $0 ? row.id : (hoveredID == row.id ? nil : hoveredID) }
                                 .onTapGesture { selectedID = row.id; activate(row) }
@@ -163,6 +172,38 @@ struct PaletteListScreen: View {
     }
 }
 
+/// A row the palette refused to run. Each refusal has a new generation, so
+/// repeating it flashes the row again.
+struct PaletteRefusal: Equatable {
+    let rowID: String
+    let generation: Int
+    /// How long the refused row keeps its warning tint.
+    static let duration: Duration = .milliseconds(900)
+
+    func next(_ rowID: String) -> Self { .init(rowID: rowID, generation: generation + 1) }
+    static let none = Self(rowID: "", generation: 0)
+}
+
+/// Why the palette's query can't run, in a strip beneath the search field.
+struct PaletteProblem: View {
+    @Environment(\.mica) private var theme
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            IconView(.warningCircle, size: 12)
+            Text(message).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .font(.kit(size: 12)).foregroundStyle(theme.danger)
+        .padding(.horizontal, 16).padding(.vertical, 6)
+        .frame(minHeight: PaletteMetrics.rowHeight)
+        .accessibilityElement(children: .combine)
+        .onAppear { AccessibilityAnnouncement.post(message, urgent: true) }
+        .onChange(of: message) { AccessibilityAnnouncement.post(message, urgent: true) }
+    }
+}
+
 /// One 28 pt row: monospace name and argument hint, then the description,
 /// or the reason it can't run, and right-aligned metadata.
 struct PaletteRow: View {
@@ -171,6 +212,9 @@ struct PaletteRow: View {
     let columns: PaletteColumns
     let selected: Bool
     var hovered = false
+    /// Increments each time the row is refused; 0 when it hasn't been.
+    var refusal = 0
+    @State private var flashing = false
 
     var body: some View {
         let dimmed = row.unavailableReason != nil
@@ -190,7 +234,7 @@ struct PaletteRow: View {
                     Text(row.description.isEmpty ? reason : reason + " · " + row.description)
                         .lineLimit(1).truncationMode(.tail)
                 }
-                .font(.kit(size: 13)).foregroundStyle(theme.strongBorder)
+                .font(.kit(size: 13)).foregroundStyle(flashing ? theme.warning : theme.strongBorder)
             } else {
                 Text(row.description).font(.kit(size: 13)).foregroundStyle(theme.muted)
                     .lineLimit(1).truncationMode(.tail)
@@ -208,10 +252,24 @@ struct PaletteRow: View {
         .help(row.prompt.map { $0.sourceLabel + " · " + $0.location } ?? row.unavailableReason ?? row.description)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .task(id: refusal) {
+            guard refusal > 0 else {
+                if flashing { withAnimation(.easeOut(duration: 0.25)) { flashing = false } }
+                return
+            }
+            if let reason = row.unavailableReason {
+                AccessibilityAnnouncement.post(row.name + " unavailable: " + reason)
+            }
+            flashing = true
+            // A newer refusal restarts the flash rather than ending it.
+            guard (try? await Task.sleep(for: PaletteRefusal.duration)) != nil else { return }
+            withAnimation(.easeOut(duration: 0.25)) { flashing = false }
+        }
     }
 
     private var background: Color {
-        selected ? theme.accent.opacity(0.18) : hovered ? theme.hover : .clear
+        if flashing { return theme.warning.opacity(theme.dark ? 0.2 : 0.14) }
+        return selected ? theme.accent.opacity(0.18) : hovered ? theme.hover : .clear
     }
 }
 
