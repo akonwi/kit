@@ -21,6 +21,8 @@ protocol SSHProcess: AnyObject, Sendable {
     func wait() async -> Int32
     /// Closes its input, then terminates and finally kills it if it lingers.
     func stop()
+    /// Terminates it now, as when a question it asked can't be answered.
+    func kill()
 }
 
 /// Runs ssh. Tests substitute a fake.
@@ -241,6 +243,11 @@ private final class SystemSSHProcess: SSHProcess {
     var running: Bool { exit.status == nil }
 
     func wait() async -> Int32 { await exit.wait() }
+
+    func kill() {
+        try? input.fileHandleForWriting.close()
+        SystemSSH.terminate(process)
+    }
 
     func stop() {
         try? input.fileHandleForWriting.close()

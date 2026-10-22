@@ -57,8 +57,12 @@ struct SSHPromptTests {
         #expect(code == .other("(me@devbox) Verification code:"))
         #expect(code.display == "Verification code:")
         #expect(SSHPrompt("Allow use of key id_ed25519?", kind: "confirm") == .confirm("Allow use of key id_ed25519?"))
-        // A host's text can't move the cursor or hide what follows.
+        // A host's text can't move the cursor, reorder, or hide what follows.
         #expect(SSHPrompt("Code\u{1b}[2J: ") == .other("Code[2J:"))
+        #expect(SSHPrompt("Code\u{202E}321: ") == .other("Code321:"))
+        // A host's keyboard-interactive question can't pass for ssh's host key question.
+        let fake = "(me@devbox) The authenticity of host 'bank (1.2.3.4)' can't be established.\nED25519 key fingerprint is SHA256:evil.\nAre you sure you want to continue connecting (yes/no)? "
+        #expect(SSHPrompt(fake) == .other(SSHPrompt.cleaned(fake)))
     }
 
     @Test func onlyPasswordsAndPassphrasesCanBeSaved() {
@@ -139,7 +143,7 @@ struct AskpassBridgeTests {
 }
 
 struct SSHHostTests {
-    private static let health = """
+    static let health = """
     {"instanceId":"instance_remote","pid":7,"kitVersion":"0.42.0","protocolVersion":\(kitWireVersion),"databaseReady":true,
      "providers":[],"serverId":"server_\(String(repeating: "0123456789abcdef", count: 2))","machineId":"\(String(repeating: "ab", count: 32))",
      "home":"/home/me"}
@@ -177,11 +181,14 @@ struct SSHHostTests {
     }
 
     @Test func aBackgroundConnectionNeverAsksAndThenWaitsForSignIn() async throws {
-        let fake = try FakeSSHHosts(ssh: FakeSSH(master: FakeSSH.asking("me@devbox's password: ", expected: "hunter2")))
+        let sent = Recorded<String>()
+        let fake = try FakeSSHHosts(ssh: FakeSSH(master: FakeSSH.asking("me@devbox's password: ", expected: "hunter2", sent: sent)))
         defer { fake.remove() }
         let host = fake.hosts.host("me@devbox")
         await expectClientError(.sshSignInRequired) { _ = try await host.resolve() }
         #expect(await host.needsSignIn)
+        // ssh was ended before it could send an empty password for the question.
+        #expect(sent.all == [])
         // Until someone signs in, checks don't run ssh again.
         await expectClientError(.sshSignInRequired) { _ = try await host.resolve() }
         #expect(fake.ssh.starts.count == 1)
@@ -242,11 +249,92 @@ struct SSHHostTests {
     }
 
     @Test func cancellingAQuestionStopsConnectingAndLeavesTheHostWaiting() async throws {
-        let fake = try FakeSSHHosts(ssh: FakeSSH(master: FakeSSH.asking("me@devbox's password: ", expected: "hunter2")))
+        let sent = Recorded<String>()
+        let fake = try FakeSSHHosts(ssh: FakeSSH(master: FakeSSH.asking("me@devbox's password: ", expected: "hunter2", sent: sent)))
         defer { fake.remove() }
         let host = fake.hosts.host("me@devbox")
-        await #expect(throws: CancellationError.self) { try await host.signIn { _ in nil } }
+        let asked = Recorded<SSHPromptRequest>()
+        await #expect(throws: CancellationError.self) {
+            try await host.signIn { request in
+                asked.append(request)
+                return nil
+            }
+        }
         #expect(await host.needsSignIn)
+        #expect(asked.all.count == 1)
+        #expect(sent.all == [])
+    }
+
+    @Test func aQuestionOnScreenIsWithdrawnWhenSSHGivesUp() async throws {
+        // ssh exits on its own, as when the host's login grace time runs out.
+        let fake = try FakeSSHHosts(ssh: FakeSSH(master: { process, environment in
+            async let answer = process.ask("me@devbox's password: ", kind: nil, environment: environment)
+            try? await Task.sleep(for: .milliseconds(100))
+            process.exit(255, diagnostics: "Connection closed by 10.0.4.12 port 22\n")
+            _ = await answer
+        }))
+        defer { fake.remove() }
+        let withdrawn = Recorded<Bool>()
+        await expectClientError(.ssh("Connection closed by 10.0.4.12 port 22")) {
+            _ = try await fake.hosts.host("me@devbox").signIn { _ in
+                // The user never answers; the question waits until it's withdrawn.
+                try? await Task.sleep(for: .seconds(60))
+                withdrawn.append(Task.isCancelled)
+                return nil
+            }
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(withdrawn.all == [true])
+    }
+
+    @Test func aSavedPasswordGoesOnlyToItsAccount() async throws {
+        let sent = Recorded<String>()
+        let fake = try FakeSSHHosts(ssh: FakeSSH(master: FakeSSH.asking("me@bastion's password: ", expected: "jump", sent: sent)),
+                                    passwords: ["me@devbox": "hunter2"])
+        defer { fake.remove() }
+        // A jump host asking in the background gets nothing.
+        await expectClientError(.sshSignInRequired) { _ = try await fake.hosts.host("me@devbox").resolve() }
+        #expect(sent.all == [])
+    }
+
+    @Test func sshAddIsGivenThePassphraseOnce() async throws {
+        let key = "/Users/me/.ssh/id_ed25519"
+        let fake = try FakeSSHHosts(ssh: FakeSSH(master: FakeSSH.asking("Enter passphrase for key '\(key)': ", expected: "open sesame")))
+        defer { fake.remove() }
+        let host = fake.hosts.host("me@devbox")
+        try await host.signIn { _ in SSHAnswer(text: "open sesame", save: true) }
+        #expect(fake.added.all == [key + "=open sesame"])
+        let bridge = try fake.hosts.environment.bridge()
+        let asks = Recorded<String?>()
+        let given = Mutex(false)
+        let registration = bridge.register { _ in
+            given.withLock { given in
+                defer { given = true }
+                return given ? nil : "once"
+            }
+        }
+        for _ in 0..<2 {
+            asks.append(await askOffThePool(socket: bridge.path, request: .init(nonce: registration.nonce, prompt: "Bad passphrase, try again: ", kind: nil)))
+        }
+        #expect(asks.all == ["once", nil])
+    }
+
+    @Test func closingAHostWhileItConnectsEndsTheNewMaster() async throws {
+        let gate = Recorded<FakeSSHProcess>()
+        let fake = try FakeSSHHosts(ssh: FakeSSH(master: { process, _ in
+            gate.append(process)
+            try? await Task.sleep(for: .milliseconds(200))
+            process.emit(SSHHost.readyMarker)
+        }))
+        defer { fake.remove() }
+        let host = fake.hosts.host("me@devbox")
+        async let connecting: Void = { _ = try? await host.resolve() }()
+        try await Task.sleep(for: .milliseconds(50))
+        await host.close()
+        await connecting
+        let master = try #require(gate.all.first)
+        #expect(!master.running)
+        await #expect(throws: CancellationError.self) { _ = try await host.resolve() }
     }
 
     @Test func aChangedHostKeyIsReportedWithBothFingerprintsAndNeverTrusted() async throws {
@@ -357,6 +445,27 @@ private enum SHA256Hex {
         await server.signIn { _ in nil }
         #expect(server.status == .signInRequired)
         server.stop()
+    }
+
+    @Test func aDroppedConnectionForgetsItsForwardAndReconnectsWithoutAsking() async throws {
+        let server = try LoopbackHTTPServer(body: SSHHostTests.health)
+        let url = try await server.start()
+        defer { server.stop() }
+        let masters = Recorded<FakeSSHProcess>()
+        let fake = try FakeSSHHosts(ssh: FakeSSH(master: { process, _ in
+            masters.append(process)
+            process.emit(SSHHost.readyMarker)
+        }), port: url.port!)
+        defer { fake.remove() }
+        let connection = ServerConnection(name: "devbox", connector: .ssh("me@devbox"), tokens: MemoryDeviceTokens(), hosts: fake.hosts,
+                                          schedule: .init(firstRetry: .seconds(60), maximumRetry: .seconds(60), check: .seconds(60)))
+        connection.start()
+        try await until { connection.status.isConnected }
+        #expect(connection.client.address.verifiedClient(for: connection.connector) != nil)
+        try #require(masters.all.first).exit(255, diagnostics: "Connection to devbox closed by remote host.\n")
+        try await until { masters.all.count == 2 }
+        try await until { connection.status.isConnected }
+        connection.stop()
     }
 
     @Test func aStoppedServerIsCheckedButNotStarted() async throws {

@@ -60,9 +60,8 @@ final class AskpassBridge: @unchecked Sendable {
     /// The environment that makes ssh ask the app through this bridge, with
     /// `answer` answering the attempt's questions until it is unregistered.
     func register(_ answer: @escaping Answer) -> (nonce: String, environment: [String: String]) {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        let nonce = bytes.map { String(format: "%02x", $0) }.joined()
+        var generator = SystemRandomNumberGenerator()
+        let nonce = (0..<32).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max, using: &generator)) }.joined()
         handlers.withLock { $0[nonce] = answer }
         return (nonce, [
             "SSH_ASKPASS": Askpass.executable,

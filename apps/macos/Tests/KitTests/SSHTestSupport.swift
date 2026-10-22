@@ -38,16 +38,20 @@ final class FakeSSH: SSHRunner, @unchecked Sendable {
     static let agent: Master = { process, _ in process.emit(SSHHost.readyMarker) }
 
     /// A master that asks `prompt` and connects when it is answered with
-    /// `expected`, asking again after a wrong answer, up to three times.
-    static func asking(_ prompt: String, expected: String, kind: String? = nil) -> Master {
+    /// `expected`. Like ssh, a refused question sends an empty answer, and
+    /// any answer but the right one is asked again, up to three times;
+    /// `sent` records what reached the host.
+    static func asking(_ prompt: String, expected: String, kind: String? = nil, sent: Recorded<String>? = nil) -> Master {
         { process, environment in
             for _ in 0..<3 {
                 let answer = await process.ask(prompt, kind: kind, environment: environment)
+                // ssh ended while it asked sends nothing.
+                guard process.running else { return }
+                sent?.append(answer ?? "")
                 if answer == expected {
                     process.emit(SSHHost.readyMarker)
                     return
                 }
-                if answer == nil { break }
             }
             process.exit(255, diagnostics: "me@devbox: Permission denied (publickey,password).\n")
         }
@@ -60,7 +64,7 @@ final class FakeSSH: SSHRunner, @unchecked Sendable {
 
     /// Answers configuration, forwards, and status queries. `status` answers
     /// a query, given whether it starts the server.
-    static func standard(config: String = "stricthostkeychecking ask\n",
+    static func standard(config: String = "user me\nhostname devbox\nstricthostkeychecking ask\n",
                          status: @escaping @Sendable (_ start: Bool) -> SSHOutput = { _ in SSHOutput(status: 0, stdout: report(), stderr: "") })
         -> Respond {
         { arguments in
@@ -129,6 +133,10 @@ final class FakeSSHProcess: SSHProcess, @unchecked Sendable {
     }
 
     func stop() { exit(0) }
+
+    /// What a killed ssh exits with.
+    static let killed: Int32 = 143
+    func kill() { exit(Self.killed) }
 }
 
 /// SSH hosts reached through a fake ssh, with a private bridge and sockets.

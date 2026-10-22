@@ -62,10 +62,13 @@ enum SSHPrompt: Equatable, Sendable {
         return String(text[range])
     }
 
-    /// Text from a host is shown, so control characters, which could move
-    /// the cursor or hide text, are dropped. Lines are kept.
+    /// Text from a host is shown, so control and format characters, which
+    /// could move the cursor, reorder text, or hide it, are dropped. Lines
+    /// are kept.
     static func cleaned(_ text: String) -> String {
-        let scalars = text.unicodeScalars.filter { $0 == "\n" || $0.properties.generalCategory != .control }
+        let scalars = text.unicodeScalars.filter {
+            $0 == "\n" || ($0.properties.generalCategory != .control && $0.properties.generalCategory != .format)
+        }
         return String(String.UnicodeScalarView(scalars)).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
@@ -87,7 +90,9 @@ struct SSHHostKey: Equatable, Sendable {
     /// can't be established. ED25519 key fingerprint is SHA256:…. … Are you
     /// sure you want to continue connecting (yes/no/[fingerprint])?"
     init?(prompt: String) {
-        guard prompt.contains("continue connecting"),
+        // ssh's own question starts so; a host's keyboard-interactive
+        // question starts with "(user@host) ", so a host can't fake it.
+        guard prompt.hasPrefix("The authenticity of host '"), prompt.contains("continue connecting"),
               let host = Self.capture(prompt, #"The authenticity of host '([^']+)' can't be established"#),
               let type = Self.capture(prompt, #"(?m)^(\S+) key fingerprint is (\S+?)\.?$"#),
               let fingerprint = Self.capture(prompt, #"(?m)^\S+ key fingerprint is (\S+?)\.?$"#) else { return nil }

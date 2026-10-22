@@ -100,6 +100,9 @@ final class ServerConnection: Identifiable {
     }
 
     @ObservationIgnored private let handshake: Handshake
+    /// Fired when an operation, or the SSH host, finds the server unreachable.
+    @ObservationIgnored private let signal: ServerSignal?
+    @ObservationIgnored private var hostObservation: Task<(SSHHost, UUID), Never>?
     /// A handshake is underway.
     @ObservationIgnored private var checking = false
     @ObservationIgnored private(set) var retired = false
@@ -117,11 +120,6 @@ final class ServerConnection: Identifiable {
         self.init(client: client, catalogClient: client, schedule: schedule, signal: signal) {
             try await client.verify().identity
         }
-        // A dropped SSH connection is checked at once, as a failed operation is.
-        if case .ssh(let destination) = connector {
-            let host = hosts.host(destination)
-            Task { _ = await host.observe { signal.fire() } }
-        }
     }
 
     /// Creates a connection with an explicit handshake, as tests do. Firing
@@ -134,8 +132,35 @@ final class ServerConnection: Identifiable {
         catalog = SessionCatalog(client: catalogClient ?? client)
         self.schedule = schedule
         self.handshake = handshake
+        self.signal = signal
         signal?.connect { [weak self] in
             Task { @MainActor in self?.operationFailed() }
+        }
+        observeHost()
+    }
+
+    /// Watches an SSH server's host, so a dropped connection is checked at
+    /// once, as a failed operation is. The transport kept for the dropped
+    /// forward is forgotten first: its local port is free for anyone to take.
+    private func observeHost() {
+        unobserveHost()
+        guard case .ssh(let destination) = connector, let signal else { return }
+        let host = client.hosts.host(destination)
+        let address = client.address
+        hostObservation = Task {
+            (host, await host.observe {
+                address.forget()
+                signal.fire()
+            })
+        }
+    }
+
+    private func unobserveHost() {
+        guard let observation = hostObservation else { return }
+        hostObservation = nil
+        Task {
+            let (host, id) = await observation.value
+            await host.unobserve(id)
         }
     }
 
@@ -165,6 +190,7 @@ final class ServerConnection: Identifiable {
     func retire() {
         retired = true
         stop()
+        unobserveHost()
         client.address.forget()
     }
 
@@ -178,6 +204,7 @@ final class ServerConnection: Identifiable {
         status = .connecting
         machine = nil
         catalog.reset()
+        observeHost()
         if monitor != nil { checkNow() }
     }
 

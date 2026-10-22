@@ -161,10 +161,10 @@ struct AddServerDialog: View {
             // does; ssh's questions appear as sheets here (S6, S9).
             pending = true
             Task {
-                await signIn.signIn(connection, start: true)
+                let started = await signIn.signIn(connection, start: true)
                 pending = false
-                if case .unreachable(let reason, _) = connection.status {
-                    self.error = "Kit saved \(name) but couldn’t connect: \(reason)"
+                if let problem = Self.problem(name: name, status: connection.status, started: started) {
+                    self.error = problem
                     added = true
                 } else {
                     close()
@@ -172,6 +172,21 @@ struct AddServerDialog: View {
             }
         case .home(let path):
             save(SavedServer(name: name, kind: .home, address: path))
+        }
+    }
+
+    /// What went wrong connecting to a new SSH server, which stays saved; nil
+    /// when it connected or waits for the user to sign in.
+    static func problem(name: String, status: ServerStatus, started: Bool) -> String? {
+        guard started else { return "Kit saved \(name). Finish signing in to another server first, then choose Sign In… for \(name)." }
+        switch status {
+        case .unreachable(let reason, _): return "Kit saved \(name) but couldn’t connect: \(reason)"
+        case .hostKeyChanged: return "Kit saved \(name) but stopped connecting: its host key changed. A tab on \(name) shows both keys."
+        case .incompatible(let mismatch):
+            return mismatch.serverIsOlder ? "Kit saved \(name), but its Kit is older than this app can use. Update Kit on \(name)."
+                : "Kit saved \(name), but its Kit is newer than this app. Update Kit for Mac."
+        case .serverStopped: return "Kit saved \(name) but couldn’t start its Kit server."
+        case .needsPairing, .connecting, .connected, .reconnecting, .signInRequired: return nil
         }
     }
 

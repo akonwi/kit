@@ -9,7 +9,7 @@ final class SSHSignIn {
     private(set) var question: Question?
     /// A sign-in is underway.
     private(set) var signingIn = false
-    @ObservationIgnored private var pending: CheckedContinuation<SSHAnswer?, Never>?
+    @ObservationIgnored private var pending: (id: UUID, continuation: CheckedContinuation<SSHAnswer?, Never>)?
 
     struct Question: Identifiable, Equatable {
         let id = UUID()
@@ -19,36 +19,57 @@ final class SSHSignIn {
     }
 
     /// Signs in to `connection`, asking this window's questions, and starts
-    /// its Kit server first when `start` is set.
-    func signIn(_ connection: ServerConnection, start: Bool = false) async {
-        guard !signingIn else { return }
+    /// its Kit server first when `start` is set. Returns false when a
+    /// sign-in from this window is already underway.
+    @discardableResult
+    func signIn(_ connection: ServerConnection, start: Bool = false) async -> Bool {
+        guard !signingIn else { return false }
         signingIn = true
-        defer { signingIn = false }
-        guard case .ssh(let destination) = connection.connector else { return connection.checkNow() }
+        defer {
+            signingIn = false
+            // A question ssh no longer waits for is withdrawn.
+            cancel()
+        }
+        guard case .ssh(let destination) = connection.connector else {
+            connection.checkNow()
+            return true
+        }
         let name = connection.name
         await connection.signIn(start: start) { [weak self] request in
-            await self?.ask(Question(server: name, destination: destination, request: request))
+            guard let self else { return nil }
+            return await self.ask(Question(server: name, destination: destination, request: request))
         }
+        return true
     }
 
     private func ask(_ question: Question) async -> SSHAnswer? {
-        // One question at a time: a new one cancels any left open.
-        pending?.resume(returning: nil)
+        // One question at a time: a new one refuses any left open.
+        cancel()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                pending = continuation
+                pending = (question.id, continuation)
                 self.question = question
             }
         } onCancel: {
-            Task { @MainActor [weak self] in self?.answer(nil) }
+            // The attempt ended, as ssh exited, so its question is withdrawn.
+            Task { @MainActor [weak self] in self?.withdraw(question.id) }
         }
     }
 
     /// Answers the question on screen; nil cancels connecting.
     func answer(_ answer: SSHAnswer?) {
         question = nil
-        pending?.resume(returning: answer)
-        pending = nil
+        let pending = pending
+        self.pending = nil
+        pending?.continuation.resume(returning: answer)
+    }
+
+    /// Refuses any question on screen, as when its window goes away.
+    func cancel() { answer(nil) }
+
+    private func withdraw(_ id: UUID) {
+        guard pending?.id == id else { return }
+        answer(nil)
     }
 }
 
@@ -207,9 +228,11 @@ private struct SSHSignInSheet: ViewModifier {
     let signIn: SSHSignIn
 
     func body(content: Content) -> some View {
-        content.sheet(item: Binding(get: { signIn.question }, set: { if $0 == nil { signIn.answer(nil) } })) { question in
+        content.sheet(item: Binding(get: { signIn.question }, set: { if $0 == nil { signIn.cancel() } })) { question in
             SSHPromptSheet(question: question) { signIn.answer($0) }
                 .environment(\.mica, theme)
         }
+        // A question can't outlive the view that shows it.
+        .onDisappear { signIn.cancel() }
     }
 }

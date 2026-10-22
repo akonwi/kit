@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LocalAuthentication
 import Security
 import Synchronization
 
@@ -38,10 +39,16 @@ struct KeychainSSHPasswords: SSHPasswordStore {
          kSecAttrAccount as String: destination, kSecUseDataProtectionKeychain as String: false]
     }
 
+    /// Reads the password without ever showing a Keychain dialog, which a
+    /// connection in the background must not do; one that would needs the
+    /// user to sign in instead.
     func password(for destination: String) -> String? {
         var query = query(destination)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        query[kSecUseAuthenticationContext as String] = context
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
         return String(data: data, encoding: .utf8)
@@ -124,8 +131,8 @@ actor SSHHost {
     private var forward: Endpoint?
     /// A background connection met a question only the user can answer.
     private var waitingForSignIn = false
-    /// Options that hold for every connection, from the user's configuration.
-    private var options: [String]?
+    /// The host was closed for good; it connects no more.
+    private var closed = false
     private var tail: Task<Void, Never>?
     private var observers: [UUID: @Sendable () -> Void] = [:]
 
@@ -164,8 +171,10 @@ actor SSHHost {
 
     func unobserve(_ id: UUID) { observers.removeValue(forKey: id) }
 
-    /// Ends the connection.
+    /// Ends the connection for good, as when no saved server uses the host.
+    /// A master that connects meanwhile is ended as soon as it's ready.
     func close() {
+        closed = true
         forward = nil
         master?.stop()
         master = nil
@@ -215,28 +224,49 @@ actor SSHHost {
     }
 
     private func ensureMaster(prompter: SSHPrompter?) async throws {
+        if closed { throw CancellationError() }
         if let master, master.running { return }
-        master = nil
-        forward = nil
-        if await check() { return }
-        if prompter == nil && waitingForSignIn { throw ClientError.sshSignInRequired }
+        if master != nil {
+            // The master ended, and its forwards with it.
+            master = nil
+            forward = nil
+        }
         let control = try control
-        // A socket left by a master that died is in the way of a new one.
-        unlink(control)
-        let options = try await configuration()
-        let attempt = SSHAttempt(destination: destination, passwords: environment.passwords, prompter: prompter)
+        switch await check(control) {
+        case .running:
+            // Another master holds the socket, as another copy of the app's
+            // may; its forward is kept until it stops working.
+            return
+        case .busy:
+            throw ClientError.ssh("Another connection to \(destination) isn’t answering. Kit will try again.")
+        case .stale:
+            // A socket left by a master that died is in the way of a new one.
+            unlink(control)
+        case .absent:
+            break
+        }
+        forward = nil
+        if prompter == nil && waitingForSignIn { throw ClientError.sshSignInRequired }
+        let configuration = try await configuration()
+        let attempt = SSHAttempt(destination: destination, account: configuration.account, passwords: environment.passwords,
+                                 prompter: prompter)
         let bridge = try environment.bridge()
         let registration = bridge.register { await attempt.answer($0) }
         defer { bridge.unregister(registration.nonce) }
-        let arguments = ["-M", "-S", control, "-o", "ControlPersist=no", "-T"] + Self.common + options
+        let arguments = ["-M", "-S", control, "-o", "ControlPersist=no", "-T"] + Self.common + configuration.options
             + ["--", destination, Self.shell("echo \(Self.readyMarker); read line")]
         let process = try environment.runner.start(arguments, environment: registration.environment)
         let ready = await Self.ready(process, attempt: attempt, timeout: environment.timeout)
-        guard ready else {
-            process.stop()
+        guard ready, !closed else {
+            // ssh is ended before a question it asked is refused, so it never
+            // sends an empty password or passphrase in place of an answer.
+            process.kill()
             _ = await process.wait()
+            attempt.finish()
+            if closed { throw CancellationError() }
             throw await failure(process.diagnostics, attempt: attempt)
         }
+        attempt.finish()
         master = process
         waitingForSignIn = false
         await attempt.keep(destination: destination, bridge: bridge, addKey: environment.addKey)
@@ -257,8 +287,8 @@ actor SSHHost {
             }
             group.addTask {
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .milliseconds(100))
-                    if attempt.idle > timeout { return false }
+                    try? await Task.sleep(for: .milliseconds(50))
+                    if attempt.gaveUp || attempt.idle > timeout { return false }
                 }
                 return false
             }
@@ -301,28 +331,39 @@ actor SSHHost {
         return SSHHostKeyChange.savedFingerprint(fromLookup: output.stdout)
     }
 
+    private enum MasterState { case absent, running, stale, busy }
+
     /// Whether a master already holds the control socket, as another copy
-    /// of the app's may.
-    private func check() async -> Bool {
-        guard let control = try? control, FileManager.default.fileExists(atPath: control) else { return false }
-        let output = try? await environment.runner.run(["-S", control, "-O", "check", "--", destination], environment: [:],
-                                                       timeout: .seconds(5))
-        return output?.status == 0
+    /// of the app's may. A socket no master answers on is stale; one that
+    /// doesn't answer in time is busy and left alone.
+    private func check(_ control: String) async -> MasterState {
+        guard FileManager.default.fileExists(atPath: control) else { return .absent }
+        guard let output = try? await environment.runner.run(["-S", control, "-O", "check", "--", destination], environment: [:],
+                                                             timeout: .seconds(5)) else { return .busy }
+        if output.status == 0 { return .running }
+        let refused = ["No such file", "Connection refused"].contains { output.stderr.contains($0) }
+        return refused ? .stale : .busy
     }
 
-    /// Options from the user's configuration that Kit overrides: a host
-    /// whose key isn't checked is checked, so Kit never trusts a changed key.
-    private func configuration() async throws -> [String] {
-        if let options { return options }
+    /// What Kit takes from the user's configuration for one master: the
+    /// account it logs in to, and options Kit overrides. A host whose key
+    /// isn't checked is checked, so Kit never trusts a changed key. It is
+    /// read for every master, so edits apply to the next connection.
+    private func configuration() async throws -> (options: [String], account: String?) {
         let output = try await environment.runner.run(["-G", "--", destination], environment: [:], timeout: .seconds(10))
         guard output.status == 0 else {
             throw ClientError.ssh(Self.lastLine(output.stderr) ?? "ssh can’t read its configuration for \(destination).")
         }
-        let checking = output.stdout.split(separator: "\n").first { $0.lowercased().hasPrefix("stricthostkeychecking ") }
-        let options = checking.map { $0.split(separator: " ").last?.lowercased() } == "false"
-            ? ["-o", "StrictHostKeyChecking=ask"] : []
-        self.options = options
-        return options
+        var values: [String: String] = [:]
+        for line in output.stdout.split(separator: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].lowercased()
+            if values[key] == nil { values[key] = String(parts[1]) }
+        }
+        let options = values["stricthostkeychecking"]?.lowercased() == "false" ? ["-o", "StrictHostKeyChecking=ask"] : []
+        let account = values["user"].flatMap { user in values["hostname"].map { user + "@" + $0 } }
+        return (options, account)
     }
 
     // MARK: - The server
@@ -386,8 +427,10 @@ actor SSHHost {
     /// What the master prints once it holds the connection.
     static let readyMarker = "kit-ssh-ready"
 
-    /// Options every connection uses.
-    static let common = ["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
+    /// Options every connection uses. Kit runs its own commands, whatever
+    /// command the user's configuration names for the host.
+    static let common = ["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
+                         "-o", "RemoteCommand=none"]
 
     /// Runs `script` with sh on the host, whatever the user's login shell.
     static func shell(_ script: String) -> String {
@@ -431,6 +474,9 @@ actor SSHHost {
 }
 
 /// One attempt to connect a host's master, answering ssh's questions.
+/// A question no one can answer, or one the user cancels, ends the attempt:
+/// its answer waits until ssh has been ended, so ssh never sends an empty
+/// answer in its place.
 final class SSHAttempt: Sendable {
     private struct State {
         var usedSaved = false
@@ -440,6 +486,10 @@ final class SSHAttempt: Sendable {
         var lastActivity = ContinuousClock.now
         var unanswered = false
         var cancelled = false
+        var finished = false
+        /// The user's answer being awaited, cancelled when the attempt ends.
+        var prompting: Task<SSHAnswer?, Never>?
+        var finishWaiters: [CheckedContinuation<Void, Never>] = []
         /// A password the user chose to save, or nil to leave the saved one.
         var password: SSHAnswer?
         var savedFailed = false
@@ -449,12 +499,15 @@ final class SSHAttempt: Sendable {
     }
 
     let destination: String
+    /// The account ssh logs in to, `user@hostname`, whose saved password
+    /// may be sent; a jump host's question never gets it.
+    let account: String?
     private let passwords: any SSHPasswordStore
     private let prompter: SSHPrompter?
     private let state = Mutex(State())
 
-    init(destination: String, passwords: any SSHPasswordStore, prompter: SSHPrompter?) {
-        (self.destination, self.passwords, self.prompter) = (destination, passwords, prompter)
+    init(destination: String, account: String? = nil, passwords: any SSHPasswordStore, prompter: SSHPrompter?) {
+        (self.destination, self.account, self.passwords, self.prompter) = (destination, account, passwords, prompter)
     }
 
     /// How long since the last question was answered, or zero while one is open.
@@ -465,35 +518,55 @@ final class SSHAttempt: Sendable {
     var unanswered: Bool { state.withLock { $0.unanswered } }
     /// The user cancelled a question.
     var cancelled: Bool { state.withLock { $0.cancelled } }
+    /// The attempt can't go on, so ssh should be ended.
+    var gaveUp: Bool { state.withLock { $0.unanswered || $0.cancelled } }
 
     /// Answers one question: a saved password first, then the user, if
-    /// someone can be asked.
+    /// someone can be asked. Nil refuses it.
     func answer(_ prompt: SSHPrompt) async -> String? {
+        enum Step { case done, giveUp, ask(retry: Bool, trySaved: Bool) }
         let key = Self.kind(prompt)
-        let (saved, retry): (String?, Bool) = state.withLock { state in
+        let step: Step = state.withLock { state in
+            if state.finished { return .done }
+            if state.cancelled || state.unanswered { return .giveUp }
             state.asked[key, default: 0] += 1
-            let retry = state.asked[key]! > 1
-            if case .password = prompt, !state.usedSaved, let saved = passwords.password(for: destination) {
-                state.usedSaved = true
-                return (saved, false)
+            var trySaved = false
+            if case .password(let account) = prompt, account == nil || account == self.account {
+                if state.usedSaved { state.savedFailed = true } else { trySaved = true }
             }
-            if case .password = prompt, state.usedSaved { state.savedFailed = true }
-            return (nil, retry)
+            return .ask(retry: state.asked[key]! > 1, trySaved: trySaved)
         }
-        if let saved { return saved }
-        guard let prompter else {
-            state.withLock { $0.unanswered = true }
+        guard case .ask(let retry, let trySaved) = step else {
+            if case .giveUp = step { await finished() }
             return nil
         }
-        state.withLock { $0.asking += 1 }
-        let answer = await prompter(SSHPromptRequest(prompt: prompt, retry: retry))
-        state.withLock { state in
+        if trySaved, let saved = passwords.password(for: destination) {
+            state.withLock { $0.usedSaved = true }
+            return saved
+        }
+        guard let prompter else { return await giveUp(\.unanswered) }
+        let request = SSHPromptRequest(prompt: prompt, retry: retry)
+        let task = Task { await prompter(request) }
+        let open = state.withLock { state -> Bool in
+            guard !state.finished else { return false }
+            state.prompting = task
+            state.asking += 1
+            return true
+        }
+        guard open else {
+            task.cancel()
+            return nil
+        }
+        let answer = await task.value
+        let ended = state.withLock { state -> Bool in
             state.asking -= 1
+            state.prompting = nil
             state.lastActivity = .now
-            guard let answer else {
-                state.cancelled = true
-                return
-            }
+            return state.finished
+        }
+        if ended { return nil }
+        guard let answer else { return await giveUp(\.cancelled) }
+        state.withLock { state in
             switch prompt {
             case .password: state.password = answer
             case .passphrase(let key):
@@ -502,7 +575,38 @@ final class SSHAttempt: Sendable {
             case .hostKey, .confirm, .other: break
             }
         }
-        return answer?.text
+        return answer.text
+    }
+
+    /// Ends the attempt for want of an answer, then refuses the question
+    /// once ssh has been ended.
+    private func giveUp(_ reason: WritableKeyPath<State, Bool>) async -> String? {
+        state.withLock { $0[keyPath: reason] = true }
+        await finished()
+        return nil
+    }
+
+    /// Marks the attempt over, as ssh connected or was ended. A question
+    /// still on screen is withdrawn, and later questions are refused.
+    func finish() {
+        let (prompting, waiters) = state.withLock { state in
+            state.finished = true
+            defer { state.finishWaiters = []; state.prompting = nil }
+            return (state.prompting, state.finishWaiters)
+        }
+        prompting?.cancel()
+        waiters.forEach { $0.resume() }
+    }
+
+    private func finished() async {
+        await withCheckedContinuation { continuation in
+            let done = state.withLock { state -> Bool in
+                if state.finished { return true }
+                state.finishWaiters.append(continuation)
+                return false
+            }
+            if done { continuation.resume() }
+        }
     }
 
     /// Keeps what the user chose to save, now that the answers worked: the
@@ -517,8 +621,15 @@ final class SSHAttempt: Sendable {
             else if savedFailed { try? passwords.delete(destination) }
         }
         for (key, passphrase) in keys {
-            // ssh-add asks only for this key's passphrase, in its own words.
-            let registration = bridge.register { _ in passphrase }
+            // ssh-add asks only for this key's passphrase, in its own words,
+            // and gets it once: a passphrase it refuses isn't kept.
+            let given = Mutex(false)
+            let registration = bridge.register { _ in
+                given.withLock { given in
+                    defer { given = true }
+                    return given ? nil : passphrase
+                }
+            }
             await addKey(key, registration.environment)
             bridge.unregister(registration.nonce)
         }
@@ -574,7 +685,8 @@ final class SSHHosts: Sendable {
     static func bridge() throws -> AskpassBridge {
         try sharedBridge.withLock { bridge in
             if let bridge { return bridge }
-            let made = try AskpassBridge(path: try directory() + "/askpass")
+            // Each copy of the app has its own socket.
+            let made = try AskpassBridge(path: try directory() + "/askpass-\(getpid())")
             bridge = made
             return made
         }
@@ -603,6 +715,8 @@ final class SSHHosts: Sendable {
         guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR, info.st_uid == getuid() else {
             throw ClientError.ssh("Kit can’t use \(path) for SSH connections: another user owns it.")
         }
-        if info.st_mode & 0o077 != 0 { chmod(path, 0o700) }
+        if info.st_mode & 0o077 != 0, chmod(path, 0o700) != 0 {
+            throw ClientError.ssh("Kit can’t make \(path) private for SSH connections.")
+        }
     }
 }
