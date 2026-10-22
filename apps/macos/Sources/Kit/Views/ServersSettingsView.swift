@@ -96,6 +96,12 @@ struct ServerRowPresentation: Equatable {
             (self.status, tone) = (mismatch.serverIsOlder ? "Needs a newer Kit" : "Needs a newer Kit for Mac", .warning)
         case .needsPairing(let need):
             (self.status, tone) = (need == .expired ? "Pairing expired" : need == .missing ? "Not paired" : "Pairing revoked", .warning)
+        case .signInRequired:
+            (self.status, tone) = ("Sign in to connect", .warning)
+        case .hostKeyChanged:
+            (self.status, tone) = ("Host key changed", .warning)
+        case .serverStopped:
+            (self.status, tone) = ("Server stopped", .hollow)
         }
     }
 }

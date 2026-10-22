@@ -83,7 +83,9 @@ extension ServerDirectory {
         serverRenamed(name, newName)
     }
 
-    /// Forgets the server `name` and its device token; windows close its tabs.
+    /// Forgets the server `name` and its device token, or the SSH password
+    /// saved for its host when no other saved server uses that host; windows
+    /// close its tabs.
     func remove(_ name: String) throws {
         let server = savedServers.first { $0.name == name }
         try SavedServerList.remove(name, from: list)
@@ -92,6 +94,9 @@ extension ServerDirectory {
             try? TerminalDeviceTokens.delete(name, home: home.path)
         }
         refresh()
+        if let server, server.kind == .ssh, !savedServers.contains(where: { $0.kind == .ssh && $0.address == server.address }) {
+            try? hosts.environment.passwords.delete(server.address)
+        }
         if launcherServer == name { launcherServer = ServerClient.localID }
         if SettingsRoute.shared.server == name { SettingsRoute.shared.server = ServerClient.localID }
         serverRemoved(name)

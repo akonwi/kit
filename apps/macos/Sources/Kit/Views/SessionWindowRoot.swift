@@ -161,7 +161,7 @@ private struct SessionTabContent: View {
                     .overlay(alignment: .top) { launcherMenu(connection, width: SessionLauncherContent.width) }
             case .connecting, .reconnecting:
                 connected(connection)
-            case .unreachable, .incompatible:
+            case .unreachable, .incompatible, .signInRequired, .hostKeyChanged, .serverStopped:
                 ServerStateView(connection: connection, sessionTab: !tab.isLauncher)
                     .overlay(alignment: .top) { launcherMenu(connection, width: ServerStateView.width) }
             case .needsPairing(let need):

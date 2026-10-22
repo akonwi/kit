@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 
 /// What a tab says in place of its content while its server can't serve it:
-/// the server can't be reached (S13), it is older than the app (S14), or the
-/// app is older than it (S15).
+/// the server can't be reached (S13), it is older than the app (S14), the
+/// app is older than it (S15), an SSH host's key changed (S10), its Kit
+/// server stopped (S16), or it waits for the user to sign in (S9).
 struct ServerStatePresentation: Equatable {
     enum Action: Equatable {
         /// The server is checked again at `retry`, or now when nil.
@@ -12,6 +13,13 @@ struct ServerStatePresentation: Equatable {
         case restart(command: String, prompt: String)
         /// The user installs a newer app.
         case update
+        /// The user removes an SSH host's old key with `command` in
+        /// Terminal, then tries again (S10).
+        case removeHostKey(command: String, prompt: String)
+        /// The user starts an SSH host's Kit server, as `kit attach` does (S16).
+        case startServer(note: String)
+        /// The user signs in to an SSH host (S9).
+        case signIn
     }
 
     struct Version: Equatable {
@@ -78,6 +86,29 @@ struct ServerStatePresentation: Equatable {
             reason = failure
             versions = []
             action = .retry(retry)
+        case .hostKeyChanged(let change):
+            title = "\(name)’s host key changed"
+            message = "The key \(name) sent doesn’t match the one this Mac saved, so Kit stopped connecting. A reinstalled host does this, but so does someone intercepting the connection."
+            source = nil
+            reason = nil
+            versions = (change.saved.map { [Version(label: "Saved", value: $0, outdated: false)] } ?? [])
+                + [Version(label: "Now", value: change.now, outdated: true)]
+            action = .removeHostKey(command: change.removeCommand,
+                                    prompt: "If you expected this, remove the old key in Terminal, then try again:")
+        case .serverStopped:
+            title = "\(name)’s Kit server stopped"
+            message = "Kit reached \(name) over SSH, but its Kit server isn’t running. Kit doesn’t start it again on its own."
+            source = Self.source(name: name, connector: connector)
+            reason = "kit server status: not running"
+            versions = []
+            action = .startServer(note: "Runs kit server start on \(name), as kit attach does.")
+        case .signInRequired:
+            title = "Sign in to \(name)"
+            message = "\(name) asked for something only you can answer, such as a password. Kit doesn’t ask while you’re elsewhere; sign in to keep connecting."
+            source = nil
+            reason = nil
+            versions = []
+            action = .signIn
         case .connecting, .connected, .reconnecting, .needsPairing:
             title = local ? "Connecting to Kit" : "Connecting to \(name)"
             message = ""
@@ -139,8 +170,12 @@ struct ServerStateView: View {
     @Environment(\.mica) private var theme
     @Environment(\.openURL) private var openURL
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.controlActiveState) private var activeState
     let connection: ServerConnection
     var sessionTab = true
+    @State private var signIn = SSHSignIn()
+    /// This view already signed in once on its own.
+    @State private var askedOnOpen = false
 
     /// The width of a server state's column.
     static let width: CGFloat = 520
@@ -170,6 +205,49 @@ struct ServerStateView: View {
         .padding(.top, SessionLauncherContent.top).padding(.bottom, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .textSelection(.enabled)
+        .sshSignInSheet(signIn)
+        // Opening a server waiting for sign-in asks, in the window in use.
+        .onChange(of: activeState, initial: true) { signInOnOpen() }
+        .onChange(of: connection.status) { signInOnOpen() }
+    }
+
+    private func signInOnOpen() {
+        guard connection.status == .signInRequired, activeState == .key, !askedOnOpen, !signIn.signingIn else { return }
+        askedOnOpen = true
+        Task { await signIn.signIn(connection) }
+    }
+
+    /// Checks the server again. An SSH server is signed in to, so a question,
+    /// such as a new host key, can be asked in this window.
+    private func tryAgain() {
+        if case .ssh = connection.connector {
+            Task { await signIn.signIn(connection) }
+        } else {
+            connection.checkNow()
+        }
+    }
+
+    private func command(_ command: String, prompt: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(prompt).font(.kit(size: 12)).foregroundStyle(theme.muted)
+            HStack(spacing: 8) {
+                Text(command).font(.kit(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                    .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                    .background(theme.raised, in: RoundedRectangle(cornerRadius: 3))
+                    .overlay { RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border) }
+                    .help(command)
+                Button("Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(command, forType: .string)
+                }.buttonStyle(FormButtonStyle())
+                Button(action: tryAgain) {
+                    if signIn.signingIn { KitSpinner() } else { Text("Try Again") }
+                }
+                .buttonStyle(FormButtonStyle(fill: .primary))
+                .keyboardShortcut(.defaultAction)
+                .disabled(signIn.signingIn)
+            }
+        }
     }
 
     private func failure(source: String?, reason: String) -> some View {
@@ -209,28 +287,37 @@ struct ServerStateView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Button("Server Settings…") { SettingsSection.servers.open(with: openSettings, server: connection.name) }
                     .buttonStyle(FormButtonStyle())
-                Button("Try Now") { connection.checkNow() }
+                Button("Try Now", action: tryAgain)
                     .buttonStyle(FormButtonStyle(fill: .primary))
                     .keyboardShortcut(.defaultAction)
-                    .disabled(retry == nil)
+                    .disabled(retry == nil || signIn.signingIn)
             }
-        case .restart(let command, let prompt):
-            VStack(alignment: .leading, spacing: 8) {
-                Text(prompt).font(.kit(size: 12)).foregroundStyle(theme.muted)
-                HStack(spacing: 8) {
-                    Text(command).font(.kit(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
-                        .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                        .background(theme.raised, in: RoundedRectangle(cornerRadius: 3))
-                        .overlay { RoundedRectangle(cornerRadius: 3).strokeBorder(theme.border) }
-                        .help(command)
-                    Button("Copy") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(command, forType: .string)
-                    }.buttonStyle(FormButtonStyle())
-                    Button("Try Again") { connection.checkNow() }
-                        .buttonStyle(FormButtonStyle(fill: .primary))
-                        .keyboardShortcut(.defaultAction)
+        case .restart(let command, let prompt), .removeHostKey(let command, let prompt):
+            self.command(command, prompt: prompt)
+        case .startServer(let note):
+            HStack(spacing: 10) {
+                Button {
+                    Task { await signIn.signIn(connection, start: true) }
+                } label: {
+                    if signIn.signingIn { KitSpinner("Starting…") } else { Text("Start Server") }
                 }
+                .buttonStyle(FormButtonStyle(fill: .primary))
+                .keyboardShortcut(.defaultAction)
+                .disabled(signIn.signingIn)
+                Text(note).font(.kit(size: 12)).foregroundStyle(theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
+        case .signIn:
+            HStack(spacing: 8) {
+                Button {
+                    Task { await signIn.signIn(connection) }
+                } label: {
+                    if signIn.signingIn { KitSpinner("Signing in…") } else { Text("Sign In…") }
+                }
+                .buttonStyle(FormButtonStyle(fill: .primary))
+                .keyboardShortcut(.defaultAction)
+                .disabled(signIn.signingIn)
+                Button("Server Settings…") { SettingsSection.servers.open(with: openSettings, server: connection.name) }
+                    .buttonStyle(FormButtonStyle())
             }
         case .update:
             HStack(spacing: 8) {

@@ -1,8 +1,10 @@
 import SwiftUI
 
 /// How the launcher's server menu shows one server: where it is while it can
-/// list sessions, otherwise what it needs. A server that can't list sessions
-/// is dimmed and can't be chosen; Manage Servers… is where it's fixed.
+/// list sessions, otherwise what it needs. A server that needs fixing
+/// elsewhere is dimmed and can't be chosen; Manage Servers… is where it's
+/// fixed. An SSH server waiting for sign-in or with its Kit server stopped
+/// can be chosen: its launcher signs in or offers Start Server.
 struct LauncherServerOption: Equatable, Identifiable {
     var id: String { name }
     let name: String
@@ -10,33 +12,46 @@ struct LauncherServerOption: Equatable, Identifiable {
     /// Whether the detail is an address, set in mono.
     let address: Bool
     let available: Bool
-    let needsPairing: Bool
+    /// The server needs the user, so its detail is a warning.
+    let needsAttention: Bool
 
-    init(name: String, detail: String, address: Bool, available: Bool, needsPairing: Bool = false) {
-        (self.name, self.detail, self.address, self.available, self.needsPairing) = (name, detail, address, available, needsPairing)
+    init(name: String, detail: String, address: Bool, available: Bool, needsAttention: Bool = false) {
+        (self.name, self.detail, self.address, self.available, self.needsAttention) = (name, detail, address, available, needsAttention)
     }
 
     init(name: String, connector: ServerConnector, status: ServerStatus) {
         self.name = name
         available = Self.available(status)
-        if case .needsPairing = status { needsPairing = true } else { needsPairing = false }
-        guard available else {
-            (detail, address) = (needsPairing ? "Pair again"
-                : ServerRowPresentation(name: name, connector: connector, status: status).status, false)
-            return
+        switch status {
+        case .needsPairing: (detail, address, needsAttention) = ("Pair again", false, true)
+        case .signInRequired: (detail, address, needsAttention) = ("Sign in", false, true)
+        case .serverStopped: (detail, address, needsAttention) = ("Server stopped", false, true)
+        case .unreachable, .incompatible, .hostKeyChanged:
+            (detail, address, needsAttention) = (ServerRowPresentation(name: name, connector: connector, status: status).status, false, false)
+        case .connecting, .connected, .reconnecting:
+            needsAttention = false
+            switch connector {
+            case .home: (detail, address) = ("This Mac", false)
+            case .url(let origin, _): (detail, address) = (Self.host(origin), true)
+            case .ssh(let destination): (detail, address) = (destination, true)
+            }
         }
-        switch connector {
-        case .home: (detail, address) = ("This Mac", false)
-        case .url(let origin, _): (detail, address) = (Self.host(origin), true)
-        case .ssh(let destination): (detail, address) = (destination, true)
+    }
+
+    /// Whether a server in `status` can be chosen: it can list sessions, now
+    /// or once it connects, or its launcher can get it there.
+    static func available(_ status: ServerStatus) -> Bool {
+        switch status {
+        case .connecting, .connected, .reconnecting, .signInRequired, .serverStopped: true
+        case .unreachable, .incompatible, .needsPairing, .hostKeyChanged: false
         }
     }
 
     /// Whether a server in `status` can list sessions, now or once it connects.
-    static func available(_ status: ServerStatus) -> Bool {
+    static func lists(_ status: ServerStatus) -> Bool {
         switch status {
         case .connecting, .connected, .reconnecting: true
-        case .unreachable, .incompatible, .needsPairing: false
+        case .unreachable, .incompatible, .needsPairing, .signInRequired, .hostKeyChanged, .serverStopped: false
         }
     }
 
@@ -53,7 +68,7 @@ extension ServerDirectory {
     /// list sessions, otherwise this Mac's.
     var launcherDefault: String {
         guard let connection = connection(named: launcherServer),
-              LauncherServerOption.available(connection.status) else { return ServerClient.localID }
+              LauncherServerOption.lists(connection.status) else { return ServerClient.localID }
         return connection.name
     }
 
@@ -183,7 +198,7 @@ struct LauncherServerMenu: View {
         return Button { choose(option.name) } label: {
             HStack(spacing: 10) {
                 ZStack {
-                    if option.needsPairing { IconView(.warning, size: 12).foregroundStyle(theme.warning) }
+                    if option.needsAttention { IconView(.warning, size: 12).foregroundStyle(theme.warning) }
                     else if current { IconView(.check, size: 12) }
                 }
                 .frame(width: 14, height: 12)
@@ -192,7 +207,7 @@ struct LauncherServerMenu: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(option.detail)
                     .font(option.address ? .kit(size: 11, design: .monospaced) : .kit(size: 12))
-                    .foregroundStyle(option.needsPairing ? theme.warning : theme.muted)
+                    .foregroundStyle(option.needsAttention ? theme.warning : theme.muted)
                     .lineLimit(1).truncationMode(.middle)
             }
             .padding(.horizontal, 8).frame(height: Self.rowHeight)

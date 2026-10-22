@@ -49,7 +49,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// The executable's entry point. ssh runs this executable as its askpass
+/// helper too (ADR 0045); that run answers ssh and exits before the app starts.
 @main
+enum KitMain {
+    static func main() {
+        if let status = Askpass.runIfRequested() { exit(status) }
+        KitApp.main()
+    }
+}
+
 struct KitApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var themeLibrary: NativeThemeLibrary

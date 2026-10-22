@@ -56,6 +56,9 @@ final class SessionTab: Identifiable {
         case .unreachable: return "Can’t connect"
         case .incompatible(let mismatch): return mismatch.serverIsOlder ? "Server needs a newer Kit" : "Needs a newer Kit for Mac"
         case .needsPairing: return "Pair again"
+        case .signInRequired: return "Sign in"
+        case .hostKeyChanged: return "Host key changed"
+        case .serverStopped: return "Server stopped"
         case .connecting, .connected, .reconnecting: return nil
         }
     }

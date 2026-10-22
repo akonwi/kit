@@ -30,12 +30,23 @@ enum ServerStatus: Equatable, Sendable {
     /// A served server needs this Mac to pair with it again. It is checked
     /// again occasionally, so pairing from a terminal resumes its tabs.
     case needsPairing(ClientError.PairingNeed)
+    /// An SSH host asked something only the user can answer, such as a
+    /// password, which a background connection never asks. It isn't checked
+    /// again until someone opens the server and signs in (S9).
+    case signInRequired
+    /// An SSH host's key no longer matches the one this Mac saved, so ssh
+    /// refused it (S10). It is checked again occasionally, so removing the
+    /// old key in Terminal resumes its tabs.
+    case hostKeyChanged(SSHHostKeyChange)
+    /// An SSH host's Kit server isn't running (S16). It is checked again
+    /// occasionally, but never started on its own.
+    case serverStopped
 
     /// The server last verified, while connected or reconnecting.
     var identity: ServerIdentity? {
         switch self {
         case .connected(let identity), .reconnecting(let identity, _): identity
-        case .connecting, .unreachable, .incompatible, .needsPairing: nil
+        case .connecting, .unreachable, .incompatible, .needsPairing, .signInRequired, .hostKeyChanged, .serverStopped: nil
         }
     }
     var isConnected: Bool {
@@ -100,11 +111,16 @@ final class ServerConnection: Identifiable {
 
     /// Creates a connection that checks the server through its connector.
     convenience init(name: String, connector: ServerConnector, tokens: any DeviceTokenStore = DeviceTokens.standard,
-                     schedule: Schedule = Schedule()) {
+                     hosts: SSHHosts = .shared, schedule: Schedule = Schedule()) {
         let signal = ServerSignal()
-        let client = ServerClient(serverID: name, connector: connector, tokens: tokens, unreachable: signal)
+        let client = ServerClient(serverID: name, connector: connector, tokens: tokens, hosts: hosts, unreachable: signal)
         self.init(client: client, catalogClient: client, schedule: schedule, signal: signal) {
             try await client.verify().identity
+        }
+        // A dropped SSH connection is checked at once, as a failed operation is.
+        if case .ssh(let destination) = connector {
+            let host = hosts.host(destination)
+            Task { _ = await host.observe { signal.fire() } }
         }
     }
 
@@ -125,9 +141,15 @@ final class ServerConnection: Identifiable {
 
     /// Starts checking the server, if it isn't already and the connection
     /// hasn't been retired.
-    func start() {
+    func start() { start(after: .zero) }
+
+    /// Starts checking the server after `delay`.
+    private func start(after delay: Duration) {
         guard monitor == nil, !retired else { return }
-        monitor = Task { [weak self] in await self?.run() }
+        monitor = Task { [weak self] in
+            if delay > .zero { do { try await Task.sleep(for: delay) } catch { return } }
+            await self?.run()
+        }
     }
 
     /// Stops checking the server.
@@ -157,6 +179,74 @@ final class ServerConnection: Identifiable {
         machine = nil
         catalog.reset()
         if monitor != nil { checkNow() }
+    }
+
+    /// Connects to an SSH server, asking the user through `prompter`, and
+    /// starts its Kit server first when `start` is set, as Add Server and
+    /// Start Server do (S6, S16). Then checks the server. Other servers are
+    /// only checked. A failure shows as the server's status, as a check's
+    /// does; cancelling leaves an SSH host that still needs answers waiting
+    /// for sign-in.
+    func signIn(start: Bool = false, prompter: @escaping SSHPrompter) async {
+        guard !retired else { return }
+        guard case .ssh(let destination) = connector else { return checkNow() }
+        let host = client.hosts.host(destination)
+        stop()
+        checking = true
+        do {
+            try await host.signIn(start: start, prompter: prompter)
+            checking = false
+        } catch {
+            checking = false
+            guard !retired, connector == .ssh(destination) else { return }
+            if isCancellation(error) {
+                if await host.needsSignIn { status = .signInRequired } else { self.start() }
+                return
+            }
+            var delay = schedule.firstRetry
+            if let wait = failed(error, delay: &delay) { self.start(after: wait) }
+            return
+        }
+        guard !retired, connector == .ssh(destination) else { return }
+        self.start()
+    }
+
+    /// Shows a failed check or sign-in as the server's status and returns
+    /// how long to wait before checking again, or nil when only the user can
+    /// make the next check succeed. `delay` is the backoff while the server
+    /// can't be reached.
+    private func failed(_ error: any Error, delay: inout Duration) -> Duration? {
+        if case let ClientError.incompatibleDaemon(version, appProtocol, serverProtocol, reason) = error {
+            status = .incompatible(ServerMismatch(serverKitVersion: version, serverProtocol: serverProtocol,
+                                                  appProtocol: appProtocol, reason: reason))
+            return schedule.check
+        }
+        if case ClientError.needsPairing(let need) = error {
+            status = .needsPairing(need)
+            return schedule.check
+        }
+        if case ClientError.sshSignInRequired = error {
+            // Only someone opening the server can answer, so it isn't
+            // checked again until they sign in.
+            status = .signInRequired
+            return nil
+        }
+        if case ClientError.sshHostKeyChanged(let change) = error {
+            status = .hostKeyChanged(change)
+            return schedule.check
+        }
+        if case ClientError.sshServerStopped = error {
+            status = .serverStopped
+            return schedule.check
+        }
+        let wait = delay
+        delay = schedule.retry(after: delay)
+        if case .connected(let identity) = status {
+            status = .reconnecting(identity, retry: Date.now.addingTimeInterval(wait.seconds))
+        } else {
+            status = .unreachable(reason: error.localizedDescription, retry: Date.now.addingTimeInterval(wait.seconds))
+        }
+        return wait
     }
 
     /// Checks the server now, as Try Now and returning to the app do.
@@ -201,22 +291,11 @@ final class ServerConnection: Identifiable {
             } catch {
                 // A handshake that ends early, uncancelled, is a failure like
                 // any other, so checks keep running.
-                if case let ClientError.incompatibleDaemon(version, appProtocol, serverProtocol, reason) = error {
-                    status = .incompatible(ServerMismatch(serverKitVersion: version, serverProtocol: serverProtocol,
-                                                          appProtocol: appProtocol, reason: reason))
-                    wait = schedule.check
-                } else if case ClientError.needsPairing(let need) = error {
-                    status = .needsPairing(need)
-                    wait = schedule.check
-                } else if case .connected(let identity) = status {
-                    status = .reconnecting(identity, retry: Date.now.addingTimeInterval(delay.seconds))
-                    wait = delay
-                    delay = schedule.retry(after: delay)
-                } else {
-                    status = .unreachable(reason: error.localizedDescription, retry: Date.now.addingTimeInterval(delay.seconds))
-                    wait = delay
-                    delay = schedule.retry(after: delay)
+                guard let next = failed(error, delay: &delay) else {
+                    monitor = nil
+                    return
                 }
+                wait = next
             }
             do { try await Task.sleep(for: wait) } catch { return }
         }
@@ -248,6 +327,8 @@ final class ServerDirectory {
     let list: URL
     /// Where served servers' device tokens are kept.
     @ObservationIgnored let tokens: any DeviceTokenStore
+    /// The SSH hosts SSH servers are reached through, one connection per host.
+    @ObservationIgnored let hosts: SSHHosts
     /// Called after a saved server is renamed, so windows move its tabs.
     @ObservationIgnored var serverRenamed: (_ from: String, _ to: String) -> Void = { _, _ in }
     /// Called after a saved server is removed, so windows close its tabs.
@@ -268,17 +349,19 @@ final class ServerDirectory {
     static let launcherServerKey = "launcherServer"
 
     /// Reads the saved servers of `home` and connects to them through their connectors.
-    convenience init(home: URL = DevHomeResolver.resolve(), tokens: any DeviceTokenStore = DeviceTokens.standard) {
+    convenience init(home: URL = DevHomeResolver.resolve(), tokens: any DeviceTokenStore = DeviceTokens.standard,
+                     hosts: SSHHosts = .shared) {
         let list = home.appendingPathComponent("servers.json")
-        self.init(home: home, tokens: tokens, defaults: .standard, localMachines: { LocalMachine.identifiers(home: home) },
+        self.init(home: home, tokens: tokens, hosts: hosts, defaults: .standard, localMachines: { LocalMachine.identifiers(home: home) },
                   saved: { (try? SavedServerList.read(list)) ?? [] }) { name, connector in
-            ServerConnection(name: name, connector: connector, tokens: tokens)
+            ServerConnection(name: name, connector: connector, tokens: tokens, hosts: hosts)
         }
     }
 
     /// Creates a directory from explicit parts, as tests do. Changes are
     /// written to `home`'s list, which `saved` should read.
-    init(home: URL, tokens: any DeviceTokenStore = MemoryDeviceTokens(), defaults: UserDefaults? = nil,
+    init(home: URL, tokens: any DeviceTokenStore = MemoryDeviceTokens(),
+         hosts: SSHHosts = SSHHosts(environment: .init(passwords: MemorySSHPasswords())), defaults: UserDefaults? = nil,
          localMachines: @escaping () -> Set<String> = { [] }, saved: @escaping () -> [SavedServer],
          makeConnection: @escaping (String, ServerConnector) -> ServerConnection) {
         self.defaults = defaults
@@ -288,6 +371,7 @@ final class ServerDirectory {
         self.home = URL(fileURLWithPath: home.path).standardizedFileURL
         list = self.home.appendingPathComponent("servers.json")
         self.tokens = tokens
+        self.hosts = hosts
         self.saved = saved
         self.makeConnection = makeConnection
         let servers = saved()
@@ -360,6 +444,8 @@ final class ServerDirectory {
         }
         let kept = Set(next.map(ObjectIdentifier.init))
         for connection in connections where !kept.contains(ObjectIdentifier(connection)) { connection.retire() }
+        // A host no saved server uses any more is disconnected.
+        hosts.keep(Set(next.compactMap { if case .ssh(let destination) = $0.connector { destination } else { nil } }))
         if next.map(ObjectIdentifier.init) != connections.map(ObjectIdentifier.init) { connections = next }
         if started { for connection in connections { connection.checkNow() } }
     }

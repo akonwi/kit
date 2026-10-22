@@ -237,6 +237,16 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         return (client, identity)
     }
 
+    /// Reaches a server on an SSH host through its forward, verifies that it
+    /// is the run the host's status report described, and reports who it is.
+    static func handshake(tunnel endpoint: SSHHost.Endpoint, serverID: String) async throws -> (client: HTTPClient, identity: ServerIdentity) {
+        let report = endpoint.report
+        let registry = LocalDaemonRegistry(registryVersion: 1, protocolVersion: report.protocolVersion, kitVersion: report.kitVersion,
+                                           url: endpoint.url.absoluteString, instanceId: report.instanceId, pid: report.pid)
+        let client = try HTTPClient(endpoint: endpoint.url, token: report.token, instance: report.instanceId, serverID: serverID)
+        return (client, try validateDiscovery(registry: registry, health: try await client.health()))
+    }
+
     /// The health of a served server, which tells this app its instance.
     private static func remoteHealth(url: URL, token: String) async throws -> LocalDaemonHealth {
         var request = URLRequest(url: url.appendingPathComponent("v1/health"), timeoutInterval: probeTimeout * 2)

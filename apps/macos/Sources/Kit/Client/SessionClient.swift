@@ -54,8 +54,15 @@ enum ClientError: LocalizedError {
                             reason: DaemonCompatibility.Mismatch)
     /// A served server needs this Mac to pair with it again.
     case needsPairing(PairingNeed)
-    /// The server is reached over SSH, which this app can't do yet.
-    case sshUnsupported
+    /// An SSH host needs an answer, such as a password, that only the user
+    /// can give, so a background connection stopped (S9).
+    case sshSignInRequired
+    /// An SSH host's key no longer matches the one this Mac saved (S10).
+    case sshHostKeyChanged(SSHHostKeyChange)
+    /// An SSH host was reached, but its Kit server isn't running (S16).
+    case sshServerStopped
+    /// ssh, or the Kit on an SSH host, couldn't connect, saying why.
+    case ssh(String)
 
     /// Why a served server needs pairing.
     enum PairingNeed: Equatable, Sendable {
@@ -85,7 +92,10 @@ enum ClientError: LocalizedError {
         case .needsPairing(.missing): "This Mac isn’t paired with the server."
         case .needsPairing(.expired): "This Mac’s pairing with the server expired."
         case .needsPairing(.refused): "The server no longer accepts this Mac’s pairing."
-        case .sshUnsupported: "Kit for Mac can’t connect to SSH servers yet. Use kit attach in a terminal."
+        case .sshSignInRequired: "The SSH host needs you to sign in."
+        case .sshHostKeyChanged(let change): "The host key for \(change.host) changed, so Kit stopped connecting."
+        case .sshServerStopped: "The Kit server on the SSH host isn’t running."
+        case .ssh(let reason): reason
         }
     }
 }
@@ -141,7 +151,8 @@ enum ServerConnector: Hashable, Sendable {
     }
 
     /// Resolves and verifies the server, reporting who it is.
-    func handshake(serverID: String, tokens: any DeviceTokenStore = DeviceTokens.standard) async throws -> (client: HTTPClient, identity: ServerIdentity) {
+    func handshake(serverID: String, tokens: any DeviceTokenStore = DeviceTokens.standard,
+                   hosts: SSHHosts = .shared) async throws -> (client: HTTPClient, identity: ServerIdentity) {
         switch self {
         case .home(let home):
             return try await HTTPClient.handshake(home: home, serverID: serverID)
@@ -149,8 +160,17 @@ enum ServerConnector: Hashable, Sendable {
             guard let url = URL(string: origin) else { throw ClientError.invalidEndpoint }
             guard let token = tokens.token(for: credential, url: origin) else { throw ClientError.needsPairing(.missing) }
             return try await HTTPClient.handshake(url: url, token: token, serverID: serverID)
-        case .ssh:
-            throw ClientError.sshUnsupported
+        case .ssh(let destination):
+            // Only the user's sign-in asks questions; this never does.
+            let host = hosts.host(destination)
+            let endpoint = try await host.resolve()
+            do { return try await HTTPClient.handshake(tunnel: endpoint, serverID: serverID) }
+            catch {
+                // A forward to a server that changed or stopped answering is
+                // dropped, so the next check finds the server again.
+                if !isCancellation(error) { await host.invalidate(endpoint) }
+                throw error
+            }
         }
     }
 }
@@ -234,12 +254,15 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
     var unreachable: ServerSignal? = nil
     /// Where a served server's device token is kept.
     let tokens: any DeviceTokenStore
+    /// The SSH hosts an SSH server is reached through.
+    let hosts: SSHHosts
 
     init(serverID: String, connector: ServerConnector, tokens: any DeviceTokenStore = DeviceTokens.standard,
-         unreachable: ServerSignal? = nil) {
+         hosts: SSHHosts = .shared, unreachable: ServerSignal? = nil) {
         self.serverID = serverID
         address = ServerAddress(connector)
         self.tokens = tokens
+        self.hosts = hosts
         self.unreachable = unreachable
     }
 
@@ -273,12 +296,14 @@ struct ServerClient: ScratchpadClient, TranscriptPagingClient, SubagentStreaming
     func verify(_ connector: ServerConnector? = nil) async throws -> (client: HTTPClient, identity: ServerIdentity) {
         let connector = connector ?? self.connector
         let result: (client: HTTPClient, identity: ServerIdentity)
-        do { result = try await connector.handshake(serverID: serverID, tokens: tokens) }
+        do { result = try await connector.handshake(serverID: serverID, tokens: tokens, hosts: hosts) }
         catch {
             address.forget()
             throw error
         }
-        guard case .url = connector else { return result }
+        // A Kit home's discovery files are cheap to read again; a served or
+        // SSH server's verified transport is kept.
+        if case .home = connector { return result }
         // The address keeps the transport, so the transport mustn't keep the address.
         let unreachable = self.unreachable, id = ObjectIdentifier(result.client)
         result.client.failures.connect { [weak address] failure in
