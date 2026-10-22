@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -86,14 +87,109 @@ func TestObserverSharesProbeAndCoalescesFreshSnapshots(t *testing.T) {
 		t.Fatal("subscriber mutated shared state")
 	}
 }
+
+// Regression for #235: a transient probe failure published Git: nil, which
+// plugins and clients read as "not a repository".
+func TestObserverKeepsLastGitSnapshotWhenProbeFails(t *testing.T) {
+	o := testObserver(t, nil)
+	var failure atomic.Pointer[error]
+	o.probe = func(context.Context, string) (*Status, error) {
+		if err := failure.Load(); err != nil {
+			return nil, *err
+		}
+		return &Status{Root: "/repo", Head: Head{Kind: HeadBranch, Name: "main"}, Dirty: true}, nil
+	}
+	o.Start()
+	value, err := o.Read(t.Context())
+	if err != nil || value.Git == nil || value.Git.Head.Name != "main" {
+		t.Fatalf("read=%+v %v", value, err)
+	}
+	source, err := o.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	_ = nextObserved(t, source)
+	for _, transient := range []error{ErrUnavailable, context.DeadlineExceeded} {
+		failure.Store(&transient)
+		o.refreshGit()
+		if current := o.Current(); current.Git == nil || current.Git.Head.Name != "main" || !current.Git.Dirty {
+			t.Fatalf("after %v current=%+v", transient, current)
+		}
+	}
+	failure.Store(nil)
+	o.refreshGit()
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	if value, err := source.Next(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("transient failure published %+v, %v", value, err)
+	}
+}
+
+// After a probe fails, an identity mismatch must not wake an immediate
+// reprobe, which would fail again in a tight loop.
+func TestObserverDoesNotReprobeIdentityMismatchAfterProbeFailure(t *testing.T) {
+	repository := t.TempDir()
+	runGitTest(t, repository, "init", "-b", "main")
+	cache := githubpr.NewCache(t.Context())
+	defer cache.Close()
+	o := testObserver(t, cache)
+	var failing atomic.Bool
+	o.probe = func(context.Context, string) (*Status, error) {
+		if failing.Load() {
+			return nil, ErrUnavailable
+		}
+		return &Status{Root: repository, RepositoryID: "stale", Head: Head{Kind: HeadBranch, Name: "main"}}, nil
+	}
+	drainWake := func() bool {
+		select {
+		case <-o.wake:
+			return true
+		default:
+			return false
+		}
+	}
+	o.refreshGit()
+	o.refreshPR()
+	if !drainWake() {
+		t.Fatal("identity mismatch after a successful probe did not request a reprobe")
+	}
+	failing.Store(true)
+	o.refreshGit()
+	o.refreshPR()
+	if drainWake() {
+		t.Fatal("identity mismatch after a failed probe requested an immediate reprobe")
+	}
+}
+
+func TestObserverCompletesInitialReadWhenFirstProbeFails(t *testing.T) {
+	o := testObserver(t, nil)
+	o.probe = func(context.Context, string) (*Status, error) { return nil, ErrUnavailable }
+	o.Start()
+	value, err := o.Read(t.Context())
+	if err != nil || value.CWD != "/repo" || value.Git != nil {
+		t.Fatalf("read=%+v %v", value, err)
+	}
+}
+
 func TestObserverPRCompletionPushesWithoutGitPollOrClientRead(t *testing.T) {
 	root := t.TempDir()
 	release := filepath.Join(root, "release")
+	if err := syscall.Mkfifo(release, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("KIT_PR_RELEASE", release)
 	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// The lookup blocks on the FIFO only for "pr view", so the test's open for
+	// writing doubles as proof that the fake gh has started. "pr checks" has
+	// nothing to report.
 	script := `#!/bin/sh
-while [ ! -f "$KIT_PR_RELEASE" ]; do sleep 0.01; done
-printf '%s' '{"number":47,"url":"https://github.com/a/b/pull/47","headRefName":"main"}'
+if [ "$2" = view ]; then
+  read -r _ < "$KIT_PR_RELEASE"
+  printf '%s' '{"number":47,"url":"https://github.com/a/b/pull/47","headRefName":"main"}'
+else
+  printf '[]'
+fi
 `
 	if err := os.WriteFile(filepath.Join(root, "gh"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
@@ -117,10 +213,15 @@ printf '%s' '{"number":47,"url":"https://github.com/a/b/pull/47","headRefName":"
 	if local.Git == nil || local.PullRequest != nil {
 		t.Fatalf("local=%+v", local)
 	}
-	if err := os.WriteFile(release, nil, 0600); err != nil {
-		t.Fatal(err)
+	releaseBlockedLookup(t, release)
+	// Delivery still spans the fake gh exiting and a second gh exec for
+	// "pr checks". Both run within githubpr's five-second lookup timeout.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	remote, err := source.Next(ctx)
+	cancel()
+	if err != nil {
+		t.Fatalf("PR-only update: %v", err)
 	}
-	remote := nextObserved(t, source)
 	if remote.PullRequest == nil || remote.PullRequest.Number != 47 || remote.Git.Head.Name != "main" {
 		t.Fatalf("PR-only update=%+v", remote)
 	}
@@ -133,6 +234,35 @@ printf '%s' '{"number":47,"url":"https://github.com/a/b/pull/47","headRefName":"
 		t.Fatalf("cwd retained PR=%+v", cleared)
 	}
 }
+
+// releaseBlockedLookup waits until the fake gh has opened the FIFO for
+// reading, then lets it continue. Process start-up, which can be slow on a
+// loaded machine or on the first exec of a new file, happens before this
+// returns instead of inside the caller's delivery deadline.
+func releaseBlockedLookup(t *testing.T, fifo string) {
+	t.Helper()
+	// githubpr kills a lookup after five seconds, including gh start-up.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		writer, err := os.OpenFile(fifo, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+		if err == nil {
+			_, err = writer.WriteString("go\n")
+			closeErr := writer.Close()
+			if err != nil || closeErr != nil {
+				t.Fatalf("release fake gh: %v %v", err, closeErr)
+			}
+			return
+		}
+		if !errors.Is(err, syscall.ENXIO) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("fake gh did not start within the lookup timeout")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func TestObserverSeparatesRichPullRequestTransitionsFromFooterUpdates(t *testing.T) {
 	o := testObserver(t, nil)
 	footer, err := o.Subscribe()

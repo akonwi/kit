@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,21 +52,47 @@ type Status struct {
 	Dirty        bool
 }
 
+// ErrUnavailable reports that Git could not be inspected right now: the probe
+// timed out, or a Git command failed after cwd resolved to a repository. It is
+// transient and does not mean that cwd is not a repository.
+var ErrUnavailable = errors.New("git status is temporarily unavailable")
+
+// errRepositoryConfigUnusable means local configuration is too large or not
+// UTF-8, which retrying cannot fix.
+var errRepositoryConfigUnusable = errors.New("repository configuration is unavailable")
+
 // Probe returns Git status for cwd. A nil status with a nil error means cwd is
-// not a usable Git worktree or Git could not be inspected safely. Caller
-// cancellation remains an error so transport shutdown can stop promptly.
+// not a usable Git worktree. An error wrapping ErrUnavailable means Git could
+// not be inspected this time, so callers should keep any previous observation.
+// Caller cancellation remains an error so transport shutdown can stop promptly.
 func Probe(ctx context.Context, cwd string) (*Status, error) {
+	return probe(ctx, cwd, probeTimeout)
+}
+
+func probe(ctx context.Context, cwd string, timeout time.Duration) (*Status, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	probeContext, cancel := context.WithTimeout(ctx, probeTimeout)
+	probeContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-
-	rootOutput, _, rootOverflow, err := runGit(probeContext, cwd, maxRootOutputBytes, "rev-parse", "--show-toplevel")
-	if err != nil || rootOverflow {
+	unavailable := func(step string, err error) (*Status, error) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		return nil, fmt.Errorf("%w: git %s: %w", ErrUnavailable, step, err)
+	}
+
+	rootOutput, _, rootOverflow, err := runGit(probeContext, cwd, maxRootOutputBytes, "rev-parse", "--show-toplevel")
+	if err != nil {
+		// Only a rev-parse that ran and exited non-zero proves that cwd is not a
+		// repository. Start failures, signals, and timeouts are transient.
+		var exitError *exec.ExitError
+		if probeContext.Err() == nil && errors.As(err, &exitError) && exitError.ExitCode() > 0 {
+			return nil, nil
+		}
+		return unavailable("rev-parse", err)
+	}
+	if rootOverflow {
 		return nil, nil
 	}
 	root, ok := singleOutputLine(rootOutput)
@@ -74,10 +101,10 @@ func Probe(ctx context.Context, cwd string) (*Status, error) {
 	}
 
 	statusOutput, _, statusOverflow, err := runGit(probeContext, cwd, maxStatusBytes, "status", "--porcelain=2", "--branch", "--untracked-files=normal")
-	if err != nil || statusOverflow {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
+	if err != nil {
+		return unavailable("status", err)
+	}
+	if statusOverflow {
 		return nil, nil
 	}
 	status, ok := parseStatus(root, statusOutput)
@@ -85,11 +112,11 @@ func Probe(ctx context.Context, cwd string) (*Status, error) {
 		return nil, nil
 	}
 	repositoryID, identityErr := RepositoryIdentity(probeContext, root)
-	if identityErr != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
+	if errors.Is(identityErr, errRepositoryConfigUnusable) {
 		return nil, nil
+	}
+	if identityErr != nil {
+		return unavailable("config", identityErr)
 	}
 	status.RepositoryID = repositoryID
 	if status.Head.Kind == HeadDetached {
@@ -102,11 +129,10 @@ func Probe(ctx context.Context, cwd string) (*Status, error) {
 			}
 			status.Head = Head{Kind: HeadBranch, Name: branch}
 		case isExitCode(symbolicErr, 1) && !overflow:
-		default:
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
+		case symbolicErr == nil:
 			return nil, nil
+		default:
+			return unavailable("symbolic-ref", symbolicErr)
 		}
 	}
 	return &status, nil
@@ -121,7 +147,7 @@ func RepositoryIdentity(ctx context.Context, root string) (string, error) {
 		return "", err
 	}
 	if overflow || !utf8.ValidString(output) {
-		return "", errors.New("repository configuration is unavailable")
+		return "", errRepositoryConfigUnusable
 	}
 	digest := sha256.Sum256([]byte(output))
 	return hex.EncodeToString(digest[:]), nil

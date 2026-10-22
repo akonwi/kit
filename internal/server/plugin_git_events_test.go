@@ -113,8 +113,14 @@ for line in sys.stdin:
 				return false
 			}
 			event := events[count-1]
-			params := event["params"].(map[string]any)
-			value := params["git"].(map[string]any)
+			params, ok := event["params"].(map[string]any)
+			if !ok {
+				t.Fatalf("Git event %d has no params: %#v", count, events)
+			}
+			value, ok := params["git"].(map[string]any)
+			if !ok {
+				t.Fatalf("Git event %d has no Git snapshot: %#v", count, events)
+			}
 			if event["method"] != "kit/events/git.changed" || len(params) != 1 || len(value) != 4 || value["pullRequest"] != nil || value["root"] != canonicalCWD || value["branch"] != branch || value["dirty"] != dirty {
 				t.Fatalf("Git event=%#v", event)
 			}

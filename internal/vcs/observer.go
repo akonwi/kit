@@ -45,6 +45,7 @@ type Observer struct {
 	ready                  chan struct{}
 	initialized            bool
 	probeCancel            context.CancelFunc
+	probeFailed            bool
 	subscribers            map[chan Snapshot]struct{}
 	pullRequestSubscribers map[*PullRequestStatusSubscription]struct{}
 	pullRequests           *githubpr.Cache
@@ -122,6 +123,7 @@ func (o *Observer) ChangeCWD(cwd string) {
 	}
 	o.ready = make(chan struct{})
 	o.initialized = false
+	o.probeFailed = false
 	o.publishLocked(Snapshot{CWD: cwd})
 	select {
 	case o.wake <- struct{}{}:
@@ -397,10 +399,17 @@ func (o *Observer) refreshGit() {
 		return
 	}
 	o.probeCancel = nil
-	// An unavailable local probe clears local/remote information. Cancellation of
-	// a superseded cwd was fenced above and cannot clear the new workspace.
+	// A failed or slow probe is not evidence that cwd stopped being a
+	// repository, so keep the last observation and let the next poll retry. A
+	// first probe that fails still completes the initial read with Git unknown.
+	// Cancellation of a superseded cwd was fenced above.
+	o.probeFailed = err != nil
 	if err != nil {
-		git = nil
+		if !o.initialized {
+			o.initialized = true
+			close(o.ready)
+		}
+		return
 	}
 	value := Snapshot{CWD: cwd, Git: git}
 	if git != nil && o.snapshot.Git != nil && git.Root == o.snapshot.Git.Root && git.RepositoryID == o.snapshot.Git.RepositoryID && git.Head == o.snapshot.Git.Head {
@@ -421,7 +430,7 @@ func (o *Observer) refreshPR() {
 		o.mu.Unlock()
 		return
 	}
-	value, epoch := cloneSnapshot(o.snapshot), o.epoch
+	value, epoch, probeFailed := cloneSnapshot(o.snapshot), o.epoch, o.probeFailed
 	o.mu.Unlock()
 	if value.Git == nil || value.Git.Head.Kind != HeadBranch {
 		return
@@ -434,6 +443,11 @@ func (o *Observer) refreshPR() {
 			return
 		}
 		if repositoryID != value.Git.RepositoryID {
+			// A failed probe kept this snapshot. Reprobing now would fail the
+			// same way in a tight loop, so leave the retry to the next poll.
+			if probeFailed {
+				return
+			}
 			select {
 			case o.wake <- struct{}{}:
 			default:
