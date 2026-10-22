@@ -13,8 +13,13 @@ final class ScratchpadState {
     @ObservationIgnored private var debounce: Task<Void, Never>?
     @ObservationIgnored private var savingContent: String?
     @ObservationIgnored private var loading = false
+    /// Waits out `autosaveDelay`.
+    @ObservationIgnored private let sleeper: Sleeper
+    /// How long an edit waits for more before it is saved.
+    static let autosaveDelay: Duration = .seconds(5)
 
-    init(demo: Bool) {
+    init(demo: Bool, sleep: @escaping Sleeper = realTimeSleeper) {
+        self.sleeper = sleep
         draft = demo ? "# Scratchpad\n\n" : ""
         status = demo ? .saved : .loading
     }
@@ -65,8 +70,8 @@ final class ScratchpadState {
 
     private func schedule() {
         debounce?.cancel()
-        debounce = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(5))
+        debounce = Task { [weak self, sleeper] in
+            try? await sleeper(Self.autosaveDelay)
             guard !Task.isCancelled else { return }
             await self?.autosave()
         }

@@ -127,7 +127,8 @@ struct TileArrangementTests {
     }
 
     @Test func layoutChangesAreCapturedAfterADelay() async throws {
-        let model = SessionWindowModel(id: UUID(), sessions: [id("a")], selected: id("a"))
+        let delay = ManualSleeper()
+        let model = SessionWindowModel(id: UUID(), sessions: [id("a")], selected: id("a"), sleep: delay.sleep)
         var captures = 0
         model.onChange = { _ in captures += 1 }
         let store = try #require(model.store(for: model.tabs[0], client: FixtureClient(fixture: Fixture(sessions: []))))
@@ -135,22 +136,21 @@ struct TileArrangementTests {
         store.ui.workspace.open(.scratchpad)
         store.ui.workspace.split(.scratchpad, .right)
         store.ui.workspace.setRatio(0.6, for: try #require(store.ui.workspace.root.split))
+        // The changes wait out one delay together, and are captured once it passes.
+        try await delay.waitForSleeps(1)
+        #expect(model.hasPendingLayoutCapture)
         #expect(captures == 0)
-        try await wait { captures > 0 }
+        delay.elapse()
+        try await eventually { captures > 0 }
         #expect(captures == 1)
+        #expect(!model.hasPendingLayoutCapture)
         // Quitting records a change still waiting out the delay, once.
         store.ui.workspace.equalize()
-        try await wait { model.hasPendingLayoutCapture }
+        try await delay.waitForSleeps(2)
         model.captureLayouts()
         #expect(captures == 2)
-        try await Task.sleep(for: SessionWindowModel.layoutCaptureDelay + .milliseconds(100))
-        #expect(captures == 2)
-    }
-
-    private func wait(_ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        #expect(condition())
+        #expect(delay.cancelled == 1)
+        #expect(delay.durations == [SessionWindowModel.layoutCaptureDelay, SessionWindowModel.layoutCaptureDelay])
     }
 }
 

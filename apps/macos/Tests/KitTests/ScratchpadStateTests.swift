@@ -27,17 +27,19 @@ private actor ScratchpadServer: ScratchpadClient {
 @MainActor struct ScratchpadStateTests {
     @Test func debouncedAutosaveCompletesWithoutCancellingItsRequest() async throws {
         let server = ScratchpadServer()
-        let state = ScratchpadState(demo: false)
+        let delay = ManualSleeper()
+        let state = ScratchpadState(demo: false, sleep: delay.sleep)
         await state.load(client: server, session: "root")
         state.bind(client: server, session: "root")
-        let started = ContinuousClock.now
         state.edit("autosaved note")
-        let deadline = started + .seconds(12)
-        while state.status != .saved && ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(50))
-        }
+        // The edit waits out the autosave delay before it's saved.
+        try await delay.waitForSleeps(1)
+        #expect(delay.durations == [ScratchpadState.autosaveDelay])
+        #expect(state.status == .unsaved)
+        delay.elapse()
+        try await eventually { state.status == .saved }
         #expect(state.status == .saved, "status: \(state.status)")
-        #expect(ContinuousClock.now - started >= .seconds(5))
+        #expect(delay.cancelled == 0)
         #expect(try await server.scratchpad(session: "root").content == "autosaved note")
     }
 
