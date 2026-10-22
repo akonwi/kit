@@ -123,6 +123,24 @@ the server, so a server stopped on its host stays stopped.
 another device through an SSH server needs a URL that reaches it:
 `kit pair NAME --url URL`, or `kit server pair` on the host.
 
+### In Kit for Mac
+
+Kit for Mac reaches saved SSH servers itself, with your system `ssh`; it
+doesn't need `kit` installed on the Mac. Add Server takes `user@host` or an
+`ssh://` URL and starts the host's Kit server if it isn't running. The app
+keeps one connection per host for every window and connects saved servers
+when it opens.
+
+When ssh asks something, such as a new host key, a password, a key
+passphrase, or a one-time code, the window you're using shows it as a sheet.
+A connection running in the background never asks: the server shows **Sign
+in to connect** until you open it. Saving a password puts it in the
+Keychain; saving a passphrase hands it to `ssh-add --apple-use-keychain`;
+one-time codes are never saved. A changed host key is never accepted from
+Kit: the tab shows the saved and new fingerprints and the `ssh-keygen -R`
+command to run in Terminal. When the host's Kit server isn't running, the tab
+offers **Start Server**; reconnecting never starts it.
+
 ## Saved servers
 
 `kit servers` lists this home's server and the saved servers with their status:

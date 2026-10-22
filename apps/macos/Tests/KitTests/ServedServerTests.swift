@@ -54,12 +54,6 @@ struct ServedServerConnectionTests {
         #expect(server.requests.isEmpty)
     }
 
-    @Test func anSSHServerCantBeReachedYet() async {
-        await expectClientError(.sshUnsupported) {
-            _ = try await ServerConnector.ssh("me@devbox").handshake(serverID: "devbox", tokens: MemoryDeviceTokens())
-        }
-    }
-
     @Test func redeemingSendsNoCredential() async throws {
         let server = try LoopbackHTTPServer(status: "201 Created", body: """
         {"token":"\(Self.token)","device":{"id":"device_0123456789abcdef0123456789abcdef","name":"Mac","createdAt":"2026-03-01T12:00:00Z",
@@ -513,7 +507,7 @@ struct LauncherServerOptionTests {
         let credential = DeviceCredential(home: "/Users/kit/.kit", name: "staging")
         #expect(LauncherServerOption(name: "staging", connector: .url("https://staging.example.dev", credential: credential),
                                      status: .needsPairing(.expired))
-            == LauncherServerOption(name: "staging", detail: "Pair again", address: false, available: false, needsPairing: true))
+            == LauncherServerOption(name: "staging", detail: "Pair again", address: false, available: false, needsAttention: true))
         #expect(LauncherServerOption(name: "old-mini", connector: .ssh("me@old-mini"),
                                      status: .unreachable(reason: "ssh failed", retry: nil))
             == LauncherServerOption(name: "old-mini", detail: "Can’t connect", address: false, available: false))

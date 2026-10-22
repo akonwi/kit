@@ -39,7 +39,8 @@ brew install --cask akonwi/tap/kit-app
 ```
 
 The app connects to a separately running compatible Kit server; it does not
-install or start one. The CLI and app have independent version numbers.
+install Kit or start a server on this Mac. It starts one on an SSH host only
+when you add that host or choose Start Server, as `kit attach` does. The CLI and app have independent version numbers.
 
 Each one tells you when a newer release is out. `kit update` installs the
 newest CLI, through Homebrew when that is how it was installed, and offers to
