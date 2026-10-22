@@ -182,9 +182,11 @@ disconnect or server restart.
 | URL | a configured HTTP(S) URL | device token |
 
 - The local connector may start or replace a daemon, and the SSH connector
-  may start the server of the host's default Kit home. Otherwise explicit
-  connectors attach only: they never install, start, stop, replace, or
-  migrate a server.
+  may start the server of the host's default Kit home when a user asks it to
+  connect: `kit attach`, and in the macOS app Add Server and Start Server.
+  Reconnecting, checking saved servers, and opening the app never start one.
+  Otherwise explicit connectors attach only: they never install, start, stop,
+  replace, or migrate a server.
 - The URL connector is the primary remote connector. The SSH connector is an
   alternative for hosts reachable over SSH that should not serve an
   endpoint.
@@ -201,13 +203,32 @@ disconnect or server restart.
   exits when the server process does or when the client's end of the
   session closes, so a server restart ends the forward as a disconnect does
   and nothing is left on the host. The next request repeats both steps
-  without starting the server, and a refused token drops the forward. Interactive SSH prompts are supported
-  only before the TUI takes the terminal or through the macOS app's askpass
-  bridge; reconnection uses `BatchMode` and requires non-interactive
-  authentication or connection sharing.
-- The macOS app runs its bundled `kit` executable as the SSH connector helper
-  (`kit server tunnel <name>`), which reports resolved endpoints as structured
-  output. SSH and reconnection logic exist once, in Go.
+  without starting the server, and a refused token drops the forward. In the
+  terminal client, interactive SSH prompts are supported only before the TUI
+  takes the terminal; reconnection uses `BatchMode` and requires
+  non-interactive authentication or connection sharing.
+- The macOS app implements the SSH connector itself, in Swift, against the
+  same status report and system `ssh`, so it needs no `kit` on the Mac and
+  checks compatibility against its own protocol. It holds one master ssh
+  connection per host (`ControlMaster`, with a control socket in a
+  directory only the user can enter), shared by every window and every
+  server saved with that destination; status queries, port forwards, and
+  Start Server run through it, so a host authenticates once. The master's
+  remote command waits for its input to close, so quitting the app leaves
+  nothing on the host. Where the user's configuration turns host key
+  checking off, the app's connections ask instead.
+- The app answers ssh's questions itself through an askpass bridge: ssh runs
+  the app's own executable as `SSH_ASKPASS` (with `SSH_ASKPASS_REQUIRE=force`),
+  which passes each question, with a per-connection nonce, to the app over a
+  Unix socket only the user can reach. Only a connection the user started
+  asks, as a sheet in the window in use; a background connection answers
+  only with a saved password and otherwise waits for the user to sign in.
+  New host keys are confirmed by the user and added to `known_hosts` by
+  ssh; a changed host key is never accepted from Kit, and the app shows both
+  fingerprints and the `ssh-keygen -R` command instead. Passwords are saved
+  in the Keychain only when the user chooses; key passphrases are kept by
+  `ssh-add --apple-use-keychain`; other answers, such as one-time codes, are
+  never saved.
 
 The public Go client exposes these as connection targets. Its explicit
 endpoint target accepts a credential without an instance identifier.
@@ -342,8 +363,8 @@ terminals.
    settings API, client-routed open requests, and same-machine gating.
 3. **Server-hosted terminals.**
 4. **SSH.** `kit server status --json`, the SSH connector, `kit attach` and
-   `kit servers add` for SSH destinations, the macOS
-   tunnel helper and askpass bridge.
+   `kit servers add` for SSH destinations, and the macOS app's SSH connector
+   and askpass bridge.
 
 ### Non-goals
 
@@ -388,6 +409,8 @@ terminals.
   bookkeeping.
 - The SSH connector depends on the system `ssh` executable and cannot prompt
   during an in-TUI reconnect.
+- The SSH connector exists twice, in Go and in the macOS app, sharing only
+  the status report's contract.
 - Server-hosted terminals add a bidirectional streaming transport alongside
   SSE.
 
@@ -397,7 +420,7 @@ terminals.
   access"; its single-user, token-authenticated, externally terminated TLS, and
   Host/Origin validation requirements remain.
 - Refines ADR 0013's remote endpoints: named servers come from the shared
-  registry, Keychain holds device tokens, and SSH servers use the bundled
-  helper.
+  registry, Keychain holds device tokens, and the app reaches SSH servers
+  through its own connector.
 - Extends ADR 0038's connection targets with home and SSH resolution and an
   explicit endpoint that learns its instance from health.
