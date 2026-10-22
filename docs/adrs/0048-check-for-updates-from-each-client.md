@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Supersedes the "no updater" stance of
+Accepted. Specifies the update path of the app distributed under
 [ADR 0029](0029-distribute-native-macos-app-separately.md).
 
 ## Context
