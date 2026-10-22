@@ -33,6 +33,7 @@ Based on what the changes touch, activate the corresponding skills for context:
 | UI layout, colors, shell components | `design` |
 | Component architecture, prop APIs | `composition-patterns` |
 | Release preparation | `release` |
+| Concurrent Go: goroutines, locks, channels, shutdown, timeouts | `go-concurrency` |
 
 ### 3. Review Against Project Standards
 
