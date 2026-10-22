@@ -102,7 +102,8 @@ Toasts that remain follow these rules: errors always persist until
 acknowledged, with a recovery action where one exists; warnings show for
 about 8 s unless they need acknowledgement; informative toasts show for about
 5 s. A repeat of a showing toast joins it with a `×N` count and restarts its
-lifetime instead of stacking. Group related warnings into one toast with an
+lifetime instead of stacking, unless each carries an action for its own
+target. Group related warnings into one toast with an
 action that opens their owning surface. The native macOS app also speaks new
 toasts to VoiceOver. In the macOS command palette, activating an unavailable
 row flashes the row's inline reason instead of raising a toast.

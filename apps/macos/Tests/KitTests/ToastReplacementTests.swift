@@ -15,16 +15,19 @@ import Testing
 
     // MARK: Activity card
 
-    @Test func shellFailuresAndRunningCommandsTakeTheActivityCard() {
-        #expect(ActivityLine.resolve(activity: "Reading", compaction: "Compacting session…",
-                                     shellFailure: "Resolve the previous shell command before starting another.",
-                                     shellRetryable: true, command: "deploy")
-                == .shellFailed("Resolve the previous shell command before starting another.", retryable: true))
-        // A send or stop failure is about the turn itself and stays first.
+    @Test func shellFailuresAndRunningCommandsWaitBeneathTheTurnsOwnState() {
+        let failure = "Resolve the previous shell command before starting another."
+        #expect(ActivityLine.resolve(activity: nil, shellFailure: failure, shellRetryable: true, command: "deploy",
+                                     notice: "Local preview only")
+                == .shellFailed(failure, retryable: true))
+        #expect(ActivityLine.resolve(activity: nil, command: "deploy", notice: "Local preview only") == .runningCommand("deploy"))
+        // The turn's failures, retries, compaction, and activity come first.
         #expect(ActivityLine.resolve(activity: nil, startFailure: "offline", shellFailure: "offline")
                 == .failedToStart("offline"))
-        #expect(ActivityLine.resolve(activity: "Reading", command: "deploy") == .runningCommand("deploy"))
-        #expect(ActivityLine.resolve(activity: "Reading", compaction: "Compacting session…", command: "deploy")
+        #expect(ActivityLine.resolve(activity: nil, retryAt: "1970-01-01T00:00:05Z", shellFailure: failure)
+                == .retrying(at: "1970-01-01T00:00:05Z", attempt: nil))
+        #expect(ActivityLine.resolve(activity: "Working…", shellFailure: failure, command: "deploy") == .working("Working…"))
+        #expect(ActivityLine.resolve(activity: nil, compaction: "Compacting session…", command: "deploy")
                 == .compacting("Compacting session…"))
         #expect(ActivityLine.resolve(activity: nil, command: nil) == nil)
     }

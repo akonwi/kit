@@ -253,12 +253,16 @@ struct PaletteRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .task(id: refusal) {
-            guard refusal > 0 else { return }
+            guard refusal > 0 else {
+                if flashing { withAnimation(.easeOut(duration: 0.25)) { flashing = false } }
+                return
+            }
             if let reason = row.unavailableReason {
                 AccessibilityAnnouncement.post(row.name + " unavailable: " + reason)
             }
             flashing = true
-            try? await Task.sleep(for: PaletteRefusal.duration)
+            // A newer refusal restarts the flash rather than ending it.
+            guard (try? await Task.sleep(for: PaletteRefusal.duration)) != nil else { return }
             withAnimation(.easeOut(duration: 0.25)) { flashing = false }
         }
     }

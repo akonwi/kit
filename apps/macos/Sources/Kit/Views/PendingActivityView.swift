@@ -26,14 +26,16 @@ enum ActivityLine: Equatable {
                         command: String? = nil, notice: String = "") -> ActivityLine? {
         if let stopFailure { return .failedToStop(stopFailure) }
         if let startFailure { return .failedToStart(startFailure) }
-        if let shellFailure { return .shellFailed(shellFailure, retryable: shellRetryable) }
         if let retryAt { return .retrying(at: retryAt, attempt: retryAttempt) }
         if let compaction { return .compacting(compaction) }
-        if let command { return .runningCommand(command) }
         if let activity, !activity.isEmpty {
             if activity == LiveActivity.compacting { return .compacting(activity) }
             return LiveActivity.isLabel(activity) ? .working(activity) : .thinking(activity)
         }
+        // The turn's own state comes first; a shell failure waits beneath it
+        // until dismissed or retried.
+        if let shellFailure { return .shellFailed(shellFailure, retryable: shellRetryable) }
+        if let command { return .runningCommand(command) }
         if !notice.isEmpty { return .notice(notice) }
         return nil
     }
@@ -93,7 +95,7 @@ struct PendingActivityView: View {
         case .failedToStop(let message):
             failure("Couldn’t stop the turn: " + message)
         case let .shellFailed(message, retryable):
-            failure("Shell command: " + message, retryable: retryable)
+            failure("Shell command: " + message, retryable: retryable, dismissable: true)
         case let .retrying(at, attempt):
             IconView(.arrowClockwise, size: 12).foregroundStyle(theme.warning)
             TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -127,19 +129,22 @@ struct PendingActivityView: View {
         }
     }
 
-    @ViewBuilder private func failure(_ message: String, retryable: Bool = true) -> some View {
+    @ViewBuilder private func failure(_ message: String, retryable: Bool = true,
+                                      dismissable: Bool = false) -> some View {
         IconView(.warningCircle, size: 12).foregroundStyle(theme.danger)
         Text(message).foregroundStyle(theme.danger).lineLimit(1).truncationMode(.tail).help(message)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
         if retryable {
             Button("Retry", action: retry).buttonStyle(SmallButtonStyle(bordered: true))
-        } else {
+        }
+        if dismissable {
             Button(action: dismiss) {
                 IconView(.x, size: 10).foregroundStyle(theme.muted)
                     .frame(width: 18, height: 18).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help("Dismiss")
             .accessibilityLabel("Dismiss")
         }
     }

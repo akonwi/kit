@@ -246,6 +246,16 @@ import Testing
         #expect(state.notices.map(\.count) == [1, 1])
     }
 
+    @Test func noticesWithActionsStayApartSinceEachHasItsOwnTarget() {
+        let state = SessionFeedback()
+        var opened: [String] = []
+        state.show(title: "Session forked", detail: "Refactor", actionTitle: "Open") { opened.append("a") }
+        state.show(title: "Session forked", detail: "Refactor", actionTitle: "Open") { opened.append("b") }
+        #expect(state.items.map(\.count) == [1, 1])
+        for item in state.items { item.action?() }
+        #expect(opened == ["a", "b"])
+    }
+
     @Test func repeatedPluginAlertsCoalesceBySource() throws {
         let state = SessionFeedback()
         let alert = PluginNotification(pluginID: "deploy", title: "Deploy queued", detail: "staging", variant: "info", persistent: false)

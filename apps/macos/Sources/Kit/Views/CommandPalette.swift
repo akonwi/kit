@@ -158,7 +158,13 @@ struct CommandPalette: View {
         // Availability is read live: the row's reason is from the last render.
         // The row already shows why; flash it rather than raise a toast.
         if unavailableReason(row) != nil {
-            refusal = refusal.next(row.id)
+            let next = refusal.next(row.id)
+            refusal = next
+            // Settle the refusal so a row scrolled back into view doesn't flash again.
+            Task { @MainActor in
+                try? await Task.sleep(for: PaletteRefusal.duration + .milliseconds(300))
+                if refusal == next { refusal = PaletteRefusal(rowID: "", generation: next.generation) }
+            }
             return
         }
         let arguments = PaletteCommand.commandArguments(query)

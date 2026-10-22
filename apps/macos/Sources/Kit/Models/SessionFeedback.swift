@@ -97,13 +97,14 @@ final class SessionFeedback {
     var notices: [Item] { items.filter(\.persistent) }
 
     /// Shows a toast. Errors always persist until acknowledged. A notice
-    /// without a `key`, or with `coalesce`, joins a showing toast with the
-    /// same content instead of stacking, restarting its lifetime and counting
-    /// the repeat.
+    /// with no `key` and no action, or with `coalesce`, joins a showing toast
+    /// with the same content instead of stacking, restarting its lifetime and
+    /// counting the repeat. Notices with actions stay apart by default, since
+    /// each may act on a different target.
     func show(key: String? = nil, title: String, detail: String = "", tone: Tone = .info,
               icon: Icon? = nil, persistent: Bool = false, actionTitle: String? = nil, action: (@MainActor () -> Void)? = nil,
               reloadReport: SessionReloadReport? = nil, source: String? = nil, coalesce: Bool = false) {
-        let coalesces = key == nil || coalesce
+        let coalesces = coalesce || (key == nil && action == nil)
         let key = key ?? UUID().uuidString
         guard !acknowledged.contains(key), !items.contains(where: { $0.key == key }), seen.insert(key).inserted else { return }
         seenOrder.append(key)
@@ -137,10 +138,6 @@ final class SessionFeedback {
         items.removeAll { $0.key == key }
         acknowledged.remove(key)
         seen.remove(key); seenOrder.removeAll { $0 == key }
-    }
-    /// Clears every toast whose key starts with `prefix`.
-    func clear(prefix: String) {
-        for key in Set(items.map(\.key)) where key.hasPrefix(prefix) { clear(key: key) }
     }
     func dismiss(_ id: UUID) {
         remainingByID.removeValue(forKey: id)
@@ -184,12 +181,13 @@ final class SessionFeedback {
     private func observeSubagentDiagnostics(_ diagnostics: [WireSubagentDiagnostic],
                                             showSubagents: (@MainActor () -> Void)?) {
         let prefix = "subagent-diagnostics:"
-        let identities = diagnostics.map { diagnostic in
-            [diagnostic.severity, diagnostic.code, diagnostic.message,
-             diagnostic.source.kind, diagnostic.source.path, diagnostic.source.pluginId ?? ""]
-                .map { "\($0.utf8.count):\($0)" }.joined()
+        var identities = Set<String>()
+        let diagnostics = diagnostics.filter { diagnostic in
+            identities.insert([diagnostic.severity, diagnostic.code, diagnostic.message,
+                               diagnostic.source.kind, diagnostic.source.path, diagnostic.source.pluginId ?? ""]
+                .map { "\($0.utf8.count):\($0)" }.joined()).inserted
         }
-        let key = prefix + Set(identities).sorted().joined(separator: "|")
+        let key = prefix + identities.sorted().joined(separator: "|")
         for item in items where item.key.hasPrefix(prefix) && item.key != key { clear(key: item.key) }
         guard !diagnostics.isEmpty, !items.contains(where: { $0.key == key }) else { return }
         let detail = diagnostics.map { [$0.message, $0.source.path].filter { !$0.isEmpty }.joined(separator: "\n") }

@@ -29,24 +29,22 @@ struct SessionEventProjection {
     /// verified on use because rare row removals can shift them.
     private var toolRows: [String: Int] = [:]
 
-    /// `terminalError` and `turnEnd` carry the previous projection's failed
-    /// last turn into a snapshot that stored no reason for it, such as a turn
-    /// that failed before the model replied.
+    /// `turnEnd` is the row the previous projection showed for its last turn
+    /// ending early. It keeps its label and reason across the refresh, and
+    /// survives a snapshot that stored no reason, as for a turn that failed
+    /// before the model replied.
     init(_ snapshot: WireSessionSnapshot, terminalError: String? = nil, turnEnd: TranscriptMessage? = nil) throws {
-        try self.init(session: SessionProjection.snapshot(snapshot), source: snapshot.messages ?? [],
+        try self.init(session: SessionProjection.snapshot(snapshot, carried: turnEnd.map { [$0] } ?? []),
+            source: snapshot.messages ?? [],
             activeRunID: snapshot.activeTurnId, replayAvailable: snapshot.eventReplayAvailable == true,
             pendingInteractions: Set((snapshot.pendingInteractions ?? []).filter { $0.plugin != nil || $0.turnId == snapshot.activeTurnId }.map(\.id)))
-        if snapshot.activeTurnId == nil && session.terminalError == nil && terminalError != nil {
-            session.terminalError = terminalError
-            if let turnEnd, !session.messages.contains(where: { $0.id == turnEnd.id }) { session.messages.append(turnEnd) }
-        }
+        if snapshot.activeTurnId == nil && session.terminalError == nil { session.terminalError = terminalError }
+        if let turnEnd, session.messages.contains(where: { $0.id == turnEnd.id }) { self.turnEnd = turnEnd }
     }
 
-    /// The row closing the last turn, when it didn't complete.
-    var turnEnd: TranscriptMessage? {
-        guard let last = session.messages.last, last.id.hasPrefix(SessionProjection.turnEndPrefix) else { return nil }
-        return last
-    }
+    /// The row closing the last turn this stream saw end early; nil once
+    /// another turn starts.
+    private(set) var turnEnd: TranscriptMessage?
 
     init(session: SessionExcerpt, source: [WireTranscriptMessage], activeRunID: String? = nil,
          replayAvailable: Bool = true, pendingInteractions: Set<String> = [],
@@ -125,6 +123,7 @@ struct SessionEventProjection {
             if activeRunID != event.turnId { retainPluginInteractions() }
             activeRunID = event.turnId
             session.terminalError = nil
+            turnEnd = nil
             session.activity = LiveActivity.working
         case "interaction.requested":
             guard let interaction = event.interaction else { throw ClientError.invalidPayload }
@@ -288,6 +287,7 @@ struct SessionEventProjection {
                 }
                 let row = SessionProjection.turnEndRow(turn: event.turnId, end: end, message: error)
                 if !session.messages.contains(where: { $0.id == row.id }) { session.messages.append(row) }
+                turnEnd = row
             }
             session.providerRetryAt = nil
             session.providerRetryCount = nil

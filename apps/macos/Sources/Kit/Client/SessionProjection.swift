@@ -16,14 +16,15 @@ enum SessionProjection {
         return session
     }
 
-    static func snapshot(_ snapshot: WireSessionSnapshot) throws -> SessionExcerpt {
+    /// `carried` holds turn-end rows the live stream showed; see `transcript`.
+    static func snapshot(_ snapshot: WireSessionSnapshot, carried: [TranscriptMessage] = []) throws -> SessionExcerpt {
         // A snapshot holds every result of the calls it holds, so a settled
         // turn's call without one never ran.
         // Boundaries that have not joined a completed turn follow the turns as
         // records without a turn or history sequence.
         let history = (snapshot.messages ?? []).filter { !$0.turnId.isEmpty }
         var session = try summary(snapshot.session, messages: transcript(snapshot.messages ?? [],
-            settled: { $0 != snapshot.activeTurnId }))
+            settled: { $0 != snapshot.activeTurnId }, finished: { $0 != snapshot.activeTurnId }, carried: carried))
         session.historyCursor = try TranscriptHistoryPage.cursor(snapshot.previousMessageCursor,
             hasMore: snapshot.hasMoreMessages, firstSequence: history.first?.sequence)
         session.annotations = try (snapshot.annotations ?? []).map(FileAnnotation.init)
@@ -49,7 +50,9 @@ enum SessionProjection {
         session.followUps = try FollowUpState(snapshot.followUps)
         session.providerRetryAt = snapshot.providerRetry?.retryAt
         session.providerRetryCount = snapshot.providerRetry?.count
-        session.terminalError = snapshot.activeTurnId == nil ? snapshot.messages?.last(where: { $0.role == "assistant" })?.errorMessage : nil
+        let lastTurn = history.last?.turnId
+        session.terminalError = snapshot.activeTurnId == nil
+            ? history.last(where: { $0.role == "assistant" && $0.turnId == lastTurn })?.errorMessage : nil
         session.historyStart = history.first?.sequence
         return session
     }
@@ -57,8 +60,16 @@ enum SessionProjection {
     /// Projects stored messages into transcript rows. `settled` names turns
     /// whose calls without a result in `source` never ran; history pages pass
     /// none, because a call's result may lie in a later page.
+    ///
+    /// `finished` names turns that are over, which close with a row when they
+    /// didn't complete. A turn may store errors from attempts it retried, so
+    /// only its last reply's error says how it ended. `carried` holds rows the
+    /// live stream already showed for a turn; they win over the stored reason
+    /// so a refresh doesn't relabel them.
     static func transcript(_ source: [WireTranscriptMessage],
-                           settled: (String) -> Bool = { _ in false }) throws -> [TranscriptMessage] {
+                           settled: (String) -> Bool = { _ in false },
+                           finished: (String) -> Bool = { _ in false },
+                           carried: [TranscriptMessage] = []) throws -> [TranscriptMessage] {
         var messages: [TranscriptMessage] = []
         var seen = Set<String>()
         var calls = Set<String>()
@@ -74,13 +85,36 @@ enum SessionProjection {
         }
         var pending: [ToolActivity] = []
         var turnID: String?
-        var endedTurns = Set<String>()
+        var lastIndex: [String: Int] = [:]
+        var lastReply: [String: WireTranscriptMessage] = [:]
+        for (index, message) in source.enumerated() where !message.turnId.isEmpty {
+            lastIndex[message.turnId] = index
+            if message.role == "assistant" { lastReply[message.turnId] = message }
+        }
+        var carriedByTurn: [String: TranscriptMessage] = [:]
+        for row in carried where row.id.hasPrefix(turnEndPrefix) {
+            carriedByTurn[String(row.id.dropFirst(turnEndPrefix.count))] = row
+        }
         func flush() {
             guard let first = pending.first else { return }
             messages.append(TranscriptMessage(id: "tools-" + first.id, role: "tools", text: "", tools: pending))
             pending.removeAll()
         }
-        for message in source {
+        /// Closes a finished turn after its last stored record.
+        func endTurn(_ turn: String) {
+            guard finished(turn) else { return }
+            let row: TranscriptMessage
+            if let live = carriedByTurn.removeValue(forKey: turn) {
+                row = live
+            } else if let reply = lastReply[turn],
+                      let error = reply.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty {
+                row = turnEndRow(turn: turn, end: reply.stopReason == "aborted" ? .stopped : .failed, message: error)
+            } else { return }
+            flush()
+            messages.append(row)
+        }
+        for (index, message) in source.enumerated() {
+            defer { if !message.turnId.isEmpty, lastIndex[message.turnId] == index { endTurn(message.turnId) } }
             // Results enrich the original call; they do not create transcript rows.
             if message.role == "tool", let id = message.toolCallId, calls.contains(id) { continue }
             if turnID != message.turnId { flush(); turnID = message.turnId }
@@ -137,17 +171,11 @@ enum SessionProjection {
                     }
                 }
                 try flushText()
-                // A turn that ended early stores its reason on its last reply.
-                if message.role == "assistant",
-                   let error = message.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty,
-                   endedTurns.insert(message.turnId).inserted {
-                    flush()
-                    messages.append(turnEndRow(turn: message.turnId,
-                                               end: message.stopReason == "aborted" ? .stopped : .failed, message: error))
-                }
             }
         }
         flush()
+        // A live row whose turn stored nothing still closes the transcript.
+        for (turn, row) in carriedByTurn.sorted(by: { $0.key < $1.key }) where finished(turn) { messages.append(row) }
         return messages
     }
 

@@ -46,7 +46,8 @@ extension TranscriptHistoryPage {
             previous = message.sequence
         }
         self.sessionID = sessionID
-        messages = try SessionProjection.transcript(source)
+        // Pages end at complete turns, so every turn in one is over.
+        messages = try SessionProjection.transcript(source, finished: { _ in true })
         previousCursor = try Self.cursor(page.previousMessageCursor, hasMore: page.hasMoreMessages,
                                          firstSequence: source.first?.sequence)
         if let previousCursor {
