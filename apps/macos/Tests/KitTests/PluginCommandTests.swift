@@ -107,6 +107,11 @@ private actor PluginCommandMock: PluginCommandClient {
         #expect(PluginCommandFailure.detail(for: ClientError.disconnected)
                 == "The server connection closed. " + partial)
         #expect(PluginCommandFailure.detail(for: URLError(.cannotConnectToHost)).hasPrefix("It didn't run: "))
+        // An SSH server that can't be reached is never sent the command.
+        #expect(PluginCommandFailure.detail(for: ClientError.sshSignInRequired)
+                == "It didn't run: The SSH host needs you to sign in.")
+        #expect(PluginCommandFailure.detail(for: ClientError.sshServerStopped)
+                == "It didn't run: The Kit server on the SSH host isn’t running.")
     }
     @Test func detachCancelsWaitAndSuppressesItsDelayedFeedback() async throws {
         let command = try #require(PluginCommand.project([wire()]).first)

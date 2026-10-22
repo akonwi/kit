@@ -78,7 +78,7 @@ struct PluginCommandFailure: Error, LocalizedError, Sendable {
             case .http(let code) where [400, 401, 403, 404, 409, 421, 426, 429].contains(code):
                 return "It didn't run: " + reason
             case .noDaemon, .invalidEndpoint, .incompatible, .incompatibleDaemon, .daemonNotReady,
-                 .missingSession, .needsPairing, .sshUnsupported, .discovery:
+                 .missingSession, .needsPairing, .sshSignInRequired, .sshHostKeyChanged, .sshServerStopped, .ssh, .discovery:
                 return "It didn't run: " + reason
             default: break
             }
