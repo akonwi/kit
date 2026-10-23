@@ -47,14 +47,6 @@ enum SSHPrompt: Equatable, Sendable {
         }
     }
 
-    /// Whether the answer may be saved in the Keychain.
-    var saveable: Bool {
-        switch self {
-        case .password, .passphrase: true
-        case .hostKey, .confirm, .other: false
-        }
-    }
-
     private static func match(_ text: String, _ pattern: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let result = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
