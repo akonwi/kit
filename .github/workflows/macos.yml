@@ -1,38 +1,15 @@
 name: macOS
 on:
   pull_request:
-    paths: ['apps/macos/**', 'api/kit-session.openapi.json', 'api/contract/**', 'internal/version/**', 'assets/kit/**', 'testdata/mermaid/**', '.github/workflows/macos.yml']
+    paths: ['apps/macos/**', 'api/kit-session.openapi.json', 'api/contract/**', 'internal/version/**', 'assets/kit/**', 'testdata/mermaid/**', '.github/workflows/macos.yml', '.github/actions/setup-ghostty/**']
+# The checks are independent, so they run as parallel jobs. Each restores
+# libghostty itself; after a pin change, each builds it until one saves it.
 jobs:
   test:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - name: Restore libghostty
-        id: ghostty
-        uses: actions/cache@v6
-        with:
-          path: apps/macos/Vendor/Ghostty
-          key: ghostty-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/macos/script/build_ghosttykit.sh', 'apps/macos/ThirdParty/Ghostty/**') }}
-      - name: Read the pinned Zig version
-        if: steps.ghostty.outputs.cache-hit != 'true'
-        id: zig
-        run: echo "version=$(sed -n 's/^ZIG_VERSION=//p' apps/macos/script/build_ghosttykit.sh)" >> "$GITHUB_OUTPUT"
-      - name: Install Zig
-        if: steps.ghostty.outputs.cache-hit != 'true'
-        uses: mlugg/setup-zig@v2
-        with:
-          version: ${{ steps.zig.outputs.version }}
-      - name: Build libghostty
-        if: steps.ghostty.outputs.cache-hit != 'true'
-        run: |
-          xcrun -f metal >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
-          apps/macos/script/build_ghosttykit.sh
-      # Generating builds the package, which needs libghostty.
-      - name: Verify generated protocol
-        run: |
-          apps/macos/script/generate_openapi.sh --check
+      - uses: ./.github/actions/setup-ghostty
       - name: Build clean app without private fixtures
         run: apps/macos/script/build_and_run.sh --build
       - name: Test
@@ -43,6 +20,24 @@ jobs:
           for script in build_and_run build_ghosttykit check_terminal_bundle package_app; do
             bash -n "apps/macos/script/$script.sh"
           done
+
+  protocol:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Generating builds the package, which needs libghostty.
+      - uses: ./.github/actions/setup-ghostty
+      - name: Verify generated protocol
+        run: apps/macos/script/generate_openapi.sh --check
+
+  release-staging:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The build number counts the commits before HEAD.
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-ghostty
       - name: Build Apple Silicon Release staging app (not distributable)
         env:
           KIT_MACOS_APP_BUNDLE: ${{ runner.temp }}/Kit-release-check.app

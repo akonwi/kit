@@ -1,0 +1,30 @@
+name: Set up libghostty
+description: >-
+  Restores the macOS app's pinned libghostty from the cache, or builds it with
+  the Zig version its build script names. Building the Swift package needs it.
+
+runs:
+  using: composite
+  steps:
+    - name: Restore libghostty
+      id: ghostty
+      uses: actions/cache@v6
+      with:
+        path: apps/macos/Vendor/Ghostty
+        key: ghostty-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/macos/script/build_ghosttykit.sh', 'apps/macos/ThirdParty/Ghostty/**') }}
+    - name: Read the pinned Zig version
+      if: steps.ghostty.outputs.cache-hit != 'true'
+      id: zig
+      shell: bash
+      run: echo "version=$(sed -n 's/^ZIG_VERSION=//p' apps/macos/script/build_ghosttykit.sh)" >> "$GITHUB_OUTPUT"
+    - name: Install Zig
+      if: steps.ghostty.outputs.cache-hit != 'true'
+      uses: mlugg/setup-zig@v2
+      with:
+        version: ${{ steps.zig.outputs.version }}
+    - name: Build libghostty
+      if: steps.ghostty.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        xcrun -f metal >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
+        apps/macos/script/build_ghosttykit.sh
