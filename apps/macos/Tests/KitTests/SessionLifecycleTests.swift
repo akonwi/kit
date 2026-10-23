@@ -38,7 +38,7 @@ private actor LifecycleClient: SessionClient {
         model.openLauncher()
         #expect(await client.started == 1)
         #expect(await client.stopped == 0)
-        model.close(tab)
+        model.close(tab, from: .top)
         #expect(tab.store == nil)
         try await eventually { await client.stopped == 1 }
         #expect(await client.stopped == 1)

@@ -129,7 +129,7 @@ struct SessionWindowRoot: View {
                     Button("Retry saving") { windows.restoration.save() }
                 }.font(.kit(size: 12)).padding(12)
             }
-            SessionTabContent(model: model, tab: tab)
+            SessionTabContent(model: model, tab: tab, placement: placement)
                 .id(tab.id)
         }
         .background(tiled ? .clear : theme.surface)
@@ -144,6 +144,8 @@ struct SessionWindowRoot: View {
 private struct SessionTabContent: View {
     let model: SessionWindowModel
     let tab: SessionTab
+    /// Where the window lists its tabs, which closing this one follows.
+    let placement: SessionTabPlacement
 
     var body: some View {
         if let connection = tab.connection {
@@ -169,7 +171,7 @@ private struct SessionTabContent: View {
                     .overlay(alignment: .top) { launcherMenu(connection, width: ServerStateView.width) }
             }
         } else {
-            UnknownServerView(name: tab.identity.server) { model.requestClose(tab) }
+            UnknownServerView(name: tab.identity.server) { model.requestClose(tab, from: placement) }
         }
     }
 

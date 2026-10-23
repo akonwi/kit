@@ -132,12 +132,12 @@ import Testing
 
     @Test func closingTabsSelectsTheNeighborAndKeepsALauncher() {
         let model = SessionWindowModel(id: UUID(), sessions: [id("a"), id("b"), id("c")], selected: id("b"))
-        model.close(model.selectedTab)
+        model.close(model.selectedTab, from: .top)
         #expect(model.sessions == [id("a"), id("c")])
         #expect(model.selectedSession == id("c"))
-        model.close(model.selectedTab)
+        model.close(model.selectedTab, from: .top)
         #expect(model.selectedSession == id("a"))
-        model.close(model.selectedTab)
+        model.close(model.selectedTab, from: .top)
         #expect(model.tabs.count == 1)
         #expect(model.selectedTab.isLauncher)
     }
