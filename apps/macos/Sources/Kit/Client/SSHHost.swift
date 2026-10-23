@@ -265,7 +265,7 @@ actor SSHHost {
         if prompter == nil && waitingForSignIn { throw ClientError.sshSignInRequired }
         let configuration = try await configuration()
         if closed { throw CancellationError() }
-        let attempt = SSHAttempt(destination: destination, account: configuration.account, passwords: environment.passwords,
+        let attempt = SSHAttempt(destination: destination, login: configuration.login, passwords: environment.passwords,
                                  prompter: prompter)
         let bridge = try environment.bridge()
         let registration = bridge.register { await attempt.answer($0) }
@@ -367,10 +367,10 @@ actor SSHHost {
     }
 
     /// What Kit takes from the user's configuration for one master: the
-    /// account it logs in to, and options Kit overrides. A host whose key
-    /// isn't checked is checked, so Kit never trusts a changed key. It is
-    /// read for every master, so edits apply to the next connection.
-    private func configuration() async throws -> (options: [String], account: String?) {
+    /// account it logs in to, as ssh names it, and options Kit overrides. A
+    /// host whose key isn't checked is checked, so Kit never trusts a changed
+    /// key. It is read for every master, so edits apply to the next connection.
+    private func configuration() async throws -> (options: [String], login: SSHLogin) {
         let output = try await environment.runner.run(["-G", "--", destination], environment: [:], timeout: .seconds(10))
         guard output.status == 0 else {
             throw ClientError.ssh(Self.lastLine(output.stderr) ?? "ssh can’t read its configuration for \(destination).")
@@ -383,8 +383,7 @@ actor SSHHost {
             if values[key] == nil { values[key] = String(parts[1]) }
         }
         let options = values["stricthostkeychecking"]?.lowercased() == "false" ? ["-o", "StrictHostKeyChecking=ask"] : []
-        let account = values["user"].flatMap { user in values["hostname"].map { user + "@" + $0 } }
-        return (options, account)
+        return (options, SSHLogin(configuration: values))
     }
 
     // MARK: - The server
@@ -524,15 +523,15 @@ final class SSHAttempt: Sendable {
     }
 
     let destination: String
-    /// The account ssh logs in to, `user@hostname`, whose saved password
-    /// may be sent; a jump host's question never gets it.
-    let account: String?
+    /// The account ssh logs in to, whose saved password may be sent; a jump
+    /// host's question never gets it.
+    let login: SSHLogin
     private let passwords: any SSHPasswordStore
     private let prompter: SSHPrompter?
     private let state = Mutex(State())
 
-    init(destination: String, account: String? = nil, passwords: any SSHPasswordStore, prompter: SSHPrompter?) {
-        (self.destination, self.account, self.passwords, self.prompter) = (destination, account, passwords, prompter)
+    init(destination: String, login: SSHLogin, passwords: any SSHPasswordStore, prompter: SSHPrompter?) {
+        (self.destination, self.login, self.passwords, self.prompter) = (destination, login, passwords, prompter)
     }
 
     /// How long since the last question was answered, or zero while one is open.
@@ -556,7 +555,7 @@ final class SSHAttempt: Sendable {
             if state.cancelled || state.stopped { return .giveUp }
             state.asked[key, default: 0] += 1
             var trySaved = false
-            if case .password(let account) = prompt, isLogin(account) {
+            if case .password(let account) = prompt, login.matches(account) {
                 if state.usedSaved { state.savedFailed = true } else { trySaved = true }
             }
             return .ask(retry: state.asked[key]! > 1, trySaved: trySaved)
@@ -583,7 +582,7 @@ final class SSHAttempt: Sendable {
             }
         }
         var request = SSHPromptRequest(prompt: prompt, retry: retry)
-        if case .password(let account) = prompt { request.canSave = isLogin(account) }
+        if case .password(let account) = prompt { request.canSave = login.matches(account) }
         let task = Task { await prompter(request) }
         let open = state.withLock { state -> Bool in
             guard !state.finished else { return false }
@@ -612,7 +611,7 @@ final class SSHAttempt: Sendable {
             switch prompt {
             // Only the login account's password is kept; another's, such as
             // a jump host's, would later be sent to the destination.
-            case .password(let account) where isLogin(account): state.password = answer
+            case .password(let account) where login.matches(account): state.password = answer
             case .password: break
             case .passphrase(let key):
                 state.passphrases[key] = answer.text
@@ -690,12 +689,6 @@ final class SSHAttempt: Sendable {
         }
     }
 
-    /// Whether a password question is for the account ssh logs in to, not
-    /// another, such as a jump host's. ssh doesn't always say whose.
-    private func isLogin(_ account: String?) -> Bool {
-        account == nil || account == self.account
-    }
-
     private static func kind(_ prompt: SSHPrompt) -> String {
         switch prompt {
         case .hostKey: "hostKey"
@@ -704,6 +697,39 @@ final class SSHAttempt: Sendable {
         case .confirm(let text): "confirm:" + text
         case .other(let text): "other:" + text
         }
+    }
+}
+
+/// The account ssh logs in to, as its password questions name it, from
+/// `ssh -G`.
+struct SSHLogin: Equatable, Sendable {
+    /// `user@host`, where host is the HostKeyAlias when one is set and the
+    /// HostName otherwise, as ssh writes it in password questions; nil when
+    /// the configuration doesn't say.
+    var account: String?
+    /// ssh connects through a ProxyJump or ProxyCommand, whose own password
+    /// questions may not name their account.
+    var proxied = false
+
+    init(account: String? = nil, proxied: Bool = false) {
+        (self.account, self.proxied) = (account, proxied)
+    }
+
+    /// Reads `ssh -G` values, keyed by lowercased option name.
+    init(configuration values: [String: String]) {
+        let host = values["hostkeyalias"] ?? values["hostname"]
+        account = values["user"].flatMap { user in host.map { user + "@" + $0 } }
+        proxied = ["proxyjump", "proxycommand"].contains { key in
+            values[key].map { $0.lowercased() != "none" } ?? false
+        }
+    }
+
+    /// Whether a password question for `account` is this login's. ssh names
+    /// the account in its own questions; one that doesn't is the login's
+    /// only when nothing else, such as a ProxyCommand, could have asked it.
+    func matches(_ account: String?) -> Bool {
+        guard let account else { return !proxied }
+        return account == self.account
     }
 }
 

@@ -5,8 +5,8 @@ enum SSHPrompt: Equatable, Sendable {
     /// The first connection to a host: its key, to confirm before ssh adds it
     /// to known_hosts.
     case hostKey(SSHHostKey)
-    /// A password for `account`, such as `me@devbox`, or for the host when
-    /// ssh doesn't say whose.
+    /// A password for `account`, such as `me@devbox`, or nil when the
+    /// question names no account, as a ProxyCommand's tool may ask.
     case password(account: String?)
     /// The passphrase of the private key at `key`.
     case passphrase(key: String)

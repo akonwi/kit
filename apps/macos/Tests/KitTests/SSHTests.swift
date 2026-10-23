@@ -335,10 +335,13 @@ struct SSHHostTests {
         #expect(sent.all == [])
     }
 
+    /// A destination reached through a jump host, as `ssh -G` reports it.
+    static let jumpConfig = "user me\nhostname devbox\nproxyjump me@bastion\n"
+
     @Test func aJumpHostsPasswordIsNeverSavedForTheDestination() async throws {
         // ssh asks for the jump host's password, then the destination's (#270).
         let sent = Recorded<String>()
-        let fake = try FakeSSHHosts(ssh: FakeSSH(master: { process, environment in
+        let fake = try FakeSSHHosts(ssh: FakeSSH(respond: FakeSSH.standard(config: Self.jumpConfig), master: { process, environment in
             for (prompt, expected) in [("me@bastion's password: ", "jump"), ("me@devbox's password: ", "hunter2")] {
                 let answer = await process.ask(prompt, kind: nil, environment: environment)
                 guard process.running else { return }
@@ -364,7 +367,7 @@ struct SSHHostTests {
 
     @Test func aStaleSavedPasswordBehindAJumpHostIsDroppedNotReplacedByTheJumpHosts() async throws {
         let sent = Recorded<String>()
-        let fake = try FakeSSHHosts(ssh: FakeSSH(master: { process, environment in
+        let fake = try FakeSSHHosts(ssh: FakeSSH(respond: FakeSSH.standard(config: Self.jumpConfig), master: { process, environment in
             let jump = await process.ask("me@bastion's password: ", kind: nil, environment: environment)
             guard process.running else { return }
             sent.append(jump ?? "")
@@ -395,6 +398,69 @@ struct SSHHostTests {
         defer { fake.remove() }
         try await fake.hosts.host("me@devbox").signIn { _ in SSHAnswer(text: "jump", save: true) }
         #expect(fake.passwords.all.isEmpty)
+    }
+
+    // ssh -G omits a ProxyCommand of none; Kit reads one as no proxy too.
+    @Test(arguments: ["user me\nhostname devbox\n", "user me\nhostname devbox\nproxycommand none\n"])
+    func aPasswordQuestionNamingNoAccountIsTheLoginsWithoutAProxy(config: String) async throws {
+        let sent = Recorded<String>()
+        let fake = try FakeSSHHosts(ssh: FakeSSH(respond: FakeSSH.standard(config: config),
+                                                 master: FakeSSH.asking("Password: ", expected: "hunter2", sent: sent)),
+                                    passwords: ["me@devbox": "hunter2"])
+        defer { fake.remove() }
+        _ = try await fake.hosts.host("me@devbox").resolve()
+        #expect(sent.all == ["hunter2"])
+    }
+
+    @Test(arguments: ["user me\nhostname devbox\nproxyjump me@bastion\n", "user me\nhostname devbox\nproxycommand nc %h %p\n"])
+    func aPasswordQuestionNamingNoAccountBehindAProxyIsntTheLogins(config: String) async throws {
+        // A ProxyCommand's tool, or an older ssh it runs, may ask without
+        // naming the account (#274).
+        let sent = Recorded<String>()
+        let fake = try FakeSSHHosts(ssh: FakeSSH(respond: FakeSSH.standard(config: config),
+                                                 master: FakeSSH.asking("Password: ", expected: "proxy", sent: sent)),
+                                    passwords: ["me@devbox": "hunter2"])
+        defer { fake.remove() }
+        let host = fake.hosts.host("me@devbox")
+        // In the background, the saved password isn't sent to it.
+        await expectClientError(.sshSignInRequired) { _ = try await host.resolve() }
+        #expect(sent.all == [])
+        // Signing in asks without offering to save, and keeps the saved password.
+        let asked = Recorded<SSHPromptRequest>()
+        try await host.signIn { request in
+            asked.append(request)
+            return SSHAnswer(text: "proxy", save: true)
+        }
+        #expect(asked.all == [SSHPromptRequest(prompt: .password(account: nil), canSave: false)])
+        #expect(sent.all == ["proxy"])
+        #expect(fake.passwords.all == ["me@devbox": "hunter2"])
+    }
+
+    @Test(arguments: ["me@devbox.example's password: ", "(me@devbox.example) Password: "])
+    func aHostKeyAliasHostsPasswordCanBeSaved(prompt: String) async throws {
+        // ssh names the HostKeyAlias, not the HostName, in password questions.
+        let config = "user me\nhostname 10.0.4.12\nhostkeyalias devbox.example\n"
+        let fake = try FakeSSHHosts(ssh: FakeSSH(respond: FakeSSH.standard(config: config),
+                                                 master: FakeSSH.asking(prompt, expected: "hunter2")))
+        defer { fake.remove() }
+        let asked = Recorded<SSHPromptRequest>()
+        try await fake.hosts.host("me@devbox").signIn { request in
+            asked.append(request)
+            return SSHAnswer(text: "hunter2", save: true)
+        }
+        #expect(asked.all == [SSHPromptRequest(prompt: .password(account: "me@devbox.example"))])
+        #expect(fake.passwords.all == ["me@devbox": "hunter2"])
+    }
+
+    @Test func aSavedPasswordGoesToAHostKeyAliasHostsQuestion() async throws {
+        let sent = Recorded<String>()
+        let config = "user me\nhostname 10.0.4.12\nhostkeyalias devbox.example\n"
+        let fake = try FakeSSHHosts(ssh: FakeSSH(respond: FakeSSH.standard(config: config),
+                                                 master: FakeSSH.asking("me@devbox.example's password: ", expected: "hunter2", sent: sent)),
+                                    passwords: ["me@devbox": "hunter2"])
+        defer { fake.remove() }
+        _ = try await fake.hosts.host("me@devbox").resolve()
+        #expect(sent.all == ["hunter2"])
     }
 
     @Test func sshAddIsGivenThePassphraseOnce() async throws {
