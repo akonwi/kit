@@ -25,11 +25,14 @@ struct SessionTree<Tab> {
         let id: String
         let content: Content
         let depth: Int
-        /// The row has children, and so a disclosure caret.
-        let hasChildren: Bool
+        /// The row's direct children, shown or not.
+        let children: Int
         let collapsed: Bool
         /// The open tabs a collapsed row hides.
         let hiddenTabs: [Tab]
+
+        /// The row has children, and so a disclosure caret.
+        var hasChildren: Bool { children > 0 }
 
         var tab: Tab? {
             if case .tab(let tab) = content { tab } else { nil }
@@ -143,10 +146,9 @@ struct SessionTree<Tab> {
         var emitted: Set<String> = []
         func emit(_ id: String, depth: Int) {
             guard let node = nodes[id], emitted.insert(id).inserted else { return }
-            let hasChildren = !node.children.isEmpty
-            let folded = hasChildren && collapsed.contains(id)
+            let folded = !node.children.isEmpty && collapsed.contains(id)
             let content: Row.Content = node.tab.map { .tab($0) } ?? .closedParent(session: id, title: node.title)
-            rows.append(Row(id: id, content: content, depth: depth, hasChildren: hasChildren, collapsed: folded,
+            rows.append(Row(id: id, content: content, depth: depth, children: node.children.count, collapsed: folded,
                             hiddenTabs: folded ? openTabs(under: id) : []))
             guard !folded else { return }
             for child in sorted(node.children) { emit(child, depth: depth + 1) }

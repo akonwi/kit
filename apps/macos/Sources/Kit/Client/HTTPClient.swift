@@ -123,7 +123,7 @@ struct ServerIdentity: Equatable, Sendable {
     }
 }
 
-final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, SessionDeletionClient, SessionDisposalClient, SessionForkClient, ComposerClient, AttachmentClient {
+final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, SessionDeletionClient, SessionDisposalClient, SessionActivityClient, SessionForkClient, ComposerClient, AttachmentClient {
     let serverID: String
     let isDemo = false
     let endpoint: URL
@@ -1220,6 +1220,24 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let list: [WireSessionInfo] = try generated(try response.body.json.sessions, as: [WireSessionInfo].self)
         return try list.map { try SessionProjection.summary($0) }
+    }
+
+    func sessionActivity() async throws -> [String: SessionTabStatus] {
+        let output = try await generatedOperation { try await api.getSessionActivity(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._48)) }
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        return try Self.activity(try response.body.json.sessions)
+    }
+
+    /// Validates a reported activity list: distinct, well-formed session IDs,
+    /// each working or awaiting a response.
+    private static func activity(_ entries: [Components.Schemas.SessionActivityEntry]) throws -> [String: SessionTabStatus] {
+        var statuses: [String: SessionTabStatus] = [:]
+        for entry in entries {
+            guard validHistorySession(entry.sessionId), statuses[entry.sessionId] == nil,
+                  let status = SessionTabStatus(rawValue: entry.status), status != .idle else { throw ClientError.invalidPayload }
+            statuses[entry.sessionId] = status
+        }
+        return statuses
     }
 
     func history(_ id: String, before: String) async throws -> TranscriptHistoryPage {

@@ -508,9 +508,9 @@ struct ServerStatePresentationTests {
         }
     }
 
-    private func excerpt(_ id: String, _ title: String, date: String) -> SessionExcerpt {
-        SessionExcerpt(id: id, title: title, sourceTitle: "", model: "m", thinking: "high", workspace: "/work",
-                       date: date, messages: [])
+    private func excerpt(_ id: String, _ title: String, parent: String? = nil, date: String) -> SessionExcerpt {
+        SessionExcerpt(id: id, title: title, parentSessionID: parent, sourceTitle: "", model: "m", thinking: "high",
+                       workspace: "/work", date: date, messages: [])
     }
 
     @Test func aTabWhoseServerCantServeItAsksForAttention() async throws {
@@ -530,15 +530,18 @@ struct ServerStatePresentationTests {
 
     @Test func openSessionListsEveryConnectedServer() async throws {
         let servers = servers(sessions: ["local": [excerpt("a", "Local A", date: "2026-01-01T00:00:00Z")],
-                                         "devbox": [excerpt("a", "Devbox A", date: "2026-01-02T00:00:00Z")]]) { Self.identity }
+                                         "devbox": [excerpt("a", "Devbox A", date: "2026-01-02T00:00:00Z"),
+                                                    excerpt("b", "Devbox B", parent: "a", date: "2026-01-03T00:00:00Z")]]) { Self.identity }
         #expect(SessionPickerView.entries(servers.connections).isEmpty)
         servers.start()
         defer { for connection in servers.connections { connection.stop() } }
         try await eventually { servers.connections.allSatisfy { $0.status.isConnected && $0.catalog.loaded } }
         let entries = SessionPickerView.entries(servers.connections)
-        #expect(entries.map(\.id) == ["a", "devbox/a"])
-        #expect(entries.map(\.title) == ["Local A", "Devbox A"])
-        #expect(entries.map { SessionWindowModel.identity(treeKey: $0.id).serverLabel } == [nil, "devbox"])
+        #expect(entries.map(\.id) == ["a", "devbox/a", "devbox/b"])
+        #expect(entries.map(\.title) == ["Local A", "Devbox A", "Devbox B"])
+        // A child links to its parent on its own server.
+        #expect(entries.map(\.parentSessionID) == [nil, nil, "devbox/a"])
+        #expect(entries.map { SessionWindowModel.identity(treeKey: $0.id).serverLabel } == [nil, "devbox", "devbox"])
     }
 
     @Test func aServerNamePointedElsewhereKeepsItsTabsStores() async throws {

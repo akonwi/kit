@@ -130,7 +130,7 @@ private struct LauncherSignIn: View {
 }
 
 /// Finds a session to open. The launcher lists the window's active sessions
-/// above the recent ones; the compact form backs the Open session palette.
+/// above the recent ones.
 struct SessionLauncherContent: View {
     let sessions: [SessionExcerpt]
     let connecting: Bool
@@ -142,13 +142,9 @@ struct SessionLauncherContent: View {
     /// The launcher's server menu, before New session.
     var server: LauncherServerChoice? = nil
     var focusRequest = true
-    var compact = false
-    var currentID: String? = nil
     var activity: [String: SessionTabStatus] = [:]
     var rename: ((SessionExcerpt) -> Void)? = nil
     var delete: ((SessionExcerpt) -> Void)? = nil
-    /// The server to name beside a session from another server.
-    var serverLabel: (SessionExcerpt) -> String? = { _ in nil }
     @Environment(\.mica) private var theme
     @State private var selection = SessionLauncher()
     @FocusState private var searchFocused: Bool
@@ -158,16 +154,15 @@ struct SessionLauncherContent: View {
     static let top: CGFloat = 150
 
     private var sections: (active: [SessionExcerpt], recent: [SessionExcerpt]) {
-        selection.sections(in: sessions, activity: compact ? [:] : activity)
+        selection.sections(in: sessions, activity: activity)
     }
     private var results: [SessionExcerpt] { let sections = sections; return sections.active + sections.recent }
     /// A connected server without sessions shows only the way to start one.
-    private var firstSession: Bool { !compact && connected && !connecting && error == nil && sessions.isEmpty }
+    private var firstSession: Bool { connected && !connecting && error == nil && sessions.isEmpty }
 
     var body: some View {
         Group {
-            if compact { palette }
-            else if firstSession { firstSessionPrompt }
+            if firstSession { firstSessionPrompt }
             else { launcher }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -298,116 +293,6 @@ struct SessionLauncherContent: View {
         .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
     }
 
-    // MARK: Palette
-
-    private var palette: some View {
-        VStack(alignment: .leading, spacing: 26) {
-            VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    IconView(.magnifyingGlass, size: 16).foregroundStyle(theme.muted)
-                    TextField("Search sessions or directories", text: $selection.query)
-                        .textFieldStyle(.plain).focused($searchFocused)
-                        .onSubmit { openHighlighted() }
-                    if !selection.query.isEmpty {
-                        Button { selection.query = "" } label: { IconView(.xCircle) }
-                            .buttonStyle(.plain).foregroundStyle(theme.muted).help("Clear search").accessibilityLabel("Clear search")
-                    }
-                }
-                .font(.kit(size: 14)).padding(14)
-                .overlay(alignment: .bottom) { Rectangle().fill(searchFocused ? theme.accent : theme.border).frame(height: 1) }
-                HStack {
-                    Text("Recent sessions").font(.kit(size: 12, weight: .medium))
-                    Spacer()
-                    if connecting { KitSpinner() }
-                    else {
-                        Button(action: refresh) { IconView(.arrowClockwise) }
-                            .buttonStyle(.plain).help("Refresh sessions").accessibilityLabel("Refresh sessions")
-                    }
-                }.foregroundStyle(theme.muted).padding(.top, 24).padding(.bottom, 10)
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 4) {
-                            ForEach(results) { session in
-                                paletteRow(session).id(session.id)
-                            }
-                            if results.isEmpty { emptyState.padding(.vertical, 42) }
-                        }
-                    }
-                    .onChange(of: selection.highlightedID) {
-                        if let id = selection.highlightedID { proxy.scrollTo(id) }
-                    }
-                }.frame(maxHeight: .infinity)
-            }
-            if rename != nil || delete != nil {
-                HStack {
-                    if let rename {
-                        Button { if let selectedSession { rename(selectedSession) } } label: {
-                            HStack(spacing: 8) {
-                                Text("Rename…")
-                                Text("⌘R").foregroundStyle(theme.muted)
-                            }
-                        }
-                            .keyboardShortcut("r", modifiers: .command)
-                    }
-                    if let delete {
-                        Button(role: .destructive) { if let selectedSession { delete(selectedSession) } } label: {
-                            HStack(spacing: 8) {
-                                Text(selectedSession?.isTemporary == true ? "Dispose…" : "Delete…")
-                                Text("⌘⌫").foregroundStyle(theme.muted)
-                            }
-                        }
-                            .keyboardShortcut(KeyEquivalent("\u{7f}"), modifiers: .command)
-                    }
-                    Spacer()
-                }
-                .font(.kit(size: 12))
-                .disabled(selectedSession == nil || !focusRequest)
-            }
-            if let error, !results.isEmpty {
-                HStack(spacing: 12) {
-                    Label("Connection unavailable", icon: .warningCircle)
-                        .help(error)
-                    Spacer()
-                    Button("Retry connection", action: refresh)
-                }.font(.kit(size: 12)).foregroundStyle(theme.muted)
-            }
-        }
-        .padding(20).frame(maxWidth: 740, maxHeight: 680)
-    }
-
-    private func paletteRow(_ session: SessionExcerpt) -> some View {
-        let highlighted = selection.highlightedID == session.id
-        let path = session.cwd ?? session.workspace
-        return Button { open(session) } label: {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(session.title).font(.kit(size: 14, weight: .medium)).lineLimit(1)
-                        if let server = serverLabel(session) {
-                            Text(server).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
-                                .lineLimit(1).fixedSize()
-                        }
-                        if session.isTemporary == true {
-                            Text("Temporary").font(.kit(size: 11)).foregroundStyle(theme.muted)
-                        }
-                    }
-                    Text(WorkspaceLocation.homeRelative(path)).font(.kit(size: 12, design: .monospaced))
-                        .foregroundStyle(theme.muted).lineLimit(1).truncationMode(.head).help(path)
-                }
-                Spacer(minLength: 12)
-                if let date = SessionLauncher.timestamp(session.lastActivity ?? session.date) {
-                    Text(date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated))).font(.kit(size: 12)).foregroundStyle(theme.muted).lineLimit(1)
-                }
-                IconView(session.id == currentID ? .check : .arrowRight, size: 12).foregroundStyle(theme.muted)
-            }
-            .padding(.horizontal, 14).padding(.vertical, 14).contentShape(Rectangle())
-            .background(highlighted ? theme.accent.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
-        }.buttonStyle(.plain)
-        .contextMenu { SessionCatalogMenu(session: session, rename: rename, delete: delete) }
-        .accessibilityLabel("\(session.title), \(path)")
-        .accessibilityAddTraits(highlighted ? .isSelected : [])
-    }
-
     // MARK: Shared
 
     private var selectedSession: SessionExcerpt? {
@@ -522,7 +407,7 @@ private struct LauncherRow: View {
 }
 
 /// Rename and delete for a session in a catalog list.
-private struct SessionCatalogMenu: View {
+struct SessionCatalogMenu: View {
     let session: SessionExcerpt
     let rename: ((SessionExcerpt) -> Void)?
     let delete: ((SessionExcerpt) -> Void)?
