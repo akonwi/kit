@@ -187,7 +187,7 @@ private struct SessionCommands: Commands {
         if window.tabs.count == 1, window.selectedTab.isLauncher {
             window.window?.performClose(nil)
         } else {
-            window.requestClose(window.selectedTab)
+            window.requestClose(window.selectedTab, from: placement)
         }
     }
 }

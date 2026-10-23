@@ -303,13 +303,11 @@ private struct SessionSidebarRow: View {
                     .foregroundStyle(SessionTabStatusMarker.titleProminent(tab, selected: selected) ? theme.text : theme.muted)
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                // A family shares its server, so only its top row names it.
-                if row.depth == 0, let server = tab.serverLabel { ServerLabel(name: server) }
                 HStack(spacing: 0) {
                     SessionTreeDisclosure(row: row, number: number, model: model)
                     // The hint takes the close button's place.
                     if hovering, number == nil {
-                        ChromeIconButton(icon: .x, size: 10, frame: 18, help: "Close tab") { model.requestClose(tab) }
+                        ChromeIconButton(icon: .x, size: 10, frame: 18, help: "Close tab") { model.requestClose(tab, from: .side) }
                     }
                 }
             }
@@ -320,12 +318,12 @@ private struct SessionSidebarRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(tab.statusLabel.map { "\(tab.title) — \($0)" } ?? tab.title)
-        .accessibilityLabel(tab.title)
+        .help(SessionTabHelp.text(title: tab.title, status: tab.statusLabel, server: tab.serverLabel))
+        .accessibilityLabel(SessionTabHelp.accessibilityLabel(title: tab.title, server: tab.serverLabel))
         .accessibilityValue(tab.statusLabel ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .sessionTreeDisclosureAction(row: row, model: model)
-        .contextMenu { Button("Close Tab") { model.requestClose(tab) } }
+        .contextMenu { Button("Close Tab") { model.requestClose(tab, from: .side) } }
     }
 }
 
@@ -351,9 +349,6 @@ private struct ClosedParentRow: View {
                     .foregroundStyle(theme.muted)
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if row.depth == 0, let server = SessionWindowModel.identity(treeKey: session).serverLabel {
-                    ServerLabel(name: server)
-                }
                 SessionTreeDisclosure(row: row, number: number, model: model)
             }
             .padding(.leading, 8).padding(.trailing, 4)
@@ -363,12 +358,14 @@ private struct ClosedParentRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help("\(title) — Closed")
-        .accessibilityLabel(title)
+        .help(SessionTabHelp.text(title: title, status: "Closed", server: server))
+        .accessibilityLabel(SessionTabHelp.accessibilityLabel(title: title, server: server))
         .accessibilityValue("Closed")
         .sessionTreeDisclosureAction(row: row, model: model)
         .contextMenu { Button("Open Tab", action: reopen) }
     }
+
+    private var server: String? { SessionWindowModel.identity(treeKey: session).serverLabel }
 
     private func reopen() { navigation.openSession(SessionWindowModel.identity(treeKey: session)) }
 }
@@ -452,8 +449,9 @@ private extension View {
     }
 }
 
-/// Top-tab layout: traffic lights, session tabs in family order, new tab,
-/// and placement. Tabs that do not fit scroll; faded edges and a count show
+/// Top-tab layout: traffic lights, session tabs in the window's tab order,
+/// new tab, and placement. A hairline divides inactive tabs. Dragging a tab
+/// moves it alone. Tabs that do not fit scroll; faded edges and a count show
 /// what is hidden, and the selected tab scrolls into view.
 struct SessionTopTabs: View {
     @Environment(\.mica) private var theme
@@ -462,35 +460,51 @@ struct SessionTopTabs: View {
     @State private var viewportWidth: CGFloat = 0
     @State private var offset: CGFloat = 0
     @State private var frames: [UUID: ClosedRange<CGFloat>] = [:]
+    @State private var hovered: UUID?
+    @State private var drag = SessionTabStripDrag()
 
     var body: some View {
-        let selectedDirectory = model.selectedTab.directory
-        let tabs = model.familyOrder
+        let selected = model.selectedTab
+        let tabs = model.tabs
+        let ids = tabs.map(\.id)
         let overflow = TabStripOverflow(frames: frames, offset: offset, viewport: viewportWidth)
         let hidden = tabs.filter { overflow.hides($0.id) }
         let hints = model.tabNumberHints(.top)
+        // Hover doesn't follow the pointer while a tab is dragged.
+        let hovered = drag.id == nil ? hovered : nil
         HStack(spacing: 6) {
             // The traffic lights occupy this space.
             Color.clear.frame(width: 68, height: 1)
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
-                    HStack(spacing: 2) {
-                        ForEach(tabs) { tab in
+                    HStack(spacing: 0) {
+                        ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
+                            if index > 0 {
+                                SessionTabDivider(visible: SessionTabStrip.showsDivider(
+                                    after: index - 1, of: ids, selected: model.selectedTabID, hovered: hovered, dropGap: drag.gap))
+                            }
                             SessionTopTab(tab: tab, selected: tab.id == model.selectedTabID,
-                                          project: tab.directory != selectedDirectory && !tab.directory.isEmpty
-                                            ? URL(fileURLWithPath: tab.directory).lastPathComponent : nil,
+                                          hovering: tab.id == hovered,
+                                          project: SessionTabStrip.project(of: tab, selected: selected),
                                           parent: model.parentTitle(of: tab),
                                           number: hints.tabs[tab.id],
                                           select: { model.select(tab) },
-                                          close: { model.requestClose(tab) })
+                                          close: { model.requestClose(tab, from: .top) },
+                                          hover: { inside in
+                                              if inside { self.hovered = tab.id } else if self.hovered == tab.id { self.hovered = nil }
+                                          },
+                                          move: { model.move(tab, by: $0) })
+                            .opacity(drag.id == tab.id ? 0.4 : 1)
                             .id(tab.id)
                             .onGeometryChange(for: ClosedRange<CGFloat>.self) {
                                 let frame = $0.frame(in: .named(Self.space))
                                 return frame.minX...frame.maxX
                             } action: { frames[tab.id] = $0 }
+                            .simultaneousGesture(reorder(tab, at: index))
                         }
                     }
                     .coordinateSpace(.named(Self.space))
+                    .overlay(alignment: .leading) { dropMarker(tabs) }
                     // Space beside the tabs belongs to the scroll view, so it
                     // carries the titlebar behavior itself.
                     .frame(minWidth: viewportWidth, maxHeight: .infinity, alignment: .leading)
@@ -501,13 +515,17 @@ struct SessionTopTabs: View {
                 .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x } action: { _, x in offset = x }
                 .mask {
                     TabStripEdgeMask(hiddenBefore: overflow.hiddenBefore, hiddenAfter: overflow.hiddenAfter,
-                                     leading: 32, trailing: 96)
+                                     leading: Self.leadingFade, trailing: Self.trailingFade)
                 }
                 .background(HorizontalWheelScrolling())
                 .onChange(of: model.selectedTabID) { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(model.selectedTabID) } }
                 .onAppear { proxy.scrollTo(model.selectedTabID) }
             }
-            .onChange(of: tabs.map(\.id)) { frames = frames.filter { id, _ in tabs.contains { $0.id == id } } }
+            .onChange(of: ids) {
+                frames = frames.filter { id, _ in ids.contains(id) }
+                // A tab closed mid-drag never reports the drag's end.
+                drag.forget(keeping: ids)
+            }
             if !hidden.isEmpty {
                 SessionTabOverflowMenu(hidden: hidden, numbers: model.shortcutNumbers(.top)) { model.select($0) }
             }
@@ -518,11 +536,176 @@ struct SessionTopTabs: View {
         .padding(.leading, 16).padding(.trailing, 10)
         .frame(height: SessionChrome.rowHeight)
         .background(WindowTitlebarRegion())
+        .background(DragCancellation(active: drag.id != nil) { [drag] in drag.cancel() })
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Session tabs")
     }
 
     private static let space = "SessionTopTabs"
+
+    /// Dragging a tab moves it to the gap nearest the pointer.
+    private func reorder(_ tab: SessionTab, at index: Int) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
+            .onChanged { value in drag.update(tab.id, gap: dropGap(at: value.location.x, dragging: index)) }
+            .onEnded { value in
+                // Resolve at release so the drop matches the pointer.
+                if let gap = drag.end(tab.id, gap: dropGap(at: value.location.x, dragging: index)) {
+                    model.move(tab, toGap: gap)
+                }
+                // Hover wasn't followed during the drag; the pointer's next move restores it.
+                hovered = nil
+            }
+    }
+
+    /// The gap a drag at `x` drops into, among the gaps clear of the edge
+    /// fades.
+    private func dropGap(at x: CGFloat, dragging index: Int) -> Int? {
+        let spans = model.tabs.compactMap { frames[$0.id] }
+        guard spans.count == model.tabs.count, viewportWidth > 0 else { return nil }
+        let overflow = TabStripOverflow(frames: frames, offset: offset, viewport: viewportWidth)
+        guard let visible = SessionTabStrip.clearSpan(offset: offset, viewport: viewportWidth,
+                                                      fadingBefore: overflow.hiddenBefore ? Self.leadingFade : 0,
+                                                      fadingAfter: overflow.hiddenAfter ? Self.trailingFade : 0)
+        else { return nil }
+        return SessionTabStrip.dropGap(at: x, dragging: index, frames: spans, visible: visible)
+    }
+
+    private static let leadingFade: CGFloat = 32
+    private static let trailingFade: CGFloat = 96
+
+    /// The accent bar in the gap a dragged tab would drop into.
+    @ViewBuilder private func dropMarker(_ tabs: [SessionTab]) -> some View {
+        let spans = tabs.compactMap { frames[$0.id] }
+        if let gap = drag.gap, spans.count == tabs.count {
+            let x = SessionTabStrip.position(ofGap: gap, in: spans)
+            RoundedRectangle(cornerRadius: 1)
+                .fill(theme.accent)
+                .frame(width: 2, height: SessionTabStrip.markerHeight)
+                // Centred on the gap, and kept inside the strip at its ends.
+                .offset(x: min(max(x - 1, 0), max((spans.last?.upperBound ?? 0) - 2, 0)))
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+/// The top strip's geometry: fixed-width tabs with a divider slot between
+/// each pair. Gap `i` is the space before tab `i`, and the tab count is the
+/// space after the last.
+enum SessionTabStrip {
+    static let tabWidth: CGFloat = 220
+    static let tabHeight: CGFloat = 30
+    /// The space between two tabs, which holds their divider.
+    static let separatorWidth: CGFloat = 9
+    static let dividerHeight: CGFloat = 16
+    static let markerHeight: CGFloat = 22
+
+    /// The folder a top tab names: its project's, when that isn't the
+    /// selected tab's. A tab on another server names it even at the same
+    /// path, since nothing else on the tab tells the two apart.
+    @MainActor static func project(of tab: SessionTab, selected: SessionTab) -> String? {
+        guard !tab.directory.isEmpty,
+              tab.directory != selected.directory || tab.identity.server != selected.identity.server else { return nil }
+        return URL(fileURLWithPath: tab.directory).lastPathComponent
+    }
+
+    /// Whether the divider after tab `index` shows. Dividers hide beside the
+    /// selected and hovered tabs, which stand on their own, and in the gap a
+    /// dragged tab would drop into, where the drop marker takes their place.
+    static func showsDivider(after index: Int, of ids: [UUID], selected: UUID?, hovered: UUID?, dropGap: Int?) -> Bool {
+        guard index >= 0, index + 1 < ids.count, dropGap != index + 1 else { return false }
+        let raised = [selected, hovered].compactMap { $0 }
+        return !raised.contains(ids[index]) && !raised.contains(ids[index + 1])
+    }
+
+    /// The gap a tab dragged to `x` drops into: the gap whose tabs' middles
+    /// bracket the pointer, kept to the gaps in view so a drop never lands
+    /// beside a tab scrolled out of sight. Nil when the tab would stay where
+    /// it is.
+    /// - Parameters:
+    ///   - index: The dragged tab's position.
+    ///   - frames: Each tab's span in the strip's content, in order.
+    ///   - visible: The span of the content in view.
+    static func dropGap(at x: CGFloat, dragging index: Int, frames: [ClosedRange<CGFloat>],
+                        visible: ClosedRange<CGFloat>) -> Int? {
+        let inView = (0...frames.count).filter { gap in
+            let position = position(ofGap: gap, in: frames)
+            return position >= visible.lowerBound - 1 && position <= visible.upperBound + 1
+        }
+        guard !frames.isEmpty, let first = inView.first, let last = inView.last else { return nil }
+        let nearest = frames.filter { ($0.lowerBound + $0.upperBound) / 2 < x }.count
+        let gap = min(max(nearest, first), last)
+        return gap == index || gap == index + 1 ? nil : gap
+    }
+
+    /// The span of a scrolled strip's content in view and clear of the edge
+    /// fades that are showing; nil when the fades cover it all.
+    static func clearSpan(offset: CGFloat, viewport: CGFloat, fadingBefore: CGFloat,
+                          fadingAfter: CGFloat) -> ClosedRange<CGFloat>? {
+        let lower = offset + fadingBefore, upper = offset + viewport - fadingAfter
+        return lower <= upper ? lower...upper : nil
+    }
+
+    /// Where a gap's drop marker goes: midway between two tabs, or at the
+    /// strip's ends.
+    static func position(ofGap gap: Int, in frames: [ClosedRange<CGFloat>]) -> CGFloat {
+        guard let first = frames.first, let last = frames.last else { return 0 }
+        if gap <= 0 { return first.lowerBound }
+        if gap >= frames.count { return last.upperBound }
+        return (frames[gap - 1].upperBound + frames[gap].lowerBound) / 2
+    }
+}
+
+/// A top tab being dragged to a new place in the strip.
+@MainActor @Observable
+final class SessionTabStripDrag {
+    /// The dragged tab.
+    private(set) var id: UUID?
+    /// The gap it would drop into, if that moves it.
+    private(set) var gap: Int?
+    /// A tab whose drag was cancelled with Esc; its gesture ignores the rest
+    /// of the drag.
+    @ObservationIgnored private var cancelled: UUID?
+
+    func update(_ id: UUID, gap: Int?) {
+        guard cancelled != id else { return }
+        if self.id != id { self.id = id }
+        if self.gap != gap { self.gap = gap }
+    }
+
+    /// Ends the drag, returning the gap to drop into.
+    func end(_ id: UUID, gap: Int?) -> Int? {
+        defer { self.id = nil; self.gap = nil; cancelled = nil }
+        return cancelled == id ? nil : gap
+    }
+
+    func cancel() -> Bool {
+        guard let id else { return false }
+        cancelled = id
+        self.id = nil
+        gap = nil
+        return true
+    }
+
+    /// Ends a drag whose tab has closed, since its gesture won't report
+    /// the end.
+    func forget(keeping ids: [UUID]) {
+        if let id, !ids.contains(id) { self.id = nil; gap = nil }
+        if let cancelled, !ids.contains(cancelled) { self.cancelled = nil }
+    }
+}
+
+/// The hairline between two top tabs, or the space it leaves when hidden.
+private struct SessionTabDivider: View {
+    @Environment(\.mica) private var theme
+    let visible: Bool
+
+    var body: some View {
+        Rectangle()
+            .fill(visible ? theme.border : .clear)
+            .frame(width: 1, height: SessionTabStrip.dividerHeight)
+            .frame(width: SessionTabStrip.separatorWidth)
+            .accessibilityHidden(true)
+    }
 }
 
 /// The count of hidden session tabs; choosing one selects it.
@@ -556,6 +739,8 @@ private struct SessionTopTab: View {
     @Environment(\.mica) private var theme
     let tab: SessionTab
     let selected: Bool
+    let hovering: Bool
+    /// The tab's folder, when it differs from the selected tab's.
     let project: String?
     /// The title of the session this one came from.
     let parent: String?
@@ -563,7 +748,9 @@ private struct SessionTopTab: View {
     let number: Int?
     let select: () -> Void
     let close: () -> Void
-    @State private var hovering = false
+    let hover: (Bool) -> Void
+    /// Moves the tab one place left (-1) or right (1).
+    let move: (Int) -> Void
 
     var body: some View {
         Button(action: select) {
@@ -575,39 +762,35 @@ private struct SessionTopTab: View {
                     .foregroundStyle(SessionTabStatusMarker.titleProminent(tab, selected: selected) ? theme.text : theme.muted)
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if let server = tab.serverLabel { ServerLabel(name: server) }
                 if let number {
-                    // The hint takes the close button's place; labels stay.
-                    if tab.serverLabel == nil, let project { projectLabel(project) }
+                    // The hint takes the close button's place; the project stays.
+                    if let project { projectLabel(project) }
                     TabNumberHint(number: number)
                 } else if selected || hovering {
                     ChromeIconButton(icon: .x, size: 10, frame: 16, help: "Close tab", action: close)
-                } else if tab.serverLabel == nil, let project {
+                } else if let project {
                     projectLabel(project)
                 }
             }
             .padding(.horizontal, 10)
-            .frame(width: 220, height: 30)
+            .frame(width: SessionTabStrip.tabWidth, height: SessionTabStrip.tabHeight)
             .background { background }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .help(help)
-        .accessibilityLabel(tab.title)
+        .onHover(perform: hover)
+        .help(SessionTabHelp.text(title: tab.title, status: tab.statusLabel, server: tab.serverLabel, parent: parent))
+        .accessibilityLabel(SessionTabHelp.accessibilityLabel(title: tab.title, server: tab.serverLabel))
         .accessibilityValue(tab.statusLabel ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityAction(named: "Move Left") { move(-1) }
+        .accessibilityAction(named: "Move Right") { move(1) }
         .contextMenu { Button("Close Tab", action: close) }
     }
 
     private func projectLabel(_ project: String) -> some View {
         Text(project).font(.kit(size: 10, design: .monospaced)).foregroundStyle(theme.strongBorder)
             .lineLimit(1).truncationMode(.middle)
-    }
-
-    private var help: String {
-        let title = tab.statusLabel.map { "\(tab.title) — \($0)" } ?? tab.title
-        return parent.map { "\(title)\nFrom \($0)" } ?? title
     }
 
     /// The selected tab is raised in the tiles' surface so it stands apart
@@ -621,6 +804,24 @@ private struct SessionTopTab: View {
         } else if hovering {
             shape.fill(theme.frameHover)
         }
+    }
+}
+
+/// A session tab's tooltip and spoken name. Another server's name isn't
+/// shown on the tab; it's named here and in the session bar.
+enum SessionTabHelp {
+    /// The title and status, the server when it isn't this Mac's, and the
+    /// session the tab came from, one per line.
+    static func text(title: String, status: String?, server: String?, parent: String? = nil) -> String {
+        var lines = [status.map { "\(title) — \($0)" } ?? title]
+        if let server { lines.append("On \(server)") }
+        if let parent { lines.append("From \(parent)") }
+        return lines.joined(separator: "\n")
+    }
+
+    /// The title, and the server when it isn't this Mac's.
+    static func accessibilityLabel(title: String, server: String?) -> String {
+        server.map { "\(title), on \($0)" } ?? title
     }
 }
 
@@ -714,7 +915,9 @@ struct ChromeIconButton: View {
     }
 }
 
-/// Names another server after a session's title. The title shortens first.
+/// Names another server after a session's title, as the session picker's
+/// rows do. Session tabs don't; their tooltip and the session bar name it.
+/// The title shortens first.
 struct ServerLabel: View {
     @Environment(\.mica) private var theme
     let name: String

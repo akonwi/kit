@@ -166,19 +166,19 @@ final class SessionWindowModel: Identifiable {
 
     /// The sidebar's session tree, with collapsed families folded.
     var rows: [SessionTreeRow] { tree(collapsed: collapsed) }
-    /// Every tab in family order, as the top tabs show them.
+    /// Every tab in family order, as the sidebar lists them unfolded.
     var familyOrder: [SessionTab] { tree(collapsed: []).compactMap(\.tab) }
 
     /// The tabs next/previous follow: the sidebar's visible tab rows, or
-    /// every top tab.
+    /// every top tab in the order the user arranged them.
     func navigableTabs(_ placement: SessionTabPlacement) -> [SessionTab] {
-        placement == .side ? rows.compactMap(\.tab) : familyOrder
+        placement == .side ? rows.compactMap(\.tab) : tabs
     }
 
     /// What ⌘1–⌘9 reach: each visible sidebar row, including closed
-    /// parents, or every top tab.
+    /// parents, or every top tab, left to right.
     func numberedRows(_ placement: SessionTabPlacement) -> [SessionTreeRow.Content] {
-        placement == .side ? rows.map(\.content) : familyOrder.map { .tab($0) }
+        placement == .side ? rows.map(\.content) : tabs.map { .tab($0) }
     }
 
     /// How many rows have a numbered shortcut, ⌘1 to ⌘9.
@@ -254,6 +254,24 @@ final class SessionWindowModel: Identifiable {
               order.count == tabs.count, !zip(order, tabs).allSatisfy({ $0 === $1 }) else { return }
         tabs = order
         onChange(self)
+    }
+
+    /// Moves one tab to a gap in the tab order, as dragging a top tab does;
+    /// its family doesn't follow. Gap `i` is before tab `i`, and the tab
+    /// count is after the last. The sidebar's tree follows the new order.
+    func move(_ tab: SessionTab, toGap gap: Int) {
+        guard let source = tabs.firstIndex(where: { $0 === tab }), (0...tabs.count).contains(gap),
+              gap != source, gap != source + 1 else { return }
+        tabs.remove(at: source)
+        tabs.insert(tab, at: gap > source ? gap - 1 : gap)
+        onChange(self)
+    }
+
+    /// Moves a tab one place left (-1) or right (1) in the tab order.
+    func move(_ tab: SessionTab, by offset: Int) {
+        guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
+        // Left lands before the tab to the left; right after the tab to the right.
+        move(tab, toGap: offset < 0 ? index - 1 : index + 2)
     }
 
     /// Expands the families that hide a tab, so a selected tab is visible.
@@ -429,7 +447,7 @@ final class SessionWindowModel: Identifiable {
     func show(_ identity: SessionIdentity, in tab: SessionTab) {
         guard tabs.contains(where: { $0 === tab }), tab.identity != identity else { return }
         if let existing = self.tab(for: identity), existing !== tab {
-            close(tab)
+            close(tab, from: nil)
             select(existing)
             return
         }
@@ -441,11 +459,11 @@ final class SessionWindowModel: Identifiable {
         onChange(self)
     }
 
-    /// Closes a tab, first asking if that would end commands running in its
-    /// terminals.
-    func requestClose(_ tab: SessionTab) {
+    /// Closes a tab from `placement`, first asking if that would end
+    /// commands running in its terminals.
+    func requestClose(_ tab: SessionTab, from placement: SessionTabPlacement) {
         TerminalCloseConfirmation.confirm(tab.store?.busyTerminals ?? [], scope: .sessionTab, in: window) { [weak self, weak tab] in
-            if let self, let tab { self.close(tab) }
+            if let self, let tab { self.close(tab, from: placement) }
         }
     }
 
@@ -453,13 +471,16 @@ final class SessionWindowModel: Identifiable {
     var busyTerminals: [TerminalTab] { tabs.flatMap { $0.store?.busyTerminals ?? [] } }
 
     /// Closes a tab. Closing the last tab leaves a launcher in its place.
-    /// Closing the selected tab selects the next tab in family order.
-    func close(_ tab: SessionTab) {
+    /// Closing the selected tab selects the one after it, or before it at
+    /// the end: in family order when closed from the sidebar, otherwise in
+    /// tab order. Only the sidebar reorders tabs, into family order first, so
+    /// a family whose parent closes stays where it was; elsewhere the order
+    /// the user arranged is kept. A close the window makes itself, as when a
+    /// tab gives way to another showing the same session, passes nil.
+    func close(_ tab: SessionTab, from placement: SessionTabPlacement?) {
         guard tabs.contains(where: { $0 === tab }) else { return }
-        // Tabs take their family order first, so a family whose parent
-        // closes stays where it was.
-        let order = familyOrder
-        if order.count == tabs.count { tabs = order }
+        let order = placement == .side ? familyOrder : tabs
+        if placement == .side, order.count == tabs.count { tabs = order }
         guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
         let position = order.firstIndex { $0 === tab } ?? 0
         release(tab)
@@ -560,7 +581,7 @@ final class SessionWindowModel: Identifiable {
         let identity = SessionIdentity(server: tab.store?.serverID ?? tab.identity.server, session: sessionID)
         if let existing = self.tab(for: identity), existing !== tab {
             // Another tab already shows that session; keep one tab per session.
-            close(tab)
+            close(tab, from: nil)
             select(existing)
             return
         }
@@ -604,7 +625,7 @@ final class SessionWindowModel: Identifiable {
                 tab.identity = launcherIdentity
                 onChange(self)
             } else {
-                close(tab)
+                close(tab, from: nil)
             }
         }
     }

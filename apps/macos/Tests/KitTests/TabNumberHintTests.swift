@@ -180,10 +180,10 @@ private actor IdleClient: SessionClient {
         #expect(numbered(model, .side) == ["1 B", "2 (P)", "3 P1", "4 P2", "5 C", "6 D"])
     }
 
-    @Test func topNumbersFollowFamilyOrderWithoutClosedParentsOrCollapsing() {
-        let model = model(["b", "p1", "p2", "c", "d", "d1", "d2"], parents: ["p1": "p", "p2": "p", "d1": "d", "d2": "d"],
+    @Test func topNumbersFollowTheStripWithoutClosedParentsOrCollapsing() {
+        let model = model(["b", "d1", "p1", "c", "d", "p2", "d2"], parents: ["p1": "p", "p2": "p", "d1": "d", "d2": "d"],
                           selected: "b", closed: ["p"], collapsed: ["d"])
-        #expect(numbered(model, .top) == ["1 B", "2 P1", "3 P2", "4 C", "5 D", "6 D1", "7 D2"])
+        #expect(numbered(model, .top) == ["1 B", "2 D1", "3 P1", "4 C", "5 D", "6 P2", "7 D2"])
     }
 
     @Test func onlyTheFirstNineRowsAreNumbered() {
@@ -342,11 +342,12 @@ private actor IdleClient: SessionClient {
             let size = NSSize(width: 1200, height: SessionChrome.rowHeight)
             let (bitmap, scale) = try await render(SessionTopTabs(model: model, placement: .constant(.top)), size: size, theme: theme)
             let keycaps = try await keycaps(theme)
-            // Tabs are 220 pt wide and 2 pt apart, after 16 pt of padding, the
-            // 68 pt traffic-light space and 6 pt. Each keycap ends at the tab's
-            // 10 pt trailing padding and is centred in the 44 pt row.
+            // Tabs are 220 pt wide with a 9 pt divider slot between them, after
+            // 16 pt of padding, the 68 pt traffic-light space and 6 pt. Each
+            // keycap ends at the tab's 10 pt trailing padding and is centred
+            // in the 44 pt row.
             for index in 0..<4 {
-                let origin = CGPoint(x: 90 + CGFloat(index) * 222 + 194, y: 14)
+                let origin = CGPoint(x: 90 + CGFloat(index) * 229 + 194, y: 14)
                 try expectKeycap(bitmap, scale: scale, at: origin, number: index + 1, keycaps: keycaps, theme: theme, "tab \(index + 1)")
             }
         }

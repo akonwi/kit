@@ -134,10 +134,13 @@ struct SessionTreeTests {
 
     private func titles(_ tabs: [SessionTab]) -> [String] { tabs.map(\.title) }
 
-    @Test func topTabsAndShortcutsFollowFamilyOrder() {
+    @Test func topTabsAndShortcutsFollowTabOrderAndTheSidebarFollowsFamilies() {
         let model = model(["a", "b", "a1"], parents: ["a1": "a"], selected: "a")
         #expect(titles(model.familyOrder) == ["A", "A1", "B"])
+        #expect(titles(model.navigableTabs(.top)) == ["A", "B", "A1"])
         #expect(model.select(index: 1, in: .top) == nil)
+        #expect(model.selectedSession == id("b"))
+        model.selectAdjacent(1, in: .top)
         #expect(model.selectedSession == id("a1"))
         model.selectAdjacent(1, in: .side)
         #expect(model.selectedSession == id("b"))
@@ -182,20 +185,20 @@ struct SessionTreeTests {
         #expect(model.rows.map(\.id) == ["a", "a1", "a1x"])
     }
 
-    @Test func closingTheSelectedTabSelectsTheNextInFamilyOrder() {
+    @Test func closingTheSelectedTabFromTheSidebarSelectsTheNextInFamilyOrder() {
         let model = model(["a", "b", "a1"], parents: ["a1": "a"], selected: "a")
-        model.close(model.selectedTab)
+        model.close(model.selectedTab, from: .side)
         // The closed parent stays while its child is open.
         #expect(model.rows.map(\.id) == ["a", "a1", "b"])
         #expect(model.selectedSession == id("a1"))
-        model.close(model.selectedTab)
+        model.close(model.selectedTab, from: .side)
         #expect(model.rows.map(\.id) == ["b"])
         #expect(model.selectedSession == id("b"))
     }
 
     @Test func aFamilyThatNoLongerAppearsIsForgotten() {
         let model = model(["a", "a1", "b"], parents: ["a1": "a"], selected: "b", collapsed: ["a"])
-        model.close(model.tabs[1])
+        model.close(model.tabs[1], from: .side)
         #expect(model.collapsed.isEmpty)
     }
 

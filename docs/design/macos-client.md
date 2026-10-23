@@ -90,9 +90,21 @@ family. The working directory isn't in the sidebar; the session bar shows it.
 - Each level indents 32 pt, so a child's row starts at its parent's title and
   the family's rail runs under that title. Indentation stops after three
   levels; deeper sessions share the third level's rail.
-- Top tabs stay flat, in family order. A tab's tooltip names its parent.
-- Closing the selected tab selects the next tab in family order. A family keeps
-  its place when its parent closes.
+- Top tabs stay flat, in the window's tab order. Dragging a top tab moves it
+  alone, not its family; an accent bar marks the gap it will land in, among
+  the tabs in view, and Esc cancels. VoiceOver's Move Left and Move Right do
+  the same. The sidebar's tree follows the new order, and dragging a sidebar
+  family regroups the strip. The order is restored on relaunch.
+- A 1 pt hairline divides inactive top tabs. It hides beside the selected tab,
+  which is raised in the tile surface, and beside the hovered tab.
+- A tab doesn't name another server. Its tooltip and spoken name do ("On
+  devbox"), and the session bar's server chip names the selected tab's server.
+  A top tab names its folder when it differs from the selected tab's, or when
+  the tab is on another server. A top tab's tooltip also names its parent.
+- Closing the selected tab selects the tab after it, or before it at the end,
+  in the order its placement shows. Closing from the sidebar first puts tabs in
+  family order, so a family keeps its place when its parent closes; closing a
+  top tab keeps the order the user arranged.
 
 ### Composer
 
