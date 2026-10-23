@@ -7,16 +7,24 @@ struct SessionLauncher {
     var highlightedID: String?
 
     func results(in sessions: [SessionExcerpt]) -> [SessionExcerpt] {
-        let terms = query.split(whereSeparator: \.isWhitespace).map(String.init)
-        return sessions.filter { session in
-            let text = [session.title, session.cwd ?? session.workspace].joined(separator: " ")
-            return terms.allSatisfy { text.localizedCaseInsensitiveContains($0) }
-        }.sorted {
-            let left = Self.timestamp($0.lastActivity ?? $0.date) ?? .distantPast
-            let right = Self.timestamp($1.lastActivity ?? $1.date) ?? .distantPast
-            if left != right { return left > right }
-            return $0.id < $1.id
-        }
+        Self.recent(sessions.filter { Self.matches($0, query: query) })
+    }
+
+    /// Whether every word of the query appears in the session's title or
+    /// folder.
+    static func matches(_ session: SessionExcerpt, query: String) -> Bool {
+        let text = [session.title, session.cwd ?? session.workspace].joined(separator: " ")
+        return query.split(whereSeparator: \.isWhitespace).allSatisfy { text.localizedCaseInsensitiveContains($0) }
+    }
+
+    /// Sessions by their last activity, most recent first.
+    static func recent(_ sessions: [SessionExcerpt]) -> [SessionExcerpt] {
+        sessions.map { ($0, timestamp($0.lastActivity ?? $0.date) ?? .distantPast) }
+            .sorted { left, right in
+                if left.1 != right.1 { return left.1 > right.1 }
+                return left.0.id < right.0.id
+            }
+            .map(\.0)
     }
 
     /// Sessions that are working or awaiting a response lead, in recency
