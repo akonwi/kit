@@ -1,12 +1,4 @@
-# AGENTS.md
-
-## Project identity
-
-Kit is a standalone, single-user, terminal-first coding agent distributed as one
-Go executable for macOS and Linux. Windows is intentionally unsupported. The
-current rewrite architecture is canonical in
-[`docs/adrs/0001-native-go-architecture.md`](docs/adrs/0001-native-go-architecture.md),
-and outstanding work is tracked in [Kit issues](https://github.com/akonwi/kit/issues) and the
+Outstanding work is tracked in [Kit issues](https://github.com/akonwi/kit/issues) and the
 [Kit project](https://github.com/users/akonwi/projects/4).
 
 Kit uses `~/.kit` by default. Set `KIT_HOME` to an explicit isolated directory
@@ -30,10 +22,10 @@ TUI and macOS UI work must preserve its surface hierarchy, palette, layout,
 interaction, and component conventions unless a new decision explicitly changes
 it.
 
-The native TUI is written in Ard with Cooper in `apps/cli`
+The TUI is written in Ard with Cooper in `apps/cli`
 ([ADR 0035](docs/adrs/0035-build-the-terminal-client-with-ard-and-cooper.md)),
 and releases build the `kit` executable from it. The maintained clients are the
-native TUI and the native macOS app (`apps/macos`).
+TUI and the macOS app (`apps/macos`).
 
 The semantic browser client (`apps/web`) is not actively maintained. Do not
 plan, update, validate, or file issues for it as part
