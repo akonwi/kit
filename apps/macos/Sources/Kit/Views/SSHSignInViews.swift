@@ -113,8 +113,11 @@ struct SSHPromptPresentation: Equatable {
             error = nil
         case .password(let account):
             title = "Password for \(account ?? destination)"
-            message = "\(server) asked for a password. Kit sends it to ssh and doesn’t keep it unless you choose to."
-            (key, label, field, save, action, fixedAnswer) = (nil, nil, .secure, false, "Connect", nil)
+            // Another account's password, such as a jump host's, is never kept.
+            message = request.canSave
+                ? "\(server) asked for a password. Kit sends it to ssh and doesn’t keep it unless you choose to."
+                : "\(server) asked for a password. Kit sends it to ssh and doesn’t keep it."
+            (key, label, field, save, action, fixedAnswer) = (nil, nil, .secure, request.canSave ? false : nil, "Connect", nil)
             error = request.retry ? "That password didn’t work. Try again." : nil
         case .passphrase(let path):
             title = "Unlock your SSH key"

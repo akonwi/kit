@@ -75,13 +75,6 @@ struct SSHPromptTests {
         #expect(SSHPrompt(fake) == .other(SSHPrompt.cleaned(fake)))
     }
 
-    @Test func onlyPasswordsAndPassphrasesCanBeSaved() {
-        #expect(SSHPrompt.password(account: nil).saveable)
-        #expect(SSHPrompt.passphrase(key: "k").saveable)
-        #expect(!SSHPrompt.other("Verification code:").saveable)
-        #expect(!SSHPrompt.hostKey(SSHHostKey(host: "h", type: "ED25519", fingerprint: "SHA256:x")).saveable)
-    }
-
     @Test func readsAChangedHostKeyAndHowToRemoveTheOldOne() {
         let user = FileManager.default.homeDirectoryForCurrentUser.path
         let change = SSHHostKeyChange(diagnostics: Self.changed(host: "devbox", file: user + "/.ssh/known_hosts"))
@@ -340,6 +333,68 @@ struct SSHHostTests {
         // A jump host asking in the background gets nothing.
         await expectClientError(.sshSignInRequired) { _ = try await fake.hosts.host("me@devbox").resolve() }
         #expect(sent.all == [])
+    }
+
+    @Test func aJumpHostsPasswordIsNeverSavedForTheDestination() async throws {
+        // ssh asks for the jump host's password, then the destination's (#270).
+        let sent = Recorded<String>()
+        let fake = try FakeSSHHosts(ssh: FakeSSH(master: { process, environment in
+            for (prompt, expected) in [("me@bastion's password: ", "jump"), ("me@devbox's password: ", "hunter2")] {
+                let answer = await process.ask(prompt, kind: nil, environment: environment)
+                guard process.running else { return }
+                sent.append(answer ?? "")
+                guard answer == expected else { return process.exit(255, diagnostics: "Permission denied (password).\n") }
+            }
+            process.emit(SSHHost.readyMarker)
+        }))
+        defer { fake.remove() }
+        let asked = Recorded<SSHPromptRequest>()
+        let answers = Mutex(["jump", "hunter2"])
+        try await fake.hosts.host("me@devbox").signIn { request in
+            asked.append(request)
+            return SSHAnswer(text: answers.withLock { $0.removeFirst() }, save: true)
+        }
+        // The jump host's sheet offers no saving, and the destination's
+        // first question isn't reported as a retry.
+        #expect(asked.all == [SSHPromptRequest(prompt: .password(account: "me@bastion"), canSave: false),
+                              SSHPromptRequest(prompt: .password(account: "me@devbox"))])
+        #expect(sent.all == ["jump", "hunter2"])
+        #expect(fake.passwords.all == ["me@devbox": "hunter2"])
+    }
+
+    @Test func aStaleSavedPasswordBehindAJumpHostIsDroppedNotReplacedByTheJumpHosts() async throws {
+        let sent = Recorded<String>()
+        let fake = try FakeSSHHosts(ssh: FakeSSH(master: { process, environment in
+            let jump = await process.ask("me@bastion's password: ", kind: nil, environment: environment)
+            guard process.running else { return }
+            sent.append(jump ?? "")
+            for _ in 0..<3 {
+                let answer = await process.ask("me@devbox's password: ", kind: nil, environment: environment)
+                guard process.running else { return }
+                sent.append(answer ?? "")
+                if answer == "hunter2" { return process.emit(SSHHost.readyMarker) }
+            }
+            process.exit(255, diagnostics: "Permission denied (password).\n")
+        }), passwords: ["me@devbox": "stale"])
+        defer { fake.remove() }
+        let asked = Recorded<SSHPromptRequest>()
+        let answers = Mutex(["jump", "hunter2"])
+        try await fake.hosts.host("me@devbox").signIn { request in
+            asked.append(request)
+            return SSHAnswer(text: answers.withLock { $0.removeFirst() }, save: true)
+        }
+        // The saved password goes only to the destination, which refuses it.
+        #expect(asked.all == [SSHPromptRequest(prompt: .password(account: "me@bastion"), canSave: false),
+                              SSHPromptRequest(prompt: .password(account: "me@devbox"), retry: true)])
+        #expect(sent.all == ["jump", "stale", "hunter2"])
+        #expect(fake.passwords.all == ["me@devbox": "hunter2"])
+    }
+
+    @Test func aJumpHostsPasswordAloneIsNeverSaved() async throws {
+        let fake = try FakeSSHHosts(ssh: FakeSSH(master: FakeSSH.asking("me@bastion's password: ", expected: "jump")))
+        defer { fake.remove() }
+        try await fake.hosts.host("me@devbox").signIn { _ in SSHAnswer(text: "jump", save: true) }
+        #expect(fake.passwords.all.isEmpty)
     }
 
     @Test func sshAddIsGivenThePassphraseOnce() async throws {

@@ -103,6 +103,16 @@ struct SSHPromptPresentationTests {
         #expect(again.error == "That password didn’t work. Try again.")
     }
 
+    @Test func anotherAccountsPasswordCantBeSaved() {
+        let sheet = SSHPromptPresentation(server: "devbox", destination: "me@devbox",
+                                          request: .init(prompt: .password(account: "me@bastion"), canSave: false))
+        #expect(sheet.title == "Password for me@bastion")
+        #expect(sheet.message == "devbox asked for a password. Kit sends it to ssh and doesn’t keep it.")
+        #expect(sheet.field == .secure)
+        #expect(sheet.save == nil)
+        #expect(sheet.action == "Connect")
+    }
+
     @Test func aPassphraseIsSavedUnlessDeclined() {
         let user = FileManager.default.homeDirectoryForCurrentUser.path
         let sheet = SSHPromptPresentation(server: "devbox", destination: "me@devbox",

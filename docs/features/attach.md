@@ -135,7 +135,8 @@ When ssh asks something, such as a new host key, a password, a key
 passphrase, or a one-time code, the window you're using shows it as a sheet.
 A connection running in the background never asks: the server shows **Sign
 in to connect** until you open it. Saving a password puts it in the
-Keychain; saving a passphrase hands it to `ssh-add --apple-use-keychain`;
+Keychain; only the password of the account you log in to can be saved, not a
+jump host's. Saving a passphrase hands it to `ssh-add --apple-use-keychain`;
 one-time codes are never saved. A changed host key is never accepted from
 Kit: the tab shows the saved and new fingerprints and the `ssh-keygen -R`
 command to run in Terminal. When the host's Kit server isn't running, the tab

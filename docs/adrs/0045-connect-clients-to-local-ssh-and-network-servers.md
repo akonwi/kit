@@ -226,7 +226,8 @@ disconnect or server restart.
   New host keys are confirmed by the user and added to `known_hosts` by
   ssh; a changed host key is never accepted from Kit, and the app shows both
   fingerprints and the `ssh-keygen -R` command instead. Passwords are saved
-  in the Keychain only when the user chooses; key passphrases are kept by
+  in the Keychain only when the user chooses, and only for the account ssh
+  logs in to, never for another such as a jump host; key passphrases are kept by
   `ssh-add --apple-use-keychain`; other answers, such as one-time codes, are
   never saved.
 

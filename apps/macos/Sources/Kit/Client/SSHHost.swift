@@ -18,6 +18,9 @@ struct SSHPromptRequest: Equatable, Sendable {
     let prompt: SSHPrompt
     /// An earlier answer to this question was wrong, as a mistyped password.
     var retry = false
+    /// Whether a password may be saved: false for another account's, such
+    /// as a jump host's, which the saved item must never hold.
+    var canSave = true
 }
 
 /// Asks the user one of ssh's questions; nil cancels connecting.
@@ -553,7 +556,7 @@ final class SSHAttempt: Sendable {
             if state.cancelled || state.stopped { return .giveUp }
             state.asked[key, default: 0] += 1
             var trySaved = false
-            if case .password(let account) = prompt, account == nil || account == self.account {
+            if case .password(let account) = prompt, isLogin(account) {
                 if state.usedSaved { state.savedFailed = true } else { trySaved = true }
             }
             return .ask(retry: state.asked[key]! > 1, trySaved: trySaved)
@@ -579,7 +582,8 @@ final class SSHAttempt: Sendable {
                 return await giveUp(\.stopped)
             }
         }
-        let request = SSHPromptRequest(prompt: prompt, retry: retry)
+        var request = SSHPromptRequest(prompt: prompt, retry: retry)
+        if case .password(let account) = prompt { request.canSave = isLogin(account) }
         let task = Task { await prompter(request) }
         let open = state.withLock { state -> Bool in
             guard !state.finished else { return false }
@@ -606,7 +610,10 @@ final class SSHAttempt: Sendable {
         guard let answer else { return await giveUp(\.cancelled) }
         state.withLock { state in
             switch prompt {
-            case .password: state.password = answer
+            // Only the login account's password is kept; another's, such as
+            // a jump host's, would later be sent to the destination.
+            case .password(let account) where isLogin(account): state.password = answer
+            case .password: break
             case .passphrase(let key):
                 state.passphrases[key] = answer.text
                 if answer.save { state.keys.insert(key) } else { state.keys.remove(key) }
@@ -683,10 +690,16 @@ final class SSHAttempt: Sendable {
         }
     }
 
+    /// Whether a password question is for the account ssh logs in to, not
+    /// another, such as a jump host's. ssh doesn't always say whose.
+    private func isLogin(_ account: String?) -> Bool {
+        account == nil || account == self.account
+    }
+
     private static func kind(_ prompt: SSHPrompt) -> String {
         switch prompt {
         case .hostKey: "hostKey"
-        case .password: "password"
+        case .password(let account): "password:" + (account ?? "")
         case .passphrase(let key): "passphrase:" + key
         case .confirm(let text): "confirm:" + text
         case .other(let text): "other:" + text
