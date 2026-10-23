@@ -6,7 +6,7 @@ description: Build and refactor Cooper/CUI terminal UI components. Use for Coope
 # Cooper UI
 
 Use this skill for work under `apps/cli/tui` that changes Cooper/CUI behavior.
-Read the relevant Cooper source in `/Users/akonwi/Developer/agent/cooper` when framework behavior is uncertain.
+Read the relevant Cooper source in `/Users/akonwi/Developer/agent/ardverse/cooper` when framework behavior is uncertain.
 
 ## State ownership and rendering
 
