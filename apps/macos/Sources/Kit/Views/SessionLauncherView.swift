@@ -291,6 +291,10 @@ struct SessionLauncherContent: View {
         }
         .disabled(selectedSession == nil || !focusRequest)
         .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
+        // SwiftUI can keep a keyboard shortcut's action from an earlier
+        // render, which would read sessions listed then, so each highlighted
+        // session gets its own shortcuts.
+        .id(selectedSession?.id)
     }
 
     // MARK: Shared

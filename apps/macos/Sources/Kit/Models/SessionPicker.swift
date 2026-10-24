@@ -58,6 +58,14 @@ struct SessionPicker {
 
     // MARK: Highlight
 
+    /// The row that Return, rename, and delete act on: the highlighted row,
+    /// else the first match, as `queryChanged` would highlight, rather than an
+    /// ancestor shown for context. The highlight can name a row that isn't
+    /// shown until `reveal` handles a change to the rows.
+    func highlighted(in rows: [Row]) -> Row? {
+        rows.first { $0.id == highlightedID } ?? rows.first { !$0.context } ?? rows.first
+    }
+
     mutating func move(_ offset: Int, in rows: [Row]) {
         guard !rows.isEmpty else { highlightedID = nil; return }
         let current = rows.firstIndex { $0.id == highlightedID } ?? (offset > 0 ? -1 : rows.count)

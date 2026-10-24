@@ -108,4 +108,50 @@ struct SessionLauncherTests {
             #expect(deleted == ["c"])
         }
     }
+
+    /// A session listed after the launcher appears can be highlighted and
+    /// deleted by its shortcut, rather than the session the shortcut read
+    /// when it was set up.
+    @MainActor @Test func shortcutsActOnASessionListedAfterTheLauncherAppears() async throws {
+        let older = [
+            session("a", title: "Native window restoration", path: "/work/kit", date: "2026-09-13T13:10:00Z"),
+            session("b", title: "Refine the markdown renderer", path: "/work/kit", date: "2026-09-12T18:00:00Z"),
+        ]
+        let newest = session("n", title: "Started on another client", path: "/work/kit", date: "2026-09-14T09:00:00Z")
+        var opened: [String] = [], deleted: [String] = []
+        let theme = ThemeConfiguration.decode("").theme(dark: true)
+        func launcher(_ sessions: [SessionExcerpt]) -> some View {
+            SessionLauncherContent(sessions: sessions, connecting: false, connected: true, error: nil,
+                                   open: { opened.append($0.id) }, refresh: {},
+                                   rename: { _ in }, delete: { deleted.append($0.id) })
+                .environment(\.mica, theme).frame(width: 900, height: 700)
+        }
+        let host = NSHostingView(rootView: launcher(older))
+        let window = FocusIsolatedWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+                                         styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        try await eventually { (window.firstResponder as? NSTextView)?.isFieldEditor == true }
+        func press(_ key: UInt16, _ text: String, _ modifiers: NSEvent.ModifierFlags = []) throws {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+                timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: key))
+            if modifiers.contains(.command) { #expect(window.performKeyEquivalent(with: event)) }
+            else { window.sendEvent(event) }
+        }
+
+        // The new session leads the list; the highlight stays on a until ↑.
+        host.rootView = launcher([newest] + older)
+        host.layoutSubtreeIfNeeded()
+        try press(126, "\u{f700}")
+        try press(36, "\r")
+        try await eventually { !opened.isEmpty }
+        #expect(opened == ["n"])
+        host.layoutSubtreeIfNeeded()
+        try press(51, "\u{7f}", .command)
+        try await eventually { !deleted.isEmpty }
+        #expect(deleted == ["n"])
+    }
 }

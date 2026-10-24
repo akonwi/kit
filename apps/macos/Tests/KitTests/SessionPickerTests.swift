@@ -163,6 +163,28 @@ struct SessionPickerTests {
         #expect(picker.highlightedID == "p")
     }
 
+    /// Until a new query's highlight is chosen, the session it acts on is
+    /// the first match, not the ancestor shown above it (#275).
+    @Test func theRowActedOnIsTheHighlightedRowElseTheFirstMatch() {
+        // Opened from Release notes, then searching: the highlight isn't shown yet.
+        var picker = SessionPicker(query: "tile", highlightedID: "r")
+        let rows = picker.rows(Self.sessions)
+        #expect(Self.lines(rows) == [
+            "Tiling the native shell (context)",
+            "  Review the tile layout",
+            "    Measure tile gaps",
+        ])
+        #expect(picker.highlighted(in: rows)?.id == "c1")
+        picker.highlightedID = "g"
+        #expect(picker.highlighted(in: rows)?.id == "g")
+        picker.highlightedID = "p"
+        #expect(picker.highlighted(in: rows)?.id == "p")
+
+        // Without a search, every row is a match.
+        picker = SessionPicker(highlightedID: "missing")
+        #expect(picker.highlighted(in: picker.rows(Self.sessions))?.id == "p")
+    }
+
     @Test func searchMatchesFoldersAndOrphans() {
         var picker = SessionPicker(query: "ard")
         #expect(Self.lines(picker.rows(Self.sessions)) == ["Parser fuzzing"])
@@ -251,5 +273,73 @@ struct SessionPickerTests {
             try await eventually { opened.count == 3 }
             #expect(opened.last == "abc")
         }
+    }
+
+    /// Return, ⌘R, and ⌘⌫ act on the highlighted match while searching,
+    /// whether it is a child, a grandchild, or an ancestor shown for context,
+    /// rather than on a session highlighted earlier (#275).
+    @MainActor @Test func shortcutsActOnTheHighlightedRowWhileSearching() async throws {
+        var opened: [String] = [], renamed: [String] = [], deleted: [String] = []
+        let theme = ThemeConfiguration.decode("").theme(dark: true)
+        // Opened from Release notes, which no search below matches.
+        let view = SessionPickerContent(sessions: Self.sessions, activity: [:], connecting: false, connected: true,
+                                        error: nil, currentID: "r", open: { opened.append($0.id) }, refresh: {},
+                                        rename: { renamed.append($0.id) }, delete: { deleted.append($0.id) })
+            .environment(\.mica, theme).frame(width: PaletteMetrics.width, height: PaletteMetrics.height)
+        let host = NSHostingView(rootView: view)
+        let window = FocusIsolatedWindow(contentRect: NSRect(x: 0, y: 0, width: PaletteMetrics.width, height: PaletteMetrics.height),
+                                         styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        try await eventually { (window.firstResponder as? NSTextView)?.isFieldEditor == true }
+
+        /// Sends a key as the app does: a ⌘ shortcut is offered as a key
+        /// equivalent before it reaches the search field.
+        func press(_ key: UInt16, _ text: String, _ modifiers: NSEvent.ModifierFlags = []) {
+            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+                                         windowNumber: window.windowNumber, context: nil, characters: text,
+                                         charactersIgnoringModifiers: text, isARepeat: false, keyCode: key)!
+            if modifiers.contains(.command), window.performKeyEquivalent(with: event) { return }
+            window.sendEvent(event)
+        }
+        func type(_ text: String) { for character in text { press(0, String(character)) } }
+        let up: (UInt16, String) = (126, "\u{f700}"), down: (UInt16, String) = (125, "\u{f701}")
+        let backspace: (UInt16, String) = (51, "\u{7f}")
+        /// Opens the highlighted row, then renames and deletes it by shortcut.
+        func act() async throws -> (opened: String?, renamed: String?, deleted: String?) {
+            let count = opened.count
+            press(36, "\r")
+            try await eventually { opened.count > count }
+            host.layoutSubtreeIfNeeded()
+            let (renames, deletes) = (renamed.count, deleted.count)
+            press(15, "r", .command)
+            press(backspace.0, backspace.1, .command)
+            try await eventually { renamed.count > renames && deleted.count > deletes }
+            return (opened.last, renamed.last, deleted.last)
+        }
+
+        // "tile" shows Tiling the native shell (context), Review the tile
+        // layout, and Measure tile gaps; the first match is highlighted.
+        type("tile")
+        var acted = try await act()
+        #expect(acted == ("c1", "c1", "c1"))
+        // The grandchild below it.
+        press(down.0, down.1)
+        acted = try await act()
+        #expect(acted == ("g", "g", "g"))
+        // The parent shown for context, two rows above.
+        press(up.0, up.1)
+        press(up.0, up.1)
+        acted = try await act()
+        #expect(acted == ("p", "p", "p"))
+
+        // "ghostty" shows Explore ghostty resize beneath its parent.
+        for _ in 0..<4 { press(backspace.0, backspace.1) }
+        type("ghostty")
+        acted = try await act()
+        #expect(acted == ("c2", "c2", "c2"))
+        #expect(deleted == ["c1", "g", "p", "c2"])
     }
 }

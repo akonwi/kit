@@ -191,7 +191,13 @@ struct SessionPickerContent: View {
                     }
                 }.frame(maxHeight: .infinity)
             }
-            if rename != nil || delete != nil { actions(selectedSession(in: rows)) }
+            if rename != nil || delete != nil {
+                let selected = selectedSession(in: rows)
+                // SwiftUI can keep a keyboard shortcut's action from an
+                // earlier render, so each highlighted session gets its own
+                // buttons, whose actions name it.
+                actions(selected).id(selected?.id)
+            }
             if let error, !rows.isEmpty {
                 HStack(spacing: 12) {
                     Label("Connection unavailable", icon: .warningCircle)
@@ -209,7 +215,6 @@ struct SessionPickerContent: View {
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
             searchFocused = true
         }
-        .onChange(of: picker.query) { picker.queryChanged(rows: self.rows, sessions: sessions) }
         // Keys read the rows afresh, since several can arrive before the
         // list is drawn again.
         .onKeyPress(.pageDown) { picker.move(5, in: self.rows); return .handled }
@@ -221,14 +226,27 @@ struct SessionPickerContent: View {
         .onKeyPress(.return) { openHighlighted(); return .handled }
     }
 
+    /// The search text. A new query chooses its highlight in the same
+    /// update, so Return and the shortcuts never act on a highlight left
+    /// from the previous query.
+    private var query: Binding<String> {
+        Binding { picker.query } set: { query in
+            guard query != picker.query else { return }
+            var next = picker
+            next.query = query
+            next.queryChanged(rows: next.rows(sessions, activity: activity), sessions: sessions)
+            picker = next
+        }
+    }
+
     private var searchField: some View {
         HStack(spacing: 10) {
             IconView(.magnifyingGlass, size: 16).foregroundStyle(theme.muted)
-            TextField("Search sessions or directories", text: $picker.query)
+            TextField("Search sessions or directories", text: query)
                 .textFieldStyle(.plain).focused($searchFocused)
                 .onSubmit { openHighlighted() }
             if !picker.query.isEmpty {
-                Button { picker.query = "" } label: { IconView(.xCircle) }
+                Button { query.wrappedValue = "" } label: { IconView(.xCircle) }
                     .buttonStyle(.plain).foregroundStyle(theme.muted).help("Clear search").accessibilityLabel("Clear search")
             }
         }
@@ -263,7 +281,7 @@ struct SessionPickerContent: View {
     }
 
     private func selectedSession(in rows: [SessionPicker.Row]) -> SessionExcerpt? {
-        (rows.first(where: { $0.id == picker.highlightedID }) ?? rows.first)?.session
+        picker.highlighted(in: rows)?.session
     }
 
     private func openHighlighted() {
