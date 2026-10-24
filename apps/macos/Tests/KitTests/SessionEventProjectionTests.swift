@@ -356,6 +356,34 @@ struct SessionEventProjectionTests {
         #expect(state.session.messages[1].tools[0].output == "Contents")
     }
 
+    @Test func onlyToolCompletionsReceivedLiveAreMarkedAndCarriedAcrossRefresh() throws {
+        var state = try SessionEventProjection(snapshot())
+        let details: [String: Any] = ["presentation": "open-url", "url": "https://example.com/"]
+        try state.apply(event("tool.completed", ["toolCallId": "replayed", "toolName": "open_url", "details": details]))
+        try state.apply(event("tool.completed", ["toolCallId": "live", "toolName": "open_url", "details": details]),
+                        receivedAt: Date(timeIntervalSince1970: 100))
+        #expect(state.session.messages[0].tools.map(\.id) == ["replayed", "live"])
+        #expect(state.session.messages[0].tools.map(\.completedLive) == [nil, true])
+        #expect(state.liveCompletions == ["live"])
+
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot())) as! [String: Any]
+        json["messages"] = [
+            ["id": "assistant", "turnId": "t", "sequence": 1, "role": "assistant", "createdAt": "", "stopReason": "toolUse",
+             "content": [["kind": "toolCall", "toolCallId": "replayed", "toolName": "open_url"],
+                         ["kind": "toolCall", "toolCallId": "live", "toolName": "open_url"]]],
+            ["id": "r1", "turnId": "t", "sequence": 2, "role": "tool", "createdAt": "", "toolCallId": "replayed",
+             "toolName": "open_url", "content": [["kind": "text", "text": "true"]], "details": details],
+            ["id": "r2", "turnId": "t", "sequence": 3, "role": "tool", "createdAt": "", "toolCallId": "live",
+             "toolName": "open_url", "content": [["kind": "text", "text": "true"]], "details": details]
+        ]
+        let refreshed = try SessionEventProjection(
+            JSONDecoder().decode(WireSessionSnapshot.self, from: JSONSerialization.data(withJSONObject: json)),
+            liveCompletions: state.liveCompletions)
+        #expect(refreshed.session.messages.flatMap(\.tools).map(\.id) == ["replayed", "live"])
+        #expect(refreshed.session.messages.flatMap(\.tools).map(\.completedLive) == [nil, true])
+        #expect(refreshed.liveCompletions == ["live"])
+    }
+
     @Test func toolUpdatesFollowRowsAfterEarlierRowsAreRemoved() throws {
         var state = try SessionEventProjection(snapshot())
         try state.apply(event("user.message.added", ["text": "Annotations"]))

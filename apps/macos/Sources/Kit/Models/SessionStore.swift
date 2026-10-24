@@ -485,6 +485,8 @@ final class SessionStore {
     private var liveInteractions: [String: [InteractionFlow]] = [:]
     /// Authorization requests whose page has opened by itself.
     @ObservationIgnored private var openedAuthorizations: Set<String> = []
+    /// open_url calls already handled, so each opens at most one tab.
+    @ObservationIgnored private var openURLCalls: Set<String> = []
     var interactions: [InteractionFlow] { unavailable ? [] : demo?.interactions ?? liveInteractions[selectedID] ?? [] }
     /// Keeps an answered request docked briefly so a plugin's next one replaces it.
     let interactionHold = InteractionHold()
@@ -539,6 +541,16 @@ final class SessionStore {
             }
             self?.operationsBySession[session.id]?.reconcile(session)
             self?.reconcileInteractions(session)
+            self?.openRequestedURLs(session)
+        }
+    }
+
+    /// Opens a browser tab for each open_url call the shown session
+    /// completed live, in the existing browser tile or beside the conversation.
+    private func openRequestedURLs(_ session: SessionExcerpt) {
+        guard !isDemo, session.id == selectedID else { return }
+        for url in OpenURLRequest.pending(in: session.messages, handled: &openURLCalls) {
+            ui.workspace.openRequestedPage(url, beside: .conversation)
         }
     }
 

@@ -218,6 +218,35 @@ struct BrowserDownloadsTests {
         #expect(tab.addressFocusRequest == 0)
     }
 
+    @Test func requestedPagesGatherInTheLatestBrowserTileOutsideTheConversation() {
+        let engines = FakeBrowserEngines()
+        let workspace = workspace(engines)
+        let first = workspace.openRequestedPage(URL(string: "https://example.com/1")!, beside: .conversation)
+        #expect(workspace.root.tiles.count == 2)
+        let browserTile = workspace.tile(containing: .browser(first.id))!
+        #expect(browserTile != workspace.tile(containing: .conversation))
+
+        let second = workspace.openRequestedPage(URL(string: "https://example.com/2")!, beside: .conversation)
+        #expect(workspace.root.tiles.count == 2)
+        #expect(workspace.tiles[browserTile]?.panes == [.browser(first.id), .browser(second.id)])
+        #expect(workspace.tiles[browserTile]?.selected == .browser(second.id))
+        #expect(workspace.focusedTile == browserTile)
+        #expect(engines.made.map(\.loads) == [[URL(string: "https://example.com/1")!], [URL(string: "https://example.com/2")!]])
+    }
+
+    @Test func aRequestedPageNeverOpensInTheConversationTile() {
+        let engines = FakeBrowserEngines()
+        let workspace = workspace(engines)
+        let tabbed = workspace.openBrowser(URL(string: "https://example.com/tabbed")!)
+        let home = workspace.tile(containing: .conversation)!
+        #expect(workspace.tiles[home]?.panes == [.conversation, .browser(tabbed.id)])
+
+        let requested = workspace.openRequestedPage(URL(string: "https://example.com/requested")!, beside: .conversation)
+        #expect(workspace.root.tiles.count == 2)
+        #expect(workspace.tiles[home]?.panes == [.conversation, .browser(tabbed.id)])
+        #expect(workspace.tiles[workspace.focusedTile]?.panes == [.browser(requested.id)])
+    }
+
     @Test func aWebLinkOpensBesideTheConversationUnlessAskedToOpenExternally() throws {
         let engines = FakeBrowserEngines()
         let workspace = workspace(engines)

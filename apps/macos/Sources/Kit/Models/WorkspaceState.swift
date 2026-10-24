@@ -497,6 +497,21 @@ final class WorkspaceState {
         return tab
     }
 
+    /// Opens a page the session asked for as a new tab in the tile holding
+    /// the most recently opened browser tab, so requested pages gather in one
+    /// place. A tile that also holds `anchor` is not used, so the page never
+    /// hides it; without another browser tile the page opens beside `anchor`.
+    @discardableResult
+    func openRequestedPage(_ url: URL, beside anchor: WorkspacePane) -> BrowserTab {
+        let home = tile(containing: anchor)
+        let target = panes.reversed().lazy.compactMap { pane -> UUID? in
+            guard case .browser = pane, let tile = self.tile(containing: pane), tile != home else { return nil }
+            return tile
+        }.first
+        if let target { return openBrowser(url, in: target) }
+        return openBrowser(url, beside: anchor)
+    }
+
     /// Opens a web link in a browser tab beside `anchor`. Returns false,
     /// opening nothing, for a link that isn't a web address or that the user
     /// asked to open externally; the caller hands those to the system.

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/droids"
+	"github.com/akonwi/kit/internal/openurl"
 	"github.com/akonwi/kit/internal/scratchpad"
 )
 
@@ -37,7 +38,9 @@ type scratchpadToolDetails struct {
 }
 
 func (m *Manager) boundSessionTools(record SessionRecord, scope *workspaceScope) []droids.AnyTool {
-	tools := []droids.AnyTool{m.changeCWDTool(record.ID, scope)}
+	// open_url is a primary-agent tool: its request is observed by clients
+	// attached to this session, which subagent conversations do not reach.
+	tools := []droids.AnyTool{m.changeCWDTool(record.ID, scope), openurl.New()}
 	if record.Persistent && m.scratchpads != nil {
 		tools = append(tools, m.scratchpadTools(record.ID)...)
 	}

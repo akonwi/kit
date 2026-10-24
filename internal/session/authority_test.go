@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/droids"
+	"github.com/akonwi/kit/internal/openurl"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/storage"
@@ -1066,7 +1067,7 @@ func TestManagerIncludesCurrentSkillCatalogAndActivationTool(t *testing.T) {
 	for _, tool := range request.Tools {
 		toolNames = append(toolNames, tool.Name)
 	}
-	wantTools := []string{"bash", "read", "write", "edit", "ls", "grep", "find", skills.ActivateToolName, session.ConfirmInteractionToolName, session.InputInteractionToolName, session.SelectInteractionToolName, session.GuidedInteractionToolName, session.ChangeCWDToolName}
+	wantTools := []string{"bash", "read", "write", "edit", "ls", "grep", "find", skills.ActivateToolName, session.ConfirmInteractionToolName, session.InputInteractionToolName, session.SelectInteractionToolName, session.GuidedInteractionToolName, session.ChangeCWDToolName, openurl.ToolName}
 	if !reflect.DeepEqual(toolNames, wantTools) {
 		t.Fatalf("provider tools = %#v, want %#v", toolNames, wantTools)
 	}

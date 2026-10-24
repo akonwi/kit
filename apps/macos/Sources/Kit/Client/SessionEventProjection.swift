@@ -33,13 +33,30 @@ struct SessionEventProjection {
     /// ending early. It keeps its label and reason across the refresh, and
     /// survives a snapshot that stored no reason, as for a turn that failed
     /// before the model replied.
-    init(_ snapshot: WireSessionSnapshot, turnEnd: TranscriptMessage? = nil) throws {
+    ///
+    /// `liveCompletions` are the tool calls the previous projection saw
+    /// complete live. Their rows in the refreshed snapshot stay marked, so a
+    /// refresh that supersedes an undelivered live update keeps them.
+    init(_ snapshot: WireSessionSnapshot, turnEnd: TranscriptMessage? = nil, liveCompletions: [String] = []) throws {
         try self.init(session: SessionProjection.snapshot(snapshot, carried: turnEnd.map { [$0] } ?? []),
             source: snapshot.messages ?? [],
             activeRunID: snapshot.activeTurnId, replayAvailable: snapshot.eventReplayAvailable == true,
             pendingInteractions: Set((snapshot.pendingInteractions ?? []).filter { $0.plugin != nil || $0.turnId == snapshot.activeTurnId }.map(\.id)))
         if let turnEnd, session.messages.contains(where: { $0.id == turnEnd.id }) { self.turnEnd = turnEnd }
+        if !liveCompletions.isEmpty {
+            self.liveCompletions = Array(liveCompletions.suffix(Self.liveCompletionLimit))
+            let carried = Set(self.liveCompletions)
+            for row in session.messages.indices where session.messages[row].role == "tools" {
+                for index in session.messages[row].tools.indices where carried.contains(session.messages[row].tools[index].id) {
+                    session.messages[row].tools[index].completedLive = true
+                }
+            }
+        }
     }
+
+    /// Tool calls this projection saw complete live, oldest first and bounded.
+    private(set) var liveCompletions: [String] = []
+    static let liveCompletionLimit = 64
 
     /// The row closing the last turn this stream saw end early; nil once
     /// another turn starts.
@@ -262,10 +279,15 @@ struct SessionEventProjection {
                 contentTruncated: event.contentTruncated ?? old?.contentTruncated,
                 details: event.details ?? old?.details,
                 startedAt: startedAt,
-                finishedAt: completed && startedAt != nil ? event.receivedAt : nil)
+                finishedAt: completed && startedAt != nil ? event.receivedAt : nil,
+                completedLive: completed && event.receivedAt != nil ? true : old?.completedLive)
             if let toolIndex = session.messages[index].tools.firstIndex(where: { $0.id == id }) {
                 session.messages[index].tools[toolIndex] = value
             } else { session.messages[index].tools.append(value) }
+            if completed, event.receivedAt != nil, !liveCompletions.contains(id) {
+                liveCompletions.append(id)
+                if liveCompletions.count > Self.liveCompletionLimit { liveCompletions.removeFirst() }
+            }
             lastTurn = event.turnId
         case "provider.retry.scheduled":
             session.providerRetryAt = event.providerRetry?.retryAt

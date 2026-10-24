@@ -127,6 +127,10 @@ struct ToolActivity: Decodable, Identifiable, Sendable, Equatable {
     var finishedAt: Date? = nil
     /// True when the turn ended before the call ran.
     var notRun: Bool? = nil
+    /// True when the app received the call's completion live, rather than in
+    /// a snapshot or a replay of events from before it attached. Client
+    /// actions requested by a tool, such as open_url, run only for these.
+    var completedLive: Bool? = nil
 
     /// A call that is planned or executing.
     var running: Bool { status == "Running…" || status == "Planned" }

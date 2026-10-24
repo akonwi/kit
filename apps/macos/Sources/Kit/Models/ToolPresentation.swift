@@ -132,6 +132,7 @@ struct ToolPresentation {
         case "input_from_user", "select_from_user": return "Ask"
         case "guided_questions": return "Ask questions"
         case "show_image": return "Show image"
+        case "open_url": return "Open URL"
         case "inspect_image": return "Inspect image"
         case "subagent_inbox": return "Check inbox"
         case "subagent_send": return "Message sibling"
@@ -172,6 +173,7 @@ struct ToolPresentation {
             return text("message").map(Self.oneLine) ?? text("requestId") ?? text("sessionId")
         case "create_session": return CreatedSessionPresentation(tool).summary
         case "show_image": return text("path") ?? text("caption")
+        case "open_url": return text("url")
         case "inspect_image": return text("path")
         default:
             if Self.interactionTools.contains(kind) { return text("title").map(Self.oneLine) }
