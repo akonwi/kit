@@ -4,15 +4,30 @@ import SwiftUI
 /// A browser tab's pane: a toolbar with navigation, the address field, and
 /// Open in default browser over the page. The page draws with its own
 /// colours; a page that can't load shows Kit's message instead.
+///
+/// The pane draws only while its tab is on screen. A hidden tab's page stays
+/// loaded in its engine but out of the window, so showing a session with
+/// many browser tabs builds and attaches only the ones in view.
 struct BrowserPane: View {
     @Environment(\.mica) private var theme
     let workspace: WorkspaceState
     let tab: BrowserTab
+    /// What the address field holds while it's edited. A blank tab keeps
+    /// it while hidden.
+    @State private var draft = ""
     private var pane: WorkspacePane { .browser(tab.id) }
 
     var body: some View {
+        if workspace.isVisible(pane) {
+            content
+        } else {
+            Color.clear
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
-            BrowserToolbar(workspace: workspace, tab: tab)
+            BrowserToolbar(workspace: workspace, tab: tab, draft: $draft)
             if let site = tab.blockedDownload {
                 BrowserBlockedDownloadBar(site: site) { tab.dismissBlockedDownload() }
             }
@@ -37,7 +52,7 @@ private struct BrowserToolbar: View {
     @Environment(\.mica) private var theme
     let workspace: WorkspaceState
     let tab: BrowserTab
-    @State private var draft = ""
+    @Binding var draft: String
     @FocusState private var addressFocused: Bool
 
     var body: some View {
@@ -77,7 +92,8 @@ private struct BrowserToolbar: View {
             }
         }
         .task(id: tab.addressFocusRequest) {
-            guard tab.addressFocusRequest > 0 else { return }
+            // A toolbar shown again doesn't repeat a request it answered.
+            guard tab.takeAddressFocusRequest() else { return }
             // Let the new tab's field mount before it takes the keyboard.
             try? await Task.sleep(for: .milliseconds(50))
             addressFocused = true
@@ -124,6 +140,8 @@ private struct BrowserToolbar: View {
                 draft = ""
             }
         }
+        // Hiding the tab ends an edit, as leaving the field does.
+        .onDisappear { if tab.url != nil { draft = "" } }
     }
 
     private func submit() {

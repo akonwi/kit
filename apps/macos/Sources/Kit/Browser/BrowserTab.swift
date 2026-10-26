@@ -45,6 +45,8 @@ final class BrowserTab: Identifiable {
     private(set) var blockedDownload: String?
     /// Increments when the address field should take the keyboard.
     private(set) var addressFocusRequest = 0
+    /// The latest request a shown address field has answered.
+    @ObservationIgnored private var answeredAddressFocusRequest = 0
     @ObservationIgnored private var engine: (any BrowserEngine)?
     @ObservationIgnored private let makeEngine: @MainActor () -> any BrowserEngine
     /// Loads waiting for the engine, as for a restored tab.
@@ -124,6 +126,14 @@ final class BrowserTab: Identifiable {
     }
 
     func requestAddressFocus() { addressFocusRequest += 1 }
+
+    /// Whether a request for the address field is still unanswered; it's
+    /// answered by asking, so a field shown again doesn't repeat it.
+    func takeAddressFocusRequest() -> Bool {
+        guard addressFocusRequest > answeredAddressFocusRequest else { return false }
+        answeredAddressFocusRequest = addressFocusRequest
+        return true
+    }
 
     /// Stops the page before the tab is closed.
     func close() {
