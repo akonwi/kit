@@ -52,9 +52,15 @@ struct Shown {
 // Mounts a shown File pane for notes.txt, which reads as content, and waits
 // for it to load.
 fn show(width: Int, height: Int, content: Str, line: Int) Shown {
+  show_file(width, height, "notes.txt", content, line)
+}
+
+// Mounts a shown File pane for the workspace file at file_path, which reads
+// as content, and waits for it to load.
+fn show_file(width: Int, height: Int, file_path: Str, content: Str, line: Int) Shown {
   let terminal = headless::new(width, height)
   let tabs = workspace::tabs()
-  let _ = tabs.open(workspace::file("workspace_a", "notes.txt", line))
+  let _ = tabs.open(workspace::file("workspace_a", file_path, line))
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     file_pane::view(
@@ -160,9 +166,44 @@ fn annotated(
   calls: mut Calls,
   full_body: Str,
 ) Shown {
+  annotated_file(width, height, "notes.txt", content, notes, calls, full_body)
+}
+
+// Mounts an annotated File pane as `annotated` does, for the file at
+// file_path.
+fn annotated_file(
+  width: Int,
+  height: Int,
+  file_path: Str,
+  content: Str,
+  notes: [sessionbridge::Annotation],
+  calls: mut Calls,
+  full_body: Str,
+) Shown {
+  annotated_tab(
+    width,
+    height,
+    workspace::file("workspace_a", file_path, 0),
+    content,
+    notes,
+    calls,
+    full_body,
+  )
+}
+
+// Mounts an annotated File pane as `annotated` does, opened as `tab`.
+fn annotated_tab(
+  width: Int,
+  height: Int,
+  tab: workspace::Tab,
+  content: Str,
+  notes: [sessionbridge::Annotation],
+  calls: mut Calls,
+  full_body: Str,
+) Shown {
   let terminal = headless::new(width, height)
   let tabs = workspace::tabs()
-  let _ = tabs.open(workspace::file("workspace_a", "notes.txt", 0))
+  let _ = tabs.open(tab)
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     file_pane::view(
@@ -706,4 +747,346 @@ test fn host_images_fit_their_cells() Void!Str {
   )
   try testing::assert(file_pane::image_cells(800, 400, 40, 20).columns == 40, "at its full width")
   testing::assert(file_pane::image_cells(1, 1000, 40, 6).columns == 1, "a sliver keeps a cell")
+}
+
+test fn markdown_files_are_known_by_their_extension() Void!Str {
+  try testing::assert(file_pane::is_markdown("README.md"), ".md")
+  try testing::assert(file_pane::is_markdown("docs/Guide.MARKDOWN"), "any case")
+  try testing::assert(file_pane::is_markdown("/srv/notes.mdown"), "host paths too")
+  try testing::assert(not file_pane::is_markdown("notes.txt"), "text isn't Markdown")
+  try testing::assert(not file_pane::is_markdown("md"), "nor a bare name")
+  testing::assert(not file_pane::is_markdown("docs/.md"), "nor an extension alone")
+}
+
+test fn a_markdown_file_shows_rendered_and_toggles_to_its_source() Void!Str {
+  let shown = show_file(48, 11, "README.md", "# Kit\n\nAn *agent* for `work`.\n\n- one\n- two\n", 0)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  let rendered = [
+    " README.md            6 lines · 43 B   Preview",
+    "────────────────────────────────────────────────",
+    "",
+    "   Kit",
+    "",
+    "   An agent for work.",
+    "",
+    "   • one",
+    "   • two",
+    "",
+    "",
+  ]
+  try expect_rows(rows(shown.terminal), rendered)
+  let colors = theme::system()
+  let heading = shown.terminal.frame().cell(3, 3).expect("the heading")
+  try testing::assert(
+    heading.style.bold and same_color(heading.style.foreground, colors.primary_text),
+    "a heading reads by weight and emphasis, without its marker",
+  )
+  let emphasis = shown.terminal.frame().cell(6, 5).expect("the emphasis")
+  try testing::assert(emphasis.style.italic, "emphasis is italic")
+  let code = shown.terminal.frame().cell(17, 5).expect("the code span")
+  try testing::assert(same_color(code.style.background, colors.surface), "code sits on the surface")
+  shown.terminal.click(40, 0)
+  shown.terminal.flush()
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " README.md      Ln 1 · 6 lines · 43 B   Source",
+      "────────────────────────────────────────────────",
+      "   1 # Kit",
+      "   2",
+      "   3 An *agent* for `work`.",
+      "   4",
+      "   5 - one",
+      "   6 - two",
+      "",
+      "",
+      "",
+    ],
+  )
+  shown.terminal.click(42, 0)
+  shown.terminal.flush()
+  expect_rows(rows(shown.terminal), rendered)
+}
+
+test fn an_opening_at_a_line_shows_the_markdown_source_there() Void!Str {
+  let shown = show_file(48, 6, "README.md", "# Kit\n\nAn agent.\n", 3)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(
+    rows(shown.terminal),
+    [
+      " README.md      Ln 3 · 3 lines · 17 B   Source",
+      "────────────────────────────────────────────────",
+      "   1 # Kit",
+      "   2",
+      "   3 An agent.",
+      "",
+    ],
+  )
+}
+
+test fn a_host_markdown_file_shows_rendered() Void!Str {
+  let shown = show_host(
+    48,
+    6,
+    "/srv/docs/guide.md",
+    fn(file_path: Str, width: Int, height: Int) hostfilebridge::File!Error {
+      let content = "## Guide\n\n> Read me.\n"
+      Result::ok(
+        hostfilebridge::File{
+          Text: protocol::WorkspaceFileRead{
+            Path: file_path,
+            Content: content,
+            Size: Int64::from(content.size()),
+          },
+        },
+      )
+    },
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(
+    rows(shown.terminal),
+    [
+      " /srv/docs/guide.md   3 lines · 21 B   Preview",
+      "────────────────────────────────────────────────",
+      "                                               ┃",
+      "   Guide                                       ┃",
+      "                                               ┃",
+      "   │ Read me.                                  │",
+    ],
+  )
+}
+
+test fn markdown_past_the_parser_budget_shows_its_source() Void!Str {
+  let shown = show_file(48, 6, "big.md", strings::Repeat("line\n", 10001), 0)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(
+    rows(shown.terminal),
+    [
+      " big.md           Ln 1 · 10001 lines · 48.8 KiB",
+      "────────────────────────────────────────────────",
+      "     1 line                                    ┃",
+      "     2 line                                    │",
+      "────────────────────────────────────────────────",
+      "Too large to render; showing source",
+    ],
+  )
+}
+
+// A note on PLAN.md's lines `start` to `end`.
+fn plan_note(id: Int, start: Int, end: Int, body: Str) sessionbridge::Annotation {
+  let made = mut note(id, start, end, body)
+  made.Path = "PLAN.md"
+  made.@
+}
+
+let plan = "# Plan\n\nShip it.\n\n- one\n- two\n"
+
+test fn the_preview_annotates_a_hovered_block() Void!Str {
+  let recorded = calls()
+  let shown = annotated_file(
+    48,
+    14,
+    "PLAN.md",
+    plan,
+    [plan_note(1, 3, 3, "why now?")],
+    recorded,
+    "",
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  shown.terminal.mouse_move(10, 3)
+  shown.terminal.flush()
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " PLAN.md              6 lines · 30 B   Preview",
+      "────────────────────────────────────────────────",
+      "",
+      " + Plan",
+      "",
+      "   Ship it.",
+      " ×  🗨️ why now?",
+      "",
+      "   • one",
+      "   • two",
+      "",
+      "",
+      "",
+      "",
+    ],
+  )
+  let colors = theme::system()
+  let plus = shown.terminal.frame().cell(1, 3).expect("the +")
+  try testing::assert(same_color(plus.style.background, colors.primary), "the + is filled")
+  let annotated = shown.terminal.frame().cell(0, 5).expect("the annotated block's gutter")
+  try testing::assert(
+    same_color(annotated.style.background, colors.primary),
+    "an annotated block's gutter is filled",
+  )
+  let gap = shown.terminal.frame().cell(0, 4).expect("the blank row before it")
+  try testing::assert(not same_color(gap.style.background, colors.primary), "from the block's first row")
+  // The + opens the editor under the block, on its source lines.
+  shown.terminal.click(1, 3)
+  shown.terminal.flush()
+  try expect_rows(
+    rows(shown.terminal),
+    [
+      " PLAN.md                         6 lines · 30 B",
+      "────────────────────────────────────────────────",
+      "                                               ┃",
+      "   Plan                                        ┃",
+      "   ┌─────────────────────────────────────────┐ ┃",
+      "   │                                         │ ┃",
+      "   │                                         │ ┃",
+      "   │                                         │ ┃",
+      "   │                   Cancel      Comment   │ ┃",
+      "   └─────────────────────────────────────────┘ ┃",
+      "                                               ┃",
+      "   Ship it.                                    │",
+      " ×  🗨️ why now?                                │",
+      "                                               │",
+    ],
+  )
+  typed(shown.terminal, "tighten")
+  press(shown.terminal, "return")
+  wait_until(shown.terminal, fn() Bool {
+    recorded.saved.size() > 0
+  })
+  testing::assert(
+    recorded.saved.at(0).or("") == "create workspace_a PLAN.md@rev-1 1-1: tighten",
+    "the note anchors to the block's lines: {recorded.saved.at(0).or("")}",
+  )
+}
+
+test fn dragging_down_the_preview_gutter_annotates_the_blocks_it_crosses() Void!Str {
+  let recorded = calls()
+  let shown = annotated_file(48, 14, "PLAN.md", plan, [], recorded, "")
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  shown.terminal.mouse_move(10, 5)
+  shown.terminal.flush()
+  shown.terminal.mouse_down(1, 5)
+  for point in [6, 7] {
+    shown.terminal.mouse(
+      event::mouse(
+        event::MouseEventType::drag,
+        event::MouseButton::left,
+        1,
+        point,
+        event::Modifiers{
+          shift: false,
+          ctrl: false,
+          alt: false,
+          super: false,
+        },
+      ),
+    )
+  }
+  shown.terminal.flush()
+  let colors = theme::system()
+  let picked = shown.terminal.frame().cell(20, 7).expect("a picked block")
+  try testing::assert(
+    same_color(picked.style.background, colors.surface_hovered),
+    "the picked blocks are filled",
+  )
+  shown.terminal.mouse_up(1, 7)
+  shown.terminal.flush()
+  typed(shown.terminal, "split")
+  press(shown.terminal, "return")
+  wait_until(shown.terminal, fn() Bool {
+    recorded.saved.size() > 0
+  })
+  testing::assert(
+    recorded.saved.at(0).or("") == "create workspace_a PLAN.md@rev-1 3-5: split",
+    "the note covers every block crossed: {recorded.saved.at(0).or("")}",
+  )
+}
+
+test fn a_revealed_note_shows_in_the_preview() Void!Str {
+  let recorded = calls()
+  mut steps = "# Plan\n\n"
+  for step in 1..20 {
+    steps = "{steps}Step {step}.\n\n"
+  }
+  // Step 20 is on line 41.
+  let tab = mut workspace::file("workspace_a", "PLAN.md", 41)
+  tab.reveals_note = true
+  let shown = annotated_tab(48, 9, tab.@, steps, [plan_note(1, 41, 41, "last?")], recorded, "")
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(
+    rows(shown.terminal),
+    [
+      " PLAN.md            42 lines · 199 B   Preview",
+      "────────────────────────────────────────────────",
+      "                                               │",
+      "   Step 18.                                    │",
+      "                                               │",
+      "   Step 19.                                    │",
+      "                                               │",
+      "   Step 20.                                    │",
+      " ×  🗨️ last?                                   ┃",
+    ],
+  )
+}
+
+test fn a_revealed_note_in_markdown_past_the_parser_budget_shows_in_the_source() Void!Str {
+  let recorded = calls()
+  let tab = mut workspace::file("workspace_a", "PLAN.md", 9000)
+  tab.reveals_note = true
+  let shown = annotated_tab(
+    48,
+    7,
+    tab.@,
+    strings::Repeat("line\n", 10001),
+    [plan_note(1, 9000, 9000, "here?")],
+    recorded,
+    "",
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(
+    rows(shown.terminal),
+    [
+      " PLAN.md       Ln 9000 · 10001 lines · 48.8 KiB",
+      "────────────────────────────────────────────────",
+      "  8999 line                                    │",
+      "  90 + line                                    │",
+      "     ×  🗨️ here?                               ┃",
+      "────────────────────────────────────────────────",
+      "Too large to render; showing source",
+    ],
+  )
+}
+
+test fn a_long_markdown_file_scrolls_through_its_blocks() Void!Str {
+  mut source = ""
+  for section in 1..400 {
+    source = "{source}## Part {section}\n\nBody {section}.\n\n"
+  }
+  let shown = show_file(40, 8, "LONG.md", source, 0)
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  // Three rows a step, past 75 four-row parts.
+  for tick in 1..100 {
+    shown.terminal.scroll(10, 4, 1)
+    shown.terminal.flush()
+  }
+  expect_rows(
+    rows(shown.terminal),
+    [
+      " LONG.md          1600 lines   Preview",
+      "────────────────────────────────────────",
+      "                                       │",
+      "   Part 76                             ┃",
+      "                                       │",
+      "   Body 76.                            │",
+      "                                       │",
+      "   Part 77                             │",
+    ],
+  )
 }

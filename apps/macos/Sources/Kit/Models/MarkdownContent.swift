@@ -18,6 +18,11 @@ struct MarkdownContent {
     struct Item: Equatable {
         let marker: String
         let blocks: [Block]
+        /// The 1-based source lines the item spans, with its marker. Where
+        /// the item came from, not what it shows, so not compared.
+        var lines: ClosedRange<Int>? = nil
+
+        static func == (a: Item, b: Item) -> Bool { a.marker == b.marker && a.blocks == b.blocks }
     }
 
     struct TableContent: Equatable {
@@ -28,11 +33,30 @@ struct MarkdownContent {
     }
 
     let blocks: [Block]
+    /// The 1-based source lines each of `blocks` spans, including a code
+    /// block's fences; nil where unknown.
+    let lines: [ClosedRange<Int>?]
 
     init(source: String) {
-        let parsed = Self.blocks(in: Document(parsing: source))
+        var parsed: [Block] = [], lines: [ClosedRange<Int>?] = []
+        for child in Document(parsing: source).children {
+            let made = Self.blocks(of: child)
+            parsed += made
+            lines += Array(repeating: Self.lines(child.range), count: made.count)
+        }
         // A diagram whose fence hasn't closed, as while streaming, shows its source.
         blocks = Self.endsInsideFence(source) ? Self.openingTrailingDiagram(parsed) : parsed
+        self.lines = lines
+    }
+
+    /// The 1-based lines a source range spans. A range ending at the start
+    /// of a line ends on the line before.
+    static func lines(_ range: SourceRange?) -> ClosedRange<Int>? {
+        guard let range, range.lowerBound.line > 0 else { return nil }
+        let start = range.lowerBound.line
+        var end = range.upperBound.line
+        if range.upperBound.column <= 1 && end > start { end -= 1 }
+        return start...max(start, end)
     }
 
     /// The Mermaid diagrams drawn in these blocks, in order.
@@ -60,7 +84,7 @@ struct MarkdownContent {
         case .quote(let children): open = .quote(openingTrailingDiagram(children))
         case .list(let items):
             guard let item = items.last else { return blocks }
-            open = .list(Array(items.dropLast()) + [Item(marker: item.marker, blocks: openingTrailingDiagram(item.blocks))])
+            open = .list(Array(items.dropLast()) + [Item(marker: item.marker, blocks: openingTrailingDiagram(item.blocks), lines: item.lines)])
         default: return blocks
         }
         return Array(blocks.dropLast()) + [open]
@@ -107,44 +131,46 @@ struct MarkdownContent {
     }
 
     private static func blocks(in parent: any Markup) -> [Block] {
-        parent.children.flatMap { node -> [Block] in
-            switch node {
-            case let value as Paragraph: return [.paragraph(inline(value))]
-            case let value as Heading: return [.heading(value.level, inline(value))]
-            case let value as Markdown.CodeBlock:
-                if Mermaid.isMermaid(value.language ?? "") { return [.mermaid(MermaidDiagram(source: value.code))] }
-                return [.code(value.language ?? "", value.code)]
-            case let value as BlockQuote: return [.quote(blocks(in: value))]
-            case let value as OrderedList:
-                return [.list(value.listItems.enumerated().map { offset, item in
-                    Item(marker: "\(value.startIndex + UInt(offset)).", blocks: blocks(in: item))
-                })]
-            case let value as UnorderedList:
-                return [.list(value.listItems.map { item in
-                    let marker: String
-                    switch item.checkbox {
-                    case .checked?: marker = "☑"
-                    case .unchecked?: marker = "☐"
-                    case nil: marker = "•"
+        parent.children.flatMap { blocks(of: $0) }
+    }
+
+    private static func blocks(of node: any Markup) -> [Block] {
+        switch node {
+        case let value as Paragraph: return [.paragraph(inline(value))]
+        case let value as Heading: return [.heading(value.level, inline(value))]
+        case let value as Markdown.CodeBlock:
+            if Mermaid.isMermaid(value.language ?? "") { return [.mermaid(MermaidDiagram(source: value.code))] }
+            return [.code(value.language ?? "", value.code)]
+        case let value as BlockQuote: return [.quote(blocks(in: value))]
+        case let value as OrderedList:
+            return [.list(value.listItems.enumerated().map { offset, item in
+                Item(marker: "\(value.startIndex + UInt(offset)).", blocks: blocks(in: item), lines: lines(item.range))
+            })]
+        case let value as UnorderedList:
+            return [.list(value.listItems.map { item in
+                let marker: String
+                switch item.checkbox {
+                case .checked?: marker = "☑"
+                case .unchecked?: marker = "☐"
+                case nil: marker = "•"
+                }
+                return Item(marker: marker, blocks: blocks(in: item), lines: lines(item.range))
+            })]
+        case let value as Markdown.Table:
+            return [.table(TableContent(
+                alignments: value.columnAlignments.map { alignment in
+                    switch alignment {
+                    case .center?: return .center
+                    case .right?: return .trailing
+                    default: return .leading
                     }
-                    return Item(marker: marker, blocks: blocks(in: item))
-                })]
-            case let value as Markdown.Table:
-                return [.table(TableContent(
-                    alignments: value.columnAlignments.map { alignment in
-                        switch alignment {
-                        case .center?: return .center
-                        case .right?: return .trailing
-                        default: return .leading
-                        }
-                    },
-                    header: value.head.cells.map { inline($0) },
-                    rows: value.body.rows.map { $0.cells.map { inline($0) } }
-                ))]
-            case is ThematicBreak: return [.rule]
-            case let value as HTMLBlock: return [.code("html", value.rawHTML)]
-            default: return blocks(in: node)
-            }
+                },
+                header: value.head.cells.map { inline($0) },
+                rows: value.body.rows.map { $0.cells.map { inline($0) } }
+            ))]
+        case is ThematicBreak: return [.rule]
+        case let value as HTMLBlock: return [.code("html", value.rawHTML)]
+        default: return blocks(in: node)
         }
     }
 

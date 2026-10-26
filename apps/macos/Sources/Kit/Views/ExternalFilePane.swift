@@ -37,7 +37,8 @@ enum ViewedFileLocation: Equatable {
 /// host file on the session's server, or a file on this Mac. Text shows in
 /// the read-only editor; a supported image shows in the image viewer. The
 /// header names the file's machine so the two never read alike. The file
-/// loads when the tab first shows and again on Refresh.
+/// loads when the tab first shows and again on Refresh. A Markdown file
+/// shows rendered until its header's toggle switches it to source.
 struct ExternalFilePane: View {
     @Environment(\.mica) private var theme
     let state: SessionStore
@@ -86,6 +87,7 @@ struct ExternalFilePane: View {
                 .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
             Spacer()
             if case .loading = phase { KitSpinner() }
+            if pane.isMarkdown { MarkdownModeToggle(workspace: workspace, pane: pane) }
             Button { attempt += 1 } label: { IconView(.arrowClockwise, size: 12) }
                 .buttonStyle(.plain).accessibilityLabel("Refresh file").help("Refresh file")
                 .disabled(phase == .loading)
@@ -106,8 +108,14 @@ struct ExternalFilePane: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let file, _):
             if case .text(let source, let truncated) = file.content {
-                ReadOnlyFileEditor(path: file.path, source: source)
-                    .workspaceFocusTarget(pane)
+                Group {
+                    if pane.isMarkdown && !workspace.showsMarkdownSource(pane) {
+                        MarkdownFileText(workspace: workspace, pane: pane, source: source, cwd: state.selected?.cwd)
+                    } else {
+                        ReadOnlyFileEditor(path: file.path, source: source)
+                    }
+                }
+                .workspaceFocusTarget(pane)
                 Text(ExternalFilePhase.footer(size: file.size, truncated: truncated))
                     .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
             }

@@ -36,6 +36,9 @@ struct Tab {
   // asked; reopening an open tab asks again.
   line: Int,
   opening: Int,
+  // Whether that opening reveals an annotation, which a Markdown file's
+  // preview shows in place rather than switching to its source.
+  reveals_note: Bool,
   // A Subagent tab's conversation.
   conversation_id: Str?,
 }
@@ -49,6 +52,7 @@ fn scratchpad() Tab {
     workspace_id: "",
     line: 0,
     opening: 0,
+    reveals_note: false,
   }
 }
 
@@ -63,6 +67,7 @@ fn file(workspace_id: Str, file_path: Str, line: Int) Tab {
     workspace_id: workspace_id,
     line: line,
     opening: 0,
+    reveals_note: false,
   }
 }
 
@@ -78,6 +83,7 @@ fn host_file(file_path: Str, line: Int) Tab {
     workspace_id: "",
     line: line,
     opening: 0,
+    reveals_note: false,
   }
 }
 
@@ -92,6 +98,7 @@ fn diff() Tab {
     workspace_id: "",
     line: 0,
     opening: 0,
+    reveals_note: false,
   }
 }
 
@@ -105,6 +112,7 @@ fn subagent(conversation_id: Str, agent: Str) Tab {
     workspace_id: "",
     line: 0,
     opening: 0,
+    reveals_note: false,
     conversation_id: Maybe::new(conversation_id),
   }
 }

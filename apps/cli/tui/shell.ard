@@ -1306,7 +1306,22 @@ impl Shell {
         }
         self.open_tab(workspace::diff())
       },
-      false => self.open_file(annotation.Path, annotation.StartLine),
+      false => {
+        match self.attached.workspace_id == "" or annotation.Stale {
+          true => self.open_file(annotation.Path, annotation.StartLine),
+          false => {
+            // A Markdown file's preview shows a current note in place; a
+            // stale one opens the source at its line.
+            let tab = mut workspace::file(
+              self.attached.workspace_id,
+              annotation.Path,
+              annotation.StartLine,
+            )
+            tab.reveals_note = true
+            self.open_tab(tab.@)
+          },
+        }
+      },
     }
   }
 

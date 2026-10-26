@@ -3,6 +3,7 @@ package markdown
 
 import (
 	"bytes"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -24,6 +25,41 @@ const (
 	maxMarkdownInlineNodes     = 10_000
 	maxMarkdownStructuralNodes = 20_000
 )
+
+// budget bounds the work one parse may do before it falls back to plain
+// text. Nesting depth is bounded separately, for every source alike.
+type budget struct {
+	sourceBytes     int
+	lines           int
+	containerLayers int
+	// sourceLines records each block's source lines.
+	sourceLines     bool
+	inlineNodes     int
+	structuralNodes int
+}
+
+// messageBudget suits one transcript message, which is parsed again as it
+// streams.
+var messageBudget = budget{
+	sourceBytes:     maxMarkdownSourceBytes,
+	lines:           maxMarkdownSourceLines,
+	containerLayers: maxMarkdownContainerLayers,
+	inlineNodes:     maxMarkdownInlineNodes,
+	structuralNodes: maxMarkdownStructuralNodes,
+}
+
+// fileBudget suits a whole Markdown file, parsed once each time it is read:
+// anything within the workspace file preview's bounds of 1,000,000 bytes
+// and 5,000 lines that isn't pathological. A file's blocks also record
+// their source lines.
+var fileBudget = budget{
+	sourceLines:     true,
+	sourceBytes:     1 << 20,
+	lines:           maxMarkdownSourceLines,
+	containerLayers: 50_000,
+	inlineNodes:     250_000,
+	structuralNodes: 100_000,
+}
 
 // BlockKind identifies a Markdown block's semantic role.
 type BlockKind uint8
@@ -138,6 +174,11 @@ type Block struct {
 	Runs         []Run
 	Rows         []TableRow
 	Alignments   []Alignment
+	// StartLine and EndLine are the 1-based source lines, inclusive, that a
+	// block comes from, including a code block's fences and a setext
+	// heading's underline. ParseFile records them; they are 0 from Parse.
+	StartLine int
+	EndLine   int
 }
 
 // Document is a parsed Markdown document.
@@ -164,10 +205,27 @@ func Parse(source string) Document {
 	return defaultParser.Parse(source)
 }
 
+// ParseFile parses a whole Markdown file, such as one shown in a File tab,
+// with the package's shared parser and a budget sized for files rather than
+// messages.
+func ParseFile(source string) Document {
+	return defaultParser.ParseFile(source)
+}
+
 // Parse converts source into copied semantic data that does not retain
 // Goldmark source segments.
 func (p *Parser) Parse(source string) Document {
-	if markdownExceedsComplexityBudget(source) {
+	return p.parse(source, messageBudget)
+}
+
+// ParseFile converts a whole Markdown file as Parse converts a message,
+// within a budget sized for the workspace file preview's bounds.
+func (p *Parser) ParseFile(source string) Document {
+	return p.parse(source, fileBudget)
+}
+
+func (p *Parser) parse(source string, limits budget) Document {
+	if markdownExceedsComplexityBudget(source, limits) {
 		return plainTextDocument(source)
 	}
 	if p == nil {
@@ -175,10 +233,16 @@ func (p *Parser) Parse(source string) Document {
 	}
 	src := []byte(source)
 	document := p.markdown.Parser().Parse(text.NewReader(src))
-	walker := parserWalker{source: src, blocks: make([]Block, 0, 16)}
+	walker := parserWalker{source: src, blocks: make([]Block, 0, 16), budget: limits}
+	if limits.sourceLines {
+		walker.lineStarts = lineStarts(src)
+	}
 	walker.container(document, blockContext{})
 	if walker.complexityExceeded {
 		return plainTextDocument(source)
+	}
+	if limits.sourceLines {
+		walker.endLines()
 	}
 	return Document{Blocks: walker.blocks}
 }
@@ -190,6 +254,8 @@ type blockContext struct {
 
 type parserWalker struct {
 	source             []byte
+	budget             budget
+	lineStarts         []int
 	blocks             []Block
 	nextQuoteID        int
 	nextListID         int
@@ -213,25 +279,29 @@ func (w *parserWalker) block(node ast.Node, context blockContext) {
 		return
 	}
 	containers := context.containers
+	// Each block's first line; endLines finds the last.
+	start := w.startLine(node)
 	switch typed := node.(type) {
 	case *ast.Heading:
 		w.emit(Block{
 			Kind: BlockHeading, HeadingLevel: typed.Level,
 			Containers: cloneContainers(containers), Runs: w.inlines(node),
+			StartLine: start,
 		})
 	case *ast.Paragraph, *ast.TextBlock:
 		kind := BlockParagraph
 		if containersHaveKind(containers, ContainerQuote) {
 			kind = BlockQuote
 		}
-		w.emit(Block{Kind: kind, Containers: cloneContainers(containers), Runs: w.inlines(node)})
+		w.emit(Block{Kind: kind, Containers: cloneContainers(containers), Runs: w.inlines(node), StartLine: start})
 	case *ast.FencedCodeBlock:
 		w.emit(Block{
 			Kind: BlockCode, Language: strings.TrimSpace(string(typed.Language(w.source))),
 			Code: w.rawLines(node), Containers: cloneContainers(containers),
+			StartLine: start,
 		})
 	case *ast.CodeBlock:
-		w.emit(Block{Kind: BlockCode, Code: w.rawLines(node), Containers: cloneContainers(containers)})
+		w.emit(Block{Kind: BlockCode, Code: w.rawLines(node), Containers: cloneContainers(containers), StartLine: start})
 	case *ast.Blockquote:
 		w.nextQuoteID++
 		next := blockContext{
@@ -242,13 +312,14 @@ func (w *parserWalker) block(node ast.Node, context blockContext) {
 	case *ast.List:
 		w.list(typed, context)
 	case *ast.ThematicBreak:
-		w.emit(Block{Kind: BlockRule, Containers: cloneContainers(containers)})
+		w.emit(Block{Kind: BlockRule, Containers: cloneContainers(containers), StartLine: start})
 	case *extast.Table:
 		w.table(typed, context)
 	case *ast.HTMLBlock:
 		w.emit(Block{
 			Kind: BlockParagraph, Containers: cloneContainers(containers),
-			Runs: []Run{{Text: w.rawLines(node), RawHTML: true}},
+			Runs:      []Run{{Text: w.rawLines(node), RawHTML: true}},
+			StartLine: start,
 		})
 	default:
 		if node.Type() == ast.TypeBlock {
@@ -259,7 +330,7 @@ func (w *parserWalker) block(node ast.Node, context blockContext) {
 
 func (w *parserWalker) consumeStructuralNodes(count int) bool {
 	w.structuralNodes += count
-	if w.structuralNodes > maxMarkdownStructuralNodes {
+	if w.structuralNodes > w.budget.structuralNodes {
 		w.complexityExceeded = true
 		return false
 	}
@@ -356,6 +427,7 @@ func (w *parserWalker) table(table *extast.Table, context blockContext) {
 		Kind: BlockTable, Containers: cloneContainers(context.containers),
 		Alignments: make([]Alignment, len(table.Alignments)),
 	}
+	block.StartLine = w.startLine(table)
 	for index, alignment := range table.Alignments {
 		switch alignment {
 		case extast.AlignLeft:
@@ -404,7 +476,7 @@ func (w *parserWalker) inline(node ast.Node, style Run, runs *[]Run, depth int) 
 	}
 	for child := node.FirstChild(); child != nil && !w.complexityExceeded; child = child.NextSibling() {
 		w.inlineNodes++
-		if w.inlineNodes > maxMarkdownInlineNodes {
+		if w.inlineNodes > w.budget.inlineNodes {
 			w.complexityExceeded = true
 			return
 		}
@@ -474,6 +546,120 @@ func (w *parserWalker) inline(node ast.Node, style Run, runs *[]Run, depth int) 
 			// The block-level list marker carries task state.
 		default:
 			w.inline(child, style, runs, depth+1)
+		}
+	}
+}
+
+// lineStarts returns the byte offset each line of source starts at.
+func lineStarts(source []byte) []int {
+	starts := []int{0}
+	for offset, character := range source {
+		if character == '\n' && offset+1 < len(source) {
+			starts = append(starts, offset+1)
+		}
+	}
+	return starts
+}
+
+// lineAt returns the 1-based line holding byte offset.
+func (w *parserWalker) lineAt(offset int) int {
+	return sort.Search(len(w.lineStarts), func(index int) bool { return w.lineStarts[index] > offset })
+}
+
+// startLine returns the 1-based source line a block starts on: where
+// goldmark opened it, such as a code block's opening fence, or its first
+// line of text. It is 0 when lines aren't recorded or the block has none.
+func (w *parserWalker) startLine(node ast.Node) int {
+	if len(w.lineStarts) == 0 {
+		return 0
+	}
+	first := -1
+	consider := func(offset int) {
+		if offset >= 0 && (first < 0 || offset < first) {
+			first = offset
+		}
+	}
+	if table, ok := node.(*extast.Table); ok {
+		// A table takes the position of the paragraph it was made from,
+		// which may begin with lines that stay a paragraph; its rows and
+		// cells have their own.
+		for row := table.FirstChild(); row != nil; row = row.NextSibling() {
+			consider(row.Pos())
+			for cell := row.FirstChild(); cell != nil; cell = cell.NextSibling() {
+				consider(cell.Pos())
+			}
+		}
+	} else {
+		consider(node.Pos())
+		if lines := node.Lines(); lines != nil && lines.Len() > 0 {
+			consider(lines.At(0).Start)
+		}
+	}
+	if first < 0 {
+		return 0
+	}
+	return w.lineAt(first)
+}
+
+// endLines sets each block's last line: the line before the next block
+// with lines starts, or the source's last line, less the blank lines and
+// bare container markers before it. A block thus takes in what shows as
+// part of it, such as closing fences, setext underlines, and HTML closers.
+func (w *parserWalker) endLines() {
+	limit := len(w.lineStarts)
+	for index := len(w.blocks) - 1; index >= 0; index-- {
+		block := &w.blocks[index]
+		if block.StartLine == 0 {
+			continue
+		}
+		end := max(limit, block.StartLine)
+		for end > block.StartLine && blankLine(w.lineText(end)) {
+			end--
+		}
+		block.EndLine = end
+		limit = block.StartLine - 1
+	}
+}
+
+// lineText returns 1-based line number's text without its line ending.
+func (w *parserWalker) lineText(number int) string {
+	start := w.lineStarts[number-1]
+	end := len(w.source)
+	if number < len(w.lineStarts) {
+		end = w.lineStarts[number]
+	}
+	return strings.TrimRight(string(w.source[start:end]), "\r\n")
+}
+
+// blankLine reports whether line shows nothing of its own: it is empty
+// once the quote and list markers opening it are removed.
+func blankLine(line string) bool {
+	text := strings.TrimSpace(withoutContainerMarkers(line))
+	if text == "" || text == "-" || text == "+" || text == "*" {
+		return true
+	}
+	digits := strings.TrimLeft(text, "0123456789")
+	return len(digits) < len(text) && (digits == "." || digits == ")")
+}
+
+// withoutContainerMarkers returns line without the indentation, quote
+// markers, and list markers that open it.
+func withoutContainerMarkers(line string) string {
+	text := line
+	for {
+		text = strings.TrimLeft(text, " \t")
+		switch {
+		case strings.HasPrefix(text, ">"):
+			text = text[1:]
+		case len(text) > 1 && strings.ContainsRune("-+*", rune(text[0])) && (text[1] == ' ' || text[1] == '\t'):
+			text = text[2:]
+		default:
+			digits := strings.TrimLeft(text, "0123456789")
+			if len(digits) < len(text) && len(digits) > 1 && (digits[0] == '.' || digits[0] == ')') && (digits[1] == ' ' || digits[1] == '\t') {
+				text = digits[2:]
+				continue
+			}
+			return text
 		}
 	}
 }
@@ -562,8 +748,8 @@ func plainTextDocument(source string) Document {
 	}
 }
 
-func markdownExceedsComplexityBudget(source string) bool {
-	if len(source) > maxMarkdownSourceBytes {
+func markdownExceedsComplexityBudget(source string, limits budget) bool {
+	if len(source) > limits.sourceBytes {
 		return true
 	}
 	lines := 0
@@ -578,7 +764,7 @@ func markdownExceedsComplexityBudget(source string) bool {
 		lines++
 		depth := markdownContainerPrefixDepth(source[start:end])
 		containerLayers += depth
-		if lines > maxMarkdownSourceLines || depth > maxMarkdownContainerDepth || containerLayers > maxMarkdownContainerLayers {
+		if lines > limits.lines || depth > maxMarkdownContainerDepth || containerLayers > limits.containerLayers {
 			return true
 		}
 		if end == len(source) {
@@ -638,7 +824,7 @@ func (w *parserWalker) codeSpanText(span *ast.CodeSpan) string {
 	var builder bytes.Buffer
 	for child := span.FirstChild(); child != nil; child = child.NextSibling() {
 		w.inlineNodes++
-		if w.inlineNodes > maxMarkdownInlineNodes {
+		if w.inlineNodes > w.budget.inlineNodes {
 			w.complexityExceeded = true
 			return ""
 		}

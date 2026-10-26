@@ -228,6 +228,68 @@ private fn render_document(
   }
 }
 
+// A whole Markdown file, parsed within the budget for files rather than
+// messages. A file past it, or pathological, falls back to plain text, as a
+// message does.
+fn parse_file(source: Str) parser::Document {
+  parser::ParseFile(source)
+}
+
+// Whether block `index` of a parsed document begins with a blank row that
+// separates it from the block before.
+fn document_gap(document: parser::Document, index: Int) Bool {
+  match index > 0 {
+    true => {
+      match document.Blocks.at(index - 1) {
+        previous => {
+          match document.Blocks.at(index) {
+            block => blocks_need_gap(previous, block),
+            _ => false,
+          }
+        },
+        _ => false,
+      }
+    },
+    false => false,
+  }
+}
+
+// Block `index` of a parsed document, for a long one shown a block per row
+// of a virtual list, as a File tab shows a Markdown file: the gap separating
+// it from the block before, then the block, each in the quotes and list
+// items it shares with its neighbours. `fence_open` says whether the source
+// ends inside a code fence, so a last diagram whose fence was cut off shows
+// its source.
+fn document_block(
+  themes: theme::Context,
+  id: Str,
+  base: ui::TextStyle,
+  document: parser::Document,
+  index: Int,
+  fence_open: Bool,
+) cui::View {
+  let colors = themes.current()
+  let children = mut List::new<cui::View>()
+  match document.Blocks.at(index) {
+    block => {
+      if index > 0 {
+        match document.Blocks.at(index - 1) {
+          previous => {
+            if blocks_need_gap(previous, block) {
+              children.push(wrap_gap(colors, base, previous, block))
+            }
+          },
+          _ => (),
+        }
+      }
+      let complete = (not fence_open) or index + 1 < document.Blocks.size()
+      children.push(render_block(themes, id, index, base, true, block, complete))
+    },
+    _ => (),
+  }
+  cui::box(children.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
+}
+
 private fn document_text(document: parser::Document) Str {
   let blocks = mut List::new<Str>()
   for block in document.Blocks {

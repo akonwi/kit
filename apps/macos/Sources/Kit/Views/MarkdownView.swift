@@ -38,7 +38,7 @@ private struct MarkdownBlocks: View {
     var size: CGFloat = 14
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: MarkdownDocumentRow.blockSpacing) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
                 Group {
                     switch block {
@@ -54,13 +54,9 @@ private struct MarkdownBlocks: View {
                             .padding(.leading, 14)
                             .overlay(alignment: .leading) { Rectangle().fill(theme.border).frame(width: 2) }
                     case .list(let items):
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: MarkdownDocumentRow.itemSpacing) {
                             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                    Text(item.marker).foregroundStyle(theme.muted)
-                                        .frame(minWidth: 18, alignment: .trailing)
-                                    MarkdownBlocks(blocks: item.blocks, compactHeadings: compactHeadings, size: size)
-                                }
+                                MarkdownListItem(item: item, compactHeadings: compactHeadings, size: size)
                             }
                         }
                     case .table(let table): MarkdownTable(table: table)
@@ -81,6 +77,291 @@ private struct MarkdownBlocks: View {
         if index == 0 { return true }
         if case .heading = block { return true }
         return false
+    }
+}
+
+private struct MarkdownListItem: View {
+    @Environment(\.mica) private var theme
+    let item: MarkdownContent.Item
+    var compactHeadings = false
+    var size: CGFloat = 14
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(item.marker).foregroundStyle(theme.muted)
+                .frame(minWidth: 18, alignment: .trailing)
+            MarkdownBlocks(blocks: item.blocks, compactHeadings: compactHeadings, size: size)
+        }
+    }
+}
+
+/// One row of a Markdown document shown whole, as a file tab shows one: a
+/// top-level block, or one item of a top-level list, so that a long list is
+/// built only as far as it is shown. Each row keeps the space a message puts
+/// before it, and knows the source lines it shows.
+struct MarkdownDocumentRow: Identifiable, Equatable {
+    enum Content: Equatable {
+        case block(MarkdownContent.Block)
+        case item(MarkdownContent.Item)
+    }
+
+    static let blockSpacing: CGFloat = 10
+    static let itemSpacing: CGFloat = 8
+
+    let id: Int
+    let content: Content
+    /// The space above the row.
+    let gap: CGFloat
+    /// The 1-based source lines the row shows, or nil where unknown.
+    var lines: ClosedRange<Int>? = nil
+
+    /// The rows of `content`, in order.
+    static func rows(_ content: MarkdownContent) -> [Self] {
+        var rows: [Self] = []
+        for (index, block) in content.blocks.enumerated() {
+            let gap: CGFloat = rows.isEmpty ? 0 : blockSpacing
+            let lines = content.lines.indices.contains(index) ? content.lines[index] : nil
+            if case .list(let items) = block, !items.isEmpty {
+                for (offset, item) in items.enumerated() {
+                    rows.append(.init(id: rows.count, content: .item(item), gap: offset == 0 ? gap : itemSpacing,
+                                      lines: item.lines ?? lines))
+                }
+            } else {
+                rows.append(.init(id: rows.count, content: .block(block), gap: gap, lines: lines))
+            }
+        }
+        return rows
+    }
+
+    /// The row a 1-based source line shows in: the last row starting at or
+    /// before it, or the first row for a line before them all.
+    static func row(of line: Int, in rows: [Self]) -> Int? {
+        rows.last { ($0.lines?.lowerBound ?? .max) <= line }?.id ?? rows.first?.id
+    }
+}
+
+/// The comments on a Markdown file that its preview shows and takes:
+/// anchored, as in its source, to source lines, here a block's.
+@MainActor struct MarkdownPreviewAnnotations {
+    let document: AnnotationDocument
+    let state: AnnotationState
+    let client: any AnnotationClient
+    let session: String
+    /// Whether the file as shown can take new comments.
+    let canAnnotate: Bool
+
+    /// The current comments on the file as shown.
+    var notes: [FileAnnotation] {
+        state.records.filter { !$0.stale && document.range($0.anchor) != nil }
+    }
+
+    /// Begins a comment on 1-based source lines.
+    func begin(_ lines: ClosedRange<Int>) {
+        guard let anchor = document.anchor((lines.lowerBound - 1)...(lines.upperBound - 1), side: nil) else { return }
+        state.begin(anchor: anchor)
+    }
+
+    func edit(_ note: FileAnnotation) {
+        let state = state, client = client, session = session
+        Task { @MainActor in
+            do {
+                try await state.refresh(client: client, session: session)
+                guard let fresh = state.records.first(where: { $0.id == note.id }), fresh.complete else { return }
+                if fresh.stale { state.inspected = fresh } else { state.begin(anchor: fresh.anchor, editing: fresh) }
+            } catch { state.report(error) }
+        }
+    }
+
+    func delete(_ note: FileAnnotation) {
+        let state = state, client = client, session = session
+        Task { await state.remove(client: client, session: session, id: note.id) }
+    }
+}
+
+/// A whole Markdown document, such as a file, rendered as the transcript
+/// renders a message, in a reading column as wide as the transcript's. It
+/// parses off the main actor and builds only the rows in view; while a new
+/// source parses, the last one stays. A document past what renders (see
+/// `MarkdownFiles.renderable`) says so, offering `showSource`.
+///
+/// With `annotations`, a hovered block offers a + in the margin that
+/// comments on the block's source lines; a saved comment sits under the
+/// block holding its last line, and a revealed one is scrolled to.
+struct MarkdownDocumentView: View {
+    @Environment(\.mica) private var theme
+    let source: String
+    var annotations: MarkdownPreviewAnnotations? = nil
+    var showSource: (() -> Void)? = nil
+    /// The reading column's widest.
+    static let columnWidth: CGFloat = 844
+    /// The margin a row's + sits in.
+    static let gutterWidth: CGFloat = 18
+    /// The rows of the source last parsed, or nil for one past what renders.
+    @State private var parsed: (source: String, rows: [MarkdownDocumentRow]?)?
+    @State private var flashing: UInt64?
+
+    enum Entry: Identifiable {
+        case row(MarkdownDocumentRow)
+        case note(FileAnnotation)
+        case editor
+        var id: String {
+            switch self {
+            case .row(let row): "row-\(row.id)"
+            case .note(let note): "note-\(note.id)"
+            case .editor: "editor"
+            }
+        }
+    }
+
+    /// Each row, then the comments whose last line it shows, with the editor
+    /// in place of the comment it edits or after a new one's row.
+    func entries(_ rows: [MarkdownDocumentRow]) -> [Entry] {
+        guard let annotations else { return rows.map(Entry.row) }
+        let editor = annotations.state.editor
+        var after: [Int: [Entry]] = [:]
+        for note in annotations.notes {
+            guard let row = MarkdownDocumentRow.row(of: note.endLine, in: rows) else { continue }
+            after[row, default: []].append(editor?.editing == note.id ? .editor : .note(note))
+        }
+        if let editor, editor.editing == nil, let lines = annotations.document.range(editor.anchor),
+           let row = MarkdownDocumentRow.row(of: lines.upperBound + 1, in: rows) {
+            after[row, default: []].append(.editor)
+        }
+        return rows.flatMap { [Entry.row($0)] + (after[$0.id] ?? []) }
+    }
+
+    var body: some View {
+        Group {
+            if let parsed, parsed.rows == nil {
+                VStack(spacing: 10) {
+                    Text("This file is too large or too deeply nested to render.").foregroundStyle(theme.muted)
+                    if let showSource { Button("Show Source", action: showSource).buttonStyle(FormButtonStyle()) }
+                }
+                .font(.kit(size: 12)).padding(20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: annotations?.state.revealToken, initial: true) {
+                    // A comment revealed on a file that can't render shows in its source.
+                    guard let annotations, let id = annotations.state.revealed,
+                          annotations.notes.contains(where: { $0.id == id }) else { return }
+                    showSource?()
+                }
+            } else {
+                let rows = parsed?.rows ?? []
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(entries(rows)) { entry in entryView(entry) }
+                        }
+                        .frame(maxWidth: Self.columnWidth, alignment: .leading)
+                        .padding(.leading, 24 - Self.gutterWidth - 6).padding(.trailing, 24).padding(.vertical, 20)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .font(.kit(size: 14)).textSelection(.enabled)
+                    .onChange(of: annotations?.state.revealToken, initial: true) { reveal(rows, proxy: proxy) }
+                    .onChange(of: parsed?.source) { reveal(rows, proxy: proxy) }
+                }
+            }
+        }
+        .task(id: source) {
+            let source = source
+            let rows = await Task.detached(priority: .userInitiated) { () -> [MarkdownDocumentRow]? in
+                guard MarkdownFiles.renderable(source) else { return nil }
+                return MarkdownDocumentRow.rows(MarkdownContent(source: source))
+            }.value
+            guard !Task.isCancelled else { return }
+            parsed = (source, rows)
+        }
+    }
+
+    @ViewBuilder private func entryView(_ entry: Entry) -> some View {
+        switch entry {
+        case .row(let row):
+            MarkdownPreviewRow(row: row, annotations: annotations).padding(.top, row.gap)
+        case .note(let note):
+            if let annotations {
+                AnnotationNote(annotation: note, edit: { annotations.edit(note) }, delete: { annotations.delete(note) })
+                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.accent.opacity(flashing == note.id ? 1 : 0), lineWidth: 1))
+                    .font(.kit(size: 13)).textSelection(.disabled)
+                    .padding(.leading, Self.gutterWidth + 6).padding(.top, 8)
+            }
+        case .editor:
+            if let annotations {
+                AnnotationInput(annotations: annotations.state, client: annotations.client, session: annotations.session,
+                                cancel: { annotations.state.cancelEditor() })
+                    .font(.kit(size: 13))
+                    .padding(.leading, Self.gutterWidth + 6).padding(.top, 8)
+            }
+        }
+    }
+
+    /// Scrolls to a comment revealed on this file, briefly outlining it.
+    private func reveal(_ rows: [MarkdownDocumentRow], proxy: ScrollViewProxy) {
+        guard let annotations, !rows.isEmpty, let id = annotations.state.revealed,
+              let note = annotations.notes.first(where: { $0.id == id }) else { return }
+        annotations.state.revealed = nil
+        flashing = id
+        withAnimation { proxy.scrollTo("note-\(id)", anchor: .center) }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.2))
+            if flashing == note.id { flashing = nil }
+        }
+    }
+}
+
+/// A preview row: a margin holding, while the pointer is over the row and
+/// it can take a comment, a + that comments on the row's source lines, and
+/// an accent bar where comments cover them; then the rendered row.
+private struct MarkdownPreviewRow: View {
+    @Environment(\.mica) private var theme
+    let row: MarkdownDocumentRow
+    let annotations: MarkdownPreviewAnnotations?
+    @State private var hovering = false
+
+    private var lines: ClosedRange<Int>? {
+        guard let lines = row.lines, lines.count <= AnnotationSelection.maximumLines else { return nil }
+        return lines
+    }
+    private var annotated: Bool {
+        guard let annotations, let lines = row.lines else { return false }
+        return annotations.notes.contains { $0.startLine <= lines.upperBound && $0.endLine >= lines.lowerBound }
+    }
+    private var offers: Bool {
+        guard let annotations, lines != nil else { return false }
+        let state = annotations.state
+        return hovering && annotations.canAnnotate && state.editor == nil && !state.pending && !state.uncertain
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            ZStack(alignment: .top) {
+                if annotated {
+                    RoundedRectangle(cornerRadius: 1.5).fill(theme.accent).frame(width: 3).frame(maxHeight: .infinity)
+                }
+                if offers, let lines, let annotations {
+                    Button { annotations.begin(lines) } label: {
+                        IconView(.plus, size: 10).foregroundStyle(theme.surface)
+                            .frame(width: 16, height: 16)
+                            .background(theme.accent, in: RoundedRectangle(cornerRadius: 3))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(lines.count == 1 ? "Comment on line \(lines.lowerBound)" : "Comment on lines \(lines.lowerBound)–\(lines.upperBound)")
+                    .accessibilityLabel("Comment on this block")
+                }
+            }
+            .frame(width: MarkdownDocumentView.gutterWidth)
+            .frame(maxHeight: .infinity, alignment: .top)
+            Group {
+                switch row.content {
+                case .block(let block): MarkdownBlocks(blocks: [block])
+                case .item(let item): MarkdownListItem(item: item)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
     }
 }
 

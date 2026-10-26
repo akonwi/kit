@@ -58,6 +58,13 @@ enum WorkspacePane: Hashable, Identifiable {
         }
     }
     var closable: Bool { self != .conversation }
+    /// Whether the pane is a Markdown file, which shows rendered.
+    var isMarkdown: Bool {
+        switch self {
+        case .file(let path), .hostFile(let path), .localFile(let path): MarkdownFiles.isMarkdown(path)
+        default: false
+        }
+    }
 
     /// The pane with this identity, or nil for an unknown or empty one.
     init?(id: String) {
@@ -122,6 +129,8 @@ final class WorkspaceState {
     private(set) var browsers: [UUID: BrowserTab] = [:]
     /// Open terminal tabs' shells, by pane.
     private(set) var terminals: [UUID: TerminalTab] = [:]
+    /// Open Markdown file tabs showing their source; the rest show rendered.
+    private(set) var markdownSources: Set<WorkspacePane> = []
     /// Makes the engine behind each browser tab.
     @ObservationIgnored var makeBrowserEngine: @MainActor () -> any BrowserEngine = WebKitBrowserEngine.make
     /// Where browser downloads and terminal notifications are reported.
@@ -211,6 +220,7 @@ final class WorkspaceState {
         if case .file(let path) = pane { filePreviews.remove(path) }
         if case .browser(let id) = pane { browsers.removeValue(forKey: id)?.close() }
         if case .terminal(let id) = pane { terminals.removeValue(forKey: id)?.close() }
+        markdownSources.remove(pane)
         panes.removeAll { $0 == pane }
         tile.panes.remove(at: index)
         if tile.panes.isEmpty {
@@ -329,9 +339,12 @@ final class WorkspaceState {
         for pane in panes {
             if case .terminal(let id) = pane, let tab = terminals[id] { directories[pane.id] = tab.directory }
         }
+        // Markdown tabs showing their source, in pane order.
+        let sources = panes.filter { markdownSources.contains($0) }.map(\.id)
         return TileArrangement(root: node(root), focused: root.tiles.firstIndex(of: focusedTile) ?? 0,
                                zoomed: zoomedTile != nil, browsers: addresses.isEmpty ? nil : addresses,
-                               terminals: directories.isEmpty ? nil : directories)
+                               terminals: directories.isEmpty ? nil : directories,
+                               markdownSources: sources.isEmpty ? nil : sources)
     }
 
     /// Replaces the layout with a saved one. Unknown and repeated panes are
@@ -387,6 +400,8 @@ final class WorkspaceState {
             // home directory when that wasn't saved.
             adopt(TerminalTab(id: id, directory: arrangement.terminals?[pane.id] ?? ""))
         }
+        let sources = Set(arrangement.markdownSources ?? [])
+        markdownSources = Set(panes.filter { $0.isMarkdown && sources.contains($0.id) })
         let order = tree.tiles
         focusedTile = order[min(max(arrangement.focused, 0), order.count - 1)]
         zoomedTile = arrangement.zoomed && order.count > 1 ? focusedTile : nil
@@ -476,6 +491,23 @@ final class WorkspaceState {
         guard cancelledDrag == pane else { return false }
         if ending { cancelledDrag = nil }
         return true
+    }
+
+    // MARK: Markdown files
+
+    /// Whether a Markdown file tab shows its source rather than rendered.
+    func showsMarkdownSource(_ pane: WorkspacePane) -> Bool {
+        markdownSources.contains(pane)
+    }
+
+    /// Shows an open Markdown file tab as source or rendered.
+    func showMarkdownSource(_ pane: WorkspacePane, _ source: Bool = true) {
+        guard pane.isMarkdown, panes.contains(pane) else { return }
+        if source { markdownSources.insert(pane) } else { markdownSources.remove(pane) }
+    }
+
+    func toggleMarkdownSource(_ pane: WorkspacePane) {
+        showMarkdownSource(pane, !showsMarkdownSource(pane))
     }
 
     // MARK: Browser tabs

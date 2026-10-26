@@ -108,6 +108,9 @@ struct FileAnnotation: Codable, Identifiable, Sendable, Equatable {
 
 /// Native selections use UTF-16; protocol ranges are inclusive, one-based LF lines.
 enum AnnotationSelection {
+    /// The most lines one annotation covers.
+    static let maximumLines = 200
+
     static func lines(in source: String, selection: NSRange) -> ClosedRange<Int>? {
         let units = Array(source.utf16)
         guard selection.location != NSNotFound, selection.location >= 0, selection.length >= 0,
@@ -118,7 +121,7 @@ enum AnnotationSelection {
         let last = units.prefix(lastOffset).filter { $0 == 10 }.count + 1
         // The server does not count the empty line after a final newline.
         let count = units.filter { $0 == 10 }.count + (units.last == 10 ? 0 : 1)
-        guard first <= count, last <= count, last - first < 200 else { return nil }
+        guard first <= count, last <= count, last - first < maximumLines else { return nil }
         return first...last
     }
 }

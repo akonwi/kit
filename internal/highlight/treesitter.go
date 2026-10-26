@@ -257,6 +257,7 @@ func (e *treeSitterEngine) highlightLanguage(ctx context.Context, language strin
 	e.parser.Reset()
 	tree := e.parseWithContext(ctx, source)
 	if tree == nil {
+		e.replaceParser()
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -293,6 +294,18 @@ func (e *treeSitterEngine) highlightLanguage(ctx context.Context, language strin
 		captures = append(captures, injected...)
 	}
 	return captures, nil
+}
+
+// replaceParser discards the parser after a parse that stopped. A parse
+// cancelled while it balances its finished tree leaves tree-sitter's parser
+// resuming that balance even after Reset, which released the tree, so its
+// next parse aborts the process.
+func (e *treeSitterEngine) replaceParser() {
+	e.parser.SetCancellationFlag(nil)
+	e.parser.Close()
+	e.parser = sitter.NewParser()
+	atomic.StoreUintptr(e.cancellation, 0)
+	e.parser.SetCancellationFlag(e.cancellation)
 }
 
 func (e *treeSitterEngine) parseWithContext(ctx context.Context, source []byte) *sitter.Tree {

@@ -266,7 +266,7 @@ func TestParseFallsBackBeforePathologicalInlineComplexity(t *testing.T) {
 		parent = emphasis
 	}
 	parent.AppendChild(parent, ast.NewString([]byte("x")))
-	walker := parserWalker{}
+	walker := parserWalker{budget: messageBudget}
 	var runs []Run
 	walker.inline(root, Run{}, &runs, 0)
 	if !walker.complexityExceeded {
@@ -282,6 +282,40 @@ func TestParseCoalescesManyTextFragmentsOnce(t *testing.T) {
 	if document.PlainTextFallback || len(document.Blocks) != 1 || len(document.Blocks[0].Runs) != 1 ||
 		joinedText(document.Blocks[0].Runs) != strings.TrimSuffix(source, "\n") {
 		t.Fatalf("coalesced line document = fallback %t, blocks %d", document.PlainTextFallback, len(document.Blocks))
+	}
+}
+
+func TestParseFileAllowsAWholeFileWithinThePreviewBounds(t *testing.T) {
+	t.Parallel()
+
+	// 5,000 lines and about 1,000,000 bytes: the workspace file preview's
+	// bounds, well past a message's budget.
+	item := "- [x] **Item** with `code`, a [link](https://e.co), and _emphasis_ to pad it out to two hundred bytes per line of the file.......\n"
+	source := "# Changelog\n\n" + strings.Repeat(item+strings.Repeat(" ", 200-len(item))+"\n", 4_998)
+	if document := Parse(source); !document.PlainTextFallback {
+		t.Fatal("a message the size of the file did not fall back")
+	}
+	document := ParseFile(source)
+	if document.PlainTextFallback {
+		t.Fatal("the file fell back to plain text")
+	}
+	if len(document.Blocks) != 4_999 || document.Blocks[0].Kind != BlockHeading || document.Blocks[4_998].Runs[0].Text != "Item" {
+		t.Fatalf("file blocks = %d", len(document.Blocks))
+	}
+}
+
+func TestParseFileFallsBackPastItsBudget(t *testing.T) {
+	t.Parallel()
+
+	for _, source := range []string{
+		strings.Repeat("x", fileBudget.sourceBytes+1),
+		strings.Repeat("line\n", fileBudget.lines+1),
+		strings.Repeat(">", maxMarkdownContainerDepth+1) + " deep",
+		strings.Repeat("*a* ", fileBudget.inlineNodes/2+1),
+	} {
+		if document := ParseFile(source); !document.PlainTextFallback || joinedText(document.Blocks[0].Runs) != source {
+			t.Fatalf("file fallback = %t with %d blocks", document.PlainTextFallback, len(document.Blocks))
+		}
 	}
 }
 
@@ -377,4 +411,88 @@ func hasRun(runs []Run, expected Run) bool {
 		}
 	}
 	return false
+}
+
+func BenchmarkParseFileAtThePreviewBounds(b *testing.B) {
+	line := "- **Item** with `code`, a [link](https://e.co), and _emphasis_.\n"
+	source := strings.Repeat("## Section\n\nA paragraph of prose that runs on for a while.\n\n"+strings.Repeat(line, 8)+"\n", 5_000/12)
+	b.ResetTimer()
+	for b.Loop() {
+		_ = ParseFile(source)
+	}
+}
+
+func TestParseRecordsEachBlocksSourceLines(t *testing.T) {
+	t.Parallel()
+
+	source := strings.Join([]string{
+		"# Title",           // 1
+		"",                  // 2
+		"Para one",          // 3
+		"line two",          // 4
+		"",                  // 5
+		"- a",               // 6
+		"- b",               // 7
+		"",                  // 8
+		"```go",             // 9
+		"x",                 // 10
+		"```",               // 11
+		"",                  // 12
+		"| A | B |",         // 13
+		"| - | - |",         // 14
+		"| 1 | 2 |",         // 15
+		"",                  // 16
+		"> quote",           // 17
+		"> more",            // 18
+		"",                  // 19
+		"---",               // 20
+		"",                  // 21
+		"Setext",            // 22
+		"===",               // 23
+		"",                  // 24
+		"- # In a list",     // 25
+		"---",               // 26
+		"",                  // 27
+		"| Only | Header |", // 28
+		"| --- | --- |",     // 29
+	}, "\n") + "\n"
+	want := [][2]int{{1, 1}, {3, 4}, {6, 6}, {7, 7}, {9, 11}, {13, 15}, {17, 18}, {20, 20}, {22, 23}, {25, 25}, {26, 26}, {28, 29}}
+	document := ParseFile(source)
+	if len(document.Blocks) != len(want) {
+		t.Fatalf("blocks = %d, want %d", len(document.Blocks), len(want))
+	}
+	for index, block := range document.Blocks {
+		if got := [2]int{block.StartLine, block.EndLine}; got != want[index] {
+			t.Errorf("block %d (kind %d) lines = %v, want %v", index, block.Kind, got, want[index])
+		}
+	}
+}
+
+func TestParseRecordsTheSourceLinesOfBlocksThatEndPastTheirText(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		source string
+		want   [][2]int
+	}{
+		{"an HTML block's closing line", "<!--\nnote\n-->\n\nAfter\n", [][2]int{{1, 3}, {5, 5}}},
+		{"a setext heading starting with #", "#foo\n===\n", [][2]int{{1, 2}}},
+		{"an empty fenced block", "```\n```\n\nAfter\n", [][2]int{{1, 2}, {4, 4}}},
+		{"a table ending in empty cells", "| A | B |\n| - | - |\n| 1 | 2 |\n|   |   |\n", [][2]int{{1, 4}}},
+		{"a paragraph then a table", "Intro\n| A |\n| - |\n| 1 |\n", [][2]int{{1, 1}, {2, 4}}},
+		{"an unclosed fence in a quote", "> ```\n> code\n\n```\nmore\n```\n", [][2]int{{1, 2}, {4, 6}}},
+		{"a quote's trailing marker", "> one\n>\n> two\n>\n\nAfter\n", [][2]int{{1, 1}, {3, 3}, {6, 6}}},
+		{"an empty list item", "- a\n-\n- b\n", [][2]int{{1, 1}, {0, 0}, {3, 3}}},
+		{"CRLF lines", "# A\r\n\r\nB\r\nC\r\n", [][2]int{{1, 1}, {3, 4}}},
+	} {
+		document := ParseFile(test.source)
+		got := make([][2]int, 0, len(document.Blocks))
+		for _, block := range document.Blocks {
+			got = append(got, [2]int{block.StartLine, block.EndLine})
+		}
+		if !reflect.DeepEqual(got, test.want) {
+			t.Errorf("%s: lines = %v, want %v", test.name, got, test.want)
+		}
+	}
 }

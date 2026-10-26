@@ -560,6 +560,12 @@ private struct WorkspaceTabActions: View {
             FileTabMenuItems(actions: FileTabActions(file: file, cwd: nil, gate: .available))
             Divider()
         }
+        if pane.isMarkdown {
+            Button(workspace.showsMarkdownSource(pane) ? "Show Markdown Preview" : "Show Markdown Source") {
+                workspace.toggleMarkdownSource(pane)
+            }
+            Divider()
+        }
         Button("Split Right") { workspace.split(pane, .right) }.disabled(!workspace.canSplit(pane))
         Button("Split Down") { workspace.split(pane, .bottom) }.disabled(!workspace.canSplit(pane))
         if workspace.root.tiles.count > 1 {
@@ -704,7 +710,16 @@ struct FilePane: View {
     private var error: String? { entry?.error }
     private var loading: Bool { entry?.loading == true }
     private var workspace: WorkspaceState { state.ui.workspace }
-    private var active: Bool { workspace.isVisible(.file(path)) }
+    private var pane: WorkspacePane { .file(path) }
+    private var active: Bool { workspace.isVisible(pane) }
+    /// Whether the file shows its preview: Markdown, not switched to source.
+    private var rendered: Bool { pane.isMarkdown && !workspace.showsMarkdownSource(pane) }
+    /// The comments the preview shows and takes, on the file as loaded.
+    private var previewAnnotations: MarkdownPreviewAnnotations? {
+        guard let preview, let client = state.catalogClient as? any AnnotationClient else { return nil }
+        return MarkdownPreviewAnnotations(document: AnnotationDocument(file: preview), state: state.annotationState,
+            client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false)
+    }
     private var request: String {
         state.serverID + "|" + state.selectedID + "|" + (state.selected?.cwd ?? "") + "|" + String(active) + "|" + String(revision) + "|" + String(workspace.filePreviews.revision)
     }
@@ -726,7 +741,10 @@ struct FilePane: View {
                 Text(path).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted).lineLimit(1).truncationMode(.middle)
                 Spacer()
                 if loading { KitSpinner() }
-                if state.catalogClient is any AnnotationClient {
+                if pane.isMarkdown {
+                    MarkdownModeToggle(workspace: workspace, pane: pane)
+                }
+                if state.catalogClient is any AnnotationClient && !rendered {
                     Button(state.annotationState.replacement == nil && state.annotationState.selectionDraft == nil ? "Annotate selection" : "Use selected range") { beginAnnotation() }
                         .font(.kit(size: 11)).buttonStyle(.plain)
                         .help("Annotate up to 200 selected lines")
@@ -765,15 +783,18 @@ struct FilePane: View {
             }
             if state.annotationState.replacement?.path == path || state.annotationState.selectionDraft?.path == path {
                 HStack {
-                    Text(state.annotationState.evidenceConflict == .staleFile ?
-                        "Refreshing the changed file. Select a new source range for your comment." :
-                        "Select a new source range for your comment.")
+                    Text((state.annotationState.evidenceConflict == .staleFile ? "Refreshing the changed file. " : "") +
+                        (rendered ? "Choose a block with + for your comment, or select lines in Source." :
+                            "Select a new source range for your comment."))
                     Spacer()
                     Button("Cancel") { state.annotationState.cancelEditor() }
                 }.font(.kit(size: 11)).foregroundStyle(theme.muted).padding(12)
             }
             Group {
-                if let preview {
+                if rendered, let source = preview?.content ?? workspace.fixture.files.first(where: { $0.path == path })?.content {
+                    MarkdownFileText(workspace: workspace, pane: pane, source: source, cwd: state.selected?.cwd,
+                                     annotations: previewAnnotations)
+                } else if let preview {
                     if let client = state.catalogClient as? any AnnotationClient {
                         AnnotatedFileEditor(file: preview, position: $position, annotations: state.annotationState,
                             client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false)
@@ -788,7 +809,7 @@ struct FilePane: View {
                         .foregroundStyle(theme.muted).frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .workspaceFocusTarget(.file(path))
+            .workspaceFocusTarget(pane)
             Text((entry?.stale == true && preview != nil ? "Read-only · Preview may be out of date" : "Read-only") + (preview?.truncated == true ? " · Preview truncated" : ""))
                 .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
         }.onChange(of: state.annotationState.evidenceConflict) {

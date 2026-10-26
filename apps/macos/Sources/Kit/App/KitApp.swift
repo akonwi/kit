@@ -216,6 +216,11 @@ private struct TileCommands: Commands {
             Button("Open File on This Mac…") { if let workspace { LocalFilePanel.open(into: workspace) } }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
                 .disabled(workspace == nil)
+            Button(workspace.map { $0.showsMarkdownSource($0.selected) } == true ? "Show Markdown Preview" : "Show Markdown Source") {
+                if let workspace { workspace.toggleMarkdownSource(workspace.selected) }
+            }
+            .keyboardShortcut("m", modifiers: [.command, .shift])
+            .disabled(workspace?.selected.isMarkdown != true)
             Divider()
             Button("Split Right") { if let workspace { workspace.split(workspace.selected, .right) } }
                 .keyboardShortcut("d", modifiers: .command)

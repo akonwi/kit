@@ -5,18 +5,23 @@ use ard/unsafe
 use go:api/contract as protocol
 use cooper/cui
 use cooper/event
+use cooper/keymap
 use cooper/ui
 use go:fmt
 use go:github.com/akonwi/kit/internal/highlight
+use go:github.com/akonwi/kit/internal/markdown as parser
 use go:kit/ffi/contextbridge
 use go:kit/ffi/hostfilebridge
 use go:kit/ffi/sessionbridge
 use kit/tui/after_commit
 use kit/tui/annotations
 use kit/tui/code
+use kit/tui/controls
 use kit/tui/layout
+use kit/tui/markdown
 use kit/tui/theme
 use kit/tui/workspace
+use go:path
 use go:strings
 
 // A File tab's body: the file as the session's workspace has it, with line
@@ -35,9 +40,59 @@ use go:strings
 // A host File tab shows a file on the session's server outside its working
 // directory (ADR 0050), by absolute path. Its text can't be annotated, and a
 // supported image shows in place of lines, fitted to the pane.
+//
+// A Markdown file shows rendered, as the transcript renders Markdown, until
+// the header's toggle, which names the current view, switches it to its
+// source; the tab keeps the choice while it is open. An opening at a line
+// shows the source at that line, unless it reveals an annotation, which the
+// preview shows in place. Annotations anchor to source lines; the preview
+// works on whole blocks. Hovering a block offers a + in its gutter that
+// annotates the block's source lines, and dragging down the gutter takes in
+// the blocks it crosses. A saved note sits under the block holding its last
+// line, and annotated blocks' gutters are filled. The toggle is hidden while
+// a note is being written. A file past the parser's budget for files shows
+// its source. Links show their labels; web links open as transcript links
+// do.
 
 // Cells a horizontal wheel step moves the text.
 let column_step = 4
+
+// The preview's gutter, which holds a block's + and a note's ×.
+let preview_gutter = 3
+
+// The extensions of files that show rendered: Markdown's common ones.
+let markdown_extensions = [".md", ".markdown", ".mdown", ".mdwn", ".mkd", ".mkdn", ".mkdown"]
+
+// Whether a file is Markdown by its name, which shows it rendered. A name
+// that is only an extension, such as `.md`, isn't.
+fn is_markdown(file_path: Str) Bool {
+  let extension = strings::ToLower(path::Ext(file_path))
+  mut found = false
+  for candidate in markdown_extensions {
+    found = found or extension == candidate
+  }
+  found and path::Base(file_path).size() > extension.size()
+}
+
+// A Markdown file's content, parsed, and whether it ends inside a code
+// fence, as a truncated preview may.
+struct Parsed {
+  document: parser::Document,
+  fence_open: Bool,
+}
+
+// The Markdown parsed from a file's content, for a Markdown file read off
+// the UI thread; else none.
+private fn parse_if(wanted: Bool, content: Str) Parsed? {
+  match wanted {
+    true => {
+      Maybe::new(
+        Parsed{document: markdown::parse_file(content), fence_open: markdown::ends_inside_fence(content)},
+      )
+    },
+    false => Maybe::new<Parsed>(),
+  }
+}
 
 // A host image is decoded to fit these pixels: twice the cell density of a
 // wide terminal pane, beyond which a bigger image only costs memory.
@@ -150,11 +205,21 @@ private fn line_width(segments: [Segment]) Int {
 
 // The header's right side: the cursor line, line count, and size, losing
 // the size and then the count when the path needs the room. Narrower than
-// `width`, the path keeps at least a third of the row.
+// `width`, the path keeps at least a third of the row. Rendered Markdown has
+// no cursor line, so a `cursor` of 0 leaves it out, and the count goes last.
 fn status(width: Int, file_path: Str, cursor: Int, count: Int, size: Int) Str {
-  let full = "Ln {cursor} · {count} lines · {size_label(size)}"
-  let shorter = "Ln {cursor} · {count} lines"
-  let shortest = "Ln {cursor}"
+  let full = match cursor > 0 {
+    true => "Ln {cursor} · {count} lines · {size_label(size)}",
+    false => "{count} lines · {size_label(size)}",
+  }
+  let shorter = match cursor > 0 {
+    true => "Ln {cursor} · {count} lines",
+    false => "{count} lines",
+  }
+  let shortest = match cursor > 0 {
+    true => "Ln {cursor}",
+    false => "",
+  }
   // A cell either side of the header and two between its sides.
   let room = width - 4 - ui::text_width(file_path)
   let least = width / 3
@@ -313,11 +378,13 @@ private fn unreadable() Failure {
   }
 }
 
-// One virtual row: a line, a saved note under it, or the note editor.
+// One virtual row: a line, or in the preview a block, a saved note under
+// it, or the note editor.
 private enum ItemKind {
   line,
   note,
   editor,
+  block,
 }
 
 private struct Item {
@@ -344,6 +411,12 @@ private struct Pane {
   image_label: Str,
   // The latest read, and its lines as currently highlighted.
   read: protocol::WorkspaceFileRead?,
+  // Whether a Markdown file shows rendered rather than as source, and the
+  // latest read's Markdown, parsed, with whether it ends inside a fence.
+  rendered: Bool,
+  document: parser::Document?,
+  fence_open: Bool,
+  blocks: mut cui::VirtualListRef,
   rows: [[Segment]],
   widest: Int,
   loading: Bool,
@@ -361,6 +434,12 @@ private struct Pane {
   was_shown: Bool,
   // The line a gutter press started on, while it is held; else 0.
   drag_from: Int,
+  // In the preview: the block under the pointer, and the block a gutter
+  // press started on while it is held; else -1. A line an opening asked
+  // the preview to reveal, once the file loads; else 0.
+  hovered_block: Int,
+  drag_block: Int,
+  reveal_line: Int,
   editing: mut annotations::Drafting,
 }
 
@@ -375,6 +454,10 @@ private fn new(props: mut Props) mut Pane {
     image: Maybe::new<ui::ImageData>(),
     image_label: "",
     read: Maybe::new<protocol::WorkspaceFileRead>(),
+    rendered: is_markdown(props.tab.path),
+    document: Maybe::new<parser::Document>(),
+    fence_open: false,
+    blocks: cui::virtual_list_ref(),
     rows: [],
     widest: 0,
     loading: false,
@@ -388,6 +471,9 @@ private fn new(props: mut Props) mut Pane {
     reveal: false,
     was_shown: false,
     drag_from: 0,
+    hovered_block: -1,
+    drag_block: -1,
+    reveal_line: 0,
     editing: annotations::drafting(),
   })
 }
@@ -430,7 +516,14 @@ impl Pane {
     let tab = self.props.tab
     if tab.opening != self.opening {
       self.opening = tab.opening
-      if tab.line > 0 {
+      if tab.line > 0 and tab.reveals_note and self.rendered and is_markdown(tab.path) {
+        // The preview shows a note in place.
+        self.cursor = tab.line
+        self.reveal_line = tab.line
+        self.reveal_note()
+      } else if tab.line > 0 {
+        // A line is in the source.
+        self.rendered = false
         self.cursor = tab.line
         self.reveal = true
         self.reveal_cursor()
@@ -468,8 +561,13 @@ impl Pane {
             let file_path = self.props.tab.path
             let dispatch = context.dispatch
             let matte = self.props.themes.current().background
+            let wanted = is_markdown(file_path)
             async::start(fn() {
               let result = read(file_path, image_width, image_height)
+              let parsed = match result {
+                ok(file) => parse_if(wanted and not file.Image, file.Text.Content),
+                err(_) => Maybe::new<Parsed>(),
+              }
               let _ = dispatch(fn() {
                 if self.generation == generation {
                   self.loading = false
@@ -479,7 +577,7 @@ impl Pane {
                         true => self.loaded_image(file, matte),
                         false => {
                           self.image = Maybe::new<ui::ImageData>()
-                          self.loaded(file.Text)
+                          self.loaded(file.Text, parsed)
                         },
                       }
                     },
@@ -535,13 +633,18 @@ impl Pane {
               self.loading = true
               let input = protocol::ReadWorkspaceFileInput{WorkspaceID: self.props.tab.workspace_id, Path: self.props.tab.path}
               let dispatch = context.dispatch
+              let wanted = is_markdown(self.props.tab.path)
               async::start(fn() {
                 let result = read(input)
+                let parsed = match result {
+                  ok(file) => parse_if(wanted, file.Content),
+                  err(_) => Maybe::new<Parsed>(),
+                }
                 let _ = dispatch(fn() {
                   if self.generation == generation {
                     self.loading = false
                     match result {
-                      ok(file) => self.loaded(file),
+                      ok(file) => self.loaded(file, parsed),
                       err(error) => self.load_failed(failure(error)),
                     }
                   }
@@ -563,9 +666,19 @@ impl Pane {
     }
   }
 
-  private fn mut loaded(file: protocol::WorkspaceFileRead) {
+  private fn mut loaded(file: protocol::WorkspaceFileRead, parsed: Parsed?) {
     self.read = Maybe::new(file)
     self.failed = Maybe::new<Failure>()
+    match parsed {
+      markdown_file => {
+        self.document = Maybe::new(markdown_file.document)
+        self.fence_open = markdown_file.fence_open
+      },
+      _ => {
+        self.document = Maybe::new<parser::Document>()
+        self.fence_open = false
+      },
+    }
     let request = code::source_request("", file.Path, file.Content)
     self.show(code::plain(request))
     self.stop_highlight()
@@ -593,6 +706,28 @@ impl Pane {
     }
     if self.reveal {
       self.reveal_cursor()
+    }
+    if self.reveal_line > 0 {
+      self.reveal_note()
+    }
+  }
+
+  // Shows the line a revealed note starts on: in the preview, or, for a
+  // file past the parser's budget, in the source. Before the file loads,
+  // `loaded` does.
+  private fn mut reveal_note() {
+    match self.document {
+      document => {
+        match self.showing_rendered() {
+          true => self.reveal_block(),
+          false => {
+            self.reveal_line = 0
+            self.reveal = true
+            self.reveal_cursor()
+          },
+        }
+      },
+      _ => (),
     }
   }
 
@@ -634,6 +769,364 @@ impl Pane {
       },
       _ => (),
     }
+  }
+
+  // Scrolls the preview to the note starting on the line an opening asked
+  // for, or the block holding the line, once the file has loaded.
+  private fn mut reveal_block() {
+    match self.context {
+      context => {
+        let index = self.block_of(self.reveal_line)
+        if index >= 0 {
+          let list = self.blocks
+          mut key = "block:{index}"
+          for note in self.notes() {
+            if note.StartLine == self.reveal_line and key.starts_with("block:") {
+              key = "note:{note.ID}"
+            }
+          }
+          let _ = after_commit::once(context, fn() {
+            match list.current {
+              current => {
+                if current.scroll_to_key(key, cui::ScrollAlignment::center) {
+                  self.reveal_line = 0
+                }
+              },
+              _ => (),
+            }
+          })
+        }
+      },
+      _ => (),
+    }
+  }
+
+  // The preview's blocks, or none before the file is parsed.
+  private fn preview_blocks() [parser::Block] {
+    match self.document {
+      document => document.Blocks,
+      _ => [],
+    }
+  }
+
+  // The block a source line shows in: the last block starting at or before
+  // it, or the first block for a line before them all; -1 without blocks.
+  private fn block_of(line: Int) Int {
+    let blocks = self.preview_blocks()
+    // Blocks with lines start in order; those without, such as rules, sit
+    // between them and are passed over.
+    mut low = 0
+    mut high = blocks.size() - 1
+    mut found = -1
+    while low <= high {
+      let middle = (low + high) / 2
+      mut probe = middle
+      mut start = 0
+      while probe >= low {
+        start = blocks.at(probe).or(parser::Block{}).StartLine
+        if start > 0 {
+          break
+        }
+        probe = probe - 1
+      }
+      if probe < low {
+        low = middle + 1
+      } else if start <= line {
+        found = probe
+        low = middle + 1
+      } else {
+        high = probe - 1
+      }
+    }
+    match found < 0 and blocks.size() > 0 {
+      true => 0,
+      false => found,
+    }
+  }
+
+  // Whether a block can be annotated whole: it has source lines, no more
+  // than one note may cover.
+  private fn annotatable(block: parser::Block) Bool {
+    block.StartLine > 0 and block.EndLine - block.StartLine < annotations::max_lines
+  }
+
+  // The source lines from block `from` through block `to`, either way.
+  private fn block_lines(from: Int, to: Int) Lines {
+    let blocks = self.preview_blocks()
+    let first = blocks.at(from).or(parser::Block{})
+    let last = blocks.at(to).or(parser::Block{})
+    match first.StartLine <= last.StartLine {
+      true => Lines{start: first.StartLine, end: last.EndLine},
+      false => Lines{start: last.StartLine, end: first.EndLine},
+    }
+  }
+
+  // The preview's rows: each block, then the notes whose last line it
+  // holds, with the editor in place of the note it edits or after a new
+  // one's block.
+  private fn mut preview_items() [Item] {
+    let notes = self.notes()
+    let editing = self.editing.current
+    let edited = match editing {
+      open => open.id,
+      _ => Uint64::from(0),
+    }
+    // Each note's block, and the blocks holding any.
+    let placed = mut List::new<Int>()
+    let empty: [Int: Bool] = [:]
+    let holding = mut empty
+    for note in notes {
+      let index = self.block_of(note.EndLine)
+      placed.push(index)
+      holding.set(index, true)
+    }
+    let editor_block = match editing {
+      open => {
+        match self.lists(notes, edited) {
+          true => -1,
+          false => self.block_of(open.end),
+        }
+      },
+      _ => -1,
+    }
+    let made = mut List::new<Item>()
+    let none = Maybe::new<sessionbridge::Annotation>()
+    for block, index in self.preview_blocks() {
+      made.push(
+        Item{
+          kind: ItemKind::block,
+          number: index,
+          note: none,
+        },
+      )
+      if holding.has(index) {
+        for note, at in notes {
+          if placed.at(at).or(-1) == index {
+            match note.ID == edited {
+              true => {
+                made.push(
+                  Item{
+                    kind: ItemKind::editor,
+                    number: index,
+                    note: none,
+                  },
+                )
+              },
+              false => {
+                made.push(
+                  Item{
+                    kind: ItemKind::note,
+                    number: index,
+                    note: Maybe::new(note),
+                  },
+                )
+              },
+            }
+          }
+        }
+      }
+      if editor_block == index {
+        made.push(
+          Item{
+            kind: ItemKind::editor,
+            number: index,
+            note: none,
+          },
+        )
+      }
+    }
+    made.@
+  }
+
+  // Whether a note or the editor follows block `index` in the preview.
+  private fn followed(index: Int) Bool {
+    mut found = false
+    for note in self.notes() {
+      found = found or self.block_of(note.EndLine) == index
+    }
+    match self.editing.current {
+      open => found or self.block_of(open.end) == index,
+      _ => found,
+    }
+  }
+
+  // Extends a held preview gutter press to block `index`, within the lines
+  // one annotation may cover. A block without source lines, such as a
+  // rule, is passed over.
+  private fn mut extend_blocks(index: Int) {
+    let block = self.preview_blocks().at(index).or(parser::Block{})
+    let range = self.block_lines(self.drag_block, index)
+    if block.StartLine > 0 and range.end - range.start < annotations::max_lines {
+      self.hovered_block = index
+    }
+  }
+
+  // Ends a preview gutter press, opening the editor on the blocks it
+  // covered.
+  private fn mut finish_block_pick() {
+    if self.drag_block >= 0 {
+      let range = self.block_lines(self.drag_block, self.hovered_block)
+      self.drag_block = -1
+      match self.read {
+        file => {
+          if self.can_annotate() and not self.editing.is_open() and range.start > 0 {
+            self.editing.begin(
+              file.Path,
+              "",
+              range.start,
+              range.end,
+              sessionbridge::FileAnchor(
+                file.Workspace.WorkspaceID,
+                file.Path,
+                file.Revision,
+                range.start,
+                range.end,
+              ),
+            )
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  private fn mut block_mouse(index: Int, received: mut event::MouseEvent) {
+    let kind = received.event_type
+    if self.drag_block >= 0 and kind == event::MouseEventType::over {
+      self.extend_blocks(index)
+    } else if (kind == event::MouseEventType::move or kind == event::MouseEventType::over) and received.button == event::MouseButton::none and (not self.editing.is_open()) and self.drag_block < 0 {
+      self.hovered_block = index
+    } else if kind == event::MouseEventType::out and self.drag_block < 0 and self.hovered_block == index {
+      self.hovered_block = -1
+    }
+  }
+
+  private fn mut block_gutter_mouse(index: Int, received: mut event::MouseEvent) {
+    let kind = received.event_type
+    if kind == event::MouseEventType::down and received.button == event::MouseButton::left {
+      let block = self.preview_blocks().at(index).or(parser::Block{})
+      if self.can_annotate() and self.annotatable(block) and (not self.editing.is_open()) {
+        self.drag_block = index
+        self.hovered_block = index
+        received.prevent_default()
+      }
+    } else if kind == event::MouseEventType::up or kind == event::MouseEventType::drag_end {
+      self.finish_block_pick()
+    }
+  }
+
+  // A block of the preview: a gutter, filled where notes cover the block
+  // and offering a + on the hovered block while it can be annotated, then
+  // the rendered block. The first and last blocks keep a blank row from the
+  // pane's edges.
+  private fn mut block_row(index: Int) cui::View {
+    let colors = self.props.themes.current()
+    let blocks = self.preview_blocks()
+    let block = blocks.at(index).or(parser::Block{})
+    let top = match index == 0 {
+      true => 1,
+      false => 0,
+    }
+    // The last row keeps the blank row: the last block's, unless notes or
+    // the editor follow it.
+    let bottom = match index == blocks.size() - 1 and not self.followed(index) {
+      true => 1,
+      false => 0,
+    }
+    mut annotated = false
+    for note in self.notes() {
+      annotated = annotated or block.StartLine > 0 and note.StartLine <= block.EndLine and note.EndLine >= block.StartLine
+    }
+    let picked = match {
+      self.drag_block >= 0 => self.block_lines(self.drag_block, self.hovered_block),
+      _ => {
+        match self.editing.current {
+          draft => Lines{start: draft.start, end: draft.end},
+          _ => Lines{start: 0, end: 0},
+        }
+      },
+    }
+    let in_pick = block.StartLine > 0 and picked.start > 0 and block.StartLine >= picked.start and block.EndLine <= picked.end
+    let offers = index == self.hovered_block and self.can_annotate() and self.annotatable(block) and (not self.editing.is_open())
+    let mark = match offers {
+      true => " + ",
+      false => "   ",
+    }
+    let fill = match {
+      offers or annotated => Maybe::new(colors.primary),
+      _ => Maybe::new<ui::Color>(),
+    }
+    let base = ui::text_style(foreground: colors.foreground)
+    let document = self.document.or(parser::Document{})
+    let gap = match markdown::document_gap(document, index) {
+      true => 1,
+      false => 0,
+    }
+    cui::box(
+      [
+        // The fill starts at the block's first row, after the blank row
+        // separating it from the block before.
+        cui::box(
+          [
+            cui::box([], styles: ui::style(height: ui::cells(top + gap), flex_shrink: 0.0)),
+            cui::box(
+              [
+                cui::text(
+                  mark,
+                  text_style: ui::text_style(foreground: colors.foreground),
+                  wrap: ui::TextWrap::none,
+                  selectable: false,
+                ),
+              ],
+              styles: ui::style(flex_grow: 1.0, background: fill),
+            ),
+            cui::box([], styles: ui::style(height: ui::cells(bottom), flex_shrink: 0.0)),
+          ],
+          styles: ui::style(
+            width: ui::cells(preview_gutter),
+            flex_shrink: 0.0,
+            flex_direction: ui::FlexDirection::column,
+          ),
+          on_mouse: fn(received: mut event::MouseEvent, context: cui::Context) {
+            self.block_gutter_mouse(index, received)
+          },
+        ),
+        cui::box(
+          [
+            markdown::document_block(
+              self.props.themes,
+              "file:{self.props.tab.id}",
+              base,
+              document,
+              index,
+              self.fence_open,
+            ),
+          ],
+          styles: ui::style(
+            flex_grow: 1.0,
+            flex_shrink: 1.0,
+            min_width: ui::cells(0),
+            flex_direction: ui::FlexDirection::column,
+            padding: ui::Edges{
+              top: ui::cells(top),
+              right: ui::cells(2),
+              bottom: ui::cells(bottom),
+              left: ui::cells(0),
+            },
+          ),
+        ),
+      ],
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::row,
+        background: match in_pick {
+          true => Maybe::new(colors.surface_hovered),
+          false => Maybe::new<ui::Color>(),
+        },
+      ),
+      on_mouse: fn(received: mut event::MouseEvent, context: cui::Context) {
+        self.block_mouse(index, received)
+      },
+    )
   }
 
   private fn digits() Int {
@@ -814,6 +1307,7 @@ impl Pane {
         }
       },
       ItemKind::editor => self.editor_view(),
+      ItemKind::block => self.block_row(item.number),
     }
   }
 
@@ -961,12 +1455,21 @@ impl Pane {
     )
   }
 
+  // The gutter notes and the editor are indented by: the line numbers', or
+  // the preview's.
+  private fn note_indent() Int {
+    match self.showing_rendered() {
+      true => preview_gutter,
+      false => self.digits() + 2,
+    }
+  }
+
   private fn mut note_view(note: sessionbridge::Annotation) cui::View {
     let remove = self.props.remove_annotation
     annotations::note_row(
       self.props.themes,
       note,
-      self.digits() + 2,
+      self.note_indent(),
       fn() {
         remove(note.ID)
       },
@@ -980,7 +1483,7 @@ impl Pane {
     let release = self.props.release_focus
     self.editing.view(
       self.props.themes,
-      self.digits() + 2,
+      self.note_indent(),
       self.context,
       self.props.annotate,
       fn() {
@@ -1003,33 +1506,119 @@ impl Pane {
     }
   }
 
-  private fn header() cui::View {
+  // Whether the file is Markdown with text to show either way.
+  private fn togglable() Bool {
+    is_markdown(self.props.tab.path) and self.read.is_some() and self.image.is_none()
+  }
+
+  // Whether the file shows rendered: Markdown, chosen, and within the
+  // parser's budget.
+  private fn showing_rendered() Bool {
+    match self.document {
+      document => self.rendered and self.togglable() and (not document.PlainTextFallback),
+      _ => false,
+    }
+  }
+
+  // Whether rendering was chosen but the file is past the parser's budget.
+  private fn too_large() Bool {
+    match self.document {
+      document => self.rendered and self.togglable() and document.PlainTextFallback,
+      _ => false,
+    }
+  }
+
+  private fn mut toggle() {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if not self.editing.is_open() {
+            self.rendered = not self.rendered
+          }
+        })
+      },
+      _ => (),
+    }
+  }
+
+  // The toggle between rendered Markdown and its source, named for the
+  // current view. It is hidden while a note is being written on the source,
+  // and for a file too large to render.
+  private fn toggle_label() Str {
+    match {
+      (not self.togglable()) or self.editing.is_open() or self.too_large() => "",
+      self.rendered => "Preview",
+      _ => "Source",
+    }
+  }
+
+  private fn mut header() cui::View {
     let colors = self.props.themes.current()
+    let label = self.toggle_label()
+    // The toggle and the gap before it.
+    let toggle_width = match label == "" {
+      true => 0,
+      false => ui::text_width(label) + 4,
+    }
+    let cursor = match self.showing_rendered() {
+      true => 0,
+      false => self.cursor,
+    }
     let right = match {
       self.locked() => "stale · frozen",
       self.image.is_some() => self.image_label,
       _ => {
         match self.read {
-          file => status(self.width, self.props.tab.path, self.cursor, self.rows.size(), Int::fit(file.Size)),
+          file => {
+            status(
+              self.width - toggle_width,
+              self.props.tab.path,
+              cursor,
+              self.rows.size(),
+              Int::fit(file.Size),
+            )
+          },
           _ => "",
         }
       },
     }
-    cui::box(
-      [
-        cui::text(
-          self.props.tab.path,
-          styles: ui::style(flex_grow: 1.0, flex_shrink: 1.0),
-          text_style: ui::text_style(foreground: colors.muted),
-          wrap: ui::TextWrap::none,
-          overflow: ui::TextOverflow::ellipsis,
-        ),
+    let parts = mut List::new<cui::View>()
+    parts.push(
+      cui::text(
+        self.props.tab.path,
+        styles: ui::style(flex_grow: 1.0, flex_shrink: 1.0),
+        text_style: ui::text_style(foreground: colors.muted),
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+      ),
+    )
+    if right != "" {
+      parts.push(
         cui::text(
           right,
           styles: ui::style(flex_shrink: 0.0),
           text_style: ui::text_style(foreground: colors.muted),
         ),
-      ],
+      )
+    }
+    if label != "" {
+      parts.push(
+        controls::button(
+          self.props.themes,
+          label,
+          keymap::simple_command("file.markdown", "Show rendered or source", fn() Bool {
+            self.toggle()
+            true
+          }),
+          variant: controls::ButtonVariant::ghost,
+          compact: true,
+          focusable: false,
+          styles: ui::style(flex_shrink: 0.0),
+        ),
+      )
+    }
+    cui::box(
+      parts.@,
       styles: ui::style(
         flex_shrink: 0.0,
         flex_direction: ui::FlexDirection::row,
@@ -1060,10 +1649,16 @@ impl Pane {
           _ => {
             match self.read {
               file => {
-                match file.Truncated {
-                  true => "Preview truncated ({strings::ReplaceAll(file.TruncationReason, "_", " ")})",
-                  false => "",
+                let notes = mut List::new<Str>()
+                if self.too_large() {
+                  notes.push("Too large to render; showing source")
                 }
+                if file.Truncated {
+                  notes.push(
+                    "Preview truncated ({strings::ReplaceAll(file.TruncationReason, "_", " ")})",
+                  )
+                }
+                strings::Join(notes, " · ")
               },
               _ => "",
             }
@@ -1097,9 +1692,41 @@ impl Pane {
   }
 
   private fn mut body() cui::View {
-    match self.image {
-      image => self.image_view(image),
+    match {
+      self.image.is_some() => self.image_view(self.image.expect("the image")),
+      self.showing_rendered() => self.rendered_view(),
       _ => self.lines_view(),
+    }
+  }
+
+  // The file's Markdown, rendered a block per row so a long file builds
+  // only the blocks in view. The first and last rows keep a blank row from
+  // the edges, and every row two cells from the sides, as the transcript
+  // keeps its messages.
+  private fn mut rendered_view() cui::View {
+    let count = self.preview_blocks().size()
+    match {
+      self.rows.size() == 0 => self.message("Empty file", "0 bytes"),
+      count == 0 => self.message("Nothing to render", "The file has no Markdown content to show."),
+      _ => {
+        cui::virtual_list(
+          self.preview_items(),
+          fn(item: Item) Str {
+            match item.kind {
+              ItemKind::block => "block:{item.number}",
+              ItemKind::note => "note:{item.note.or(sessionbridge::Annotation{}).ID}",
+              _ => "editor",
+            }
+          },
+          fn(item: Item) cui::View {
+            self.item_view(item)
+          },
+          estimated_height: 2,
+          key: "file-blocks",
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+          ref: self.blocks,
+        )
+      },
     }
   }
 
@@ -1139,7 +1766,7 @@ impl Pane {
                 match item.kind {
                   ItemKind::line => "{item.number}",
                   ItemKind::note => "note:{item.note.or(sessionbridge::Annotation{}).ID}",
-                  ItemKind::editor => "editor",
+                  _ => "editor",
                 }
               },
               fn(item: Item) cui::View {
@@ -1252,5 +1879,11 @@ test fn the_header_status_gives_way_to_the_path() Void!Str {
     "room for everything",
   )
   try testing::assert(status(30, "notes.txt", 2, 3, 17) == "Ln 2 · 3 lines", "the size goes first")
-  testing::assert(status(20, "notes.txt", 2, 3, 17) == "Ln 2", "then the count")
+  try testing::assert(status(20, "notes.txt", 2, 3, 17) == "Ln 2", "then the count")
+  try testing::assert(
+    status(60, "README.md", 0, 3, 17) == "3 lines · 17 B",
+    "rendered, without a cursor",
+  )
+  try testing::assert(status(24, "README.md", 0, 3, 17) == "3 lines", "rendered, the size goes first")
+  testing::assert(status(12, "README.md", 0, 3, 17) == "", "then the count")
 }

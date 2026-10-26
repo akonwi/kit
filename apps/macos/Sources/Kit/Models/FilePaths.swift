@@ -65,12 +65,15 @@ enum FilePaths {
 
     /// The path a Markdown link destination names, or nil for a web or other
     /// URL. Absolute, home-relative, `file://`, and relative destinations
-    /// name files; a trailing `#L12` line anchor is dropped.
+    /// name files; a fragment, such as a `#L12` line anchor or a heading's
+    /// `#usage`, is dropped.
     static func linkedPath(destination: String) -> String? {
         var value = destination.trimmingCharacters(in: .whitespaces)
         if let range = value.range(of: #"#L\d+(-L?\d+)?$"#, options: .regularExpression) { value.removeSubrange(range) }
         guard !value.isEmpty, !value.hasPrefix("#") else { return nil }
         if value.lowercased().hasPrefix("file:") { return typed(value) }
+        // A literal # in a file name is percent-encoded, so one here starts a fragment.
+        if let hash = value.firstIndex(of: "#") { value = String(value[..<hash]) }
         if let url = URL(string: value), url.scheme != nil { return nil }
         if value.hasPrefix("/") || value == "~" || value.hasPrefix("~/") { return value.removingPercentEncoding ?? value }
         guard !value.hasPrefix("//") else { return nil }

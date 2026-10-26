@@ -35,6 +35,9 @@ struct TileArrangement: Codable, Equatable {
     /// Each terminal tab's working directory, by pane identity, where its
     /// new shell starts. Absent when there are no terminal tabs.
     var terminals: [String: String]? = nil
+    /// The Markdown file tabs showing their source, by pane identity; the
+    /// rest show rendered. Absent when none do.
+    var markdownSources: [String]? = nil
 
     /// Restore keeps at most this many tiles and panes, and this split depth.
     static let maximumTiles = 32
