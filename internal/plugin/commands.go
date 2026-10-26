@@ -210,6 +210,8 @@ func (h *Host) handleRequest(ctx context.Context, owner InstanceID, method strin
 		return h.handleInteraction(ctx, owner, method, params)
 	case submitMessageMethod:
 		return h.handleSubmitMessage(ctx, owner, params)
+	case openURLMethod:
+		return h.handleOpenURL(ctx, owner, params)
 	case "kit/commands/register":
 		command, err := parseCommand(params)
 		if err != nil {

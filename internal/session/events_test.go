@@ -57,6 +57,26 @@ func TestPluginMessageEventIsTurnScopedAndAttributed(t *testing.T) {
 	}
 }
 
+func TestURLOpenRequestedEventIsSessionScopedWithACanonicalAddress(t *testing.T) {
+	t.Parallel()
+	event := NewEvent{SessionID: "session_test", Kind: EventURLOpenRequested, URL: "https://example.com/docs"}
+	if err := event.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, invalid := range map[string]NewEvent{
+		"turn scoped":     {SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test", Kind: EventURLOpenRequested, URL: "https://example.com/"},
+		"missing address": {SessionID: "session_test", Kind: EventURLOpenRequested},
+		"file address":    {SessionID: "session_test", Kind: EventURLOpenRequested, URL: "file:///etc/passwd"},
+		"not canonical":   {SessionID: "session_test", Kind: EventURLOpenRequested, URL: "HTTPS://example.com/"},
+		"extra payload":   {SessionID: "session_test", Kind: EventURLOpenRequested, URL: "https://example.com/", Text: "hi"},
+		"rename with url": {SessionID: "session_test", Kind: EventSessionRenamed, SessionName: "Renamed", URL: "https://example.com/"},
+	} {
+		if err := invalid.Validate(); err == nil {
+			t.Errorf("%s: Validate() accepted %+v", name, invalid)
+		}
+	}
+}
+
 func TestSubagentChangedEventIsSessionScoped(t *testing.T) {
 	t.Parallel()
 	event := NewEvent{

@@ -52,6 +52,7 @@ type sessionEventWire struct {
 	BoundaryKind           string              `json:"boundaryKind,omitempty"`
 	BoundarySource         string              `json:"boundarySource,omitempty"`
 	CreatedAt              string              `json:"createdAt,omitempty"`
+	URL                    string              `json:"url,omitempty"`
 }
 
 var sessionEventCodec = newUnionCodec[SessionEvent, sessionEventWire](sessionEventVariants())

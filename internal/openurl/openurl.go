@@ -9,12 +9,9 @@ package openurl
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"net/url"
-	"strings"
-	"unicode"
 
 	"github.com/akonwi/kit/droids"
+	"github.com/akonwi/kit/internal/weburl"
 )
 
 const (
@@ -23,7 +20,7 @@ const (
 	// Presentation marks result details as a client open request.
 	Presentation = "open-url"
 	// MaxURLBytes bounds the requested address.
-	MaxURLBytes = 2 << 10
+	MaxURLBytes = weburl.MaxBytes
 )
 
 type arguments struct {
@@ -72,37 +69,9 @@ func execute(args arguments) (droids.ToolResult, error) {
 }
 
 // Canonical validates raw as an absolute http or https URL with a host and no
-// credentials, and returns its canonical form.
-func Canonical(raw string) (string, error) {
-	if raw == "" {
-		return "", errors.New("url is required")
-	}
-	if len(raw) > MaxURLBytes {
-		return "", errors.New("url is too long")
-	}
-	if strings.IndexFunc(raw, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
-		return "", errors.New("url must not contain whitespace or control characters")
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return "", errors.New("url is not valid")
-	}
-	parsed.Scheme = strings.ToLower(parsed.Scheme)
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", errors.New("url must use http or https")
-	}
-	if parsed.Opaque != "" || parsed.Hostname() == "" {
-		return "", errors.New("url must include a host")
-	}
-	if parsed.User != nil {
-		return "", errors.New("url must not include credentials")
-	}
-	canonical := parsed.String()
-	if len(canonical) > MaxURLBytes {
-		return "", errors.New("url is too long")
-	}
-	return canonical, nil
-}
+// credentials, and returns its canonical form. It applies the same rules as
+// plugin URL requests (see package weburl).
+func Canonical(raw string) (string, error) { return weburl.Canonical(raw) }
 
 // ParseDetails accepts only the complete open_url presentation shape whose
 // address is already canonical.
@@ -111,8 +80,7 @@ func ParseDetails(raw json.RawMessage) (Details, bool) {
 	if len(raw) == 0 || json.Unmarshal(raw, &details) != nil || details.Presentation != Presentation {
 		return Details{}, false
 	}
-	canonical, err := Canonical(details.URL)
-	if err != nil || canonical != details.URL {
+	if !weburl.IsCanonical(details.URL) {
 		return Details{}, false
 	}
 	return details, true

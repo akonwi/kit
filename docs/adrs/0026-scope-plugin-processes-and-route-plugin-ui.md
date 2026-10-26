@@ -5,7 +5,9 @@
 Accepted. Print-client interaction policy is governed by
 [ADR 0027](0027-treat-print-as-an-ordinary-session-client.md). Plugin message
 submission is governed by
-[ADR 0041](0041-let-plugins-submit-session-messages.md).
+[ADR 0041](0041-let-plugins-submit-session-messages.md). Plugin URL requests
+(`kit/system/open-url`) are governed by
+[ADR 0049](0049-let-plugins-ask-attached-clients-to-open-web-pages.md).
 
 ## Context
 
@@ -164,14 +166,19 @@ The supported external protocol surface must document this restriction.
 
 ### Plugin footer actions and URL opening
 
-Plugin footer click callbacks, declarative URL actions, and
-`kit/system/open-url` are outside the native implementation scope, not deferred
-work. Static footer composition satisfies the plugin customization needs; an
-originating-client side-effect routing contract is not required. Requests for
-these capabilities are rejected as unsupported.
+Plugin footer click callbacks and declarative URL actions are outside the
+native implementation scope, not deferred work. Static footer composition
+satisfies the plugin customization needs; an originating-client side-effect
+routing contract is not required. Requests for these capabilities are rejected
+as unsupported.
+
+A plugin may ask its owning session's attached clients to open a web page with
+`kit/system/open-url`, as specified by
+[ADR 0049](0049-let-plugins-ask-attached-clients-to-open-web-pages.md). The
+request is session-scoped, not routed to an originating client.
 
 Kit-owned links, including the built-in pull request label, remain client-local
-actions and do not expose a plugin URL-opening capability.
+actions.
 
 ### Session-scoped notifications
 
@@ -198,8 +205,7 @@ method.
   toggles across sessions.
 - Shared interactions remain answerable across detach and reconnect without
   tying server work to a widget or one client connection.
-- Static plugin footer content does not require client-origin tracking or
-  plugin-triggered browser side effects.
+- Static plugin footer content does not require client-origin tracking.
 - Session notification state and client-side presentation are separate concerns.
 - Plugins can trigger provider work only by submitting attributed messages to
   their own idle session.

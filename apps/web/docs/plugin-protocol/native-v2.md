@@ -53,6 +53,10 @@ performed; Kit does not automatically replay failed commands.
   `kit/footer/show` contributions in the TUI and macOS app.
 - `kit/ui/confirm`, `kit/ui/input`, and `kit/ui/select` requests through the
   shared session interaction broker and native interaction dock.
+- `kit/session/submit-message`, as described in
+  [plugin session messages](../../../../docs/features/plugin-session-messages.md).
+- `kit/system/open-url`, which asks the owning session's attached clients to
+  open a web page; see [URL requests](#url-requests).
 
 Commands appear in the TUI and macOS app palettes under their plugin-qualified IDs. They
 receive literal arguments without starting a model turn or replacing the
@@ -60,15 +64,12 @@ composer draft. The native client allows one command invocation per attachment,
 with a two-minute wait deadline. Switching sessions cancels that client's wait;
 it does not independently dismiss a session-owned dialog.
 
-Autonomous message submission through `kit/session/submit-message` is outside
-native scope, not
-deferred work. A separate future channel may let plugins provide bounded,
-attributed information to their owning session without starting or queuing a
-model turn; it has no public method yet. Plugin footer click callbacks,
-declarative URL actions, and `kit/system/open-url` are also outside native scope,
-not deferred work. Kit-owned links, including the
-built-in pull request label, are unaffected. Unknown/unsupported requests return a
-JSON-RPC method-not-found error. Notifications do not receive responses.
+A separate future channel may let plugins provide bounded, attributed
+information to their owning session without starting or queuing a model turn;
+it has no public method yet. Plugin footer click callbacks and declarative URL
+actions are outside native scope, not deferred work. Kit-owned links, including
+the built-in pull request label, are unaffected. Unknown/unsupported requests
+return a JSON-RPC method-not-found error. Notifications do not receive responses.
 
 General system-prompt slots (`kit/system-prompt/set` and
 `kit/system-prompt/clear`) are outside the native implementation scope.
@@ -298,6 +299,48 @@ treats print as an ordinary session client. A dialog may remain pending until a
 capable client answers or normal request/instance/runtime cancellation ends it.
 Print mode and temporary absence of clients do not cause automatic rejection or
 substitute a negative answer. Print does not guarantee unattended completion.
+
+## URL requests
+
+`kit/system/open-url` asks the session that owns the calling instance to have
+its attached clients open a web page, as specified by
+[ADR 0049](../../../../docs/adrs/0049-let-plugins-ask-attached-clients-to-open-web-pages.md).
+It works from commands, event handlers, tools, or any other plugin code.
+
+```json
+{ "jsonrpc": "2.0", "id": "plugin-7", "method": "kit/system/open-url", "params": { "url": "https://example.com/docs" } }
+```
+
+Params have one required `url`; unknown parameters, including a `sessionId`,
+are rejected. User and project plugins alike reach only their own session. The
+address must be an absolute `http` or `https` URL with a host and no
+credentials, without whitespace or control characters, and at most 2 KiB; Kit
+publishes its canonical form. These are the rules the model's `open_url` tool
+uses.
+
+The result is `null` once Kit has validated and published the request. Kit does
+not wait for any client and does not report whether a page opened, including
+when no client is attached. There is no user confirmation and no label naming
+the plugin. The macOS app opens the page in its browser, as a tab in the tile
+holding the most recently opened browser tab outside the conversation's tile,
+or in a new tile beside the conversation. The TUI ignores requests.
+
+A page opens only for a client attached when the request was made. Kit
+publishes it as the live session event `url.open.requested`, which is never in
+a snapshot or the transcript; event pages, replays, and a stream's catch-up on
+opening omit its address, so a client that attaches or reconnects later never
+opens it, and each attached client opens it at most once.
+
+| Code | Meaning |
+| --- | --- |
+| `-32602` | Missing, invalid, or unknown parameters. The message names the rule an invalid `url` broke, such as `Invalid parameter: url must use http or https`. |
+| `-32005` | Encoded params exceed 8 KiB. |
+| `-32006` | More than five requests from the session's plugins within ten seconds. `data.reason` is `rate_limited`. Nothing was published; Kit does not retry. |
+| `-32002` | The calling generation was revoked, stopped, or replaced. Nothing was published. |
+| `-32603` | Publishing failed for another reason; details are in the server log. |
+
+The repository's `open-url-demo` fixture opens a URL from a command and reports
+Kit's answer as a toast; it runs in the daemon subprocess tests.
 
 ## Toast delivery
 

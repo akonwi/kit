@@ -214,6 +214,7 @@ type (
 	TurnReservation                   = contract.TurnReservation
 	TurnStartedEvent                  = contract.TurnStartedEvent
 	TurnStatus                        = contract.TurnStatus
+	URLOpenRequestedEvent             = contract.URLOpenRequestedEvent
 	UnionVariant                      = contract.UnionVariant
 	UpdateAnnotationInput             = contract.UpdateAnnotationInput
 	UpdateScratchpadInput             = contract.UpdateScratchpadInput
@@ -425,6 +426,7 @@ const (
 	SessionEventToolStarted               = contract.SessionEventToolStarted
 	SessionEventTurnCompleted             = contract.SessionEventTurnCompleted
 	SessionEventTurnStarted               = contract.SessionEventTurnStarted
+	SessionEventURLOpenRequested          = contract.SessionEventURLOpenRequested
 	SessionEventUsageChanged              = contract.SessionEventUsageChanged
 	SessionEventUserMessageAdded          = contract.SessionEventUserMessageAdded
 	SubagentCancel                        = contract.SubagentCancel

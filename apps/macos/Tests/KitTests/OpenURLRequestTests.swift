@@ -38,6 +38,27 @@ struct OpenURLRequestTests {
         #expect(OpenURLRequest.pending(in: messages, handled: &handled) == [URL(string: "https://example.com/ok")!])
     }
 
+    @Test func opensEachLivePageRequestOnceAfterTheToolCallsInOrder() {
+        var handled: Set<String> = []
+        let messages = rows([tool("call", url: "https://example.com/tool")])
+        let requests = [RequestedPage(id: "stream:4", url: URL(string: "https://example.com/plugin")!),
+                        RequestedPage(id: "stream:5", url: URL(string: "http://localhost:3000/")!)]
+        #expect(OpenURLRequest.pending(in: messages, requests: requests, handled: &handled)
+            == [URL(string: "https://example.com/tool")!, URL(string: "https://example.com/plugin")!, URL(string: "http://localhost:3000/")!])
+        let later = requests + [RequestedPage(id: "stream:9", url: URL(string: "https://example.com/later")!)]
+        #expect(OpenURLRequest.pending(in: messages, requests: later, handled: &handled) == [URL(string: "https://example.com/later")!])
+        #expect(handled == ["call", "stream:4", "stream:5", "stream:9"])
+    }
+
+    @Test func acceptsOnlyWebAddressesWithAHostAndNoCredentials() {
+        #expect(OpenURLRequest.url("https://example.com/docs?q=1#top") == URL(string: "https://example.com/docs?q=1#top"))
+        #expect(OpenURLRequest.url("http://localhost:3000/") == URL(string: "http://localhost:3000/"))
+        for raw in ["", "file:///etc/passwd", "javascript:alert(1)", "https://user:secret@example.com/", "https://example.com/a b",
+                    "/relative", "https://example.com/" + String(repeating: "a", count: OpenURLRequest.maxURLBytes)] {
+            #expect(OpenURLRequest.url(raw) == nil, "\(raw)")
+        }
+    }
+
     @Test func forgetsOnlyCallsNoLongerShownWhenTheBoundIsExceeded() {
         var handled = Set((0..<OpenURLRequest.handledLimit).map { "old\($0)" })
         let messages = rows([tool("shown")])

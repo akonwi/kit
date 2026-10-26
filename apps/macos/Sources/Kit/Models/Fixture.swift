@@ -56,6 +56,16 @@ struct SessionExcerpt: Decodable, Identifiable, Sendable, Equatable {
     var scratchpad: ScratchpadRecord? = nil
     var mcpServers: [MCPServerStatus]? = nil
     var mcpWarnings: [String]? = nil
+    /// Pages a plugin asked this app to open that arrived live on the event
+    /// stream, oldest first and bounded. Never part of a snapshot.
+    var requestedPages: [RequestedPage]? = nil
+}
+
+/// A web page a session asked the app to open, identified by the event that
+/// carried the request so it opens at most once.
+struct RequestedPage: Decodable, Sendable, Equatable {
+    let id: String
+    let url: URL
 }
 
 struct MCPServerStatus: Decodable, Sendable, Equatable, Identifiable {

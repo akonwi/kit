@@ -25,7 +25,7 @@ func pluginHostFactory(paths apphome.Paths, cache *githubpr.Cache, logger *slog.
 			name = &value
 		}
 		host := &sessionPluginHost{vcs: vcs.NewObserver(ctx, input.CWD, cache), logger: logger}
-		host.Host = plugin.NewHost(ctx, plugin.HostConfig{Home: paths, Session: plugin.SessionContext{ID: input.ID, Name: name}, CWD: input.CWD, ReservedIDs: protocol.ReservedCommandDomains(), ReservedSubagents: input.SubagentNames, Changed: changed, Project: host.projectContext, ProjectChanged: host.vcs.Updates(), Toast: host.publishToast, Failure: host.reportFailure, Interaction: host.requestInteraction, SubmitMessage: host.submitMessage})
+		host.Host = plugin.NewHost(ctx, plugin.HostConfig{Home: paths, Session: plugin.SessionContext{ID: input.ID, Name: name}, CWD: input.CWD, ReservedIDs: protocol.ReservedCommandDomains(), ReservedSubagents: input.SubagentNames, Changed: changed, Project: host.projectContext, ProjectChanged: host.vcs.Updates(), Toast: host.publishToast, Failure: host.reportFailure, Interaction: host.requestInteraction, SubmitMessage: host.submitMessage, OpenURL: host.openURL})
 		return host
 	}
 }
@@ -41,6 +41,8 @@ type sessionPluginHost struct {
 	toastObserver   func(context.Context, session.PluginToast) error
 	messageMu       sync.RWMutex
 	messageObserver func(context.Context, session.PluginMessageInput, func() bool) (session.PluginMessageResult, error)
+	urlMu           sync.RWMutex
+	urlObserver     func(context.Context, session.PluginURLRequest, func() bool) error
 }
 
 func pluginCommandInstance(owner plugin.InstanceID) string {
@@ -203,6 +205,40 @@ func (h *sessionPluginHost) submitMessage(ctx context.Context, request plugin.Me
 		return plugin.MessageResult{}, &plugin.RPCError{Code: -32603, Message: "Session message submission failed"}
 	}
 	return plugin.MessageResult{MessageID: result.MessageID, TurnID: result.TurnID}, nil
+}
+
+func (h *sessionPluginHost) SetURLObserver(observer func(context.Context, session.PluginURLRequest, func() bool) error) {
+	h.urlMu.Lock()
+	defer h.urlMu.Unlock()
+	h.urlObserver = observer
+}
+
+// openURL publishes a plugin URL request through the session and maps
+// session failures to the public plugin protocol without exposing internal
+// detail.
+func (h *sessionPluginHost) openURL(ctx context.Context, request plugin.URLRequest) error {
+	h.urlMu.RLock()
+	observer := h.urlObserver
+	h.urlMu.RUnlock()
+	if observer == nil {
+		return &plugin.RPCError{Code: -32601, Message: "Opening URLs is unavailable"}
+	}
+	// The generation interaction fence also fences URL requests.
+	err := observer(ctx, session.PluginURLRequest{URL: request.URL}, func() bool { return h.Host.InteractionOwnerActive(request.Owner) })
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return err
+	case errors.Is(err, session.ErrClosed):
+		return &plugin.RPCError{Code: -32002, Message: "Plugin generation is unavailable"}
+	case errors.Is(err, session.ErrInvalidInput):
+		return &plugin.RPCError{Code: -32602, Message: "Invalid parameter: url"}
+	}
+	if h.logger != nil {
+		h.logger.Error("plugin URL request failed", "session_id", request.Owner.SessionID, "plugin_id", request.Owner.PluginID, "error", err)
+	}
+	return &plugin.RPCError{Code: -32603, Message: "URL request failed"}
 }
 
 func (h *sessionPluginHost) Footer() session.PluginFooter {

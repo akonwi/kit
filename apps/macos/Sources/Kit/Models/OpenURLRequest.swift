@@ -1,12 +1,14 @@
 import Foundation
 
-/// Web addresses the model asked this app to open with the open_url tool.
+/// Web addresses a session asked this app to open: with the model's open_url
+/// tool, or with a plugin's url.open.requested event.
 ///
-/// The server records the validated address in the call's result details and
-/// does not wait for any client. The app opens an address only for a call it
-/// saw complete live, and at most once, so loading a transcript, replaying
-/// events from before it attached, or catching up after a reconnect never
-/// opens a page.
+/// The server records the validated address in the call's result details, or
+/// sends it on the event stream, and does not wait for any client. The app
+/// opens an address only for a call it saw complete live or a request it
+/// received live, and at most once, so loading a transcript, replaying events
+/// from before it attached, or catching up after a reconnect never opens a
+/// page.
 enum OpenURLRequest {
     static let toolName = "open_url"
     static let presentation = "open-url"
@@ -14,9 +16,10 @@ enum OpenURLRequest {
     /// Remembered calls beyond which those no longer shown are forgotten.
     static let handledLimit = 256
 
-    /// The addresses of live open_url calls in `messages` not yet in
-    /// `handled`, oldest first. Every call returned is added to `handled`.
-    static func pending(in messages: [TranscriptMessage], handled: inout Set<String>) -> [URL] {
+    /// The addresses of live open_url calls in `messages` and of live page
+    /// `requests` not yet in `handled`, oldest first within each. Every
+    /// address returned is added to `handled`.
+    static func pending(in messages: [TranscriptMessage], requests: [RequestedPage] = [], handled: inout Set<String>) -> [URL] {
         var urls: [URL] = []
         var visible: Set<String> = []
         for row in messages where row.role == "tools" {
@@ -26,8 +29,12 @@ enum OpenURLRequest {
                 urls.append(url)
             }
         }
-        // A call still shown as completed live stays remembered, so it can
-        // never open twice.
+        for request in requests {
+            visible.insert(request.id)
+            if handled.insert(request.id).inserted { urls.append(request.url) }
+        }
+        // A call or request still shown stays remembered, so it can never
+        // open twice.
         if handled.count > handledLimit { handled.formIntersection(visible) }
         return urls
     }
@@ -39,7 +46,14 @@ enum OpenURLRequest {
         guard let details, let data = details.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               object["presentation"] as? String == presentation,
-              let raw = object["url"] as? String, !raw.isEmpty, raw.utf8.count <= maxURLBytes,
+              let raw = object["url"] as? String else { return nil }
+        return url(raw)
+    }
+
+    /// `raw` as a web address, validated on this side of the boundary: an
+    /// absolute http or https URL with a host and no credentials.
+    static func url(_ raw: String) -> URL? {
+        guard !raw.isEmpty, raw.utf8.count <= maxURLBytes,
               !raw.contains(where: { $0.isWhitespace || $0.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) } }),
               let url = URL(string: raw), BrowserAddress.isWeb(url),
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),

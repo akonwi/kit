@@ -43,6 +43,16 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 			}},
 			want: `{"streamId":"stream_1","sequence":4,"sessionId":"session_1","kind":"boundary.created","content":[{"kind":"text","text":"[cwd from user]"}],"details":{"version":1},"boundaryId":"cwd:1","boundaryKind":"cwd","boundarySource":"user","createdAt":"2026-01-01T00:00:00Z"}`,
 		},
+		{
+			name:  "live url open request carries its address",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 5, SessionID: "session_1", Payload: URLOpenRequestedEvent{URL: "https://example.com/docs"}},
+			want:  `{"streamId":"stream_1","sequence":5,"sessionId":"session_1","kind":"url.open.requested","url":"https://example.com/docs"}`,
+		},
+		{
+			name:  "replayed url open request omits its address",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 6, SessionID: "session_1", Payload: URLOpenRequestedEvent{}},
+			want:  `{"streamId":"stream_1","sequence":6,"sessionId":"session_1","kind":"url.open.requested"}`,
+		},
 	}
 	for _, test := range cases {
 		got, err := json.Marshal(test.event)
@@ -55,8 +65,8 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 func TestSessionEventPayloadVocabularyIsClosed(t *testing.T) {
 	t.Parallel()
 	variants := sessionEventVariants()
-	if len(variants) != 30 {
-		t.Fatalf("session event variants = %d; want 30", len(variants))
+	if len(variants) != 31 {
+		t.Fatalf("session event variants = %d; want 31", len(variants))
 	}
 	seen := make(map[SessionEventKind]bool, len(variants))
 	for _, variant := range variants {

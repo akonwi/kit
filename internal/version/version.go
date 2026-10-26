@@ -41,5 +41,8 @@ const (
 	// boundaries that have not joined a completed turn as context records
 	// without a turn and drop pendingBoundaries; the session and subagent live
 	// streams add boundary.created (ADR 0033).
-	SessionProtocolVersion = 48
+	// 49: The session live stream adds url.open.requested, which asks attached
+	// clients to open a plugin-requested web page and carries its address only
+	// when delivered live (ADR 0049).
+	SessionProtocolVersion = 49
 )

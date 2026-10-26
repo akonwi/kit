@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/identifier"
+	"github.com/akonwi/kit/internal/weburl"
 )
 
 const (
@@ -49,6 +50,7 @@ const (
 	SessionEventAnnotationSubmitted    SessionEventKind = "annotation.submitted"
 	SessionEventScratchpadChanged      SessionEventKind = "scratchpad.changed"
 	SessionEventBoundaryCreated        SessionEventKind = "boundary.created"
+	SessionEventURLOpenRequested       SessionEventKind = "url.open.requested"
 )
 
 // SessionEvent is one ordered update in a loaded runtime stream.
@@ -127,6 +129,10 @@ func (event sessionEventWire) validate() error {
 		if event.TurnID != "" {
 			return fmt.Errorf("session rename event cannot carry parent turn identity")
 		}
+	} else if event.Kind == SessionEventURLOpenRequested {
+		if event.TurnID != "" {
+			return fmt.Errorf("url open request cannot carry parent turn identity")
+		}
 	} else if event.Kind == SessionEventSubagentChanged {
 		if event.TurnID != "" || event.SubagentConversationID == "" {
 			return fmt.Errorf("subagent event requires conversation identity without parent turn identity")
@@ -175,7 +181,7 @@ func (event sessionEventWire) validate() error {
 	if len(event.Content) > maxSessionEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxSessionEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8 + len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource) + len(event.CreatedAt)
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8 + len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource) + len(event.CreatedAt) + len(event.URL)
 	if event.Scratchpad != nil {
 		payloadBytes += len(event.Scratchpad.OwnerSessionID) + len(event.Scratchpad.Content) + 64
 	}
@@ -306,6 +312,11 @@ func (event sessionEventWire) validate() error {
 				return fmt.Errorf("boundary event: %w", err)
 			}
 		}
+	case SessionEventURLOpenRequested:
+		// Replayed and caught-up copies omit the address; see URLOpenRequestedEvent.
+		if event.URL != "" && !weburl.IsCanonical(event.URL) || payloadBytes != len(event.URL) {
+			return fmt.Errorf("url open request carries an invalid address or payload")
+		}
 	case SessionEventSubagentChanged:
 		if !validRendererText(event.SubagentConversationID, 128) ||
 			(event.SubagentTaskID != "" && !validRendererText(event.SubagentTaskID, 128)) || event.PeerRequestID != "" || payloadBytes != 0 {
@@ -410,6 +421,9 @@ func (event sessionEventWire) validate() error {
 	}
 	if event.Kind != SessionEventSessionNameChanged && event.SessionName != "" {
 		return fmt.Errorf("event kind %q cannot carry a session name", event.Kind)
+	}
+	if event.Kind != SessionEventURLOpenRequested && event.URL != "" {
+		return fmt.Errorf("event kind %q cannot carry a url", event.Kind)
 	}
 	if event.Kind != SessionEventSessionCWDChanged && event.Workspace != nil {
 		return fmt.Errorf("event kind %q cannot carry a workspace", event.Kind)
@@ -530,7 +544,7 @@ func (batch SessionEventBatch) Validate() error {
 		if batch.FirstSequence > 0 && wire.Sequence < batch.FirstSequence || batch.LastSequence > 0 && wire.Sequence > batch.LastSequence {
 			return fmt.Errorf("event %d sequence is outside the retention range", index)
 		}
-		if wire.Kind == SessionEventSessionNameChanged || wire.Kind == SessionEventSessionCWDChanged || wire.Kind == SessionEventScratchpadChanged || wire.Kind == SessionEventSubagentChanged || wire.Kind == SessionEventPeerQueryChanged || wire.Kind == SessionEventAnnotationCreated || wire.Kind == SessionEventAnnotationUpdated || wire.Kind == SessionEventAnnotationDeleted || wire.Kind == SessionEventAnnotationSubmitted {
+		if wire.Kind == SessionEventSessionNameChanged || wire.Kind == SessionEventSessionCWDChanged || wire.Kind == SessionEventScratchpadChanged || wire.Kind == SessionEventSubagentChanged || wire.Kind == SessionEventPeerQueryChanged || wire.Kind == SessionEventAnnotationCreated || wire.Kind == SessionEventAnnotationUpdated || wire.Kind == SessionEventAnnotationDeleted || wire.Kind == SessionEventAnnotationSubmitted || wire.Kind == SessionEventURLOpenRequested {
 			previous = wire.Sequence
 			continue
 		}

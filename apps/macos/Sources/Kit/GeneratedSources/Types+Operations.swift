@@ -7474,7 +7474,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/models/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/models/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ListModels.Input.Headers.XKitProtocolVersionPayload
@@ -8353,7 +8353,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/models/refresh/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/models/refresh/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.RefreshModels.Input.Headers.XKitProtocolVersionPayload
@@ -14272,7 +14272,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ListSessions.Input.Headers.XKitProtocolVersionPayload
@@ -15370,7 +15370,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.CreateSession.Input.Headers.XKitProtocolVersionPayload
@@ -16587,7 +16587,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/activity/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/activity/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetSessionActivity.Input.Headers.XKitProtocolVersionPayload
@@ -17586,7 +17586,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetSession.Input.Headers.XKitProtocolVersionPayload
@@ -18804,7 +18804,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/PATCH/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/PATCH/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.RenameSession.Input.Headers.XKitProtocolVersionPayload
@@ -20144,7 +20144,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/DELETE/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/DELETE/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.DeleteSession.Input.Headers.XKitProtocolVersionPayload
@@ -21372,7 +21372,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ListAnnotations.Input.Headers.XKitProtocolVersionPayload
@@ -22599,7 +22599,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.CreateAnnotation.Input.Headers.XKitProtocolVersionPayload
@@ -23963,7 +23963,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.UpdateAnnotation.Input.Headers.XKitProtocolVersionPayload
@@ -25327,7 +25327,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.DeleteAnnotation.Input.Headers.XKitProtocolVersionPayload
@@ -26568,7 +26568,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.UploadAttachment.Input.Headers.XKitProtocolVersionPayload
@@ -27795,7 +27795,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/resolve/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/resolve/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ResolveAttachments.Input.Headers.XKitProtocolVersionPayload
@@ -29029,7 +29029,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/{attachmentID}/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/attachments/{attachmentID}/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ReadAttachment.Input.Headers.XKitProtocolVersionPayload
@@ -30358,7 +30358,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.StartBash.Input.Headers.XKitProtocolVersionPayload
@@ -31598,7 +31598,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetBash.Input.Headers.XKitProtocolVersionPayload
@@ -32829,7 +32829,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/abort/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-executions/{executionID}/abort/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.AbortBash.Input.Headers.XKitProtocolVersionPayload
@@ -34073,7 +34073,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-history/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/bash-history/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetBashHistory.Input.Headers.XKitProtocolVersionPayload
@@ -35300,7 +35300,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.CompactSession.Input.Headers.XKitProtocolVersionPayload
@@ -36747,7 +36747,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ConfigureSession.Input.Headers.XKitProtocolVersionPayload
@@ -38194,7 +38194,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/cwd/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/cwd/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ChangeSessionCWD.Input.Headers.XKitProtocolVersionPayload
@@ -39534,7 +39534,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/files/read/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/files/read/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ReadFileDiff.Input.Headers.XKitProtocolVersionPayload
@@ -41029,7 +41029,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/observations/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/observations/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ObserveDiff.Input.Headers.XKitProtocolVersionPayload
@@ -42524,7 +42524,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/targets/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/targets/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ListDiffTargets.Input.Headers.XKitProtocolVersionPayload
@@ -44007,7 +44007,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/working-tree/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/diff/working-tree/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ObserveWorkingTree.Input.Headers.XKitProtocolVersionPayload
@@ -45502,7 +45502,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/dispose/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/dispose/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.DisposeTemporarySession.Input.Headers.XKitProtocolVersionPayload
@@ -46724,7 +46724,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetSessionEventPage.Input.Headers.XKitProtocolVersionPayload
@@ -48185,7 +48185,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/stream/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/events/stream/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.StreamSessionEvents.Input.Headers.XKitProtocolVersionPayload
@@ -49650,7 +49650,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/files/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetSessionFileIndex.Input.Headers.XKitProtocolVersionPayload
@@ -51145,7 +51145,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/forks/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/forks/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ForkSession.Input.Headers.XKitProtocolVersionPayload
@@ -52492,7 +52492,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/interactions/{interactionID}/response/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/interactions/{interactionID}/response/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.RespondInteraction.Input.Headers.XKitProtocolVersionPayload
@@ -53964,7 +53964,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/messages/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/messages/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetMessagePage.Input.Headers.XKitProtocolVersionPayload
@@ -55405,7 +55405,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ExecutePluginCommand.Input.Headers.XKitProtocolVersionPayload
@@ -56735,7 +56735,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-toasts/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-toasts/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.StreamPluginToasts.Input.Headers.XKitProtocolVersionPayload
@@ -57971,7 +57971,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/reload/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/reload/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ReloadSession.Input.Headers.XKitProtocolVersionPayload
@@ -59195,7 +59195,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetScratchpad.Input.Headers.XKitProtocolVersionPayload
@@ -60425,7 +60425,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.UpdateScratchpad.Input.Headers.XKitProtocolVersionPayload
@@ -61795,7 +61795,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.OperateSubagent.Input.Headers.XKitProtocolVersionPayload
@@ -63092,7 +63092,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/configure/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/configure/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ConfigureSubagent.Input.Headers.XKitProtocolVersionPayload
@@ -64465,7 +64465,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/events/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/events/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetSubagentEvents.Input.Headers.XKitProtocolVersionPayload
@@ -65718,7 +65718,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/transcript/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/subagents/{conversationID}/transcript/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetSubagentTranscript.Input.Headers.XKitProtocolVersionPayload
@@ -66970,7 +66970,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/transcript/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/transcript/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetTranscriptPage.Input.Headers.XKitProtocolVersionPayload
@@ -68411,7 +68411,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/promote/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/promote/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.PromoteTurnFollowUps.Input.Headers.XKitProtocolVersionPayload
@@ -69849,7 +69849,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/restore/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/follow-ups/restore/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.RestoreTurnFollowUps.Input.Headers.XKitProtocolVersionPayload
@@ -71287,7 +71287,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.Prompt.Input.Headers.XKitProtocolVersionPayload
@@ -72734,7 +72734,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-command/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-command/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.SubmitPromptCommand.Input.Headers.XKitProtocolVersionPayload
@@ -74181,7 +74181,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-commands/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompt-commands/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.StartPromptCommand.Input.Headers.XKitProtocolVersionPayload
@@ -75628,7 +75628,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompts/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/prompts/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.StartPrompt.Input.Headers.XKitProtocolVersionPayload
@@ -77075,7 +77075,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/submissions/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/submissions/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.SubmitPrompt.Input.Headers.XKitProtocolVersionPayload
@@ -78529,7 +78529,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetTurn.Input.Headers.XKitProtocolVersionPayload
@@ -79974,7 +79974,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/abort/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/turns/{turnID}/abort/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.AbortTurn.Input.Headers.XKitProtocolVersionPayload
@@ -81412,7 +81412,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetSessionVCS.Input.Headers.XKitProtocolVersionPayload
@@ -82636,7 +82636,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/events/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/vcs/events/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.StreamSessionVCS.Input.Headers.XKitProtocolVersionPayload
@@ -83872,7 +83872,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/GET/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/GET/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.GetWorkspace.Input.Headers.XKitProtocolVersionPayload
@@ -85364,7 +85364,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/directories/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/directories/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ListWorkspaceDirectory.Input.Headers.XKitProtocolVersionPayload
@@ -86865,7 +86865,7 @@ internal enum Operations {
                 internal var xKitInstanceID: Swift.String
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/files/read/POST/header/X-Kit-Protocol-Version`.
                 internal enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
-                    case _48 = 48
+                    case _49 = 49
                 }
                 /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/workspace/files/read/POST/header/X-Kit-Protocol-Version`.
                 internal var xKitProtocolVersion: Operations.ReadWorkspaceFile.Input.Headers.XKitProtocolVersionPayload

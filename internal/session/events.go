@@ -19,6 +19,7 @@ import (
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/scratchpad"
+	"github.com/akonwi/kit/internal/weburl"
 )
 
 // EventKind identifies one renderer-neutral live session update.
@@ -64,6 +65,10 @@ const (
 	EventAnnotationSubmitted    EventKind = "annotation.submitted"
 	EventScratchpadChanged      EventKind = "scratchpad.changed"
 	EventBoundaryCreated        EventKind = "boundary.created"
+	// EventURLOpenRequested asks attached clients to open a web page. It is
+	// ephemeral: retained only in the live event log, never in snapshots or
+	// the transcript.
+	EventURLOpenRequested EventKind = "url.open.requested"
 )
 
 // NewEvent is a live session update awaiting a runtime-local stream sequence.
@@ -112,6 +117,8 @@ type NewEvent struct {
 	BoundaryKind           string
 	BoundarySource         string
 	CreatedAt              time.Time
+	// URL is the canonical web address of a url.open.requested event.
+	URL string
 }
 
 // Event is one ordered live update retained by a loaded runtime.
@@ -171,6 +178,10 @@ func (event NewEvent) Validate() error {
 		if event.TurnID != "" || event.RunID != "" {
 			return fmt.Errorf("session metadata event cannot carry parent turn identity")
 		}
+	} else if event.Kind == EventURLOpenRequested {
+		if event.TurnID != "" || event.RunID != "" {
+			return fmt.Errorf("url open request cannot carry parent turn identity")
+		}
 	} else if event.Kind == EventSubagentChanged {
 		if event.TurnID != "" || event.RunID != "" || event.SubagentConversationID == "" {
 			return fmt.Errorf("subagent event requires conversation identity without parent turn identity")
@@ -225,7 +236,7 @@ func (event NewEvent) Validate() error {
 	if len(event.Content) > maxLiveEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxLiveEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8 + len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource)
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8 + len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource) + len(event.URL)
 	if event.Scratchpad != nil {
 		payloadBytes += len(event.Scratchpad.OwnerSessionID) + len(event.Scratchpad.Content) + 64
 	}
@@ -340,6 +351,10 @@ func (event NewEvent) Validate() error {
 		if err := scratchpad.ValidateContent(event.Scratchpad.Content); err != nil {
 			return err
 		}
+	case EventURLOpenRequested:
+		if !weburl.IsCanonical(event.URL) || payloadBytes != len(event.URL) || event.MessageID != "" || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" {
+			return fmt.Errorf("url open request requires only a canonical web address")
+		}
 	case EventSubagentChanged, EventPeerQueryChanged, EventAnnotationDeleted, EventAnnotationSubmitted:
 	case EventBoundaryCreated:
 		if event.BoundaryID == "" || event.BoundaryKind == "" || event.CreatedAt.IsZero() || len(event.Content) == 0 && !event.ContentTruncated {
@@ -441,6 +456,9 @@ func (event NewEvent) Validate() error {
 	}
 	if event.Kind != EventSessionCWDChanged && event.CWD != "" {
 		return fmt.Errorf("event kind %q cannot carry a cwd", event.Kind)
+	}
+	if event.Kind != EventURLOpenRequested && event.URL != "" {
+		return fmt.Errorf("event kind %q cannot carry a url", event.Kind)
 	}
 	if event.Kind != EventInteractionRequested && event.Interaction != nil {
 		return fmt.Errorf("event kind %q cannot carry an interaction request", event.Kind)

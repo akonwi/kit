@@ -392,6 +392,7 @@ enum WireSessionEventKind: String, Codable, Sendable {
     case value27 = "annotation.submitted"
     case value28 = "scratchpad.changed"
     case value29 = "boundary.created"
+    case value30 = "url.open.requested"
 }
 
 enum WireTurnStatus: String, Codable, Sendable {
@@ -470,6 +471,7 @@ struct WireSessionEvent: Codable, Sendable {
     let `boundaryKind`: String?
     let `boundarySource`: String?
     let `createdAt`: String?
+    let `url`: String?
 }
 
 struct WireSessionEventBatch: Codable, Sendable {

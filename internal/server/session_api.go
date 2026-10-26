@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1555,6 +1556,8 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 			Details: append(json.RawMessage(nil), event.Details...), DetailsOmitted: event.DetailsOmitted,
 			CreatedAt: event.CreatedAt.UTC().Format(time.RFC3339Nano),
 		}
+	case kitsession.EventURLOpenRequested:
+		return protocol.URLOpenRequestedEvent{URL: event.URL}
 	default:
 		return nil
 	}
@@ -1863,8 +1866,24 @@ type sessionEventStreamSource struct {
 	sessionID string
 	streamID  string
 	after     int64
+	// liveAfter is the last sequence the runtime had published when the stream
+	// opened. Later events reach this stream live; earlier ones are catch-up.
+	liveAfter int64
 	initial   *protocol.SessionEventBatch
 	terminal  bool
+}
+
+// withholdCaughtUpURLs removes the address from every url.open.requested
+// event at or before liveAfter. A URL request asks a client to open a page
+// once, live; an event page, replay, or the catch-up a stream sends when it
+// opens reports only that a request happened, so no client opens a page for
+// work done before it attached, or again after reconnecting.
+func withholdCaughtUpURLs(batch *protocol.SessionEventBatch, liveAfter int64) {
+	for index, event := range batch.Events {
+		if request, ok := event.Payload.(protocol.URLOpenRequestedEvent); ok && request.URL != "" && event.Sequence <= liveAfter {
+			batch.Events[index].Payload = protocol.URLOpenRequestedEvent{}
+		}
+	}
 }
 
 func (source *sessionEventStreamSource) Next(ctx context.Context) (httpapi.StreamRecord[protocol.SessionEventBatch], error) {
@@ -1881,6 +1900,7 @@ func (source *sessionEventStreamSource) Next(ctx context.Context) (httpapi.Strea
 			return httpapi.StreamRecord[protocol.SessionEventBatch]{}, err
 		}
 	}
+	withholdCaughtUpURLs(&batch, source.liveAfter)
 	if err := batch.Validate(); err != nil {
 		return httpapi.StreamRecord[protocol.SessionEventBatch]{}, err
 	}
@@ -2250,6 +2270,8 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 			writeSessionError(writer, err)
 			return
 		}
+		// A page is never live, so it carries no URL request addresses.
+		withholdCaughtUpURLs(&batch, math.MaxInt64)
 		if err := batch.Validate(); err != nil {
 			writeSessionError(writer, fmt.Errorf("invalid session event page: %w", err))
 			return
@@ -2268,7 +2290,7 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 		if err := batch.Validate(); err != nil {
 			return nil, fmt.Errorf("invalid session event batch: %w", err)
 		}
-		return &sessionEventStreamSource{service: service, sessionID: params.SessionID, streamID: streamID, after: after, initial: &batch}, nil
+		return &sessionEventStreamSource{service: service, sessionID: params.SessionID, streamID: streamID, after: after, liveAfter: batch.LastSequence, initial: &batch}, nil
 	})
 	httpapi.Handle(mux, httpOptions, httpapi.CreateSession, func(ctx context.Context, _ httpapi.NoBody, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
 		if err := input.Validate(); err != nil {

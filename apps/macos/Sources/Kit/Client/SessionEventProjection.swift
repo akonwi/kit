@@ -37,12 +37,16 @@ struct SessionEventProjection {
     /// `liveCompletions` are the tool calls the previous projection saw
     /// complete live. Their rows in the refreshed snapshot stay marked, so a
     /// refresh that supersedes an undelivered live update keeps them.
-    init(_ snapshot: WireSessionSnapshot, turnEnd: TranscriptMessage? = nil, liveCompletions: [String] = []) throws {
+    /// `requestedPages`, the live page requests the previous projection
+    /// received, carry over for the same reason; snapshots never hold them.
+    init(_ snapshot: WireSessionSnapshot, turnEnd: TranscriptMessage? = nil, liveCompletions: [String] = [],
+         requestedPages: [RequestedPage]? = nil) throws {
         try self.init(session: SessionProjection.snapshot(snapshot, carried: turnEnd.map { [$0] } ?? []),
             source: snapshot.messages ?? [],
             activeRunID: snapshot.activeTurnId, replayAvailable: snapshot.eventReplayAvailable == true,
             pendingInteractions: Set((snapshot.pendingInteractions ?? []).filter { $0.plugin != nil || $0.turnId == snapshot.activeTurnId }.map(\.id)))
         if let turnEnd, session.messages.contains(where: { $0.id == turnEnd.id }) { self.turnEnd = turnEnd }
+        session.requestedPages = requestedPages
         if !liveCompletions.isEmpty {
             self.liveCompletions = Array(liveCompletions.suffix(Self.liveCompletionLimit))
             let carried = Set(self.liveCompletions)
@@ -105,6 +109,7 @@ struct SessionEventProjection {
     /// times tool calls; replayed events pass nil.
     mutating func apply(_ event: WireSessionEvent, receivedAt: Date? = nil) throws {
         guard event.sessionId == session.id else { throw ClientError.invalidPayload }
+        if event.kind == .value30 { return try requestPage(event, live: receivedAt != nil) }
         var value = TranscriptEvent(event)
         value.receivedAt = receivedAt
         try apply(value)
@@ -338,6 +343,22 @@ struct SessionEventProjection {
         }
         session.activeRunID = activeRunID
         session.tabStatus = Self.status(runID: activeRunID, pending: pendingInteractions)
+    }
+
+    /// Pages kept for the app to open, beyond which the oldest are dropped.
+    static let requestedPageLimit = 16
+
+    /// Records a page request the app received live. The server sends the
+    /// address only on a stream that was open when the request was made, and
+    /// a replayed event carries none, so a request seen before this app
+    /// attached, or again after a reconnect, records nothing.
+    private mutating func requestPage(_ event: WireSessionEvent, live: Bool) throws {
+        guard (event.turnId ?? "").isEmpty else { throw ClientError.invalidPayload }
+        // An address this app does not accept as a web page opens nothing.
+        guard live, let raw = event.url, let url = OpenURLRequest.url(raw) else { return }
+        var pages = session.requestedPages ?? []
+        pages.append(RequestedPage(id: "\(event.streamId):\(event.sequence)", url: url))
+        session.requestedPages = Array(pages.suffix(Self.requestedPageLimit))
     }
 
     mutating func acceptAnnotationMessage(_ message: WireTranscriptMessage, ids: [UInt64]) throws {

@@ -384,6 +384,42 @@ struct SessionEventProjectionTests {
         #expect(refreshed.liveCompletions == ["live"])
     }
 
+    private func pageRequest(_ sequence: Int64, url: String?) throws -> WireSessionEvent {
+        var json: [String: Any] = ["streamId": "stream", "sequence": sequence, "sessionId": "s", "kind": "url.open.requested"]
+        if let url { json["url"] = url }
+        return try JSONDecoder().decode(WireSessionEvent.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+
+    @Test func onlyPageRequestsReceivedLiveWithAWebAddressAreKeptAndCarriedAcrossRefresh() throws {
+        var state = try SessionEventProjection(snapshot())
+        let now = Date(timeIntervalSince1970: 100)
+        try state.apply(pageRequest(1, url: "https://example.com/replayed"))
+        try state.apply(pageRequest(2, url: nil), receivedAt: now)
+        try state.apply(pageRequest(3, url: "file:///etc/passwd"), receivedAt: now)
+        try state.apply(pageRequest(4, url: "https://example.com/live"), receivedAt: now)
+        try state.apply(pageRequest(5, url: "http://localhost:3000/"), receivedAt: now)
+        let live = [RequestedPage(id: "stream:4", url: URL(string: "https://example.com/live")!),
+                    RequestedPage(id: "stream:5", url: URL(string: "http://localhost:3000/")!)]
+        #expect(state.session.requestedPages == live)
+        #expect(state.session.messages.isEmpty)
+        #expect(throws: ClientError.self) {
+            try state.apply(event("url.open.requested", ["url": "https://example.com/turn"]), receivedAt: now)
+        }
+
+        let refreshed = try SessionEventProjection(snapshot(), requestedPages: state.session.requestedPages)
+        #expect(refreshed.session.requestedPages == live)
+        #expect(try SessionEventProjection(snapshot()).session.requestedPages == nil)
+    }
+
+    @Test func keepsOnlyTheMostRecentLivePageRequests() throws {
+        var state = try SessionEventProjection(snapshot())
+        let limit = SessionEventProjection.requestedPageLimit
+        for sequence in 1...Int64(limit + 2) {
+            try state.apply(pageRequest(sequence, url: "https://example.com/\(sequence)"), receivedAt: Date())
+        }
+        #expect(state.session.requestedPages?.map(\.id) == (3...(limit + 2)).map { "stream:\($0)" })
+    }
+
     @Test func toolUpdatesFollowRowsAfterEarlierRowsAreRemoved() throws {
         var state = try SessionEventProjection(snapshot())
         try state.apply(event("user.message.added", ["text": "Annotations"]))

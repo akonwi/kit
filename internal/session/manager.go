@@ -2711,6 +2711,11 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 				return loaded.interactions.requestPlugin(ctx, record.ID, input, available)
 			})
 		}
+		if host, ok := loaded.plugins.(PluginURLHost); ok {
+			host.SetURLObserver(func(ctx context.Context, request PluginURLRequest, current func() bool) error {
+				return m.requestPluginURL(ctx, loaded, record.ID, request, current)
+			})
+		}
 		if host, ok := loaded.plugins.(PluginMessageHost); ok {
 			host.SetMessageObserver(func(ctx context.Context, input PluginMessageInput, current func() bool) (PluginMessageResult, error) {
 				return m.submitPluginMessage(ctx, loaded, record.ID, input, current)

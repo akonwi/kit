@@ -47,6 +47,10 @@ type HostConfig struct {
 	// into the owning session or returns an error without recording it, and must
 	// honor ctx cancellation before admission.
 	SubmitMessage func(context.Context, MessageRequest) (MessageResult, error)
+	// OpenURL is supplied by the session owner. It publishes a validated URL
+	// request to the owning session's attached clients without waiting for
+	// any of them, and must honor ctx cancellation.
+	OpenURL func(context.Context, URLRequest) error
 }
 
 type hostEntry struct {
@@ -84,6 +88,8 @@ type Host struct {
 	footerItems          []FooterItem
 	footerClaims         map[InstanceID]map[string]struct{}
 	interactionsInFlight int
+	openURLTimes         []time.Time
+	now                  func() time.Time
 	stateChanged         chan struct{}
 	changed              chan struct{}
 	runDone              chan struct{}
@@ -118,7 +124,7 @@ func NewHost(parent context.Context, config HostConfig) *Host {
 	config.ReservedSubagents = append([]string(nil), config.ReservedSubagents...)
 	config.Session = cloneSessionContext(config.Session)
 	hostID, err := identifier.New("pluginhost_")
-	host := &Host{tools: make(map[string]Tool), subagents: make(map[string]Subagent), reservedSubagents: make(map[string]struct{}), commands: make(map[string]Command), stateChanged: make(chan struct{}), changed: make(chan struct{}, 1), runDone: make(chan struct{}), notifyDone: make(chan struct{}), gitDone: make(chan struct{}), id: hostID, config: config, ctx: ctx, cancel: cancel, view: hostView{epoch: 1, projectEpoch: 1, cwd: config.CWD, session: config.Session}, reportedFailures: make(map[InstanceID]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{})}
+	host := &Host{tools: make(map[string]Tool), subagents: make(map[string]Subagent), reservedSubagents: make(map[string]struct{}), commands: make(map[string]Command), stateChanged: make(chan struct{}), changed: make(chan struct{}, 1), runDone: make(chan struct{}), notifyDone: make(chan struct{}), gitDone: make(chan struct{}), id: hostID, config: config, now: time.Now, ctx: ctx, cancel: cancel, view: hostView{epoch: 1, projectEpoch: 1, cwd: config.CWD, session: config.Session}, reportedFailures: make(map[InstanceID]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{})}
 	for _, name := range config.ReservedSubagents {
 		host.reservedSubagents[name] = struct{}{}
 	}

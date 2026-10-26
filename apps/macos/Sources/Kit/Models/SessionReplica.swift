@@ -402,6 +402,7 @@ final class SessionReplica {
         var value = session
         value.messages = []
         value.activity = nil
+        value.requestedPages = nil
         return value
     }
 
@@ -415,7 +416,10 @@ final class SessionReplica {
         // rewrite the row only when something they present has changed.
         if let index = sessions.firstIndex(where: { $0.id == snapshot.id }),
            Self.withoutTranscript(sessions[index]) != Self.withoutTranscript(snapshot) {
-            sessions[index] = snapshot
+            // Page requests open from live deliveries only; the catalog keeps none.
+            var listed = snapshot
+            listed.requestedPages = nil
+            sessions[index] = listed
         }
         lastReceived = snapshot
         windowCursor = snapshot.historyCursor

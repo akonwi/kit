@@ -2,6 +2,7 @@ package contract
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -84,6 +85,49 @@ func TestPluginMessageEventRequiresTurnTextAndPluginID(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("user message accepted a plugin id")
+	}
+}
+
+func TestURLOpenRequestIsASessionScopedCanonicalWebAddress(t *testing.T) {
+	session := func(payload URLOpenRequestedEvent) SessionEvent {
+		return SessionEvent{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Payload: payload}
+	}
+	for _, payload := range []URLOpenRequestedEvent{{URL: "https://example.com/docs?q=1#top"}, {URL: "http://localhost:3000/"}, {}} {
+		if err := session(payload).Validate(); err != nil {
+			t.Errorf("Validate(%+v) = %v", payload, err)
+		}
+	}
+	for name, event := range map[string]SessionEvent{
+		"turn scoped":    eventForTest(1, URLOpenRequestedEvent{URL: "https://example.com/"}),
+		"file address":   session(URLOpenRequestedEvent{URL: "file:///etc/passwd"}),
+		"script address": session(URLOpenRequestedEvent{URL: "javascript:alert(1)"}),
+		"credentials":    session(URLOpenRequestedEvent{URL: "https://user:secret@example.com/"}),
+		"not canonical":  session(URLOpenRequestedEvent{URL: "HTTPS://example.com/"}),
+		"relative":       session(URLOpenRequestedEvent{URL: "/docs"}),
+		"whitespace":     session(URLOpenRequestedEvent{URL: "https://example.com/a b"}),
+		"oversized":      session(URLOpenRequestedEvent{URL: "https://example.com/" + strings.Repeat("a", 2048)}),
+	} {
+		if err := event.Validate(); err == nil {
+			t.Errorf("%s: Validate() accepted %+v", name, event)
+		}
+	}
+	// Only url open requests may carry a url on the flat wire.
+	var decoded SessionEvent
+	err := json.Unmarshal([]byte(`{"streamId":"stream_test","sequence":1,"sessionId":"session_test","kind":"session.name.changed","sessionName":"Renamed","url":"https://example.com/"}`), &decoded)
+	if err == nil {
+		err = decoded.Validate()
+	}
+	if err == nil {
+		t.Fatal("rename accepted a url")
+	}
+	// A request between a turn's events does not disturb its assistant ordering.
+	batch := SessionEventBatch{StreamID: "stream_test", FirstSequence: 1, LastSequence: 3, Events: []SessionEvent{
+		eventForTest(1, AssistantTextDeltaEvent{MessageID: "message_1", Delta: "a"}),
+		{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", Payload: URLOpenRequestedEvent{URL: "https://example.com/"}},
+		eventForTest(3, AssistantTextDeltaEvent{MessageID: "message_2", Delta: "b"}),
+	}}
+	if err := batch.Validate(); err == nil {
+		t.Fatal("batch accepted an assistant identity change across a url open request")
 	}
 }
 
