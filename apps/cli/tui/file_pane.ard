@@ -9,6 +9,7 @@ use cooper/ui
 use go:fmt
 use go:github.com/akonwi/kit/internal/highlight
 use go:kit/ffi/contextbridge
+use go:kit/ffi/hostfilebridge
 use go:kit/ffi/sessionbridge
 use kit/tui/after_commit
 use kit/tui/annotations
@@ -30,9 +31,18 @@ use go:strings
 // dragging from it over more lines annotates them all. A card under the
 // lines takes the note. Saved notes sit under their last line, which a bar
 // in the gutter ties them to; clicking one edits it and its × deletes it.
+//
+// A host File tab shows a file on the session's server outside its working
+// directory (ADR 0050), by absolute path. Its text can't be annotated, and a
+// supported image shows in place of lines, fitted to the pane.
 
 // Cells a horizontal wheel step moves the text.
 let column_step = 4
+
+// A host image is decoded to fit these pixels: twice the cell density of a
+// wide terminal pane, beyond which a bigger image only costs memory.
+let image_width = 1600
+let image_height = 1600
 
 struct Props {
   themes: theme::Context,
@@ -43,6 +53,8 @@ struct Props {
   shown: Bool,
   // Reads a workspace file; blocks.
   read: (fn(protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error)?,
+  // Reads a host file within image bounds in pixels; blocks.
+  read_host: (fn(Str, Int, Int) hostfilebridge::File!Error)?,
   // The session's annotations, and what saves them; without it, lines can't
   // be annotated.
   annotations: [sessionbridge::Annotation],
@@ -249,6 +261,50 @@ fn failure(error: Error) Failure {
   }
 }
 
+// What a failed host file read shows.
+fn host_failure(error: Error) Failure {
+  let problem = hostfilebridge::Describe(error)
+  match problem.Title == "" {
+    true => failure(error),
+    false => {
+      Failure{
+        title: problem.Title,
+        detail: problem.Detail,
+        stale: false,
+      }
+    },
+  }
+}
+
+// The cells an image of `width` by `height` pixels spans to fit within
+// `columns` by `rows` cells, keeping its proportions in cells twice as tall
+// as they are wide; at least one cell each way.
+fn image_cells(width: Int, height: Int, columns: Int, rows: Int) Cells {
+  match width <= 0 or height <= 0 or columns <= 0 or rows <= 0 {
+    true => Cells{columns: 1, rows: 1},
+    false => {
+      // Rows the image needs at the full width, rounded up.
+      let tall = (columns * height + 2 * width - 1) / (2 * width)
+      match tall <= rows {
+        true => Cells{columns: columns, rows: at_least_one(tall)},
+        false => Cells{columns: at_least_one((rows * 2 * width + height - 1) / height), rows: rows},
+      }
+    },
+  }
+}
+
+private fn at_least_one(value: Int) Int {
+  match value < 1 {
+    true => 1,
+    false => value,
+  }
+}
+
+struct Cells {
+  columns: Int,
+  rows: Int,
+}
+
 private fn unreadable() Failure {
   Failure{
     title: "File is unreadable",
@@ -280,8 +336,12 @@ private struct Pane {
   context: cui::Context?,
   list: mut cui::VirtualListRef,
   frame: mut cui::BoxRef,
-  // The body's width as last laid out; zero until then.
+  // The body's width and height as last laid out; zero until then.
   width: Int,
+  height: Int,
+  // A host image as decoded, and its description for the header.
+  image: ui::ImageData?,
+  image_label: Str,
   // The latest read, and its lines as currently highlighted.
   read: protocol::WorkspaceFileRead?,
   rows: [[Segment]],
@@ -311,6 +371,9 @@ private fn new(props: mut Props) mut Pane {
     list: cui::virtual_list_ref(),
     frame: cui::box_ref(),
     width: 0,
+    height: 0,
+    image: Maybe::new<ui::ImageData>(),
+    image_label: "",
     read: Maybe::new<protocol::WorkspaceFileRead>(),
     rows: [],
     widest: 0,
@@ -351,8 +414,10 @@ impl Pane {
     match self.frame.current {
       frame => {
         let width = frame.layout().local.width
-        let changed = width != self.width
+        let height = frame.layout().local.height
+        let changed = width != self.width or height != self.height
         self.width = width
+        self.height = height
         changed
       },
       _ => false,
@@ -385,6 +450,81 @@ impl Pane {
   }
 
   private fn mut load() {
+    if self.props.tab.kind == workspace::Kind::host_file {
+      self.load_host()
+    } else {
+      self.load_workspace()
+    }
+  }
+
+  private fn mut load_host() {
+    match self.context {
+      context => {
+        match self.props.read_host {
+          read => {
+            self.generation =+ 1
+            let generation = self.generation
+            self.loading = true
+            let file_path = self.props.tab.path
+            let dispatch = context.dispatch
+            let matte = self.props.themes.current().background
+            async::start(fn() {
+              let result = read(file_path, image_width, image_height)
+              let _ = dispatch(fn() {
+                if self.generation == generation {
+                  self.loading = false
+                  match result {
+                    ok(file) => {
+                      match file.Image {
+                        true => self.loaded_image(file, matte),
+                        false => {
+                          self.image = Maybe::new<ui::ImageData>()
+                          self.loaded(file.Text)
+                        },
+                      }
+                    },
+                    err(error) => self.load_failed(host_failure(error)),
+                  }
+                }
+              })
+            })
+          },
+          _ => {
+            self.load_failed(
+              Failure{
+                title: "Files unavailable",
+                detail: "This connection can't read files.",
+                stale: false,
+              },
+            )
+          },
+        }
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut loaded_image(file: hostfilebridge::File, matte: ui::Color) {
+    let background = match matte.index.is_none() and not matte.terminal_default {
+      true => matte,
+      false => ui::rgb(0, 0, 0),
+    }
+    self.read = Maybe::new(file.Text)
+    self.rows = []
+    self.widest = 0
+    self.failed = Maybe::new<Failure>()
+    self.image = Maybe::new(
+      ui::image_rgba(
+        file.Pixels.Width,
+        file.Pixels.Height,
+        file.Pixels.RGBA,
+        Maybe::new(background),
+      ),
+    )
+    self.image_label = "{file.Width} × {file.Height} · {size_label(Int::fit(file.Text.Size))}"
+  }
+
+  private fn mut load_workspace() {
     match self.context {
       context => {
         match self.props.read {
@@ -867,6 +1007,7 @@ impl Pane {
     let colors = self.props.themes.current()
     let right = match {
       self.locked() => "stale · frozen",
+      self.image.is_some() => self.image_label,
       _ => {
         match self.read {
           file => status(self.width, self.props.tab.path, self.cursor, self.rows.size(), Int::fit(file.Size)),
@@ -956,6 +1097,37 @@ impl Pane {
   }
 
   private fn mut body() cui::View {
+    match self.image {
+      image => self.image_view(image),
+      _ => self.lines_view(),
+    }
+  }
+
+  // A host image, fitted to the pane and centred in it.
+  private fn image_view(image: ui::ImageData) cui::View {
+    let cells = image_cells(image.width, image.height, self.width, self.height)
+    cui::box(
+      [
+        cui::image(
+          image,
+          "host-file:{self.props.tab.path}",
+          styles: ui::style(
+            width: ui::cells(cells.columns),
+            height: ui::cells(cells.rows),
+            flex_shrink: 0.0,
+          ),
+        ),
+      ],
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
+        align_items: ui::Align::center,
+        justify_content: ui::Justify::center,
+      ),
+    )
+  }
+
+  private fn mut lines_view() cui::View {
     match self.read {
       file => {
         match self.rows.size() == 0 {

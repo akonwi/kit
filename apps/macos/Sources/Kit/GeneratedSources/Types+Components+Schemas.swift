@@ -4577,6 +4577,303 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/HostFileRead`.
+        internal enum HostFileRead: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HostFileRead/HostImageFile`.
+            case image(Components.Schemas.HostImageFile)
+            /// - Remark: Generated from `#/components/schemas/HostFileRead/HostTextFile`.
+            case text(Components.Schemas.HostTextFile)
+            internal enum CodingKeys: String, CodingKey {
+                case kind
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                let discriminator = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                switch discriminator {
+                case "image":
+                    self = .image(try .init(from: decoder))
+                case "text":
+                    self = .text(try .init(from: decoder))
+                default:
+                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                        discriminatorKey: CodingKeys.kind,
+                        discriminatorValue: discriminator,
+                        codingPath: decoder.codingPath
+                    )
+                }
+            }
+            internal func encode(to encoder: any Swift.Encoder) throws {
+                switch self {
+                case let .image(value):
+                    try value.encode(to: encoder)
+                case let .text(value):
+                    try value.encode(to: encoder)
+                }
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HostImageFile`.
+        internal struct HostImageFile: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HostImageFile/data`.
+            internal var data: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HostImageFile/height`.
+            internal var height: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/HostImageFile/kind`.
+            internal enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case image = "image"
+            }
+            /// - Remark: Generated from `#/components/schemas/HostImageFile/kind`.
+            internal var kind: Components.Schemas.HostImageFile.KindPayload
+            /// - Remark: Generated from `#/components/schemas/HostImageFile/mediaType`.
+            internal var mediaType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HostImageFile/modifiedAt`.
+            internal var modifiedAt: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/HostImageFile/path`.
+            internal var path: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HostImageFile/sessionId`.
+            internal var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HostImageFile/size`.
+            internal var size: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/HostImageFile/width`.
+            internal var width: Swift.Int
+            /// Creates a new `HostImageFile`.
+            ///
+            /// - Parameters:
+            ///   - data:
+            ///   - height:
+            ///   - kind:
+            ///   - mediaType:
+            ///   - modifiedAt:
+            ///   - path:
+            ///   - sessionId:
+            ///   - size:
+            ///   - width:
+            internal init(
+                data: Swift.String,
+                height: Swift.Int,
+                kind: Components.Schemas.HostImageFile.KindPayload,
+                mediaType: Swift.String,
+                modifiedAt: Swift.String? = nil,
+                path: Swift.String,
+                sessionId: Swift.String,
+                size: Swift.Int64,
+                width: Swift.Int
+            ) {
+                self.data = data
+                self.height = height
+                self.kind = kind
+                self.mediaType = mediaType
+                self.modifiedAt = modifiedAt
+                self.path = path
+                self.sessionId = sessionId
+                self.size = size
+                self.width = width
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case data
+                case height
+                case kind
+                case mediaType
+                case modifiedAt
+                case path
+                case sessionId
+                case size
+                case width
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.data = try container.decode(
+                    Swift.String.self,
+                    forKey: .data
+                )
+                self.height = try container.decode(
+                    Swift.Int.self,
+                    forKey: .height
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.HostImageFile.KindPayload.self,
+                    forKey: .kind
+                )
+                self.mediaType = try container.decode(
+                    Swift.String.self,
+                    forKey: .mediaType
+                )
+                self.modifiedAt = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .modifiedAt
+                )
+                self.path = try container.decode(
+                    Swift.String.self,
+                    forKey: .path
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.size = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .size
+                )
+                self.width = try container.decode(
+                    Swift.Int.self,
+                    forKey: .width
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "data",
+                    "height",
+                    "kind",
+                    "mediaType",
+                    "modifiedAt",
+                    "path",
+                    "sessionId",
+                    "size",
+                    "width"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HostTextFile`.
+        internal struct HostTextFile: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/content`.
+            internal var content: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/encoding`.
+            internal var encoding: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/kind`.
+            internal enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case text = "text"
+            }
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/kind`.
+            internal var kind: Components.Schemas.HostTextFile.KindPayload
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/modifiedAt`.
+            internal var modifiedAt: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/path`.
+            internal var path: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/returnedBytes`.
+            internal var returnedBytes: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/returnedLines`.
+            internal var returnedLines: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/sessionId`.
+            internal var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/size`.
+            internal var size: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/truncated`.
+            internal var truncated: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/truncationReason`.
+            internal var truncationReason: Swift.String?
+            /// Creates a new `HostTextFile`.
+            ///
+            /// - Parameters:
+            ///   - content:
+            ///   - encoding:
+            ///   - kind:
+            ///   - modifiedAt:
+            ///   - path:
+            ///   - returnedBytes:
+            ///   - returnedLines:
+            ///   - sessionId:
+            ///   - size:
+            ///   - truncated:
+            ///   - truncationReason:
+            internal init(
+                content: Swift.String? = nil,
+                encoding: Swift.String,
+                kind: Components.Schemas.HostTextFile.KindPayload,
+                modifiedAt: Swift.String? = nil,
+                path: Swift.String,
+                returnedBytes: Swift.Int? = nil,
+                returnedLines: Swift.Int? = nil,
+                sessionId: Swift.String,
+                size: Swift.Int64? = nil,
+                truncated: Swift.Bool? = nil,
+                truncationReason: Swift.String? = nil
+            ) {
+                self.content = content
+                self.encoding = encoding
+                self.kind = kind
+                self.modifiedAt = modifiedAt
+                self.path = path
+                self.returnedBytes = returnedBytes
+                self.returnedLines = returnedLines
+                self.sessionId = sessionId
+                self.size = size
+                self.truncated = truncated
+                self.truncationReason = truncationReason
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case content
+                case encoding
+                case kind
+                case modifiedAt
+                case path
+                case returnedBytes
+                case returnedLines
+                case sessionId
+                case size
+                case truncated
+                case truncationReason
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.content = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .content
+                )
+                self.encoding = try container.decode(
+                    Swift.String.self,
+                    forKey: .encoding
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.HostTextFile.KindPayload.self,
+                    forKey: .kind
+                )
+                self.modifiedAt = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .modifiedAt
+                )
+                self.path = try container.decode(
+                    Swift.String.self,
+                    forKey: .path
+                )
+                self.returnedBytes = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .returnedBytes
+                )
+                self.returnedLines = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .returnedLines
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.size = try container.decodeIfPresent(
+                    Swift.Int64.self,
+                    forKey: .size
+                )
+                self.truncated = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .truncated
+                )
+                self.truncationReason = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .truncationReason
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "content",
+                    "encoding",
+                    "kind",
+                    "modifiedAt",
+                    "path",
+                    "returnedBytes",
+                    "returnedLines",
+                    "sessionId",
+                    "size",
+                    "truncated",
+                    "truncationReason"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ImageContent`.
         internal struct ImageContent: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ImageContent/attachmentId`.
@@ -7767,6 +8064,31 @@ extension Components {
                     "path",
                     "targetId",
                     "targetRevision"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ReadHostFileInput`.
+        internal struct ReadHostFileInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ReadHostFileInput/path`.
+            internal var path: Swift.String
+            /// Creates a new `ReadHostFileInput`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            internal init(path: Swift.String) {
+                self.path = path
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case path
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.path = try container.decode(
+                    Swift.String.self,
+                    forKey: .path
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "path"
                 ])
             }
         }

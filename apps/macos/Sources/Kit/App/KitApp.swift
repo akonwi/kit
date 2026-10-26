@@ -213,6 +213,9 @@ private struct TileCommands: Commands {
             Button("Open File…") { store?.showFiles(intent: "open") }
                 .keyboardShortcut("o", modifiers: .command)
                 .disabled(store == nil || store?.unavailable == true)
+            Button("Open File on This Mac…") { if let workspace { LocalFilePanel.open(into: workspace) } }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .disabled(workspace == nil)
             Divider()
             Button("Split Right") { if let workspace { workspace.split(workspace.selected, .right) } }
                 .keyboardShortcut("d", modifiers: .command)

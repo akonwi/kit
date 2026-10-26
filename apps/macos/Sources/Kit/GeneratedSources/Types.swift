@@ -140,6 +140,9 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/forks`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/forks/post(forkSession)`.
     func forkSession(_ input: Operations.ForkSession.Input) async throws -> Operations.ForkSession.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/host-files/read`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/host-files/read/post(readHostFile)`.
+    func readHostFile(_ input: Operations.ReadHostFile.Input) async throws -> Operations.ReadHostFile.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/interactions/{interactionID}/response`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/interactions/{interactionID}/response/post(respondInteraction)`.
     func respondInteraction(_ input: Operations.RespondInteraction.Input) async throws -> Operations.RespondInteraction.Output
@@ -703,6 +706,19 @@ extension APIProtocol {
         body: Operations.ForkSession.Input.Body
     ) async throws -> Operations.ForkSession.Output {
         try await forkSession(Operations.ForkSession.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/host-files/read`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/host-files/read/post(readHostFile)`.
+    internal func readHostFile(
+        path: Operations.ReadHostFile.Input.Path,
+        headers: Operations.ReadHostFile.Input.Headers,
+        body: Operations.ReadHostFile.Input.Body
+    ) async throws -> Operations.ReadHostFile.Output {
+        try await readHostFile(Operations.ReadHostFile.Input(
             path: path,
             headers: headers,
             body: body

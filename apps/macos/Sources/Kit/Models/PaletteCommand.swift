@@ -175,7 +175,7 @@ struct PaletteCommand: Identifiable {
             .init(id: "compact", name: "compact", description: "Compact session context", searchTerms: ["summarize", "shrink"]),
             .init(id: "debug", name: "debug", description: "Show session diagnostics", searchTerms: ["details", "usage", "tokens", "cost"]),
             .init(id: "diff", name: "diff", description: "Review working-tree changes", searchTerms: ["changes", "working", "tree"]),
-            .init(id: "files", name: "files", description: "Open a workspace file", searchTerms: ["file", "open", "browse"]),
+            .init(id: "files", name: "files", description: "Open a workspace file", searchTerms: ["file", "open", "browse", "path"]),
             .init(id: "fork", name: "fork", hint: "[message]", description: "Fork the current session into a linked child session", searchTerms: ["branch"]),
             .init(id: "login", name: "login", description: "Connect another provider", searchTerms: ["auth", "connect", "provider"]),
             .init(id: "mcp", name: "mcp", description: "Show configured MCP servers", searchTerms: ["tools", "connections", "status"]),
@@ -195,7 +195,8 @@ struct PaletteCommand: Identifiable {
             .init(id: "split-down", name: "split-down", description: "Move the selected tab into a new tile below", searchTerms: ["tile"]),
             .init(id: "zoom", name: "zoom", description: "Zoom or unzoom the focused tile", searchTerms: ["tile", "maximize"]),
             .init(id: "equalize", name: "equalize", description: "Size every tile evenly", searchTerms: ["tile", "balance"]),
-            .init(id: "join-tabs", name: "join-tabs", description: "Gather every tab into one tile", searchTerms: ["tile", "merge"])
+            .init(id: "join-tabs", name: "join-tabs", description: "Gather every tab into one tile", searchTerms: ["tile", "merge"]),
+            .init(id: "local-file", name: "local-file", description: "View a file on this Mac", searchTerms: ["file", "open", "mac", "local", "finder"])
         ]
         if terminal {
             rows.append(.init(id: "terminal", name: "terminal", description: "Open a shell in the session's directory",

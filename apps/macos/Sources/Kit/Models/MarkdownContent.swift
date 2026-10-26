@@ -154,6 +154,8 @@ struct MarkdownContent {
         case let value as InlineCode:
             var text = AttributedString(value.code)
             text.inlinePresentationIntent = .code
+            // A code span that is exactly a file path opens it (ADR 0050).
+            if let path = FilePaths.codePath(value.code), let url = FilePaths.link(path) { text.link = url }
             return text
         case is SoftBreak: return AttributedString(" ")
         case is LineBreak: return AttributedString("\n")
@@ -175,10 +177,13 @@ struct MarkdownContent {
                 text[run.range].inlinePresentationIntent = (run.inlinePresentationIntent ?? []).union(intent)
             }
         }
-        if let link = node as? Markdown.Link, let destination = link.destination,
-           let url = URL(string: destination), let scheme = url.scheme?.lowercased(),
-           ["https", "http", "mailto"].contains(scheme) {
-            text.link = url
+        if let link = node as? Markdown.Link, let destination = link.destination {
+            if let url = URL(string: destination), let scheme = url.scheme?.lowercased(),
+               ["https", "http", "mailto"].contains(scheme) {
+                text.link = url
+            } else if let path = FilePaths.linkedPath(destination: destination), let url = FilePaths.link(path) {
+                text.link = url
+            }
         }
         return text
     }

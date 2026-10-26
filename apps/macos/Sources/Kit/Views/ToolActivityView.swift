@@ -210,8 +210,8 @@ private struct ToolCallRow: View {
     private var linkAction: (() -> Void)? {
         switch presentation.link {
         case .file(let path)?:
-            guard let file = ToolPresentation.workspacePath(path, cwd: context.cwd) else { return nil }
-            return { workspace.open(.file(file)) }
+            guard let pane = FilePaths.serverPane(for: path, cwd: context.cwd) else { return nil }
+            return { workspace.open(pane) }
         case .agent(let name)?: return { workspace.open(.agent(name)) }
         case .scratchpad?: return { workspace.open(.scratchpad) }
         case .session(let id)?:

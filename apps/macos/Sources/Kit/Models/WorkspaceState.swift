@@ -17,6 +17,11 @@ struct PreviewFile: Decodable, Identifiable {
 
 enum WorkspacePane: Hashable, Identifiable {
     case conversation, review, scratchpad, agent(String), file(String)
+    /// A file anywhere on the session's server, by absolute or `~/` path,
+    /// read through the server; view-only (ADR 0050).
+    case hostFile(String)
+    /// A file on this Mac, by absolute path, read by the app; view-only.
+    case localFile(String)
     /// A transcript image, by its attachment ID and filename.
     case image(id: String, filename: String)
     /// A browser tab. Each is its own instance; the workspace holds its page.
@@ -30,6 +35,8 @@ enum WorkspacePane: Hashable, Identifiable {
         case .scratchpad: "scratchpad"
         case .agent(let name): "agent:" + name
         case .file(let path): "file:" + path
+        case .hostFile(let path): "host-file:" + path
+        case .localFile(let path): "local-file:" + path
         case .image(let id, let filename): "image:" + id + ":" + filename
         case .browser(let id): "browser:" + id.uuidString.lowercased()
         case .terminal(let id): "terminal:" + id.uuidString.lowercased()
@@ -44,6 +51,7 @@ enum WorkspacePane: Hashable, Identifiable {
         case .scratchpad: "Scratchpad"
         case .agent(let name): name
         case .file(let path): URL(fileURLWithPath: path).lastPathComponent
+        case .hostFile(let path), .localFile(let path): path == "~" ? "~" : (path as NSString).lastPathComponent
         case .image(_, let filename): filename
         case .browser: "Browser"
         case .terminal: "Terminal"
@@ -60,6 +68,8 @@ enum WorkspacePane: Hashable, Identifiable {
         default:
             if id.hasPrefix("agent:"), id.count > 6 { self = .agent(String(id.dropFirst(6))) }
             else if id.hasPrefix("file:"), id.count > 5 { self = .file(String(id.dropFirst(5))) }
+            else if id.hasPrefix("host-file:"), id.count > 10 { self = .hostFile(String(id.dropFirst(10))) }
+            else if id.hasPrefix("local-file:"), id.count > 11 { self = .localFile(String(id.dropFirst(11))) }
             else if id.hasPrefix("browser:") {
                 guard let uuid = UUID(uuidString: String(id.dropFirst(8))) else { return nil }
                 self = .browser(uuid)
@@ -119,6 +129,9 @@ final class WorkspaceState {
     /// Whether Kit is the active app, so a notification from a terminal the
     /// user is looking at needs no toast.
     @ObservationIgnored var appIsActive: @MainActor () -> Bool = { NSApp?.isActive ?? false }
+    /// The session's working directory, which decides whether a linked path
+    /// opens as a workspace file or a host file.
+    @ObservationIgnored var currentDirectory: @MainActor () -> String? = { nil }
 
     struct TabDrag: Equatable {
         var pane: WorkspacePane
@@ -517,6 +530,12 @@ final class WorkspaceState {
     /// asked to open externally; the caller hands those to the system.
     @discardableResult
     func openLink(_ url: URL, beside anchor: WorkspacePane, externally: Bool = false) -> Bool {
+        if let path = FilePaths.path(fromLink: url) {
+            // A transcript path names a file on the server, however it's clicked.
+            guard let pane = FilePaths.serverPane(for: path, cwd: currentDirectory()) else { return true }
+            open(pane, beside: anchor)
+            return true
+        }
         guard BrowserAddress.isWeb(url), !externally else { return false }
         openBrowser(url, beside: anchor)
         return true

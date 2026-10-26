@@ -49,6 +49,7 @@ type sessionTransport interface {
 	GetWorkspace(context.Context, string) (protocol.WorkspaceRef, error)
 	ListWorkspaceDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
 	ReadWorkspaceFile(context.Context, string, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
+	ReadHostFile(context.Context, string, protocol.ReadHostFileInput) (protocol.HostFileRead, error)
 	ListDiffTargets(context.Context, string, protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error)
 	ObserveDiff(context.Context, string, protocol.ObserveDiffInput) (protocol.DiffPage, error)
 	ObserveWorkingTree(context.Context, string, protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error)
@@ -436,6 +437,25 @@ func (c *Session) ReadWorkspaceFile(ctx context.Context, input protocol.ReadWork
 	return sessionProjectedResult(c, ctx, projectWorkspaceError, func(operation context.Context) (protocol.WorkspaceFileRead, error) {
 		return c.transport.ReadWorkspaceFile(operation, c.id, input)
 	})
+}
+
+// ReadHostFile reads one file anywhere on the server's machine: a bounded
+// UTF-8 preview or a complete supported image. The path is absolute, or "~"
+// or "~/…" for the server user's home. Reads are view-only and not confined
+// to the session's working directory.
+//
+// A server that predates the operation fails with an UnsupportedError.
+func (c *Session) ReadHostFile(ctx context.Context, input protocol.ReadHostFileInput) (protocol.HostFileRead, error) {
+	return sessionProjectedResult(c, ctx, projectHostFileError, func(operation context.Context) (protocol.HostFileRead, error) {
+		return c.transport.ReadHostFile(operation, c.id, input)
+	})
+}
+
+func projectHostFileError(err error) error {
+	if errors.Is(err, httpapi.ErrOperationNotServed) {
+		return &UnsupportedError{Capability: "readHostFile"}
+	}
+	return projectWorkspaceError(err)
 }
 
 func (c *Session) ListDiffTargets(ctx context.Context, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {

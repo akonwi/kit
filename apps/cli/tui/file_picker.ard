@@ -2,6 +2,7 @@ use ard/testing
 
 use cooper/cui
 use cooper/keymap
+use go:kit/ffi/hostfilebridge
 use kit/tui/file_index
 use kit/tui/palette
 use kit/tui/theme
@@ -10,14 +11,23 @@ use go:strings
 // The `/files` picker: every indexed file of the session's working
 // directory in one searchable list, from the index the composer's file
 // mentions use. Choosing a file opens it in a File tab; Ctrl+R indexes the
-// directory again.
+// directory again. A query that is an absolute or ~/ path offers that path
+// instead, which opens on the session's server (ADR 0050).
+
+// The key prefix of the row a typed path offers.
+let path_key = "path:"
 
 struct Props {
   themes: theme::Context,
   index: file_index::Index,
+  // What the search field holds, as last reported.
+  query: Str,
+  on_query_change: fn(Str),
   dismiss: keymap::SimpleCommand,
   // Receives the chosen file's path.
   choose: fn(Str),
+  // Receives a typed absolute or ~/ path.
+  open_path: fn(Str),
   refresh: fn(),
 }
 
@@ -27,8 +37,8 @@ fn view(props: Props) cui::View {
     palette::new_picker,
     palette::PickerProps{
       themes: props.themes,
-      catalog: catalog(index),
-      placeholder: "Search indexed project paths…",
+      catalog: catalog(index, props.query),
+      placeholder: "Search indexed project paths or enter a path…",
       initial_selection: "",
       title: "Open file",
       footer: footer(index),
@@ -36,17 +46,42 @@ fn view(props: Props) cui::View {
       dismiss: props.dismiss,
       refresh: Maybe::new(props.refresh),
       empty: Maybe::new(empty(index)),
-      on_query_change: fn(query: Str) {},
+      on_query_change: props.on_query_change,
       on_selection_change: fn(selected: Str) {},
       on_activate: fn(item: palette::Item) {
-        (props.choose)(item.key)
+        match strings::HasPrefix(item.key, path_key) {
+          true => (props.open_path)(strings::TrimPrefix(item.key, path_key)),
+          false => (props.choose)(item.key),
+        }
       },
     },
   )
 }
 
-// The indexed files; directories, which end in "/", are left out.
-fn catalog(index: file_index::Index) [palette::Item] {
+// The indexed files; directories, which end in "/", are left out. A query
+// that is a path offers only that path.
+fn catalog(index: file_index::Index, query: Str) [palette::Item] {
+  match hostfilebridge::IsPath(query) {
+    true => [path_item(query)],
+    false => indexed(index),
+  }
+}
+
+// The row a typed path offers, which also matches the query as typed.
+private fn path_item(query: Str) palette::Item {
+  let typed = hostfilebridge::Typed(query)
+  palette::Item{
+    key: "{path_key}{typed}",
+    label: typed,
+    hint: "",
+    description: "Opens on the session's server",
+    meta: "",
+    search_terms: [query],
+    disabled_reason: "",
+  }
+}
+
+private fn indexed(index: file_index::Index) [palette::Item] {
   let items = mut List::new<palette::Item>()
   for indexed in index.paths {
     if not strings::HasSuffix(indexed, "/") {
@@ -95,7 +130,7 @@ private fn index(paths: [Str], loading: Bool) file_index::Index {
 }
 
 test fn the_catalog_lists_files_but_not_directories() Void!Str {
-  let items = catalog(index(["apps/", "apps/cli/main.ard", "go.mod"], false))
+  let items = catalog(index(["apps/", "apps/cli/main.ard", "go.mod"], false), "")
   try testing::assert(items.size() == 2, "two files")
   try testing::assert(items.at(0).expect("first").label == "apps/cli/main.ard", "files keep index order")
   testing::assert(items.at(1).expect("second").key == "go.mod", "keyed by path")
@@ -108,5 +143,22 @@ test fn the_picker_explains_an_empty_list() Void!Str {
   testing::assert(
     footer(index(["go.mod"], true)) == "Refreshing indexed files…",
     "a refresh keeps the list",
+  )
+}
+
+test fn a_typed_path_is_offered_to_open_on_the_server() Void!Str {
+  let items = catalog(index(["go.mod", "etc/hosts"], false), "  '/etc/my hosts'")
+  try testing::assert(items.size() == 1, "only the path is offered: {items.size()}")
+  let offered = items.at(0).expect("the path row")
+  try testing::assert(offered.label == "/etc/my hosts", "the path loses its quotes: {offered.label}")
+  try testing::assert(offered.key == "path:/etc/my hosts", "keyed as a path")
+  try testing::assert(offered.description == "Opens on the session's server", "it says where it opens")
+  try testing::assert(
+    catalog(index(["go.mod"], false), "~/notes.md").at(0).expect("home").label == "~/notes.md",
+    "~/ paths too",
+  )
+  testing::assert(
+    catalog(index(["go.mod"], false), "go").size() == 1,
+    "other queries search the index",
   )
 }

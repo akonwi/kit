@@ -79,6 +79,11 @@ type (
 	ForkSessionInput                  = contract.ForkSessionInput
 	ForkSessionResult                 = contract.ForkSessionResult
 	GitHubPullRequest                 = contract.GitHubPullRequest
+	HostFileKind                      = contract.HostFileKind
+	HostFilePayload                   = contract.HostFilePayload
+	HostFileRead                      = contract.HostFileRead
+	HostImageFile                     = contract.HostImageFile
+	HostTextFile                      = contract.HostTextFile
 	ImageContent                      = contract.ImageContent
 	InteractionAnswer                 = contract.InteractionAnswer
 	InteractionKind                   = contract.InteractionKind
@@ -138,6 +143,7 @@ type (
 	ProviderRetryScheduledEvent       = contract.ProviderRetryScheduledEvent
 	ProviderRetryStartedEvent         = contract.ProviderRetryStartedEvent
 	ReadFileDiffInput                 = contract.ReadFileDiffInput
+	ReadHostFileInput                 = contract.ReadHostFileInput
 	ReadWorkspaceFileInput            = contract.ReadWorkspaceFileInput
 	RedeemPairingInput                = contract.RedeemPairingInput
 	RedeemPairingResult               = contract.RedeemPairingResult
@@ -289,6 +295,8 @@ const (
 	FirstTurnInvalidRequest               = contract.FirstTurnInvalidRequest
 	FirstTurnNotFound                     = contract.FirstTurnNotFound
 	FirstTurnUnavailable                  = contract.FirstTurnUnavailable
+	HostFileImage                         = contract.HostFileImage
+	HostFileText                          = contract.HostFileText
 	InteractionAuthorize                  = contract.InteractionAuthorize
 	InteractionConfirm                    = contract.InteractionConfirm
 	InteractionGuided                     = contract.InteractionGuided
@@ -343,6 +351,8 @@ const (
 	MaxFileIndexEntries                   = contract.MaxFileIndexEntries
 	MaxFileIndexPathLen                   = contract.MaxFileIndexPathLen
 	MaxGuidedQuestions                    = contract.MaxGuidedQuestions
+	MaxHostFileImageBytes                 = contract.MaxHostFileImageBytes
+	MaxHostFileImagePixels                = contract.MaxHostFileImagePixels
 	MaxImageAttachmentBytes               = contract.MaxImageAttachmentBytes
 	MaxInteractionAnswerBytes             = contract.MaxInteractionAnswerBytes
 	MaxInteractionBytes                   = contract.MaxInteractionBytes

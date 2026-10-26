@@ -111,6 +111,7 @@ struct WorkspaceLayout: View {
         case .scratchpad: ScratchpadPane(state: state)
         case .agent(let name): AgentPane(state: state, name: name)
         case .file(let path): FilePane(state: state, path: path)
+        case .hostFile, .localFile: ExternalFilePane(state: state, pane: pane)
         case .image(let id, let filename): ImagePane(state: state, id: id, filename: filename)
         case .browser:
             if let tab = state.ui.workspace.browser(pane) { BrowserPane(workspace: state.ui.workspace, tab: tab) }
@@ -529,7 +530,7 @@ extension WorkspacePane {
         case .conversation: .chatCircle
         case .review: .gitDiff
         case .scratchpad: .note
-        case .file: .file
+        case .file, .hostFile, .localFile: .file
         case .image: .image
         case .browser: .browser
         case .terminal: .terminalWindow
@@ -551,6 +552,12 @@ private struct WorkspaceTabActions: View {
     var body: some View {
         if case .file(let file) = pane {
             FileTabMenuItems(actions: FileTabActions(file: file, cwd: state.selected?.cwd, gate: state.thisMacGate))
+            Divider()
+        } else if case .hostFile(let file) = pane, file.hasPrefix("/") {
+            FileTabMenuItems(actions: FileTabActions(file: file, cwd: nil, gate: state.thisMacGate))
+            Divider()
+        } else if case .localFile(let file) = pane {
+            FileTabMenuItems(actions: FileTabActions(file: file, cwd: nil, gate: .available))
             Divider()
         }
         Button("Split Right") { workspace.split(pane, .right) }.disabled(!workspace.canSplit(pane))

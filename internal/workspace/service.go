@@ -78,11 +78,15 @@ type Service struct {
 	cursorKey     [32]byte
 	limits        protocol.WorkspaceLimits
 	now           func() time.Time
+	// images admits full host image decodes; see ReadHostFile.
+	images chan struct{}
+	// home returns the server user's home directory for "~" paths.
+	home func() (string, error)
 }
 
 func NewService() *Service {
 	limits := protocol.DefaultWorkspaceLimits()
-	service := &Service{observations: map[string]*observation{}, sessions: map[string]*sessionGate{}, active: make(chan struct{}, limits.MaxActiveRequests*4), limits: limits, now: time.Now}
+	service := &Service{observations: map[string]*observation{}, sessions: map[string]*sessionGate{}, active: make(chan struct{}, limits.MaxActiveRequests*4), limits: limits, now: time.Now, images: make(chan struct{}, maxConcurrentImageReads), home: os.UserHomeDir}
 	if _, err := rand.Read(service.cursorKey[:]); err != nil {
 		panic(fmt.Sprintf("initialize workspace cursor key: %v", err))
 	}

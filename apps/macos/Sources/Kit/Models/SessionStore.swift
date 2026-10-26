@@ -514,6 +514,7 @@ final class SessionStore {
         ui = SessionUIState(demo: client.isDemo)
         demo = client.isDemo ? DemoSessionState() : nil
         ui.workspace.feedback = feedback(for: replica.selectedID)
+        ui.workspace.currentDirectory = { [weak self] in self?.selected?.cwd }
         demo?.select(selectedSnapshot)
         operationsBySession[replica.selectedID] = SessionOperations()
         configurations[replica.selectedID] = ComposerConfiguration()
@@ -565,6 +566,7 @@ final class SessionStore {
         ui.switchSession(from: SessionIdentity(server: replica.client.serverID, session: selectedID),
                          to: SessionIdentity(server: replica.client.serverID, session: id), demo: isDemo)
         ui.workspace.feedback = feedback(for: id)
+        ui.workspace.currentDirectory = { [weak self] in self?.selected?.cwd }
         if operationsBySession[id] == nil { operationsBySession[id] = SessionOperations() }
         if configurations[id] == nil { configurations[id] = ComposerConfiguration() }
         replica.select(id)
@@ -920,6 +922,14 @@ final class SessionStore {
         ui.filePickerIntent = intent
         ui.mentionQuery = ""
         ui.filePicker = true
+    }
+
+    /// Opens a path typed into Open File: a workspace file when it lies in
+    /// the working directory, otherwise the file on the session's server.
+    func openTypedPath(_ path: String) {
+        guard let pane = FilePaths.serverPane(for: path, cwd: selected?.cwd) else { return }
+        ui.workspace.open(pane)
+        ui.filePicker = false
     }
 
     func chooseFile(_ path: String) {

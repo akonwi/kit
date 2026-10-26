@@ -2,8 +2,8 @@ import AppKit
 import ImageIO
 import SwiftUI
 
-/// A transcript image at full size: fitted to the pane, zoomable, and
-/// pannable, with its size, Copy, and Save As in the header.
+/// A transcript image at full size, loaded from its attachment and shown in
+/// an `ImageViewer`.
 struct ImagePane: View {
     @Environment(\.mica) private var theme
     let state: SessionStore
@@ -12,74 +12,33 @@ struct ImagePane: View {
     @State private var image: LoadedImage?
     @State private var error: String?
     @State private var attempt = 0
-    @State private var zoom = ImageZoom()
 
     private var pane: WorkspacePane { .image(id: id, filename: filename) }
-    private var workspace: WorkspaceState { state.ui.workspace }
-    /// Zoom shortcuts apply only to the image in the focused tile.
-    private var focused: Bool { workspace.selected == pane && workspace.isVisible(pane) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Rule()
-            if let image {
-                ImageCanvas(image: image.cgImage, zoom: zoom, checker: (theme.raised, theme.surface))
-                    .accessibilityLabel("Image: " + filename)
-            } else if let error {
-                VStack(spacing: 10) {
-                    Text(error).foregroundStyle(theme.muted)
-                    Button("Retry") { attempt += 1 }.buttonStyle(FormButtonStyle())
-                }
-                .font(.kit(size: 12))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                KitSpinner("Loading image…").font(.kit(size: 12)).foregroundStyle(theme.muted)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .background { if focused && image != nil { shortcuts } }
-        .task(id: Request(server: state.serverID, session: state.selectedID, attempt: attempt)) { await load() }
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            Text(filename).font(.kit(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
-            if let image {
-                Text("\(image.width) × \(image.height) · " + ByteCountFormatter.string(fromByteCount: Int64(image.data.count), countStyle: .file))
-                    .font(.kit(size: 11)).foregroundStyle(theme.muted).lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            if image != nil {
-                Text("\(Int((zoom.scale * 100).rounded()))%").font(.kit(size: 11).monospacedDigit())
-                    .foregroundStyle(theme.muted)
-                    .accessibilityLabel("Zoom \(Int((zoom.scale * 100).rounded())) percent")
-                HStack(spacing: 2) {
-                    ZoomModeButton(title: "Fit", selected: zoom.fitted) { zoom.fit() }
-                        .help("Zoom to fit (⌘9)")
-                    ZoomModeButton(title: "100%", selected: !zoom.fitted && zoom.scale == 1) { zoom.actualSize() }
-                        .help("Actual size (⌘0)")
-                }
-                Button(action: copy) { IconView(.copy, size: 12) }
-                    .buttonStyle(.plain).foregroundStyle(theme.muted)
-                    .help("Copy image").accessibilityLabel("Copy image")
-                Button("Save As…", action: save).buttonStyle(.plain).font(.kit(size: 11))
-            }
-        }
-        .foregroundStyle(theme.text)
-        .padding(.horizontal, 20).frame(height: 38)
-    }
-
-    /// Preview's zoom keys, while this image's tile has focus.
-    private var shortcuts: some View {
         Group {
-            Button("") { zoom.zoomIn() }.keyboardShortcut("=", modifiers: .command)
-            Button("") { zoom.zoomIn() }.keyboardShortcut("+", modifiers: .command)
-            Button("") { zoom.zoomOut() }.keyboardShortcut("-", modifiers: .command)
-            Button("") { zoom.actualSize() }.keyboardShortcut("0", modifiers: .command)
-            Button("") { zoom.fit() }.keyboardShortcut("9", modifiers: .command)
+            if let image {
+                ImageViewer(workspace: state.ui.workspace, pane: pane, image: image, title: filename)
+            } else {
+                VStack(spacing: 0) {
+                    HStack { Text(filename).font(.kit(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle); Spacer() }
+                        .foregroundStyle(theme.text).padding(.horizontal, 20).frame(height: 38)
+                    Rule()
+                    if let error {
+                        VStack(spacing: 10) {
+                            Text(error).foregroundStyle(theme.muted)
+                            Button("Retry") { attempt += 1 }.buttonStyle(FormButtonStyle())
+                        }
+                        .font(.kit(size: 12))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        KitSpinner("Loading image…").font(.kit(size: 12)).foregroundStyle(theme.muted)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+            }
         }
-        .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
+        .task(id: Request(server: state.serverID, session: state.selectedID, attempt: attempt)) { await load() }
     }
 
     private struct Request: Equatable { let server: String; let session: String; let attempt: Int }
@@ -101,17 +60,89 @@ struct ImagePane: View {
             self.error = error.localizedDescription
         }
     }
+}
+
+/// A decoded image fitted to its pane, zoomable, and pannable, with its
+/// size, Copy, and Save As in the header. `leading` labels where the image
+/// came from, such as a file's machine.
+struct ImageViewer<Leading: View>: View {
+    @Environment(\.mica) private var theme
+    let workspace: WorkspaceState
+    let pane: WorkspacePane
+    let image: LoadedImage
+    let title: String
+    @ViewBuilder var leading: () -> Leading
+    @State private var zoom = ImageZoom()
+    @State private var error: String?
+
+    init(workspace: WorkspaceState, pane: WorkspacePane, image: LoadedImage, title: String,
+         @ViewBuilder leading: @escaping () -> Leading = { EmptyView() }) {
+        self.workspace = workspace; self.pane = pane; self.image = image; self.title = title; self.leading = leading
+    }
+
+    /// Zoom shortcuts apply only to the image in the focused tile.
+    private var focused: Bool { workspace.selected == pane && workspace.isVisible(pane) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Rule()
+            if let error {
+                Text(error).font(.kit(size: 11)).foregroundStyle(theme.muted).padding(12)
+                Rule()
+            }
+            ImageCanvas(image: image.cgImage, zoom: zoom, checker: (theme.raised, theme.surface))
+                .accessibilityLabel("Image: " + title)
+        }
+        .background { if focused { shortcuts } }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            leading()
+            Text(title).font(.kit(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+            Text("\(image.width) × \(image.height) · " + ByteCountFormatter.string(fromByteCount: Int64(image.data.count), countStyle: .file))
+                .font(.kit(size: 11)).foregroundStyle(theme.muted).lineLimit(1)
+            Spacer(minLength: 8)
+            Text("\(Int((zoom.scale * 100).rounded()))%").font(.kit(size: 11).monospacedDigit())
+                .foregroundStyle(theme.muted)
+                .accessibilityLabel("Zoom \(Int((zoom.scale * 100).rounded())) percent")
+            HStack(spacing: 2) {
+                ZoomModeButton(title: "Fit", selected: zoom.fitted) { zoom.fit() }
+                    .help("Zoom to fit (⌘9)")
+                ZoomModeButton(title: "100%", selected: !zoom.fitted && zoom.scale == 1) { zoom.actualSize() }
+                    .help("Actual size (⌘0)")
+            }
+            Button(action: copy) { IconView(.copy, size: 12) }
+                .buttonStyle(.plain).foregroundStyle(theme.muted)
+                .help("Copy image").accessibilityLabel("Copy image")
+            Button("Save As…", action: save).buttonStyle(.plain).font(.kit(size: 11))
+        }
+        .foregroundStyle(theme.text)
+        .padding(.horizontal, 20).frame(height: 38)
+    }
+
+    /// Preview's zoom keys, while this image's tile has focus.
+    private var shortcuts: some View {
+        Group {
+            Button("") { zoom.zoomIn() }.keyboardShortcut("=", modifiers: .command)
+            Button("") { zoom.zoomIn() }.keyboardShortcut("+", modifiers: .command)
+            Button("") { zoom.zoomOut() }.keyboardShortcut("-", modifiers: .command)
+            Button("") { zoom.actualSize() }.keyboardShortcut("0", modifiers: .command)
+            Button("") { zoom.fit() }.keyboardShortcut("9", modifiers: .command)
+        }
+        .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
+    }
 
     private func copy() {
-        guard let image else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([NSImage(cgImage: image.cgImage, size: .zero)])
     }
 
     private func save() {
-        guard let data = image?.data else { return }
+        let data = image.data
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = URL(fileURLWithPath: filename).lastPathComponent
+        panel.nameFieldStringValue = URL(fileURLWithPath: title).lastPathComponent
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             do { try data.write(to: url, options: .atomic) }

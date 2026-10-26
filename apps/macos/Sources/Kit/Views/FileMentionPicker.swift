@@ -12,8 +12,12 @@ struct FileMentionPicker: View {
     @State private var revision = 0
     @State private var loadID = UUID()
     @State private var error: String?
+    /// A path typed or pasted into Open File, which opens on the server
+    /// rather than searching workspace files (ADR 0050).
+    private var typedPath: String? { state.ui.filePickerIntent == "open" ? FilePaths.typed(query) : nil }
     private var files: [String] {
-        ComposerMentionState.filtered(query: query,
+        if typedPath != nil { return [] }
+        return ComposerMentionState.filtered(query: query,
             paths: (state.isDemo ? state.ui.workspace.fixture.files.map(\.path) : remoteFiles)
                 .filter { !$0.hasSuffix("/") })
     }
@@ -44,7 +48,7 @@ struct FileMentionPicker: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
                 IconView(.fileMagnifyingGlass, size: 16).foregroundStyle(theme.muted)
-                TextField(state.ui.filePickerIntent == "open" ? "Find a workspace file…" : "Mention a file…", text: $query)
+                TextField(state.ui.filePickerIntent == "open" ? "Find a workspace file or enter a path…" : "Mention a file…", text: $query)
                     .textFieldStyle(.plain).font(.kit(size: 15)).focused($focused).onSubmit { choose() }
                 Button { dismiss() } label: { IconView(.x, size: 12) }.buttonStyle(.plain).accessibilityLabel("Close file picker")
             }.padding(20)
@@ -60,6 +64,19 @@ struct FileMentionPicker: View {
             ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    if let typedPath {
+                        Button { state.openTypedPath(typedPath) } label: {
+                            HStack(spacing: 12) {
+                                IconView(.file, size: 12)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(typedPath).font(.kit(size: 12, design: .monospaced)).lineLimit(2).multilineTextAlignment(.leading)
+                                    Text(Self.typedPathDetail).font(.kit(size: 11)).foregroundStyle(theme.muted)
+                                }
+                                Spacer()
+                            }.padding(12).background(theme.hover).contentShape(Rectangle())
+                        }.buttonStyle(.plain).padding(.horizontal, 8)
+                            .accessibilityLabel("Open \(typedPath) on the server")
+                    }
                     ForEach(Array(matches.enumerated()), id: \.element) { index, file in
                         Button { selection = index; choose() } label: {
                             HStack(spacing: 12) {
@@ -71,7 +88,7 @@ struct FileMentionPicker: View {
                     }
                     if loading { KitSpinner().padding(20) }
                     if let error { Text(error).foregroundStyle(theme.muted); Button("Retry") { revision += 1 } }
-                    if matches.isEmpty && !loading && error == nil { Text("No matching files").foregroundStyle(theme.muted).padding(20) }
+                    if matches.isEmpty && typedPath == nil && !loading && error == nil { Text("No matching files").foregroundStyle(theme.muted).padding(20) }
                 }
             }
             .onChange(of: selection) {
@@ -95,7 +112,11 @@ struct FileMentionPicker: View {
     }
 
     private func dismiss() { state.ui.filePicker = false }
+    /// Says where a typed path opens, and how to open a file on this Mac.
+    static let typedPathDetail = "Opens on the session’s server · Open File on This Mac… (⇧⌘O) opens a file here"
+
     private func choose() {
+        if let typedPath { state.openTypedPath(typedPath); return }
         guard files.indices.contains(selection) else { return }
         state.chooseFile(files[selection])
     }

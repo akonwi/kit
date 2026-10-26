@@ -85,7 +85,7 @@ func (e WorkspaceError) Validate() error {
 
 func allowedWorkspaceLimit(value string) bool {
 	switch value {
-	case "path_bytes", "path_components", "path_name_checks", "page_size", "directory_entries", "directory_response_bytes", "directory_observation_bytes":
+	case "path_bytes", "path_components", "path_name_checks", "page_size", "directory_entries", "directory_response_bytes", "directory_observation_bytes", "image_bytes", "image_pixels":
 		return true
 	default:
 		return false

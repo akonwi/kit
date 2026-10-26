@@ -16,6 +16,7 @@ use go:github.com/akonwi/kit/internal/theme as kittheme
 use go:kit/ffi/authbridge
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
+use go:kit/ffi/hostfilebridge
 use go:kit/ffi/sessionbridge
 use go:kit/ffi/toolpresentation
 use go:kit/ffi/updatebridge
@@ -92,7 +93,10 @@ struct SettingsModal {
 struct ThinkingPickerModal {}
 struct SessionsModal {}
 struct TabsModal {}
-struct FilesModal {}
+// The file picker and what its search field holds, which may be a path.
+struct FilesModal {
+  query: Str,
+}
 // The subagents picker, or, given a conversation, its dismissal question.
 struct SubagentsModal {
   confirm: Str,
@@ -652,20 +656,23 @@ impl Shell {
     }
     // File panes stay mounted while hidden, keeping their place in the file.
     let reader = self.attached.file_reader()
+    let host_reader = self.attached.host_reader()
     let annotate = self.attached.annotation_service()
     for tab in self.workspace.open {
-      if tab.kind == workspace::Kind::file {
+      if workspace::is_file(tab.kind) {
         let shown = tab.id == self.workspace.selected
         children.push(
           cui::box(
             [
               file_pane::view(
                 file_pane::Props{
+                  // A host file's path doesn't depend on the workspace.
                   themes: self.props.themes,
                   tab: tab,
-                  stale: tab.workspace_id != self.attached.workspace_id,
+                  stale: tab.kind == workspace::Kind::file and tab.workspace_id != self.attached.workspace_id,
                   shown: shown,
                   read: reader,
+                  read_host: host_reader,
                   annotations: self.attached.annotations,
                   annotate: annotate,
                   remove_annotation: fn(id: Uint64) {
@@ -1035,11 +1042,25 @@ impl Shell {
     )
   }
 
-  fn mut files_modal() cui::View {
+  fn mut files_modal(query: Str) cui::View {
     file_picker::view(
       file_picker::Props{
         themes: self.props.themes,
         index: self.attached.files.index,
+        query: query,
+        on_query_change: fn(next: Str) {
+          self.dispatch(fn() {
+            if self.files_open() {
+              self.active_modal = FilesModal{query: next}
+            }
+          })
+        },
+        open_path: fn(file_path: Str) {
+          self.dispatch(fn() {
+            self.finish_modal()
+            self.open_server_path(file_path, 0)
+          })
+        },
         dismiss: keymap::simple_command("files.dismiss", "Close", fn() Bool {
           self.dismiss_modal()
         }),
@@ -1673,7 +1694,7 @@ impl cui::Component for Shell {
       rename::Request(request) => layers.push(self.rename_session_modal(request)),
       SessionsModal => layers.push(self.sessions_modal()),
       TabsModal => layers.push(self.tabs_modal()),
-      FilesModal => layers.push(self.files_modal()),
+      FilesModal(request) => layers.push(self.files_modal(request.query)),
       SubagentsModal(request) => layers.push(self.subagents_modal(request.confirm)),
       SubagentModelModal(request) => layers.push(self.subagent_model_modal(request.conversation)),
       SubagentThinkingModal(request) => layers.push(self.subagent_thinking_modal(request.conversation)),
@@ -1910,6 +1931,13 @@ impl Shell {
   fn modal_closed() Bool {
     match self.active_modal {
       NoModal => true,
+      _ => false,
+    }
+  }
+
+  fn files_open() Bool {
+    match self.active_modal {
+      FilesModal => true,
       _ => false,
     }
   }
@@ -2467,7 +2495,7 @@ impl Shell {
   fn mut open_files() Bool {
     self.attached.load_files()
     self.attached.load_workspace()
-    self.active_modal = FilesModal{}
+    self.active_modal = FilesModal{query: ""}
     true
   }
 
@@ -2486,21 +2514,22 @@ impl Shell {
     }
   }
 
-  // Opens the file a tool row names, which must lie in the working
-  // directory.
+  // Opens the file a tool row names on the session's server: its workspace
+  // file when it lies in the working directory, otherwise a host File tab
+  // (ADR 0050).
   fn mut open_tool_file(target: toolpresentation::FileTarget) {
+    self.open_server_path(target.Path, target.Line)
+  }
+
+  // Opens a path on the session's server, absolute, ~/, or relative to the
+  // working directory, at line when it is above 0.
+  fn mut open_server_path(file_path: Str, line: Int) {
     let cwd = self.attached.info.or(protocol::SessionInfo{}).CWD
-    let relative = toolpresentation::WorkspacePath(cwd, target.Path)
-    match relative == "" {
-      true => {
-        self.notify(
-          "File unavailable",
-          "The tool reported a path outside the current workspace.",
-          toast::Variant::warning,
-          false,
-        )
-      },
-      false => self.open_file(relative, target.Line),
+    let target = hostfilebridge::Resolve(cwd, file_path)
+    match {
+      target.Workspace != "" => self.open_file(target.Workspace, line),
+      target.Host != "" => self.open_tab(workspace::host_file(target.Host, line)),
+      _ => self.notify("File unavailable", "Kit can't open {file_path}.", toast::Variant::warning, false),
     }
   }
 

@@ -60,6 +60,15 @@ func Decode(content io.Reader, maxWidth, maxHeight int) (Pixels, error) {
 	if len(encoded) > protocol.MaxImageAttachmentBytes {
 		return Pixels{}, errors.New("image is too large to preview")
 	}
+	return DecodeBytes(encoded, maxWidth, maxHeight)
+}
+
+// DecodeBytes scales an encoded image as Decode does. The caller bounds the
+// encoded size; the decoded size is bounded here.
+func DecodeBytes(encoded []byte, maxWidth, maxHeight int) (Pixels, error) {
+	if maxWidth <= 0 || maxHeight <= 0 {
+		return Pixels{}, errors.New("preview bounds must be positive")
+	}
 	config, _, err := image.DecodeConfig(bytes.NewReader(encoded))
 	if err != nil {
 		return Pixels{}, fmt.Errorf("unsupported image: %w", err)

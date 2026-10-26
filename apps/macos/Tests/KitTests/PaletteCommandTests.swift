@@ -9,7 +9,7 @@ struct PaletteCommandTests {
         #expect(names == [
             "cd", "compact", "debug", "diff", "files", "fork", "login", "mcp", "model", "name", "new", "quit",
             "refresh-models", "reload", "sessions", "subagents", "tabs", "theme", "thinking",
-            "browser", "split-right", "split-down", "zoom", "equalize", "join-tabs", "terminal", "scratchpad"
+            "browser", "split-right", "split-down", "zoom", "equalize", "join-tabs", "local-file", "terminal", "scratchpad"
         ])
         #expect(PaletteCommand.builtIns(terminal: false).contains { $0.name == "terminal" } == false)
         #expect(PaletteCommand.builtIns(scratchpad: false).contains { $0.name == "scratchpad" } == false)
@@ -25,6 +25,7 @@ struct PaletteCommandTests {
         #expect(rows["diff"]?.description == "Review working-tree changes")
         #expect(rows["scratchpad"]?.description == "Open shared working notes")
         #expect(rows["subagents"]?.description == "Inspect delegated work")
+        #expect(rows["local-file"]?.description == "View a file on this Mac")
     }
 
     @Test func builtInsPromptsAndPluginsSortTogetherIgnoringCase() {

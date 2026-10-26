@@ -6,6 +6,8 @@ use cooper/cui
 use cooper/event
 use cooper/testing as headless
 use cooper/ui
+use go:kit/ffi/attachmentbridge
+use go:kit/ffi/hostfilebridge
 use go:kit/ffi/sessionbridge
 use kit/tui/annotations
 use kit/tui/file_pane
@@ -533,4 +535,175 @@ test fn editing_a_long_note_loads_its_whole_body() Void!Str {
     strings::Contains(shown.terminal.frame().text(), "│ the whole note"),
     "the editor holds the whole body: {strings::Join(mut rows(shown.terminal), "|\n")}",
   )
+}
+
+// Mounts a shown host File tab for path, which reads as `read` returns, and
+// waits for it to load.
+fn show_host(
+  width: Int,
+  height: Int,
+  file_path: Str,
+  read: fn(Str, Int, Int) hostfilebridge::File!Error,
+) Shown {
+  let terminal = headless::new(width, height)
+  let tabs = workspace::tabs()
+  let _ = tabs.open(workspace::host_file(file_path, 0))
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    file_pane::view(
+      file_pane::Props{
+        themes: theme::context(theme::store(theme::system())),
+        tab: tabs.current().expect("the host file tab"),
+        stale: false,
+        shown: true,
+        read_host: Maybe::new(read),
+        annotations: [],
+        annotate: Maybe::new(
+          annotations::Service{
+            create: fn(anchor: protocol::AnnotationAnchor, body: Str) Str {
+              ""
+            },
+            update: fn(id: Uint64, body: Str) Str {
+              ""
+            },
+            remove: fn(id: Uint64) Str {
+              ""
+            },
+            body: fn(id: Uint64) Str!Str {
+              Result::ok("")
+            },
+          },
+        ),
+        remove_annotation: fn(id: Uint64) {},
+        release_focus: fn() {},
+      },
+    ),
+  )
+  settle(terminal, "Loading file")
+  Shown{terminal: terminal, renderer: renderer}
+}
+
+test fn a_host_file_shows_its_text_by_absolute_path_without_annotations() Void!Str {
+  let shown = show_host(
+    48,
+    6,
+    "/etc/hosts",
+    fn(file_path: Str, width: Int, height: Int) hostfilebridge::File!Error {
+      let content = "127.0.0.1 localhost\n::1 localhost\n"
+      Result::ok(
+        hostfilebridge::File{
+          Text: protocol::WorkspaceFileRead{
+            Path: file_path,
+            Content: content,
+            Size: Int64::from(content.size()),
+          },
+        },
+      )
+    },
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  shown.terminal.mouse_move(10, 3)
+  shown.terminal.flush()
+  expect_rows(
+    rows(shown.terminal),
+    [
+      " /etc/hosts               Ln 2 · 2 lines · 34 B",
+      "────────────────────────────────────────────────",
+      "   1 127.0.0.1 localhost",
+      "   2 ::1 localhost",
+      "",
+      "",
+    ],
+  )
+}
+
+test fn a_host_image_fills_the_pane_keeping_its_proportions() Void!Str {
+  let shown = show_host(
+    48,
+    8,
+    "/Users/me/shot.png",
+    fn(file_path: Str, width: Int, height: Int) hostfilebridge::File!Error {
+      let pixels = mut List::new<Byte>()
+      for index in 1..32 {
+        pixels.push(Byte::from(255))
+        pixels.push(Byte::from(0))
+        pixels.push(Byte::from(0))
+        pixels.push(Byte::from(255))
+      }
+      Result::ok(
+        hostfilebridge::File{
+          Text: protocol::WorkspaceFileRead{Path: file_path, Size: Int64::from(2048)},
+          Image: true,
+          MediaType: "image/png",
+          Width: 800,
+          Height: 400,
+          Pixels: attachmentbridge::Pixels{
+            Width: 8,
+            Height: 4,
+            RGBA: pixels.@,
+          },
+        },
+      )
+    },
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  let shown_rows = rows(shown.terminal)
+  try testing::assert(
+    shown_rows.at(0).or("") == " /Users/me/shot.png         800 × 400 · 2.0 KiB",
+    "the header describes the image: {shown_rows.at(0).or("")}|",
+  )
+  // Six rows of body: a 2:1 image in cells twice as tall as wide is 24
+  // cells wide in six rows, centred in the 48.
+  let top_left = shown.terminal.frame().cell(12, 2).expect("image top left")
+  let bottom_right = shown.terminal.frame().cell(35, 7).expect("image bottom right")
+  try testing::assert(
+    top_left.grapheme == "▀" and bottom_right.grapheme == "▀",
+    "the image spans 24 cells by 6 rows",
+  )
+  try testing::assert(
+    shown.terminal.frame().cell(11, 2).expect("left of the image").grapheme != "▀",
+    "centred: nothing to its left",
+  )
+  testing::assert(
+    shown.terminal.frame().cell(36, 2).expect("right of the image").grapheme != "▀",
+    "nor to its right",
+  )
+}
+
+test fn a_host_file_that_cannot_be_shown_says_why() Void!Str {
+  let shown = show_host(
+    64,
+    5,
+    "/bin/ls",
+    fn(file_path: Str, width: Int, height: Int) hostfilebridge::File!Error {
+      Result::err(Error::new("context canceled"))
+    },
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(
+    rows(shown.terminal),
+    [
+      " /bin/ls",
+      "────────────────────────────────────────────────────────────────",
+      "",
+      " Load canceled",
+      " It loads again when this tab is next shown.",
+    ],
+  )
+}
+
+test fn host_images_fit_their_cells() Void!Str {
+  try testing::assert(
+    file_pane::image_cells(800, 400, 40, 6).columns == 24,
+    "a short pane limits the rows",
+  )
+  try testing::assert(
+    file_pane::image_cells(800, 400, 40, 20).rows == 10,
+    "a wide pane limits the columns",
+  )
+  try testing::assert(file_pane::image_cells(800, 400, 40, 20).columns == 40, "at its full width")
+  testing::assert(file_pane::image_cells(1, 1000, 40, 6).columns == 1, "a sliver keeps a cell")
 }

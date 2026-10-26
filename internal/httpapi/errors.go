@@ -126,6 +126,11 @@ func DecodeStreamError[Params, Payload any](op StreamOperation[Params, Payload],
 	return decodeDeclaredError(op.Errors, statusCode, body)
 }
 
+// ErrOperationNotServed reports a 404 without an operation error body: the
+// server routed no handler for the request, as a server that predates the
+// operation answers.
+var ErrOperationNotServed = errors.New("daemon does not serve this operation")
+
 func decodeDeclaredError(declared []ErrorResponse, statusCode int, body []byte) error {
 	responses := mergeErrorResponses(declared, CommonErrorResponses)
 	var declaration *ErrorResponse
@@ -146,6 +151,9 @@ func decodeDeclaredError(declared []ErrorResponse, statusCode int, body []byte) 
 		} `json:"error"`
 	}
 	if err := decodeStrictJSONObject(body, &envelope); err != nil || envelope.Error.Code == "" || !protocol.ValidErrorMessage(envelope.Error.Message) {
+		if statusCode == http.StatusNotFound && err != nil && !json.Valid(body) {
+			return ErrOperationNotServed
+		}
 		return fmt.Errorf("daemon returned malformed operation error")
 	}
 	if !containsCode(declaration.Codes, envelope.Error.Code) {

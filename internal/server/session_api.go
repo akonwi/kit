@@ -121,6 +121,9 @@ type sessionService interface {
 	Workspace(context.Context, string) (protocol.WorkspaceRef, error)
 	ListDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
 	ReadWorkspaceFile(context.Context, string, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
+	// ReadHostFile reads a file on this machine; the caller calls the
+	// returned func once the read is written.
+	ReadHostFile(context.Context, string, protocol.ReadHostFileInput) (protocol.HostFileRead, func(), error)
 	ListDiffTargets(context.Context, string, protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error)
 	ObserveDiff(context.Context, string, protocol.ObserveDiffInput) (protocol.DiffPage, error)
 	ObserveWorkingTree(context.Context, string, protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error)
@@ -408,6 +411,18 @@ func (s runtimeSessionService) ListDirectory(ctx context.Context, sessionID stri
 		return protocol.DirectoryPage{}, &kitworkspace.Error{Code: kitworkspace.StaleWorkspace, Message: "the session workspace changed"}
 	}
 	return result, nil
+}
+
+// ReadHostFile reads one file on this machine for an existing session.
+func (s runtimeSessionService) ReadHostFile(ctx context.Context, sessionID string, input protocol.ReadHostFileInput) (protocol.HostFileRead, func(), error) {
+	workspaces, err := s.workspaceService()
+	if err != nil {
+		return protocol.HostFileRead{}, func() {}, err
+	}
+	if _, err := s.manager.Get(ctx, sessionID); err != nil {
+		return protocol.HostFileRead{}, func() {}, err
+	}
+	return workspaces.ReadHostFile(ctx, sessionID, input)
 }
 
 func (s runtimeSessionService) ReadWorkspaceFile(ctx context.Context, sessionID string, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
@@ -2141,6 +2156,26 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
+	// Raw, so an image stays admitted until its response is written.
+	httpapi.HandleRaw(mux, httpapi.ReadHostFile, func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ReadHostFileInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, invalidAPIError())
+			return
+		}
+		sessionID := request.PathValue("sessionID")
+		result, done, err := service.ReadHostFile(request.Context(), sessionID, input)
+		defer done()
+		if err != nil {
+			writeSessionError(writer, hostFileAPIError(err))
+			return
+		}
+		if err := result.Validate(); err != nil || result.SessionID() != sessionID {
+			writeSessionError(writer, internalAPIErrorCausedBy(fmt.Errorf("invalid host file read for session %q: %v", sessionID, err)))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
 	httpapi.Handle(mux, httpOptions, httpapi.ListDiffTargets, func(ctx context.Context, params httpapi.SessionPath, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
 		if err := input.Validate(); err != nil {
 			return protocol.DiffTargetCatalog{}, invalidAPIError()
@@ -2712,6 +2747,29 @@ func decodeSessionJSON(writer http.ResponseWriter, request *http.Request, target
 	return nil
 }
 
+// hostFileAPIError projects a host file read failure onto the errors the
+// operation declares: workspace errors keep their codes.
+func hostFileAPIError(err error) error {
+	var workspaceErr *kitworkspace.Error
+	switch {
+	case errors.As(err, &workspaceErr):
+		return err
+	case errors.Is(err, kitsession.ErrNotFound):
+		return httpapi.NewAPIError(http.StatusNotFound, httpapi.ErrorNotFound, "session not found", nil)
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return httpapi.NewAPIError(http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "the read was canceled", nil)
+	default:
+		return internalAPIErrorCausedBy(err)
+	}
+}
+
+// internalAPIErrorCausedBy reports an internal error, logging its cause.
+func internalAPIErrorCausedBy(cause error) error {
+	failure := httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error", nil)
+	failure.Cause = cause
+	return failure
+}
+
 func invalidAPIError() error {
 	return httpapi.NewAPIError(http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request", nil)
 }
@@ -2950,7 +3008,12 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 		if status == 0 {
 			status = http.StatusInternalServerError
 		}
-		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": workspaceErr.Code, "message": protocol.SanitizeErrorMessage(workspaceErr.Message, http.StatusText(status)), "details": workspaceErr.Details}})
+		body := map[string]any{"code": workspaceErr.Code, "message": protocol.SanitizeErrorMessage(workspaceErr.Message, http.StatusText(status))}
+		// Codes declared without details must omit the member, not send null.
+		if len(workspaceErr.Details) > 0 {
+			body["details"] = workspaceErr.Details
+		}
+		writeJSON(writer, status, map[string]any{"error": body})
 		return
 	}
 	status := http.StatusInternalServerError

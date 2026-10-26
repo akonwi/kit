@@ -221,6 +221,7 @@ struct CommandPalette: View {
                     workspace.openBrowser().navigate(trimmed)
                 }
             case "files": state.showFiles(intent: "open")
+            case "local-file": LocalFilePanel.open(into: workspace)
             case "new": newSession()
             case "quit": NSApp.terminate(nil)
             case "login": close(); SettingsSection.providers.open(with: openSettings)
@@ -339,6 +340,8 @@ struct PaletteChoices: View {
         case .scratchpad: "Shared working notes"
         case .agent: "Subagent conversation"
         case .file(let path): path
+        case .hostFile(let path): path + " · Server"
+        case .localFile(let path): path + " · This Mac"
         case .image: "Transcript image"
         case .browser: workspace.browser(pane)?.url.map { BrowserAddress.withoutCredentials($0).absoluteString } ?? "New browser tab"
         case .terminal: workspace.terminal(pane).map { ($0.directory as NSString).abbreviatingWithTildeInPath } ?? "Terminal"

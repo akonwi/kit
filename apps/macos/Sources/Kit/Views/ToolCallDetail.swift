@@ -329,7 +329,8 @@ private struct DashedRule: View {
     }
 }
 
-/// A path in a well that opens its file when it lies in the workspace.
+/// A path in a well that opens its file on the session's server: in the
+/// workspace when it lies there, otherwise as a host file.
 private struct FileLink: View {
     @Environment(\.mica) private var theme
     let text: String
@@ -343,14 +344,22 @@ private struct FileLink: View {
         let label = Text(text)
             .font(monospaced ? .kit(size: 11, design: .monospaced) : .kit(size: 12, weight: .medium))
             .lineLimit(1).truncationMode(.head)
-        if let file = ToolPresentation.workspacePath(path, cwd: cwd) {
-            Button { workspace.open(.file(file)) } label: { label }
+        if let pane = FilePaths.serverPane(for: path, cwd: cwd) {
+            Button { workspace.open(pane) } label: { label }
                 .buttonStyle(.plain)
                 .foregroundStyle(hovering ? theme.accent : theme.text)
                 .onHover { hovering = $0 }
-                .help("Open \(file)")
+                .help("Open \(Self.name(pane))")
         } else {
             label.foregroundStyle(theme.text)
+        }
+    }
+
+    /// The path a help tag names: the workspace path, or the host path.
+    private static func name(_ pane: WorkspacePane) -> String {
+        switch pane {
+        case .file(let path), .hostFile(let path): path
+        default: pane.title
         }
     }
 }

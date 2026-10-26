@@ -14,8 +14,11 @@ let limit = 32
 let agent = ""
 
 enum Kind {
+  // A file on the session's server outside its working directory, read
+  // through the server and shown view-only (ADR 0050).
   scratchpad,
   file,
+  host_file,
   diff,
   subagent,
 }
@@ -25,7 +28,8 @@ struct Tab {
   id: Str,
   kind: Kind,
   label: Str,
-  // A File tab's workspace-relative path and the workspace it was opened in.
+  // A File tab's workspace-relative path and the workspace it was opened
+  // in; a host File tab's absolute or ~/ path on the server.
   path: Str,
   workspace_id: Str,
   // The line a File tab was last asked to show, or 0, and which opening
@@ -57,6 +61,21 @@ fn file(workspace_id: Str, file_path: Str, line: Int) Tab {
     label: path::Base(file_path),
     path: file_path,
     workspace_id: workspace_id,
+    line: line,
+    opening: 0,
+  }
+}
+
+// A File tab for a file on the session's server outside its working
+// directory, by absolute or ~/ path. It doesn't follow the working
+// directory: the path names the same file wherever the session works.
+fn host_file(file_path: Str, line: Int) Tab {
+  Tab{
+    id: "host-file:{file_path}",
+    kind: Kind::host_file,
+    label: path::Base(file_path),
+    path: file_path,
+    workspace_id: "",
     line: line,
     opening: 0,
   }
@@ -211,7 +230,7 @@ impl Tabs {
     for tab in self.open {
       mut shared = false
       for other in self.open {
-        let both_files = other.kind == Kind::file and tab.kind == Kind::file
+        let both_files = is_file(other.kind) and is_file(tab.kind)
         if other.id != tab.id and both_files and other.label == tab.label {
           shared = true
         }
@@ -253,6 +272,11 @@ impl Tabs {
       true
     }
   }
+}
+
+// Whether tabs of the kind show a file.
+fn is_file(kind: Kind) Bool {
+  kind == Kind::file or kind == Kind::host_file
 }
 
 private fn named(name: Str) Tab {
@@ -344,4 +368,23 @@ test fn file_tabs_sharing_a_name_show_their_paths() Void!Str {
   try testing::assert(labels.at(1).or("") == "cmd/kit/main.go", "a shared name shows the path")
   try testing::assert(labels.at(2).or("") == "apps/cli/main.go", "for each tab sharing it")
   testing::assert(labels.at(3).or("") == "go.mod", "a unique name stays short")
+}
+
+test fn host_file_tabs_are_one_per_path_and_share_names_with_file_tabs() Void!Str {
+  let subject = tabs()
+  let _ = subject.open(file("workspace_a", "cmd/main.go", 0))
+  let _ = subject.open(host_file("/srv/other/cmd/main.go", 0))
+  let _ = subject.open(host_file("/srv/other/cmd/main.go", 4))
+  try testing::assert(subject.open.size() == 2, "reopening a host path selects its tab")
+  let opened = subject.current().expect("the host file tab")
+  try testing::assert(
+    opened.id == "host-file:/srv/other/cmd/main.go" and opened.kind == Kind::host_file and opened.line == 4,
+    "a host tab is identified by its path",
+  )
+  let labels = subject.labels()
+  try testing::assert(labels.at(0).or("") == "cmd/main.go", "a workspace file shows its path")
+  testing::assert(
+    labels.at(1).or("") == "/srv/other/cmd/main.go",
+    "and a host file its absolute path",
+  )
 }

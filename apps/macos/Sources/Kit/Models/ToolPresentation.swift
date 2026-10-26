@@ -198,7 +198,7 @@ struct ToolPresentation {
     var link: ToolLink? {
         guard tool.notRun != true else { return nil }
         switch kind {
-        case "read", "write", "edit":
+        case "read", "write", "edit", "show_image", "inspect_image":
             return text("path").map(ToolLink.file)
         case "subagent":
             return text("agent").map(ToolLink.agent)

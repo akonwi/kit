@@ -14,6 +14,7 @@ use go:kit/ffi/attachmentbridge
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/footer
+use go:kit/ffi/hostfilebridge
 use go:kit/ffi/promptcommand
 use go:kit/ffi/sessionbridge
 use kit/tui/annotations
@@ -2053,6 +2054,24 @@ impl Controller {
         }
       },
       _ => Maybe::new<fn(protocol::ReadWorkspaceFileInput) protocol::WorkspaceFileRead!Error>(),
+    }
+  }
+
+  // host_reader reads files on the session's server outside its working
+  // directory for host File panes. Like `file_reader`, its calls block.
+  fn host_reader() (fn(Str, Int, Int) hostfilebridge::File!Error)? {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            Maybe::new(fn(file_path: Str, width: Int, height: Int) hostfilebridge::File!Error {
+              hostfilebridge::Read(session, lifetime.Context, file_path, width, height)
+            })
+          },
+          _ => Maybe::new<fn(Str, Int, Int) hostfilebridge::File!Error>(),
+        }
+      },
+      _ => Maybe::new<fn(Str, Int, Int) hostfilebridge::File!Error>(),
     }
   }
 
