@@ -4497,8 +4497,35 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/FollowUpAdmissionFailure`.
+        internal struct FollowUpAdmissionFailure: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/FollowUpAdmissionFailure/message`.
+            internal var message: Swift.String
+            /// Creates a new `FollowUpAdmissionFailure`.
+            ///
+            /// - Parameters:
+            ///   - message:
+            internal init(message: Swift.String) {
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/FollowUpQueue`.
         internal struct FollowUpQueue: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/FollowUpQueue/admissionFailure`.
+            internal var admissionFailure: Components.Schemas.FollowUpAdmissionFailure?
             /// - Remark: Generated from `#/components/schemas/FollowUpQueue/annotationIds`.
             internal var annotationIds: [Swift.Int]?
             /// - Remark: Generated from `#/components/schemas/FollowUpQueue/count`.
@@ -4508,25 +4535,33 @@ extension Components {
             /// Creates a new `FollowUpQueue`.
             ///
             /// - Parameters:
+            ///   - admissionFailure:
             ///   - annotationIds:
             ///   - count:
             ///   - previews:
             internal init(
+                admissionFailure: Components.Schemas.FollowUpAdmissionFailure? = nil,
                 annotationIds: [Swift.Int]? = nil,
                 count: Swift.Int,
                 previews: [Swift.String]? = nil
             ) {
+                self.admissionFailure = admissionFailure
                 self.annotationIds = annotationIds
                 self.count = count
                 self.previews = previews
             }
             internal enum CodingKeys: String, CodingKey {
+                case admissionFailure
                 case annotationIds
                 case count
                 case previews
             }
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.admissionFailure = try container.decodeIfPresent(
+                    Components.Schemas.FollowUpAdmissionFailure.self,
+                    forKey: .admissionFailure
+                )
                 self.annotationIds = try container.decodeIfPresent(
                     [Swift.Int].self,
                     forKey: .annotationIds
@@ -4540,6 +4575,7 @@ extension Components {
                     forKey: .previews
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "admissionFailure",
                     "annotationIds",
                     "count",
                     "previews"

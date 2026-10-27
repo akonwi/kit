@@ -1092,12 +1092,18 @@ impl Live {
         true
       },
       Event::compaction_started => {
-        self.thinking = ""
-        self.activity = "Compacting session…"
+        // A compaction without a turn belongs to the session, which tracks
+        // it apart from the live turn.
+        if event.TurnID != "" {
+          self.thinking = ""
+          self.activity = "Compacting session…"
+        }
         false
       },
       Event::compaction_finished => {
-        self.activity = "Working…"
+        if event.TurnID != "" {
+          self.activity = "Working…"
+        }
         false
       },
       Event::retry_scheduled => {

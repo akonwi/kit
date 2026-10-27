@@ -75,6 +75,30 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 			}},
 			want: `{"streamId":"stream_1","sequence":9,"sessionId":"session_1","kind":"client_plugin.call.resolved","clientPluginCallId":"clientcall_0123456789abcdef0123456789abcdef","clientPluginInstanceId":"clientplugin_0123456789abcdef0123456789abcdef","clientPluginCallResolution":"timed_out"}`,
 		},
+		{
+			name: "held follow-up queue carries its admission failure",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 10, SessionID: "session_1", Payload: FollowUpsChangedEvent{FollowUps: &FollowUpQueue{
+				Count: 1, Previews: []string{"next"}, AdmissionFailure: &FollowUpAdmissionFailure{Message: "attachment is unavailable"},
+			}}},
+			want: `{"streamId":"stream_1","sequence":10,"sessionId":"session_1","kind":"follow_ups.changed","followUps":{"count":1,"previews":["next"],"admissionFailure":{"message":"attachment is unavailable"}}}`,
+		},
+		{
+			name:  "empty follow-up queue keeps its count",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 11, SessionID: "session_1", Payload: FollowUpsChangedEvent{FollowUps: &FollowUpQueue{}}},
+			want:  `{"streamId":"stream_1","sequence":11,"sessionId":"session_1","kind":"follow_ups.changed","followUps":{"count":0}}`,
+		},
+		{
+			name: "session configuration",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 12, SessionID: "session_1", Payload: SessionConfigurationChangedEvent{Configuration: &SessionConfiguration{
+				Model: "openai/gpt-5", ThinkingLevel: "high", Inputs: []ModelInputKind{ModelInputText}, ConfigurationRevision: 3,
+			}}},
+			want: `{"streamId":"stream_1","sequence":12,"sessionId":"session_1","kind":"session.configuration.changed","configuration":{"model":"openai/gpt-5","thinkingLevel":"high","inputs":["text"],"configurationRevision":3}}`,
+		},
+		{
+			name:  "session compaction omits turn identity",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 13, SessionID: "session_1", Payload: CompactionCompletedEvent{CompactionID: "compact_1", ErrorMessage: "Context compaction failed"}},
+			want:  `{"streamId":"stream_1","sequence":13,"sessionId":"session_1","kind":"compaction.completed","errorMessage":"Context compaction failed","compactionId":"compact_1"}`,
+		},
 	}
 	for _, test := range cases {
 		got, err := json.Marshal(test.event)
@@ -87,8 +111,8 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 func TestSessionEventPayloadVocabularyIsClosed(t *testing.T) {
 	t.Parallel()
 	variants := sessionEventVariants()
-	if len(variants) != 33 {
-		t.Fatalf("session event variants = %d; want 33", len(variants))
+	if len(variants) != 35 {
+		t.Fatalf("session event variants = %d; want 35", len(variants))
 	}
 	seen := make(map[SessionEventKind]bool, len(variants))
 	for _, variant := range variants {

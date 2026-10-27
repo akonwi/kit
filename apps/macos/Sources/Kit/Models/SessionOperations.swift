@@ -33,7 +33,6 @@ final class SessionOperations {
     private(set) var queueError: String?
     private(set) var abortingRun: String?
     private(set) var abortError: String?
-    private var queueRevision = 0
     private var abortGeneration = UUID()
     /// Turns observed while a submission's receipt is outstanding. The server
     /// reserves the receipt turn at submission, so earlier turns never match.
@@ -60,7 +59,6 @@ final class SessionOperations {
     func recover(using refresh: @escaping @MainActor () async throws -> SessionExcerpt) {
         guard uncertain, recovery != .refreshing else { return }
         recovery = .refreshing
-        queueRevision += 1
         recoveryTask = Task { [weak self] in
             do {
                 let snapshot = try await refresh()
@@ -68,7 +66,6 @@ final class SessionOperations {
                 guard let self else { return }
                 guard let queue = snapshot.followUps else { throw ClientError.invalidPayload }
                 self.queue = queue
-                self.queueRevision += 1
                 self.recovery = .ready
                 self.submission = .idle
                 self.recoveryTask = nil
@@ -88,7 +85,11 @@ final class SessionOperations {
             submission = .acknowledged("Sent")
             observedTurns = []
         }
-        if queue == nil { queue = session.followUps }
+        // The server announces every queue change, by any client, on the
+        // session's stream, in order. A queue operation's response may be
+        // older than the stream by the time it arrives, so only the session
+        // sets the queue.
+        if let live = session.followUps, live != queue { queue = live }
         if let abortingRun, abortingRun != currentRun { self.abortingRun = nil }
     }
 
@@ -97,7 +98,7 @@ final class SessionOperations {
                 acknowledged: @escaping @MainActor () -> Void) {
         performSubmission(draft: draft, uncertain: uncertain, acknowledged: acknowledged) {
             let result = try await client.submit(session, input: input)
-            return SubmissionReceipt(turn: result.reservation?.turnId, queued: result.queued, queue: result.queue)
+            return SubmissionReceipt(turn: result.reservation?.turnId, queued: result.queued)
         }
     }
 
@@ -106,21 +107,19 @@ final class SessionOperations {
                        acknowledged: @escaping @MainActor () -> Void) {
         performSubmission(draft: draft, uncertain: uncertain, acknowledged: acknowledged) {
             let result = try await client.submitPromptCommand(session, input: input)
-            return SubmissionReceipt(turn: result.reservation?.turnId, queued: result.queued, queue: result.queue)
+            return SubmissionReceipt(turn: result.reservation?.turnId, queued: result.queued)
         }
     }
 
     private struct SubmissionReceipt: Sendable {
         let turn: String?
         let queued: Bool
-        let queue: WireFollowUpQueue?
     }
 
     private func performSubmission(draft: Draft, uncertain: @escaping @MainActor () -> Void,
                                    acknowledged: @escaping @MainActor () -> Void,
                                    request: @escaping @Sendable () async throws -> SubmissionReceipt) {
         guard !sending, !self.uncertain else { return }
-        queueRevision += 1
         submission = .pending
         receiptTurn = nil
         observedTurns = []
@@ -128,8 +127,6 @@ final class SessionOperations {
             do {
                 let result = try await request()
                 guard !Task.isCancelled, let self else { return }
-                self.queueRevision += 1
-                if let queue = result.queue { self.queue = try FollowUpState(queue) }
                 self.receiptTurn = result.turn
                 self.acknowledgedDraft = draft
                 self.submission = .acknowledged(result.queued ? "Queued" : "Sent")
@@ -138,7 +135,7 @@ final class SessionOperations {
             } catch {
                 guard !Task.isCancelled, let self else { return }
                 self.submitTask = nil
-                if Self.definitelyRejected(error) { self.submission = .failed(error.localizedDescription) }
+                if Self.definitelyRejected(error) { self.submission = .failed(self.refusal(error)) }
                 else {
                     self.submission = .uncertain
                     uncertain()
@@ -173,22 +170,18 @@ final class SessionOperations {
     func changeQueue(_ action: QueueAction, client: any SessionMutationClient, session: String,
                      restored: @escaping @MainActor ([WirePromptInput]) -> Void) {
         guard !queuePending, !sending, !uncertain else { return }
-        queueRevision += 1
         queuePending = true; queueError = nil
         queueTask = Task { [weak self] in
             do {
                 switch action {
                 case .promote:
-                    let result = try await client.promoteFollowUps(session)
+                    _ = try await client.promoteFollowUps(session)
                     guard !Task.isCancelled else { return }
-                    self?.queue = try FollowUpState(result.queue)
                 case .edit, .remove:
                     let result = try await client.restoreFollowUps(session)
                     guard !Task.isCancelled else { return }
-                    self?.queue = try FollowUpState(result.queue)
                     if action == .edit { restored(result.messages ?? []) }
                 }
-                self?.queueRevision += 1
                 self?.queuePending = false; self?.queueTask = nil
             } catch {
                 guard !Task.isCancelled else { return }
@@ -199,18 +192,13 @@ final class SessionOperations {
         }
     }
 
-    func monitorQueue(client: any SessionMutationClient, session: String) async {
-        while !Task.isCancelled {
-            let revision = queueRevision
-            do {
-                let latest = try await client.followUps(session)
-                try Task.checkCancellation()
-                if revision == queueRevision && !queuePending && !sending && recovery != .refreshing { queue = latest }
-            } catch {
-                if Task.isCancelled { return }
-            }
-            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+    /// Why the server refused a prompt. An idle session with queued messages
+    /// starts nothing else until they are edited or cleared.
+    private func refusal(_ error: Error) -> String {
+        if case ClientError.http(409) = error, (queue?.count ?? 0) > 0, currentRun == nil {
+            return "Edit or clear the queued messages before sending a new one."
         }
+        return error.localizedDescription
     }
 
     private static func definitelyRejected(_ error: Error) -> Bool {

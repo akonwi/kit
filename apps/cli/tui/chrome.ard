@@ -1,3 +1,5 @@
+use ard/unsafe
+
 use go:api/contract as protocol
 use cooper/cui
 use cooper/keymap
@@ -126,12 +128,23 @@ fn header(themes: theme::Context, spec: Header) cui::View {
 }
 
 // The footer's session status: the active turn's stream recovery, which
-// outranks the queue that turn would drain, else the queued follow-ups.
-fn session_status(recovery: Str, follow_ups: Int) Str {
+// outranks the queue that turn would drain, else the queued follow-ups, which
+// are held when the first of them could not start. The pending row says why.
+fn session_status(recovery: Str, follow_ups: protocol::FollowUpQueue) Str {
   match {
     recovery != "" => recovery,
-    follow_ups > 0 => "{follow_ups} queued · ↑ restore",
+    follow_up_failure(follow_ups) != "" => "{follow_ups.Count} held · ↑ restore",
+    follow_ups.Count > 0 => "{follow_ups.Count} queued · ↑ restore",
     _ => "",
+  }
+}
+
+// Why the first queued follow-up could not start, or "" when it is waiting
+// its turn. The queue stays held until it is restored.
+fn follow_up_failure(queue: protocol::FollowUpQueue) Str {
+  match unsafe::is_nil(queue.AdmissionFailure) {
+    true => "",
+    false => queue.AdmissionFailure.@.Message,
   }
 }
 
@@ -288,7 +301,8 @@ private fn footer_span(colors: theme::Theme, span: footerlayout::Span) ui::Span 
 
 // Pending projects the attachment's status line, queued follow-ups, and the
 // files and annotations waiting for the next prompt. A notice takes
-// precedence over activity.
+// precedence over why the queue is held, which takes precedence over
+// activity.
 struct Pending {
   // Whether the status line and follow-ups are shown, as on the Agent tab,
   // or only the chips.
@@ -349,14 +363,17 @@ fn pending_row(themes: theme::Context, spec: Pending) cui::View {
 
 private fn status_rows(themes: theme::Context, spec: Pending) [cui::View] {
   let colors = themes.current()
-  let content = match spec.notice != "" {
-    true => layout::line(spec.notice, ui::text_style(foreground: colors.danger_text)),
-    false => {
-      match spec.activity != "" {
-        true => pending_activity(themes, spec.activity),
-        false => layout::line("", ui::text_style(foreground: colors.muted)),
-      }
+  let failure = follow_up_failure(spec.follow_ups)
+  let content = match {
+    spec.notice != "" => layout::line(spec.notice, ui::text_style(foreground: colors.danger_text)),
+    failure != "" => {
+      layout::line(
+        "Queued message couldn't start: {failure}",
+        ui::text_style(foreground: colors.danger_text),
+      )
     },
+    spec.activity != "" => pending_activity(themes, spec.activity),
+    _ => layout::line("", ui::text_style(foreground: colors.muted)),
   }
   let rows = mut List::new<cui::View>()
   rows.push(content)

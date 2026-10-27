@@ -162,12 +162,13 @@ final class SessionFeedback {
 
     /// Reports a session's background outcomes. A completed compaction is
     /// shown by its transcript marker and a failed turn by its transcript row,
-    /// so neither raises a toast.
+    /// so neither raises a toast. A compaction outside any turn, which a
+    /// client or a model change requested, is reported by its requester.
     func observe(_ session: SessionExcerpt, manualCompaction: Bool = false,
                  showSubagents: (@MainActor () -> Void)? = nil) {
         if let outcome = session.compactionOutcome {
             let key = "auto-compaction:" + outcome.id
-            if manualCompaction || !outcome.failed {
+            if manualCompaction || !outcome.automatic || !outcome.failed {
                 // The command owns richer retry feedback for its own operation.
                 if seen.insert(key).inserted { seenOrder.append(key) }
             } else {

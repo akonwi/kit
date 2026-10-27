@@ -182,6 +182,21 @@ struct WireFollowUpQueue: Codable, Sendable {
     let `count`: Int
     let `previews`: [String]?
     let `annotationIds`: [UInt64]?
+    /// Why the first queued message could not start; the queue is held until
+    /// a client restores it.
+    var `admissionFailure`: WireFollowUpAdmissionFailure? = nil
+}
+
+struct WireFollowUpAdmissionFailure: Codable, Sendable {
+    let `message`: String
+}
+
+/// A session's applied model configuration, as session.configuration.changed carries it.
+struct WireSessionConfiguration: Codable, Sendable {
+    let `model`: String
+    let `thinkingLevel`: String
+    let `inputs`: [WireModelInputKind]?
+    let `configurationRevision`: UInt64
 }
 
 typealias WireMCPServerStatus = Components.Schemas.MCPServerStatus
@@ -395,6 +410,8 @@ enum WireSessionEventKind: String, Codable, Sendable {
     case value30 = "url.open.requested"
     case value31 = "client_plugin.call.requested"
     case value32 = "client_plugin.call.resolved"
+    case value33 = "session.configuration.changed"
+    case value34 = "follow_ups.changed"
 }
 
 enum WireTurnStatus: String, Codable, Sendable {
@@ -478,6 +495,8 @@ struct WireSessionEvent: Codable, Sendable {
     let `clientPluginInstanceId`: String?
     let `clientPluginCall`: WireClientPluginCall?
     let `clientPluginCallResolution`: String?
+    let `configuration`: WireSessionConfiguration?
+    let `followUps`: WireFollowUpQueue?
 }
 
 /// The work a client_plugin.call.requested event asks this app to do

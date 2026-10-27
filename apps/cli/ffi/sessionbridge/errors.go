@@ -19,3 +19,11 @@ func CursorUnavailable(err error) bool {
 func Incompatible(err error) bool {
 	return errors.Is(err, kit.ErrIncompatibleServer)
 }
+
+// Conflict reports whether the server refused a request because it conflicts
+// with the session's current state, as a new prompt does while follow-ups
+// are queued on an idle session.
+func Conflict(err error) bool {
+	var server *kit.ServerError
+	return errors.As(err, &server) && server.Code == kit.ErrorConflict
+}

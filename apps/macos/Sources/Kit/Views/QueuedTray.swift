@@ -2,7 +2,9 @@ import SwiftUI
 
 /// The follow-ups queued behind the running turn, joined to the top edge of
 /// the composer. The server acts on the queue as a whole, so the rows are
-/// previews and only the header's actions change it.
+/// previews and only the header's actions change it. When the first message
+/// could not start, the queue is held and the tray says why until it is
+/// edited or cleared.
 struct QueuedTray: View {
     @Environment(\.mica) private var theme
     let queue: FollowUpState
@@ -28,10 +30,27 @@ struct QueuedTray: View {
         return (previews, max(0, queue.count - previews.count))
     }
 
+    /// The header's count, which says when the queue is held.
+    static func title(_ queue: FollowUpState) -> String {
+        String(queue.count) + (queue.admissionFailure == nil ? " queued" : " held")
+    }
+
+    /// Why a held queue's first message could not start.
+    static func failure(_ queue: FollowUpState) -> String? {
+        queue.admissionFailure.map { "Couldn't start: " + $0 }
+    }
+
     var body: some View {
         let rows = Self.rows(queue)
         VStack(spacing: 0) {
             header
+            if let failure = Self.failure(queue) {
+                Rule()
+                Text(failure).font(.kit(size: 12)).foregroundStyle(theme.danger)
+                    .lineLimit(2).help(failure)
+                    .padding(.horizontal, 12).padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
+            }
             ForEach(Array(rows.previews.enumerated()), id: \.offset) { index, preview in
                 Rule()
                 HStack(spacing: 10) {
@@ -65,7 +84,7 @@ struct QueuedTray: View {
     private var header: some View {
         HStack(spacing: 8) {
             IconView(.stack, size: 12).foregroundStyle(theme.muted)
-            Text(String(queue.count) + " queued").font(.kit(size: 12)).foregroundStyle(theme.muted)
+            Text(Self.title(queue)).font(.kit(size: 12)).foregroundStyle(theme.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Group {
                 Button("Edit", action: edit).buttonStyle(SmallButtonStyle())

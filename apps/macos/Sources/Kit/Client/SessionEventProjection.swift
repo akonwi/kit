@@ -109,7 +109,13 @@ struct SessionEventProjection {
     /// times tool calls; replayed events pass nil.
     mutating func apply(_ event: WireSessionEvent, receivedAt: Date? = nil) throws {
         guard event.sessionId == session.id else { throw ClientError.invalidPayload }
-        if event.kind == .value30 { return try requestPage(event, live: receivedAt != nil) }
+        switch event.kind {
+        case .value30: return try requestPage(event, live: receivedAt != nil)
+        case .value19: return try changeDirectory(event)
+        case .value33: return try configure(event)
+        case .value34: return try changeQueue(event)
+        default: break
+        }
         var value = TranscriptEvent(event)
         value.receivedAt = receivedAt
         try apply(value)
@@ -324,11 +330,13 @@ struct SessionEventProjection {
             session.activity = LiveActivity.compacting
         case "compaction.completed":
             if let id = event.compactionID, session.activeCompactionID == id {
-                let failed = event.isError == true
+                // The server reports a failed compaction by its error message.
                 let detail = event.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let failed = event.isError == true || !(detail ?? "").isEmpty
                 session.compactionOutcome = CompactionOutcome(id: id, failed: failed,
                                                               detail: failed && (detail?.isEmpty ?? true)
-                                                                  ? "Context compaction failed" : (detail ?? ""))
+                                                                  ? "Context compaction failed" : (detail ?? ""),
+                                                              automatic: !event.turnId.isEmpty)
                 session.activeCompactionID = nil
                 session.activity = activeRunID == nil ? nil : LiveActivity.working
             }
@@ -343,6 +351,34 @@ struct SessionEventProjection {
         }
         session.activeRunID = activeRunID
         session.tabStatus = Self.status(runID: activeRunID, pending: pendingInteractions)
+    }
+
+    /// Adopts the working directory another client or the agent moved the
+    /// session to.
+    private mutating func changeDirectory(_ event: WireSessionEvent) throws {
+        guard (event.turnId ?? "").isEmpty, let workspace = event.workspace, workspace.cwd.hasPrefix("/"),
+              workspace.sessionId == session.id else { throw ClientError.invalidPayload }
+        session.cwd = workspace.cwd
+        session.workspace = URL(fileURLWithPath: workspace.cwd).lastPathComponent
+    }
+
+    /// Adopts the model configuration another client applied. One older than
+    /// the configuration shown changes nothing.
+    private mutating func configure(_ event: WireSessionEvent) throws {
+        guard (event.turnId ?? "").isEmpty, let configuration = event.configuration, !configuration.model.isEmpty,
+              ["off", "minimal", "low", "medium", "high", "xhigh", "max"].contains(configuration.thinkingLevel),
+              configuration.configurationRevision > 0 else { throw ClientError.invalidPayload }
+        guard configuration.configurationRevision >= session.configurationRevision ?? 0 else { return }
+        session.model = configuration.model
+        session.thinking = configuration.thinkingLevel
+        session.inputs = configuration.inputs?.map(\.rawValue)
+        session.configurationRevision = configuration.configurationRevision
+    }
+
+    /// Adopts the follow-up queue after any client, or the server, changed it.
+    private mutating func changeQueue(_ event: WireSessionEvent) throws {
+        guard (event.turnId ?? "").isEmpty, let queue = event.followUps else { throw ClientError.invalidPayload }
+        session.followUps = try FollowUpState(queue)
     }
 
     /// Pages kept for the app to open, beyond which the oldest are dropped.

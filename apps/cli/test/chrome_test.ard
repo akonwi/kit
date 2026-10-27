@@ -320,9 +320,26 @@ test fn turn_recovery_shows_in_muted_text() Void!Str {
   )
 }
 
+fn queue(count: Int, previews: [Str]) protocol::FollowUpQueue {
+  protocol::FollowUpQueue{
+    Count: count,
+    Previews: previews,
+    AnnotationIDs: [],
+  }
+}
+
+fn held_queue(count: Int, previews: [Str], failure: Str) protocol::FollowUpQueue {
+  protocol::FollowUpQueue{
+    Count: count,
+    Previews: previews,
+    AnnotationIDs: [],
+    AdmissionFailure: mut protocol::FollowUpAdmissionFailure{Message: failure},
+  }
+}
+
 test fn queued_follow_ups_show_how_to_restore_them() Void!Str {
   let themes = theme::context(theme::store(theme::system()))
-  let status = chrome::session_status("", 2)
+  let status = chrome::session_status("", queue(2, ["one", "two"]))
   try testing::assert(status == "2 queued · ↑ restore", status)
   expect_rows(
     render(80, 1, chrome::footer(themes, "", status, chrome::location_only("~/kit"))),
@@ -330,12 +347,59 @@ test fn queued_follow_ups_show_how_to_restore_them() Void!Str {
   )
 }
 
+test fn a_held_queue_shows_how_to_restore_it() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let status = chrome::session_status("", held_queue(1, ["one"], "attachment is unavailable"))
+  try testing::assert(status == "1 held · ↑ restore", status)
+  expect_rows(
+    render(80, 1, chrome::footer(themes, "", status, chrome::location_only("~/kit"))),
+    [" 1 held · ↑ restore                                                       ~/kit"],
+  )
+}
+
 test fn turn_recovery_outranks_queued_follow_ups() Void!Str {
   try testing::assert(
-    chrome::session_status("Reconnecting activity…", 2) == "Reconnecting activity…",
+    chrome::session_status("Reconnecting activity…", queue(2, ["one", "two"])) == "Reconnecting activity…",
     "recovery is shown",
   )
-  testing::assert(chrome::session_status("", 0) == "", "nothing is queued")
+  testing::assert(chrome::session_status("", queue(0, [])) == "", "nothing is queued")
+}
+
+fn held_pending(notice: Str, activity: Str) chrome::Pending {
+  chrome::Pending{
+    status: true,
+    notice: notice,
+    activity: activity,
+    follow_ups: held_queue(1, ["one"], "attachment is unavailable"),
+    attachments: [],
+    annotations: [],
+    rejecting_model: "",
+    remove_attachment: fn(index: Int) {},
+    open_annotation: fn(annotation: sessionbridge::Annotation) {},
+    remove_annotation: fn(id: Uint64) {},
+  }
+}
+
+test fn the_pending_row_says_why_a_held_queue_could_not_start() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let terminal = headless::new(60, 2)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, chrome::pending_row(themes, held_pending("", "Working…")))
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [" Queued message couldn't start: attachment is unavailable", " Follow-up 1: one"],
+  )
+  try testing::assert(
+    same(color_at(terminal, 1, 0), themes.current().danger_text),
+    "the reason is a danger",
+  )
+  expect_rows(
+    render(60, 2, chrome::pending_row(themes, held_pending("Prompt did not start a turn", ""))),
+    [" Prompt did not start a turn", " Follow-up 1: one"],
+  )
 }
 
 test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
@@ -350,11 +414,7 @@ test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
           status: true,
           notice: "",
           activity: "",
-          follow_ups: protocol::FollowUpQueue{
-            Count: 3,
-            Previews: ["one", "two", "three"],
-            AnnotationIDs: [],
-          },
+          follow_ups: queue(3, ["one", "two", "three"]),
           attachments: [],
           annotations: [],
           rejecting_model: "",
@@ -376,11 +436,7 @@ test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
           status: true,
           notice: "Prompt did not start a turn",
           activity: "Thinking",
-          follow_ups: protocol::FollowUpQueue{
-            Count: 5,
-            Previews: ["one", "two", "three"],
-            AnnotationIDs: [],
-          },
+          follow_ups: queue(5, ["one", "two", "three"]),
           attachments: [],
           annotations: [],
           rejecting_model: "",

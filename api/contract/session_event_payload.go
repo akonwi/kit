@@ -140,6 +140,20 @@ type SessionCWDChangedEvent struct {
 	Workspace *WorkspaceRef `json:"workspace"`
 }
 
+// SessionConfigurationChangedEvent carries the session's newly applied model
+// configuration.
+type SessionConfigurationChangedEvent struct {
+	Configuration *SessionConfiguration `json:"configuration"`
+}
+
+// FollowUpsChangedEvent carries the session's follow-up queue after it
+// changed: a prompt was queued, restored, promoted, or started, or the first
+// queued prompt could not start. When the queue's first message starts, the
+// event follows the new turn's turn.started and user.message.added events.
+type FollowUpsChangedEvent struct {
+	FollowUps *FollowUpQueue `json:"followUps"`
+}
+
 // BoundaryCreatedEvent carries a context record the session created. The
 // record is the same one later snapshots list under BoundaryID. Content and
 // Details are bounded for the live stream; ContentTruncated and DetailsOmitted
@@ -303,6 +317,12 @@ func (AnnotationSubmittedEvent) sessionEventKind() SessionEventKind {
 func (ScratchpadChangedEvent) sessionEventKind() SessionEventKind {
 	return SessionEventScratchpadChanged
 }
+func (SessionConfigurationChangedEvent) sessionEventKind() SessionEventKind {
+	return SessionEventSessionConfigurationChanged
+}
+func (FollowUpsChangedEvent) sessionEventKind() SessionEventKind {
+	return SessionEventFollowUpsChanged
+}
 func (BoundaryCreatedEvent) sessionEventKind() SessionEventKind {
 	return SessionEventBoundaryCreated
 }
@@ -318,7 +338,7 @@ func (ClientPluginCallResolvedEvent) sessionEventKind() SessionEventKind {
 
 func sessionEventVariants() []UnionVariant {
 	return []UnionVariant{
-		{Kind: string(SessionEventTurnStarted), Payload: TurnStartedEvent{}}, {Kind: string(SessionEventUserMessageAdded), Payload: UserMessageAddedEvent{}}, {Kind: string(SessionEventPluginMessageAdded), Payload: PluginMessageAddedEvent{}}, {Kind: string(SessionEventAssistantStarted), Payload: AssistantStartedEvent{}}, {Kind: string(SessionEventAssistantTextDelta), Payload: AssistantTextDeltaEvent{}}, {Kind: string(SessionEventThinkingDelta), Payload: ThinkingDeltaEvent{}}, {Kind: string(SessionEventAssistantCompleted), Payload: AssistantCompletedEvent{}}, {Kind: string(SessionEventToolPlanned), Payload: ToolPlannedEvent{}}, {Kind: string(SessionEventToolStarted), Payload: ToolStartedEvent{}}, {Kind: string(SessionEventToolOutputDelta), Payload: ToolOutputDeltaEvent{}}, {Kind: string(SessionEventToolCompleted), Payload: ToolCompletedEvent{}}, {Kind: string(SessionEventCompactionStarted), Payload: CompactionStartedEvent{}}, {Kind: string(SessionEventCompactionCompleted), Payload: CompactionCompletedEvent{}}, {Kind: string(SessionEventProviderRetryScheduled), Payload: ProviderRetryScheduledEvent{}}, {Kind: string(SessionEventProviderRetryStarted), Payload: ProviderRetryStartedEvent{}}, {Kind: string(SessionEventContextChanged), Payload: ContextChangedEvent{}}, {Kind: string(SessionEventUsageChanged), Payload: UsageChangedEvent{}}, {Kind: string(SessionEventTurnCompleted), Payload: TurnCompletedEvent{}}, {Kind: string(SessionEventSessionNameChanged), Payload: SessionNameChangedEvent{}}, {Kind: string(SessionEventSessionCWDChanged), Payload: SessionCWDChangedEvent{}}, {Kind: string(SessionEventSubagentChanged), Payload: SubagentChangedEvent{}}, {Kind: string(SessionEventPeerQueryChanged), Payload: PeerQueryChangedEvent{}}, {Kind: string(SessionEventInteractionRequested), Payload: InteractionRequestedEvent{}}, {Kind: string(SessionEventInteractionResolved), Payload: InteractionResolvedEvent{}}, {Kind: string(SessionEventAnnotationCreated), Payload: AnnotationCreatedEvent{}}, {Kind: string(SessionEventAnnotationUpdated), Payload: AnnotationUpdatedEvent{}}, {Kind: string(SessionEventAnnotationDeleted), Payload: AnnotationDeletedEvent{}}, {Kind: string(SessionEventAnnotationSubmitted), Payload: AnnotationSubmittedEvent{}}, {Kind: string(SessionEventScratchpadChanged), Payload: ScratchpadChangedEvent{}}, {Kind: string(SessionEventBoundaryCreated), Payload: BoundaryCreatedEvent{}}, {Kind: string(SessionEventURLOpenRequested), Payload: URLOpenRequestedEvent{}}, {Kind: string(SessionEventClientPluginCallRequested), Payload: ClientPluginCallRequestedEvent{}}, {Kind: string(SessionEventClientPluginCallResolved), Payload: ClientPluginCallResolvedEvent{}},
+		{Kind: string(SessionEventTurnStarted), Payload: TurnStartedEvent{}}, {Kind: string(SessionEventUserMessageAdded), Payload: UserMessageAddedEvent{}}, {Kind: string(SessionEventPluginMessageAdded), Payload: PluginMessageAddedEvent{}}, {Kind: string(SessionEventAssistantStarted), Payload: AssistantStartedEvent{}}, {Kind: string(SessionEventAssistantTextDelta), Payload: AssistantTextDeltaEvent{}}, {Kind: string(SessionEventThinkingDelta), Payload: ThinkingDeltaEvent{}}, {Kind: string(SessionEventAssistantCompleted), Payload: AssistantCompletedEvent{}}, {Kind: string(SessionEventToolPlanned), Payload: ToolPlannedEvent{}}, {Kind: string(SessionEventToolStarted), Payload: ToolStartedEvent{}}, {Kind: string(SessionEventToolOutputDelta), Payload: ToolOutputDeltaEvent{}}, {Kind: string(SessionEventToolCompleted), Payload: ToolCompletedEvent{}}, {Kind: string(SessionEventCompactionStarted), Payload: CompactionStartedEvent{}}, {Kind: string(SessionEventCompactionCompleted), Payload: CompactionCompletedEvent{}}, {Kind: string(SessionEventProviderRetryScheduled), Payload: ProviderRetryScheduledEvent{}}, {Kind: string(SessionEventProviderRetryStarted), Payload: ProviderRetryStartedEvent{}}, {Kind: string(SessionEventContextChanged), Payload: ContextChangedEvent{}}, {Kind: string(SessionEventUsageChanged), Payload: UsageChangedEvent{}}, {Kind: string(SessionEventTurnCompleted), Payload: TurnCompletedEvent{}}, {Kind: string(SessionEventSessionNameChanged), Payload: SessionNameChangedEvent{}}, {Kind: string(SessionEventSessionCWDChanged), Payload: SessionCWDChangedEvent{}}, {Kind: string(SessionEventSubagentChanged), Payload: SubagentChangedEvent{}}, {Kind: string(SessionEventPeerQueryChanged), Payload: PeerQueryChangedEvent{}}, {Kind: string(SessionEventInteractionRequested), Payload: InteractionRequestedEvent{}}, {Kind: string(SessionEventInteractionResolved), Payload: InteractionResolvedEvent{}}, {Kind: string(SessionEventAnnotationCreated), Payload: AnnotationCreatedEvent{}}, {Kind: string(SessionEventAnnotationUpdated), Payload: AnnotationUpdatedEvent{}}, {Kind: string(SessionEventAnnotationDeleted), Payload: AnnotationDeletedEvent{}}, {Kind: string(SessionEventAnnotationSubmitted), Payload: AnnotationSubmittedEvent{}}, {Kind: string(SessionEventScratchpadChanged), Payload: ScratchpadChangedEvent{}}, {Kind: string(SessionEventBoundaryCreated), Payload: BoundaryCreatedEvent{}}, {Kind: string(SessionEventURLOpenRequested), Payload: URLOpenRequestedEvent{}}, {Kind: string(SessionEventClientPluginCallRequested), Payload: ClientPluginCallRequestedEvent{}}, {Kind: string(SessionEventClientPluginCallResolved), Payload: ClientPluginCallResolvedEvent{}}, {Kind: string(SessionEventSessionConfigurationChanged), Payload: SessionConfigurationChangedEvent{}}, {Kind: string(SessionEventFollowUpsChanged), Payload: FollowUpsChangedEvent{}},
 	}
 }
 

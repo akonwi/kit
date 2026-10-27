@@ -480,7 +480,7 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 		ContextTokens:        droidSnapshot.Context.Usage.EstimatedInput,
 		ContextWindow:        droidSnapshot.Context.Usage.ContextWindow,
 		Usage:                projectSessionUsage(droidSnapshot.Usage),
-		FollowUps:            projectFollowUpQueue(loaded.followUps),
+		FollowUps:            loaded.followUpQueueLocked(),
 		Warnings:             runtimeWarnings(loaded),
 		PendingInteractions:  pendingInteractions,
 	}

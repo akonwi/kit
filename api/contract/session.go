@@ -240,6 +240,24 @@ type FollowUpQueue struct {
 	Previews []string `json:"previews,omitempty"`
 	// AnnotationIDs identifies annotations already assigned to queued messages.
 	AnnotationIDs []uint64 `json:"annotationIds,omitempty"`
+	// AdmissionFailure explains why the first queued message did not start
+	// when the turn before it ended. The queue stays held, and new prompts
+	// are refused, until a client restores it.
+	AdmissionFailure *FollowUpAdmissionFailure `json:"admissionFailure,omitempty"`
+}
+
+// FollowUpAdmissionFailure is why a queued message could not start.
+type FollowUpAdmissionFailure struct {
+	Message string `json:"message"`
+}
+
+// SessionConfiguration is a session's applied model configuration.
+type SessionConfiguration struct {
+	Model         string `json:"model"`
+	ThinkingLevel string `json:"thinkingLevel"`
+	// Inputs lists what the model accepts in user messages, as on SessionInfo.
+	Inputs                []ModelInputKind `json:"inputs,omitempty"`
+	ConfigurationRevision uint64           `json:"configurationRevision"`
 }
 
 // PromptSubmission reports whether a prompt started or became a follow-up.

@@ -18,3 +18,14 @@ func TestIncompatibleRecognizesWrappedCompatibilityFailures(t *testing.T) {
 		t.Fatal("Incompatible() = true for a transport failure")
 	}
 }
+
+func TestConflictRecognizesDeclaredConflicts(t *testing.T) {
+	t.Parallel()
+
+	if !Conflict(fmt.Errorf("submit prompt: %w", &kit.ServerError{Code: kit.ErrorConflict, Message: "operation conflicts with session state"})) {
+		t.Fatal("Conflict() = false for a declared conflict")
+	}
+	if Conflict(&kit.ServerError{Code: kit.ErrorInvalidRequest, Message: "invalid request"}) || Conflict(errors.New("connection refused")) {
+		t.Fatal("Conflict() = true for another failure")
+	}
+}

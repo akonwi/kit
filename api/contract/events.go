@@ -20,26 +20,32 @@ const (
 type SessionEventKind string
 
 const (
-	SessionEventTurnStarted               SessionEventKind = "turn.started"
-	SessionEventUserMessageAdded          SessionEventKind = "user.message.added"
-	SessionEventPluginMessageAdded        SessionEventKind = "plugin.message.added"
-	SessionEventAssistantStarted          SessionEventKind = "assistant.started"
-	SessionEventAssistantTextDelta        SessionEventKind = "assistant.text.delta"
-	SessionEventThinkingDelta             SessionEventKind = "assistant.thinking.delta"
-	SessionEventAssistantCompleted        SessionEventKind = "assistant.completed"
-	SessionEventToolPlanned               SessionEventKind = "tool.planned"
-	SessionEventToolStarted               SessionEventKind = "tool.started"
-	SessionEventToolOutputDelta           SessionEventKind = "tool.output.delta"
-	SessionEventToolCompleted             SessionEventKind = "tool.completed"
-	SessionEventCompactionStarted         SessionEventKind = "compaction.started"
-	SessionEventCompactionCompleted       SessionEventKind = "compaction.completed"
-	SessionEventProviderRetryScheduled    SessionEventKind = "provider.retry.scheduled"
-	SessionEventProviderRetryStarted      SessionEventKind = "provider.retry.started"
-	SessionEventContextChanged            SessionEventKind = "context.changed"
-	SessionEventUsageChanged              SessionEventKind = "usage.changed"
-	SessionEventTurnCompleted             SessionEventKind = "turn.completed"
-	SessionEventSessionNameChanged        SessionEventKind = "session.name.changed"
-	SessionEventSessionCWDChanged         SessionEventKind = "session.cwd.changed"
+	SessionEventTurnStarted            SessionEventKind = "turn.started"
+	SessionEventUserMessageAdded       SessionEventKind = "user.message.added"
+	SessionEventPluginMessageAdded     SessionEventKind = "plugin.message.added"
+	SessionEventAssistantStarted       SessionEventKind = "assistant.started"
+	SessionEventAssistantTextDelta     SessionEventKind = "assistant.text.delta"
+	SessionEventThinkingDelta          SessionEventKind = "assistant.thinking.delta"
+	SessionEventAssistantCompleted     SessionEventKind = "assistant.completed"
+	SessionEventToolPlanned            SessionEventKind = "tool.planned"
+	SessionEventToolStarted            SessionEventKind = "tool.started"
+	SessionEventToolOutputDelta        SessionEventKind = "tool.output.delta"
+	SessionEventToolCompleted          SessionEventKind = "tool.completed"
+	SessionEventCompactionStarted      SessionEventKind = "compaction.started"
+	SessionEventCompactionCompleted    SessionEventKind = "compaction.completed"
+	SessionEventProviderRetryScheduled SessionEventKind = "provider.retry.scheduled"
+	SessionEventProviderRetryStarted   SessionEventKind = "provider.retry.started"
+	SessionEventContextChanged         SessionEventKind = "context.changed"
+	SessionEventUsageChanged           SessionEventKind = "usage.changed"
+	SessionEventTurnCompleted          SessionEventKind = "turn.completed"
+	SessionEventSessionNameChanged     SessionEventKind = "session.name.changed"
+	SessionEventSessionCWDChanged      SessionEventKind = "session.cwd.changed"
+	// SessionEventSessionConfigurationChanged carries the session's newly
+	// applied model, thinking level, and configuration revision.
+	SessionEventSessionConfigurationChanged SessionEventKind = "session.configuration.changed"
+	// SessionEventFollowUpsChanged carries the session's follow-up queue
+	// after it changed.
+	SessionEventFollowUpsChanged          SessionEventKind = "follow_ups.changed"
 	SessionEventSubagentChanged           SessionEventKind = "subagent.changed"
 	SessionEventPeerQueryChanged          SessionEventKind = "peer_query.changed"
 	SessionEventInteractionRequested      SessionEventKind = "interaction.requested"
@@ -127,9 +133,15 @@ func (event sessionEventWire) validate() error {
 		if event.TurnID != "" {
 			return fmt.Errorf("boundary event cannot carry parent turn identity")
 		}
-	} else if event.Kind == SessionEventSessionNameChanged || event.Kind == SessionEventSessionCWDChanged {
+	} else if event.Kind == SessionEventSessionNameChanged || event.Kind == SessionEventSessionCWDChanged || event.Kind == SessionEventSessionConfigurationChanged || event.Kind == SessionEventFollowUpsChanged {
 		if event.TurnID != "" {
-			return fmt.Errorf("session rename event cannot carry parent turn identity")
+			return fmt.Errorf("session metadata event cannot carry parent turn identity")
+		}
+	} else if (event.Kind == SessionEventCompactionStarted || event.Kind == SessionEventCompactionCompleted) && event.TurnID == "" {
+		// A compaction a client requested, or one a model change needed, runs
+		// outside any turn.
+		if event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" || event.AnnotationID != 0 {
+			return fmt.Errorf("session compaction event cannot carry external identity")
 		}
 	} else if event.Kind == SessionEventURLOpenRequested {
 		if event.TurnID != "" {
@@ -208,6 +220,22 @@ func (event sessionEventWire) validate() error {
 		}
 		payloadBytes += len(raw)
 	}
+	recordBytes := 0
+	if event.Configuration != nil {
+		raw, err := json.Marshal(event.Configuration)
+		if err != nil {
+			return err
+		}
+		recordBytes += len(raw)
+	}
+	if event.FollowUps != nil {
+		raw, err := json.Marshal(event.FollowUps)
+		if err != nil {
+			return err
+		}
+		recordBytes += len(raw)
+	}
+	payloadBytes += recordBytes
 	if event.Interaction != nil {
 		raw, err := json.Marshal(event.Interaction)
 		if err != nil {
@@ -270,6 +298,20 @@ func (event sessionEventWire) validate() error {
 	case SessionEventCompactionCompleted:
 		if !validRendererText(event.CompactionID, 256) || event.ErrorKind != "" || (event.ErrorMessage != "" && !validRendererText(event.ErrorMessage, maxSessionEventPayloadBytes)) {
 			return fmt.Errorf("completed compaction is invalid")
+		}
+	case SessionEventSessionConfigurationChanged:
+		if event.Configuration == nil || payloadBytes != recordBytes {
+			return fmt.Errorf("session configuration event carries invalid payload")
+		}
+		if err := event.Configuration.Validate(); err != nil {
+			return fmt.Errorf("session configuration event: %w", err)
+		}
+	case SessionEventFollowUpsChanged:
+		if event.FollowUps == nil || payloadBytes != recordBytes {
+			return fmt.Errorf("follow-up queue event carries invalid payload")
+		}
+		if err := event.FollowUps.Validate(); err != nil {
+			return fmt.Errorf("follow-up queue event: %w", err)
 		}
 	case SessionEventProviderRetryScheduled:
 		if event.ProviderRetry == nil || event.ProviderRetry.Count <= 0 || event.ProviderRetry.RetryAt == "" {
@@ -463,6 +505,12 @@ func (event sessionEventWire) validate() error {
 	if event.Kind != SessionEventSessionCWDChanged && event.Workspace != nil {
 		return fmt.Errorf("event kind %q cannot carry a workspace", event.Kind)
 	}
+	if event.Kind != SessionEventSessionConfigurationChanged && event.Configuration != nil {
+		return fmt.Errorf("event kind %q cannot carry a session configuration", event.Kind)
+	}
+	if event.Kind != SessionEventFollowUpsChanged && event.FollowUps != nil {
+		return fmt.Errorf("event kind %q cannot carry a follow-up queue", event.Kind)
+	}
 	if event.Kind != SessionEventInteractionRequested && event.Interaction != nil {
 		return fmt.Errorf("event kind %q cannot carry an interaction", event.Kind)
 	}
@@ -579,7 +627,7 @@ func (batch SessionEventBatch) Validate() error {
 		if batch.FirstSequence > 0 && wire.Sequence < batch.FirstSequence || batch.LastSequence > 0 && wire.Sequence > batch.LastSequence {
 			return fmt.Errorf("event %d sequence is outside the retention range", index)
 		}
-		if wire.Kind == SessionEventSessionNameChanged || wire.Kind == SessionEventSessionCWDChanged || wire.Kind == SessionEventScratchpadChanged || wire.Kind == SessionEventSubagentChanged || wire.Kind == SessionEventPeerQueryChanged || wire.Kind == SessionEventAnnotationCreated || wire.Kind == SessionEventAnnotationUpdated || wire.Kind == SessionEventAnnotationDeleted || wire.Kind == SessionEventAnnotationSubmitted || wire.Kind == SessionEventURLOpenRequested || wire.Kind == SessionEventClientPluginCallRequested || wire.Kind == SessionEventClientPluginCallResolved {
+		if wire.Kind == SessionEventSessionNameChanged || wire.Kind == SessionEventSessionCWDChanged || wire.Kind == SessionEventScratchpadChanged || wire.Kind == SessionEventSubagentChanged || wire.Kind == SessionEventPeerQueryChanged || wire.Kind == SessionEventAnnotationCreated || wire.Kind == SessionEventAnnotationUpdated || wire.Kind == SessionEventAnnotationDeleted || wire.Kind == SessionEventAnnotationSubmitted || wire.Kind == SessionEventURLOpenRequested || wire.Kind == SessionEventClientPluginCallRequested || wire.Kind == SessionEventClientPluginCallResolved || wire.Kind == SessionEventSessionConfigurationChanged || wire.Kind == SessionEventFollowUpsChanged {
 			previous = wire.Sequence
 			continue
 		}

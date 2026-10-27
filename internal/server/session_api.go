@@ -830,10 +830,8 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		Usage:                 projectSessionUsage(snapshot.Usage),
 		Messages:              make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
 		PreviousMessageCursor: previousCursor, HasMoreMessages: snapshot.HasMoreMessages,
-		PromptCommands: make([]protocol.PromptCommand, 0, len(snapshot.PromptCommands)),
-		FollowUps: protocol.FollowUpQueue{
-			Count: snapshot.FollowUps.Count, Previews: append([]string(nil), snapshot.FollowUps.Previews...), AnnotationIDs: append([]uint64(nil), snapshot.FollowUps.AnnotationIDs...),
-		},
+		PromptCommands:        make([]protocol.PromptCommand, 0, len(snapshot.PromptCommands)),
+		FollowUps:             projectFollowUpQueue(snapshot.FollowUps),
 		Warnings:              append([]string(nil), snapshot.Warnings...),
 		MCPWarnings:           append([]string(nil), snapshot.MCPWarnings...),
 		MCPServers:            make([]protocol.MCPServerStatus, 0, len(snapshot.MCPServers)),
@@ -1575,6 +1573,17 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 			Details: append(json.RawMessage(nil), event.Details...), DetailsOmitted: event.DetailsOmitted,
 			CreatedAt: event.CreatedAt.UTC().Format(time.RFC3339Nano),
 		}
+	case kitsession.EventSessionConfigurationChanged:
+		if event.Configuration == nil {
+			return nil
+		}
+		return protocol.SessionConfigurationChangedEvent{Configuration: s.projectSessionConfiguration(*event.Configuration)}
+	case kitsession.EventFollowUpsChanged:
+		if event.FollowUps == nil {
+			return nil
+		}
+		queue := projectFollowUpQueue(*event.FollowUps)
+		return protocol.FollowUpsChangedEvent{FollowUps: &queue}
 	case kitsession.EventURLOpenRequested:
 		return protocol.URLOpenRequestedEvent{URL: event.URL}
 	case kitsession.EventClientPluginCallRequested:
@@ -1758,7 +1767,7 @@ func (s runtimeSessionService) SubmitPrompt(ctx context.Context, sessionID strin
 	if err != nil {
 		return protocol.PromptSubmission{}, err
 	}
-	output := protocol.PromptSubmission{Queued: result.Queued, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews, AnnotationIDs: result.Queue.AnnotationIDs}}
+	output := protocol.PromptSubmission{Queued: result.Queued, Queue: projectFollowUpQueue(result.Queue)}
 	if !result.Queued {
 		output.Reservation = &protocol.TurnReservation{SessionID: result.Reservation.SessionID, TurnID: result.Reservation.TurnID}
 	}
@@ -1771,12 +1780,12 @@ func (s runtimeSessionService) RestoreFollowUps(ctx context.Context, sessionID s
 	for _, message := range result.Messages {
 		messages = append(messages, protocol.PromptInput{Text: message.Text, AttachmentIDs: append([]string(nil), message.AttachmentIDs...), AnnotationIDs: append([]uint64(nil), message.AnnotationIDs...)})
 	}
-	return protocol.RestoreFollowUpsResult{Messages: messages, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews, AnnotationIDs: result.Queue.AnnotationIDs}}, err
+	return protocol.RestoreFollowUpsResult{Messages: messages, Queue: projectFollowUpQueue(result.Queue)}, err
 }
 
 func (s runtimeSessionService) PromoteFollowUps(ctx context.Context, sessionID string) (protocol.PromoteFollowUpsResult, error) {
 	result, err := s.manager.PromoteFollowUps(ctx, sessionID)
-	return protocol.PromoteFollowUpsResult{Promoted: result.Promoted, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews, AnnotationIDs: result.Queue.AnnotationIDs}}, err
+	return protocol.PromoteFollowUpsResult{Promoted: result.Promoted, Queue: projectFollowUpQueue(result.Queue)}, err
 }
 
 func (s runtimeSessionService) ExecutePluginCommand(ctx context.Context, sessionID string, input protocol.PluginCommandInput) error {
@@ -1788,7 +1797,7 @@ func (s runtimeSessionService) SubmitPromptCommand(ctx context.Context, sessionI
 	if err != nil {
 		return protocol.PromptSubmission{}, err
 	}
-	output := protocol.PromptSubmission{Queued: result.Queued, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews, AnnotationIDs: result.Queue.AnnotationIDs}}
+	output := protocol.PromptSubmission{Queued: result.Queued, Queue: projectFollowUpQueue(result.Queue)}
 	if result.Reservation.TurnID != "" {
 		output.Reservation = &protocol.TurnReservation{SessionID: result.Reservation.SessionID, TurnID: result.Reservation.TurnID}
 	}
@@ -2724,6 +2733,33 @@ func (s runtimeSessionService) projectSession(record kitsession.SessionRecord) p
 		}
 	}
 	return session
+}
+
+// projectFollowUpQueue projects a follow-up queue, including why its first
+// message could not start.
+func projectFollowUpQueue(queue kitsession.FollowUpQueue) protocol.FollowUpQueue {
+	projected := protocol.FollowUpQueue{
+		Count: queue.Count, Previews: append([]string(nil), queue.Previews...), AnnotationIDs: append([]uint64(nil), queue.AnnotationIDs...),
+	}
+	if queue.AdmissionFailure != "" {
+		projected.AdmissionFailure = &protocol.FollowUpAdmissionFailure{Message: queue.AdmissionFailure}
+	}
+	return projected
+}
+
+// projectSessionConfiguration projects an applied configuration with the
+// inputs its model accepts in user messages.
+func (s runtimeSessionService) projectSessionConfiguration(configuration kitsession.SessionConfiguration) *protocol.SessionConfiguration {
+	projected := &protocol.SessionConfiguration{
+		Model:         configuration.ModelProvider + "/" + configuration.ModelID,
+		ThinkingLevel: configuration.ThinkingLevel, ConfigurationRevision: configuration.ConfigurationRevision,
+	}
+	if s.manager != nil {
+		for _, input := range s.manager.ModelInputs(projected.Model) {
+			projected.Inputs = append(projected.Inputs, protocol.ModelInputKind(input))
+		}
+	}
+	return projected
 }
 
 func projectSessionRecord(record kitsession.SessionRecord) protocol.SessionInfo {

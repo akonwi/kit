@@ -131,6 +131,93 @@ func TestURLOpenRequestIsASessionScopedCanonicalWebAddress(t *testing.T) {
 	}
 }
 
+func TestFollowUpsChangedIsASessionScopedQueue(t *testing.T) {
+	session := func(payload SessionEventPayload) SessionEvent {
+		return SessionEvent{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Payload: payload}
+	}
+	for name, queue := range map[string]FollowUpQueue{
+		"empty":  {},
+		"queued": {Count: 2, Previews: []string{"one", "two"}, AnnotationIDs: []uint64{4}},
+		"held":   {Count: 1, Previews: []string{"one"}, AdmissionFailure: &FollowUpAdmissionFailure{Message: "attachment is unavailable"}},
+	} {
+		if err := session(FollowUpsChangedEvent{FollowUps: &queue}).Validate(); err != nil {
+			t.Errorf("%s: Validate() = %v", name, err)
+		}
+	}
+	held := FollowUpQueue{Count: 1, AdmissionFailure: &FollowUpAdmissionFailure{Message: "failed"}}
+	for name, event := range map[string]SessionEvent{
+		"turn scoped":          eventForTest(1, FollowUpsChangedEvent{FollowUps: &held}),
+		"missing queue":        session(FollowUpsChangedEvent{}),
+		"failure without work": session(FollowUpsChangedEvent{FollowUps: &FollowUpQueue{AdmissionFailure: &FollowUpAdmissionFailure{Message: "failed"}}}),
+		"blank failure":        session(FollowUpsChangedEvent{FollowUps: &FollowUpQueue{Count: 1, AdmissionFailure: &FollowUpAdmissionFailure{Message: " "}}}),
+		"control failure":      session(FollowUpsChangedEvent{FollowUps: &FollowUpQueue{Count: 1, AdmissionFailure: &FollowUpAdmissionFailure{Message: "a\x1bb"}}}),
+		"negative count":       session(FollowUpsChangedEvent{FollowUps: &FollowUpQueue{Count: -1}}),
+	} {
+		if err := event.Validate(); err == nil {
+			t.Errorf("%s: Validate() accepted %+v", name, event)
+		}
+	}
+	// Only follow-up queue events may carry a queue on the flat wire.
+	var decoded SessionEvent
+	err := json.Unmarshal([]byte(`{"streamId":"stream_test","sequence":1,"sessionId":"session_test","kind":"session.name.changed","sessionName":"Renamed","followUps":{"count":0}}`), &decoded)
+	if err == nil {
+		err = decoded.Validate()
+	}
+	if err == nil {
+		t.Fatal("rename accepted a follow-up queue")
+	}
+	// A queue change between a turn's events does not disturb its assistant ordering.
+	batch := SessionEventBatch{StreamID: "stream_test", FirstSequence: 1, LastSequence: 3, Events: []SessionEvent{
+		eventForTest(1, AssistantTextDeltaEvent{MessageID: "message_1", Delta: "a"}),
+		{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", Payload: FollowUpsChangedEvent{FollowUps: &FollowUpQueue{Count: 1, Previews: []string{"next"}}}},
+		eventForTest(3, AssistantTextDeltaEvent{MessageID: "message_1", Delta: "b"}),
+	}}
+	if err := batch.Validate(); err != nil {
+		t.Fatalf("batch rejected a queue change inside a turn: %v", err)
+	}
+}
+
+func TestSessionConfigurationChangedIsASessionScopedConfiguration(t *testing.T) {
+	session := func(configuration *SessionConfiguration) SessionEvent {
+		return SessionEvent{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Payload: SessionConfigurationChangedEvent{Configuration: configuration}}
+	}
+	if err := session(&SessionConfiguration{Model: "openai/gpt-5", ThinkingLevel: "low", ConfigurationRevision: 2}).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	turnScoped := session(&SessionConfiguration{Model: "openai/gpt-5", ThinkingLevel: "low", ConfigurationRevision: 2})
+	turnScoped.TurnID = "turn_test"
+	for name, event := range map[string]SessionEvent{
+		"turn scoped":      turnScoped,
+		"missing":          session(nil),
+		"unnamespaced":     session(&SessionConfiguration{Model: "gpt-5", ThinkingLevel: "low", ConfigurationRevision: 2}),
+		"unknown thinking": session(&SessionConfiguration{Model: "openai/gpt-5", ThinkingLevel: "extreme", ConfigurationRevision: 2}),
+		"missing thinking": session(&SessionConfiguration{Model: "openai/gpt-5", ConfigurationRevision: 2}),
+		"zero revision":    session(&SessionConfiguration{Model: "openai/gpt-5", ThinkingLevel: "low"}),
+		"unknown input":    session(&SessionConfiguration{Model: "openai/gpt-5", ThinkingLevel: "low", Inputs: []ModelInputKind{"audio"}, ConfigurationRevision: 2}),
+	} {
+		if err := event.Validate(); err == nil {
+			t.Errorf("%s: Validate() accepted %+v", name, event)
+		}
+	}
+}
+
+func TestCompactionEventsMayBelongToTheSession(t *testing.T) {
+	for _, payload := range []SessionEventPayload{
+		CompactionStartedEvent{CompactionID: "compact_1"},
+		CompactionCompletedEvent{CompactionID: "compact_1"},
+		CompactionCompletedEvent{CompactionID: "compact_1", ErrorMessage: "Context compaction failed"},
+	} {
+		event := SessionEvent{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Payload: payload}
+		if err := event.Validate(); err != nil {
+			t.Errorf("%T: %v", payload, err)
+		}
+	}
+	// Other turn events still require their turn.
+	if err := (SessionEvent{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Payload: TurnStartedEvent{Status: TurnStatusRunning}}).Validate(); err == nil {
+		t.Fatal("turn start accepted no turn identity")
+	}
+}
+
 func TestSessionEventRejectsMissingPayload(t *testing.T) {
 	if err := eventForTest(1, nil).Validate(); err == nil {
 		t.Fatal("missing payload was valid")

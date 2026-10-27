@@ -57,6 +57,8 @@ type sessionEventWire struct {
 	ClientPluginInstanceID     string                     `json:"clientPluginInstanceId,omitempty"`
 	ClientPluginCall           *ClientPluginCall          `json:"clientPluginCall,omitempty"`
 	ClientPluginCallResolution ClientPluginCallResolution `json:"clientPluginCallResolution,omitempty"`
+	Configuration              *SessionConfiguration      `json:"configuration,omitempty"`
+	FollowUps                  *FollowUpQueue             `json:"followUps,omitempty"`
 }
 
 var sessionEventCodec = newUnionCodec[SessionEvent, sessionEventWire](sessionEventVariants())
@@ -126,6 +128,14 @@ func validateSessionEventPayloadPresence(payload SessionEventPayload) error {
 	case ScratchpadChangedEvent:
 		if payload.Scratchpad == nil {
 			return fmt.Errorf("scratchpad is required")
+		}
+	case SessionConfigurationChangedEvent:
+		if payload.Configuration == nil {
+			return fmt.Errorf("configuration is required")
+		}
+	case FollowUpsChangedEvent:
+		if payload.FollowUps == nil {
+			return fmt.Errorf("follow-up queue is required")
 		}
 	}
 	return nil

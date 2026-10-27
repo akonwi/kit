@@ -14,9 +14,9 @@ struct SessionExcerpt: Decodable, Identifiable, Sendable, Equatable {
     var parentSessionName: String? = nil
     var sourceNotice: String? = nil
     let sourceTitle: String
-    let model: String
-    let thinking: String
-    let workspace: String
+    var model: String
+    var thinking: String
+    var workspace: String
     var cwd: String? = nil
     var usage: SessionUsage? = nil
     var contextTokens: Int? = nil
@@ -157,4 +157,7 @@ struct CompactionOutcome: Decodable, Sendable, Equatable {
     let id: String
     let failed: Bool
     let detail: String
+    /// Whether the compaction ran inside a turn, as automatic compaction
+    /// does, rather than for a client's request or a model change.
+    var automatic = true
 }

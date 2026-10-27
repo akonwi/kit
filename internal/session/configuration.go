@@ -216,7 +216,9 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 		if err != nil {
 			return ConfigureSessionResult{}, err
 		}
+		announce := loaded.announceCompactionLocked(sessionID, operationID)
 		compaction, err = loaded.droid.CompactContext(ctx, droids.CompactContextOptions{OperationID: operationID, Target: target})
+		announce(err)
 		if err != nil {
 			return ConfigureSessionResult{}, fmt.Errorf("adapt session %q context for %q: %w", sessionID, targetSelector, err)
 		}
@@ -282,6 +284,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	}
 	loaded.eventCursor = snapshot.LastEvent
 	loaded.events.replace(nextEvents)
+	publishSessionConfiguration(loaded.events, applied)
 	loaded.configurationWarnings = append([]string(nil), warnings...)
 	result := ConfigureSessionResult{
 		Session: applied, EventStreamID: nextEvents.streamID,
@@ -334,6 +337,9 @@ func (m *Manager) configureLiveThinking(ctx context.Context, sessionID string, l
 		m.quarantineRuntime(record.ID, loaded, nil)
 		return ConfigureSessionResult{}, fmt.Errorf("apply session %q thinking: %w", record.ID, err)
 	}
+	if applied.ConfigurationRevision != record.ConfigurationRevision || applied.ThinkingLevel != record.ThinkingLevel {
+		publishSessionConfiguration(loaded.events, applied)
+	}
 	loaded.configurationWarnings = append([]string(nil), warnings...)
 	return ConfigureSessionResult{
 		Session: applied, EventStreamID: loaded.events.identity(), Warnings: append([]string(nil), warnings...),
@@ -378,11 +384,13 @@ func (m *Manager) CompactSession(ctx context.Context, sessionID, operationID str
 	if err != nil {
 		return CompactSessionResult{}, err
 	}
+	announce := loaded.announceCompactionLocked(sessionID, operationID)
 	result, err := loaded.droid.CompactContext(ctx, droids.CompactContextOptions{
 		OperationID: operationID,
 		Target:      droids.ContextTarget{Model: loaded.model, Reasoning: record.ThinkingLevel},
 		Force:       true,
 	})
+	announce(err)
 	if err != nil {
 		return CompactSessionResult{}, compactionFailure(err)
 	}
@@ -413,6 +421,67 @@ func (m *Manager) CompactSession(ctx context.Context, sessionID, operationID str
 		OperationID: result.OperationID, Compacted: result.Compacted,
 		CheckpointID: string(result.CheckpointID), EventStreamID: loaded.events.identity(),
 	}, nil
+}
+
+// publishSessionConfiguration announces record's applied configuration to
+// attached clients.
+func publishSessionConfiguration(events *eventLog, record SessionRecord) {
+	if err := events.append([]NewEvent{{SessionID: record.ID, Kind: EventSessionConfigurationChanged, Configuration: sessionConfiguration(record)}}); err != nil {
+		events.invalidate()
+	}
+}
+
+// announceCompactionLocked announces the compaction operationID, which runs
+// outside any turn, as publishSessionCompaction does. A repeated request for
+// a compaction that already succeeded returns its result without compacting
+// again, so it is not announced again. The caller holds loaded.mu.
+func (loaded *runtime) announceCompactionLocked(sessionID, operationID string) func(error) {
+	if slices.Contains(loaded.announcedCompactions, operationID) {
+		return func(error) {}
+	}
+	finish := publishSessionCompaction(loaded.events, sessionID, operationID)
+	return func(err error) {
+		finish(err)
+		if err != nil {
+			return
+		}
+		const remembered = 16
+		loaded.announcedCompactions = append(loaded.announcedCompactions, operationID)
+		if len(loaded.announcedCompactions) > remembered {
+			loaded.announcedCompactions = slices.Delete(loaded.announcedCompactions, 0, len(loaded.announcedCompactions)-remembered)
+		}
+	}
+}
+
+// publishSessionCompaction announces a compaction that runs outside any turn
+// as it starts, and returns the function that announces how it ended. The
+// droid's own compaction lifecycle events are not streamed outside a turn, so
+// without these, attached clients other than the requester would not learn of
+// it until the event stream is replaced. The caller holds loaded.mu.
+func publishSessionCompaction(events *eventLog, sessionID, operationID string) func(error) {
+	compactionID := operationID
+	if !validLiveCompactionID(compactionID) {
+		generated, err := identifier.New("compact_")
+		if err != nil {
+			return func(error) {}
+		}
+		compactionID = generated
+	}
+	publish := func(event NewEvent) {
+		if err := events.append([]NewEvent{event}); err != nil {
+			events.invalidate()
+		}
+	}
+	publish(NewEvent{SessionID: sessionID, Kind: EventCompactionStarted, CompactionID: compactionID})
+	return func(err error) {
+		if err == nil {
+			publish(NewEvent{SessionID: sessionID, Kind: EventCompactionCompleted, CompactionID: compactionID})
+			return
+		}
+		// rendererSafeLiveError names the failure when err carries no text.
+		message := rendererSafeLiveError(err.Error())
+		publish(NewEvent{SessionID: sessionID, Kind: EventCompactionFailed, CompactionID: compactionID, ErrorMessage: message})
+	}
 }
 
 func validConfigurationOperationID(value string) bool {

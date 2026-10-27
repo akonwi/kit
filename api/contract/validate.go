@@ -529,7 +529,29 @@ func (queue FollowUpQueue) Validate() error {
 			return fmt.Errorf("follow-up preview %d is invalid", index)
 		}
 	}
+	if failure := queue.AdmissionFailure; failure != nil {
+		if queue.Count == 0 || strings.TrimSpace(failure.Message) == "" || !validRendererText(failure.Message, 1024) {
+			return fmt.Errorf("follow-up admission failure is invalid")
+		}
+	}
 	return nil
+}
+
+// Validate checks an applied session model configuration.
+func (configuration SessionConfiguration) Validate() error {
+	provider, model, ok := strings.Cut(configuration.Model, "/")
+	if !ok || !validRendererText(provider, 128) || !validRendererText(model, 256) {
+		return fmt.Errorf("session model %q is not namespaced", configuration.Model)
+	}
+	if configuration.ConfigurationRevision == 0 || configuration.ConfigurationRevision > math.MaxInt64 {
+		return fmt.Errorf("session configuration revision is invalid")
+	}
+	if configuration.Inputs != nil {
+		if err := validateModelInputs(configuration.Inputs); err != nil {
+			return fmt.Errorf("session %w", err)
+		}
+	}
+	return ThinkingLevel(configuration.ThinkingLevel).Validate()
 }
 
 // Validate checks a queue-aware prompt submission result.

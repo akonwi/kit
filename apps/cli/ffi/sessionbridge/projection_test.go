@@ -32,6 +32,31 @@ func TestEventsProjectsWorkingDirectoryChanges(t *testing.T) {
 	}
 }
 
+func TestEventsProjectsSessionChangesAnotherClientMade(t *testing.T) {
+	queue := &protocol.FollowUpQueue{Count: 1, Previews: []string{"next"}, AdmissionFailure: &protocol.FollowUpAdmissionFailure{Message: "attachment is unavailable"}}
+	configuration := &protocol.SessionConfiguration{Model: "openai/gpt-5", ThinkingLevel: "high", ConfigurationRevision: 3}
+	session := func(sequence int64, payload protocol.SessionEventPayload) protocol.SessionEvent {
+		return protocol.SessionEvent{StreamID: "stream_test", Sequence: sequence, SessionID: "session_test", Payload: payload}
+	}
+	projected := Events([]protocol.SessionEvent{
+		session(1, protocol.SessionNameChangedEvent{SessionName: "Renamed"}),
+		session(2, protocol.SessionConfigurationChangedEvent{Configuration: configuration}),
+		session(3, protocol.FollowUpsChangedEvent{FollowUps: queue}),
+		session(4, protocol.CompactionStartedEvent{CompactionID: "compact_1"}),
+		session(5, protocol.CompactionCompletedEvent{CompactionID: "compact_1", ErrorMessage: "Context compaction failed"}),
+	})
+	want := []Event{
+		{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Kind: "session.name.changed", SessionName: "Renamed"},
+		{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", Kind: "session.configuration.changed", Configuration: configuration},
+		{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", Kind: "follow_ups.changed", FollowUps: queue},
+		{StreamID: "stream_test", Sequence: 4, SessionID: "session_test", Kind: "compaction.started", CompactionID: "compact_1"},
+		{StreamID: "stream_test", Sequence: 5, SessionID: "session_test", Kind: "compaction.completed", CompactionID: "compact_1", ErrorMessage: "Context compaction failed"},
+	}
+	if !reflect.DeepEqual(projected, want) {
+		t.Fatalf("Events() = %+v\nwant %+v", projected, want)
+	}
+}
+
 func TestEventsProjectsInteractionLifecycle(t *testing.T) {
 	request := &protocol.InteractionRequest{ID: "interaction_1", Kind: protocol.InteractionConfirm, Title: "Proceed?"}
 	projected := Events([]protocol.SessionEvent{

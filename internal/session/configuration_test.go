@@ -989,6 +989,11 @@ type configurationProviders struct {
 	block        chan struct{}
 	started      chan struct{}
 	smallContext int
+	// compactionGate, when set, holds every compaction request until it is
+	// closed or the request is cancelled; compactionEntered receives one
+	// value as each request starts waiting.
+	compactionGate    chan struct{}
+	compactionEntered chan struct{}
 }
 
 func (p *configurationProviders) Models() []droids.Model {
@@ -1018,7 +1023,20 @@ func (p *configurationProviders) Stream(ctx context.Context, model droids.Model,
 		p.compactions++
 	}
 	block, started := p.block, p.started
+	gate, entered := p.compactionGate, p.compactionEntered
 	p.mu.Unlock()
+	if gate != nil && compaction {
+		if entered != nil {
+			entered <- struct{}{}
+		}
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return &configurationStream{message: droids.AssistantMessage{
+				Provider: "test", Model: model.ID, StopReason: droids.StopReasonAborted, ErrorMessage: ctx.Err().Error(),
+			}}
+		}
+	}
 	if block != nil && !compaction {
 		if started != nil {
 			select {

@@ -20,6 +20,7 @@ use go:kit/ffi/sessionbridge
 use kit/tui/annotations
 use kit/tui/attachments
 use kit/tui/bootstrap
+use kit/tui/chrome
 use kit/tui/file_index
 use kit/tui/format
 use kit/tui/image_preview
@@ -136,6 +137,9 @@ struct Controller {
   reload_pending: Bool,
   compact_pending: Bool,
   compact_operation_id: Str,
+  // A compaction outside any turn, by this or another client, that is in
+  // progress.
+  session_compaction: Str,
   // The last turn seen to finish and its status, recorded once per turn as
   // it settles, never from a snapshot of earlier turns.
   finished_turn: Str,
@@ -336,6 +340,7 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     reload_pending: false,
     compact_pending: false,
     compact_operation_id: "",
+    session_compaction: "",
     finished_turn: "",
     finished_status: "",
     abort_pending: false,
@@ -503,6 +508,7 @@ impl Controller {
       self.abort_after_start = false
       self.compact_pending = false
       self.compact_operation_id = ""
+      self.session_compaction = ""
       self.bash_starting = false
       self.bash_id = ""
       self.bash_abort_requested = false
@@ -520,7 +526,7 @@ impl Controller {
 
   // Whether idle-only commands must wait for active session work.
   fn busy() Bool {
-    self.run_id != "" or self.start_pending or self.compact_pending
+    self.run_id != "" or self.start_pending or self.compact_pending or self.session_compaction != ""
   }
 
   // Whether any session work is in progress, including a shell command.
@@ -548,7 +554,7 @@ impl Controller {
     match {
       self.feedback_pending() => "Waiting for feedback…",
       self.live.activity != "" => self.live.activity,
-      self.compact_pending => "Compacting session…",
+      self.compact_pending or self.session_compaction != "" => "Compacting session…",
       _ => "",
     }
   }
@@ -607,6 +613,9 @@ impl Controller {
       // Another client's /cd arrives as a snapshot.
       self.watch_vcs()
       self.follow_ups = snapshot.FollowUps
+      // A session compaction holds the session until it ends, so a snapshot
+      // is never taken during one.
+      self.session_compaction = ""
       self.annotations = sessionbridge::Summaries(mut snapshot.Annotations)
       self.context_tokens = snapshot.ContextTokens
       self.context_window = snapshot.ContextWindow
@@ -775,6 +784,23 @@ impl Controller {
         if event.WorkspaceID != "" {
           self.workspace_id = event.WorkspaceID
         }
+      }
+      if event.Kind == "session.name.changed" and event.SessionName != "" {
+        self.rename(event.SessionName)
+      }
+      if event.Kind == "session.configuration.changed" and not unsafe::is_nil(event.Configuration) {
+        self.configure(event.Configuration.@)
+      }
+      if event.Kind == "follow_ups.changed" and not unsafe::is_nil(event.FollowUps) {
+        self.apply_follow_ups(event.FollowUps.@)
+      }
+      if event.TurnID == "" and event.Kind == "compaction.started" {
+        self.session_compaction = event.CompactionID
+      }
+      // The client that asked for the compaction, or for the model change
+      // that needed it, reports how it ended.
+      if event.TurnID == "" and event.Kind == "compaction.completed" {
+        self.session_compaction = ""
       }
       // A transcript pinned to its end follows new content on its own.
       let _ = self.live.apply_event(event)
@@ -1344,6 +1370,51 @@ impl Controller {
   // client's /cd, or by another client. The footer shows the directory at
   // once and its resolved location when known; file mentions index the new
   // directory when next opened.
+  // Adopts the session's name another client or the server chose.
+  fn mut rename(name: Str) {
+    match self.info {
+      info => {
+        let renamed = mut info
+        renamed.Name = name
+        self.info = Maybe::new(renamed.@)
+      },
+      _ => (),
+    }
+  }
+
+  // Adopts the model configuration another client applied.
+  fn mut configure(configuration: protocol::SessionConfiguration) {
+    match self.info {
+      info => {
+        if configuration.ConfigurationRevision >= info.ConfigurationRevision {
+          let configured = mut info
+          configured.Model = configuration.Model
+          configured.ThinkingLevel = configuration.ThinkingLevel
+          configured.Inputs = configuration.Inputs
+          configured.ConfigurationRevision = configuration.ConfigurationRevision
+          self.info = Maybe::new(configured.@)
+        }
+      },
+      _ => (),
+    }
+  }
+
+  // Adopts the session's follow-up queue. When its first message newly
+  // cannot start, says so once; the status line keeps showing why until the
+  // queue is restored.
+  fn mut apply_follow_ups(queue: protocol::FollowUpQueue) {
+    let failure = chrome::follow_up_failure(queue)
+    if failure != "" and chrome::follow_up_failure(self.follow_ups) == "" {
+      (self.host.toast)(
+        "Queued message couldn't start",
+        "{failure}. Press ↑ to restore the queue.",
+        toast::Variant::warning,
+        false,
+      )
+    }
+    self.follow_ups = queue
+  }
+
   fn mut follow_cwd(cwd: Str) {
     match self.info {
       info => {
@@ -3115,7 +3186,8 @@ impl Controller {
     restored: protocol::RestoreFollowUpsResult,
     restored_attachments: [attachments::Staged],
   ) {
-    self.follow_ups = restored.Queue
+    // The session's stream reports the emptied queue; this response may
+    // arrive after a newer queue.
     for item in restored_attachments {
       mut present = false
       for existing in self.attachments {
@@ -3147,27 +3219,15 @@ impl Controller {
               let ctx = lifetime.Context
               let dispatch = self.host.dispatch
               async::start(fn() {
+                // The session's stream reports the queue, including after a
+                // failure that sent some of it.
                 let result = session.PromoteFollowUps(ctx)
-                // After a failure the queue may have changed anyway.
-                let current = match result {
-                  ok(_) => Maybe::new<protocol::FollowUpQueue>(),
-                  err(_) => {
-                    match session.Snapshot(ctx) {
-                      ok(snapshot) => Maybe::new(snapshot.FollowUps),
-                      err(_) => Maybe::new<protocol::FollowUpQueue>(),
-                    }
-                  },
-                }
                 let _ = dispatch(fn() {
                   if self.active {
                     self.follow_ups_changing = false
                     match result {
                       ok(promoted) => self.apply_promoted_follow_ups(promoted),
                       err(failure) => {
-                        match current {
-                          queue => { self.follow_ups = queue },
-                          _ => (),
-                        }
                         if not self.absorbs(failure) {
                           (self.host.toast)(
                             "Could not send follow-ups now",
@@ -3191,7 +3251,6 @@ impl Controller {
   }
 
   fn mut apply_promoted_follow_ups(promoted: protocol::PromoteFollowUpsResult) {
-    self.follow_ups = promoted.Queue
     (self.host.toast)(
       "Follow-ups sent",
       "Promoted {promoted.Promoted} queued messages.",
@@ -3236,7 +3295,8 @@ impl Controller {
     optimistic: Bool,
     unstarted: Str,
   ) {
-    self.follow_ups = submission.Queue
+    // The session's stream reports the queue in order; this response may
+    // arrive after a newer queue.
     if submission.Queued {
       if optimistic {
         self.live.reset()
@@ -3259,7 +3319,12 @@ impl Controller {
       self.abort_after_start = false
     }
     if not self.absorbs(failure) {
-      self.notice = failure.error()
+      // An idle session with queued follow-ups starts nothing else until
+      // they are restored.
+      self.notice = match sessionbridge::Conflict(failure) and self.follow_ups.Count > 0 and self.run_id == "" {
+        true => "Restore the queued follow-ups (↑) before sending a new prompt",
+        false => failure.error(),
+      }
     }
   }
 
@@ -4086,6 +4151,192 @@ test fn a_changed_working_directory_moves_the_session_and_its_location() Void!St
   )
 }
 
+test fn another_clients_rename_and_configuration_update_the_session() Void!Str {
+  let effects = mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{
+        ID: "session-1",
+        Name: "Before",
+        Model: "openai/gpt-5",
+        ThinkingLevel: "low",
+        ConfigurationRevision: 2,
+      },
+    },
+  )
+  subject.apply_events(
+    [
+      sessionbridge::Event{Kind: "session.name.changed", SessionName: "Renamed"},
+      sessionbridge::Event{
+        Kind: "session.configuration.changed",
+        Configuration: mut protocol::SessionConfiguration{
+          Model: "openai/gpt-5",
+          ThinkingLevel: "high",
+          Inputs: [],
+          ConfigurationRevision: 3,
+        },
+      },
+    ],
+  )
+  let info = subject.info.expect("info")
+  try testing::assert(info.Name == "Renamed", "the new name is shown: {info.Name}")
+  try testing::assert(
+    info.Model == "openai/gpt-5" and info.ThinkingLevel == "high" and info.ConfigurationRevision == 3,
+    "the new configuration is shown: {info.ThinkingLevel} {info.ConfigurationRevision}",
+  )
+  // A configuration older than the one shown changes nothing.
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "session.configuration.changed",
+        Configuration: mut protocol::SessionConfiguration{
+          Model: "openai/gpt-5",
+          ThinkingLevel: "low",
+          Inputs: [],
+          ConfigurationRevision: 2,
+        },
+      },
+    ],
+  )
+  testing::assert(
+    subject.info.expect("info").ThinkingLevel == "high",
+    "a stale configuration is ignored",
+  )
+}
+
+test fn another_clients_queue_changes_update_the_queue_and_a_held_queue_is_reported_once() Void!Str {
+  let effects = mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "follow_ups.changed",
+        FollowUps: mut protocol::FollowUpQueue{
+          Count: 1,
+          Previews: ["next"],
+          AnnotationIDs: [],
+        },
+      },
+    ],
+  )
+  try testing::assert(
+    subject.follow_ups.Count == 1 and subject.follow_ups.Previews.at(0).or("") == "next",
+    "the queued message is shown",
+  )
+  try testing::assert(effects.toasts.size() == 0, "a waiting queue is not an alert")
+  let held = sessionbridge::Event{
+    Kind: "follow_ups.changed",
+    FollowUps: mut protocol::FollowUpQueue{
+      Count: 1,
+      Previews: ["next"],
+      AnnotationIDs: [],
+      AdmissionFailure: mut protocol::FollowUpAdmissionFailure{Message: "attachment is unavailable"},
+    },
+  }
+  subject.apply_events([held])
+  subject.apply_events([held])
+  try testing::assert(
+    chrome::follow_up_failure(subject.follow_ups) == "attachment is unavailable",
+    "the held queue keeps its reason",
+  )
+  try testing::assert(
+    strings::Join(mut effects.toasts, "|") == "Queued message couldn't start: attachment is unavailable. Press ↑ to restore the queue.",
+    "the held queue is reported once: {strings::Join(mut effects.toasts, "|")}",
+  )
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "follow_ups.changed",
+        FollowUps: mut protocol::FollowUpQueue{
+          Count: 0,
+          Previews: [],
+          AnnotationIDs: [],
+        },
+      },
+    ],
+  )
+  testing::assert(subject.follow_ups.Count == 0, "the restored queue is empty")
+}
+
+test fn a_prompt_refused_behind_a_held_queue_says_to_restore_it() Void!Str {
+  let effects = mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      FollowUps: protocol::FollowUpQueue{
+        Count: 1,
+        Previews: ["next"],
+        AnnotationIDs: [],
+      },
+    },
+  )
+  subject.reject_submission(
+    false,
+    reported(
+      fmt::Errorf(
+        "submit prompt: %w",
+        mut api::ServerError{Code: api::ErrorConflict, Message: "operation conflicts with session state"},
+      ),
+    ),
+  )
+  testing::assert(
+    subject.notice == "Restore the queued follow-ups (↑) before sending a new prompt",
+    "the notice says how to continue: {subject.notice}",
+  )
+}
+
+test fn a_session_compaction_is_session_work_until_it_ends() Void!Str {
+  let effects = mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        StreamID: "stream-1",
+        Sequence: 1,
+        Kind: "compaction.started",
+        CompactionID: "compact_other",
+      },
+    ],
+  )
+  try testing::assert(subject.busy(), "another client's compaction is session work")
+  try testing::assert(
+    subject.activity() == "Compacting session…" and subject.live.activity == "",
+    "the session, not a turn, is compacting: {subject.activity()}",
+  )
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        StreamID: "stream-1",
+        Sequence: 2,
+        Kind: "compaction.completed",
+        CompactionID: "compact_other",
+        ErrorMessage: "context canceled",
+      },
+    ],
+  )
+  testing::assert(not subject.busy() and subject.activity() == "", "the compaction ended")
+}
+
 test fn opening_a_chip_closes_one_that_opened_on_its_own() Void!Str {
   let effects = mut Effects{
     toasts: [],
@@ -4620,14 +4871,16 @@ test fn a_turn_without_a_final_snapshot_settles_what_streamed() Void!Str {
   )
 }
 
-test fn restored_follow_ups_go_before_the_draft_and_update_the_queue() Void!Str {
+test fn restored_follow_ups_go_before_the_draft_and_leave_the_queue_to_the_stream() Void!Str {
   let effects = mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
   }
   let subject = active_controller(effects)
-  subject.follow_ups = protocol::FollowUpQueue{Count: 3, Previews: ["a", "b", "c"]}
+  // The stream already shows a message another client queued after the
+  // restore.
+  subject.follow_ups = protocol::FollowUpQueue{Count: 1, Previews: ["later"]}
   subject.attachments = [
     attachments::uploaded(protocol::AttachmentInfo{ID: "attachment-0", Filename: "staged.txt"}),
   ]
@@ -4645,7 +4898,10 @@ test fn restored_follow_ups_go_before_the_draft_and_update_the_queue() Void!Str 
       attachments::uploaded(protocol::AttachmentInfo{ID: "attachment-1", Filename: "photo.png"}),
     ],
   )
-  try testing::assert(subject.follow_ups.Count == 0, "the queue is emptied")
+  try testing::assert(
+    subject.follow_ups.Count == 1 and subject.follow_ups.Previews.at(0).or("") == "later",
+    "the newer queue from the stream stays",
+  )
   try testing::assert(
     staged_names(subject) == "staged.txt photo.png",
     "restored files join the staged ones once: {staged_names(subject)}",
@@ -4656,18 +4912,19 @@ test fn restored_follow_ups_go_before_the_draft_and_update_the_queue() Void!Str 
   )
 }
 
-test fn promoted_follow_ups_update_the_queue_and_are_acknowledged() Void!Str {
+test fn promoted_follow_ups_are_acknowledged_and_leave_the_queue_to_the_stream() Void!Str {
   let effects = mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
   }
   let subject = active_controller(effects)
-  subject.follow_ups = protocol::FollowUpQueue{Count: 2}
+  // The stream already shows a message queued after the promotion.
+  subject.follow_ups = protocol::FollowUpQueue{Count: 1, Previews: ["later"]}
   subject.apply_promoted_follow_ups(
     protocol::PromoteFollowUpsResult{Promoted: 2, Queue: protocol::FollowUpQueue{Count: 0}},
   )
-  try testing::assert(subject.follow_ups.Count == 0, "the queue is emptied")
+  try testing::assert(subject.follow_ups.Count == 1, "the newer queue from the stream stays")
   testing::assert(
     effects.toasts.size() == 1 and effects.toasts.at(0).or("") == "Follow-ups sent: Promoted 2 queued messages.",
     "the promotion is acknowledged",

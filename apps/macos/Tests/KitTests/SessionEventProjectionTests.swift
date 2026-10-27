@@ -12,6 +12,57 @@ struct SessionEventProjectionTests {
         json.merge(fields) { _, new in new }
         return try JSONDecoder().decode(WireSessionEvent.self, from: JSONSerialization.data(withJSONObject: json))
     }
+    @Test func anotherClientsQueueConfigurationAndDirectoryUpdateTheSession() throws {
+        var state = try SessionEventProjection(snapshot())
+        try state.apply(event("follow_ups.changed", ["turnId": "", "followUps": [
+            "count": 1, "previews": ["Read the notes"], "admissionFailure": ["message": "attachment is unavailable"]]]))
+        #expect(state.session.followUps?.count == 1)
+        #expect(state.session.followUps?.previews == ["Read the notes"])
+        #expect(state.session.followUps?.admissionFailure == "attachment is unavailable")
+        try state.apply(event("follow_ups.changed", ["turnId": "", "followUps": ["count": 0]]))
+        #expect(state.session.followUps?.count == 0)
+        #expect(state.session.followUps?.admissionFailure == nil)
+
+        try state.apply(event("session.configuration.changed", ["turnId": "", "configuration": [
+            "model": "openai/gpt-5", "thinkingLevel": "low", "inputs": ["text", "image"], "configurationRevision": 2]]))
+        #expect(state.session.model == "openai/gpt-5")
+        #expect(state.session.thinking == "low")
+        #expect(state.session.inputs == ["text", "image"])
+        #expect(state.session.configurationRevision == 2)
+        // A configuration older than the one shown changes nothing.
+        try state.apply(event("session.configuration.changed", ["turnId": "", "configuration": [
+            "model": "m", "thinkingLevel": "high", "configurationRevision": 1]]))
+        #expect(state.session.model == "openai/gpt-5")
+
+        let limits: [String: Any] = ["maxPathBytes": 4096, "maxPathComponents": 64, "defaultDirectoryPageSize": 100,
+            "maxDirectoryPageSize": 200, "maxDirectoryEntries": 10000, "maxDirectoryResponseBytes": 524288,
+            "maxDirectoryObservationBytes": 8388608, "maxPreviewBytes": 1000000, "maxPreviewLines": 5000,
+            "maxActiveRequests": 1, "maxPendingRequests": 0]
+        try state.apply(event("session.cwd.changed", ["turnId": "", "workspace": [
+            "sessionId": "s", "cwd": "/repo/app", "workspaceId": "workspace_app", "state": "ready", "limits": limits]]))
+        #expect(state.session.cwd == "/repo/app")
+        #expect(state.session.workspace == "app")
+
+        // These changes belong to the session, never to a turn.
+        #expect(throws: ClientError.self) { try state.apply(event("follow_ups.changed", ["followUps": ["count": 0]])) }
+        #expect(throws: ClientError.self) { try state.apply(event("follow_ups.changed", ["turnId": "", "followUps": [
+            "count": 0, "admissionFailure": ["message": "nothing is queued"]]])) }
+    }
+
+    @MainActor @Test func aSessionCompactionIsSessionWorkThatItsRequesterReports() throws {
+        var state = try SessionEventProjection(snapshot())
+        try state.apply(event("compaction.started", ["turnId": "", "compactionId": "compact_other"]))
+        #expect(state.session.activity == "Compacting session…")
+        try state.apply(event("compaction.completed", ["turnId": "", "compactionId": "compact_other", "errorMessage": "context canceled"]))
+        #expect(state.session.activity == nil)
+        #expect(state.session.compactionOutcome == CompactionOutcome(id: "compact_other", failed: true, detail: "context canceled", automatic: false))
+        // The client that asked for it, or for the model change that needed
+        // it, reports how it ended.
+        let feedback = SessionFeedback()
+        feedback.observe(state.session)
+        #expect(feedback.notices.isEmpty)
+    }
+
     @Test func pluginDialogsSurviveModelRunBoundariesAndAreAnswerableWhileIdle() throws {
         var state = try SessionEventProjection(snapshot())
         let request: [String: Any] = ["id": "interaction_plugin", "sessionId": "s", "plugin": ["pluginId": "demo", "instance": "host:1"],

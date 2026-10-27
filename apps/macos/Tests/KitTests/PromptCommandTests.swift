@@ -159,8 +159,8 @@ private actor PalettePromptClient: PromptCommandClient {
             draft: .init(text: "/review", notes: [:], attachmentIDs: []),
             uncertain: {}, acknowledged: {})
         try await eventually { !operation.sending }
+        // The session's stream, not the response, reports the queue.
         #expect(operation.submission == .acknowledged("Queued"))
-        #expect(operation.queue?.count == 1)
         #expect(operation.receiptTurn == nil)
     }
 

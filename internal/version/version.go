@@ -47,5 +47,10 @@ const (
 	// client-plugins operations, the event stream's clientPlugin binding, and
 	// the client_plugin.call.requested and client_plugin.call.resolved live
 	// events (ADR 0051).
-	SessionProtocolVersion = 49
+	// 50: Every attached client learns of session changes another client made.
+	// The live stream adds follow_ups.changed and session.configuration.changed;
+	// follow-up queues carry an admissionFailure while a queued message cannot
+	// start; compaction.started and compaction.completed may belong to the
+	// session rather than a turn (ADR 0052).
+	SessionProtocolVersion = 50
 )

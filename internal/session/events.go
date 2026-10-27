@@ -9,6 +9,7 @@ import (
 	"mime"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -56,16 +57,21 @@ const (
 	EventRunFinished            EventKind = "run.finished"
 	EventSessionRenamed         EventKind = "session.renamed"
 	EventSessionCWDChanged      EventKind = "session.cwd.changed"
-	EventSubagentChanged        EventKind = "subagent.changed"
-	EventPeerQueryChanged       EventKind = "peer_query.changed"
-	EventInteractionRequested   EventKind = "interaction.requested"
-	EventInteractionResolved    EventKind = "interaction.resolved"
-	EventAnnotationCreated      EventKind = "annotation.created"
-	EventAnnotationUpdated      EventKind = "annotation.updated"
-	EventAnnotationDeleted      EventKind = "annotation.deleted"
-	EventAnnotationSubmitted    EventKind = "annotation.submitted"
-	EventScratchpadChanged      EventKind = "scratchpad.changed"
-	EventBoundaryCreated        EventKind = "boundary.created"
+	// EventSessionConfigurationChanged carries the session's newly applied
+	// model configuration.
+	EventSessionConfigurationChanged EventKind = "session.configuration.changed"
+	// EventFollowUpsChanged carries the follow-up queue after it changed.
+	EventFollowUpsChanged     EventKind = "follow_ups.changed"
+	EventSubagentChanged      EventKind = "subagent.changed"
+	EventPeerQueryChanged     EventKind = "peer_query.changed"
+	EventInteractionRequested EventKind = "interaction.requested"
+	EventInteractionResolved  EventKind = "interaction.resolved"
+	EventAnnotationCreated    EventKind = "annotation.created"
+	EventAnnotationUpdated    EventKind = "annotation.updated"
+	EventAnnotationDeleted    EventKind = "annotation.deleted"
+	EventAnnotationSubmitted  EventKind = "annotation.submitted"
+	EventScratchpadChanged    EventKind = "scratchpad.changed"
+	EventBoundaryCreated      EventKind = "boundary.created"
 	// EventURLOpenRequested asks attached clients to open a web page. It is
 	// ephemeral: retained only in the live event log, never in snapshots or
 	// the transcript.
@@ -190,6 +196,38 @@ type NewEvent struct {
 	URL string
 	// ClientPluginCall is the call of a client_plugin.call.* event.
 	ClientPluginCall *ClientPluginCall
+	// Configuration is the applied configuration of a
+	// session.configuration.changed event.
+	Configuration *SessionConfiguration
+	// FollowUps is the queue of a follow_ups.changed event.
+	FollowUps *FollowUpQueue
+}
+
+// SessionConfiguration is a session's applied model configuration.
+type SessionConfiguration struct {
+	ModelProvider         string
+	ModelID               string
+	ThinkingLevel         string
+	ConfigurationRevision uint64
+}
+
+func sessionConfiguration(record SessionRecord) *SessionConfiguration {
+	return &SessionConfiguration{
+		ModelProvider: record.ModelProvider, ModelID: record.ModelID,
+		ThinkingLevel: record.ThinkingLevel, ConfigurationRevision: record.ConfigurationRevision,
+	}
+}
+
+func (configuration SessionConfiguration) payloadBytes() int {
+	return len(configuration.ModelProvider) + len(configuration.ModelID) + len(configuration.ThinkingLevel) + 8
+}
+
+func (queue FollowUpQueue) payloadBytes() int {
+	size := 8 + len(queue.AnnotationIDs)*8 + len(queue.AdmissionFailure)
+	for _, preview := range queue.Previews {
+		size += len(preview)
+	}
+	return size
 }
 
 // Event is one ordered live update retained by a loaded runtime.
@@ -245,9 +283,15 @@ func (event NewEvent) Validate() error {
 		if event.TurnID != "" || event.RunID != "" {
 			return fmt.Errorf("boundary event cannot carry parent turn identity")
 		}
-	} else if event.Kind == EventSessionRenamed || event.Kind == EventSessionCWDChanged {
+	} else if event.Kind == EventSessionRenamed || event.Kind == EventSessionCWDChanged || event.Kind == EventSessionConfigurationChanged || event.Kind == EventFollowUpsChanged {
 		if event.TurnID != "" || event.RunID != "" {
 			return fmt.Errorf("session metadata event cannot carry parent turn identity")
+		}
+	} else if (event.Kind == EventCompactionStarted || event.Kind == EventCompactionCompleted || event.Kind == EventCompactionFailed) && event.TurnID == "" && event.RunID == "" {
+		// Explicit compaction, and compaction for a model change, run outside
+		// any turn.
+		if event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" || event.AnnotationID != 0 {
+			return fmt.Errorf("session compaction event cannot carry external identity")
 		}
 	} else if event.Kind == EventURLOpenRequested {
 		if event.TurnID != "" || event.RunID != "" {
@@ -331,6 +375,12 @@ func (event NewEvent) Validate() error {
 	}
 	if event.ClientPluginCall != nil {
 		payloadBytes += event.ClientPluginCall.payloadBytes()
+	}
+	if event.Configuration != nil {
+		payloadBytes += event.Configuration.payloadBytes()
+	}
+	if event.FollowUps != nil {
+		payloadBytes += event.FollowUps.payloadBytes()
 	}
 	for _, block := range event.Content {
 		payloadBytes += len(block.Text) + len(block.ToolCallID) + len(block.ToolName) + len(block.Arguments) + len(block.Filename) + len(block.MediaType)
@@ -440,6 +490,18 @@ func (event NewEvent) Validate() error {
 		if payloadBytes != event.ClientPluginCall.payloadBytes() || event.MessageID != "" || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" || event.ToolCallID != "" || event.ToolName != "" || event.IsError {
 			return fmt.Errorf("client plugin call event carries invalid payload")
 		}
+	case EventSessionConfigurationChanged:
+		configuration := event.Configuration
+		if configuration == nil || payloadBytes != configuration.payloadBytes() || event.MessageID != "" || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" || event.IsError ||
+			!configuration.valid() {
+			return fmt.Errorf("session configuration event requires only an applied configuration")
+		}
+	case EventFollowUpsChanged:
+		queue := event.FollowUps
+		if queue == nil || payloadBytes != queue.payloadBytes() || event.MessageID != "" || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" || event.IsError ||
+			!queue.valid() {
+			return fmt.Errorf("follow-up queue event requires only a valid queue")
+		}
 	case EventSubagentChanged, EventPeerQueryChanged, EventAnnotationDeleted, EventAnnotationSubmitted:
 	case EventBoundaryCreated:
 		if event.BoundaryID == "" || event.BoundaryKind == "" || event.CreatedAt.IsZero() || len(event.Content) == 0 && !event.ContentTruncated {
@@ -544,6 +606,12 @@ func (event NewEvent) Validate() error {
 	}
 	if event.Kind != EventURLOpenRequested && event.URL != "" {
 		return fmt.Errorf("event kind %q cannot carry a url", event.Kind)
+	}
+	if event.Kind != EventSessionConfigurationChanged && event.Configuration != nil {
+		return fmt.Errorf("event kind %q cannot carry a session configuration", event.Kind)
+	}
+	if event.Kind != EventFollowUpsChanged && event.FollowUps != nil {
+		return fmt.Errorf("event kind %q cannot carry a follow-up queue", event.Kind)
 	}
 	if event.Kind != EventClientPluginCallRequested && event.Kind != EventClientPluginCallResolved && event.ClientPluginCall != nil {
 		return fmt.Errorf("event kind %q cannot carry a client plugin call", event.Kind)
@@ -1195,6 +1263,17 @@ func validLiveCompactionID(id string) bool {
 }
 
 func rendererSafeLiveError(text string) string {
+	text = rendererSafeText(text)
+	if text == "" {
+		return "Context compaction failed"
+	}
+	return truncateRendererText(text, maxLiveEventTextBytes)
+}
+
+// rendererSafeText is text as one line of valid UTF-8 that renderers can
+// show as it is: control and format characters become spaces, and runs of
+// spaces collapse to one. It is empty when text has nothing visible.
+func rendererSafeText(text string) string {
 	text = strings.ToValidUTF8(text, "�")
 	text = strings.Map(func(character rune) rune {
 		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
@@ -1202,18 +1281,47 @@ func rendererSafeLiveError(text string) string {
 		}
 		return character
 	}, text)
-	text = strings.Join(strings.Fields(text), " ")
-	if text == "" {
-		return "Context compaction failed"
-	}
-	if len(text) <= maxLiveEventTextBytes {
+	return strings.Join(strings.Fields(text), " ")
+}
+
+// truncateRendererText bounds text to limit bytes, ending a shortened text
+// with an ellipsis.
+func truncateRendererText(text string, limit int) string {
+	if len(text) <= limit {
 		return text
 	}
-	end := maxLiveEventTextBytes - len("…")
+	end := limit - len("…")
 	for end > 0 && !utf8.RuneStart(text[end]) {
 		end--
 	}
 	return text[:end] + "…"
+}
+
+// validRendererLine reports whether text is nonblank renderer-safe text of
+// at most limit bytes.
+func validRendererLine(text string, limit int) bool {
+	return text != "" && len(text) <= limit && rendererSafeText(text) == text
+}
+
+// valid reports whether queue is a follow-up queue that clients accept.
+func (queue FollowUpQueue) valid() bool {
+	if queue.Count < 0 || queue.Count > maxFollowUps || len(queue.Previews) > queue.Count {
+		return false
+	}
+	for _, preview := range queue.Previews {
+		if !validRendererLine(preview, maxFollowUpTextBytes) {
+			return false
+		}
+	}
+	return queue.AdmissionFailure == "" || queue.Count > 0 && validRendererLine(queue.AdmissionFailure, maxFollowUpTextBytes)
+}
+
+// valid reports whether configuration is an applied configuration that
+// clients accept.
+func (configuration SessionConfiguration) valid() bool {
+	return validRendererLine(configuration.ModelProvider, 128) && validRendererLine(configuration.ModelID, 256) &&
+		slices.Contains(canonicalThinkingLevels, configuration.ThinkingLevel) &&
+		configuration.ConfigurationRevision > 0 && configuration.ConfigurationRevision <= math.MaxInt64
 }
 
 func boundedLiveText(text string) string {

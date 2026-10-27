@@ -25,7 +25,10 @@ private actor MutationStub: SessionMutationClient {
     var calls: [WirePromptInput] = []
     var continuation: CheckedContinuation<WirePromptSubmission, any Error>?
     var aborted: [String] = []
-    var queue = WireFollowUpQueue(count: 0, previews: [], annotationIds: nil)
+    /// The server's queue. Like the server, the stub announces each change on
+    /// the session's stream.
+    var queue = WireFollowUpQueue(count: 0, previews: [], annotationIds: nil) { didSet { queueRevision += 1 } }
+    private var queueRevision = 0
     func sessions() async throws -> [SessionExcerpt] { [] }
     func snapshot(_ id: String) async throws -> SessionExcerpt {
         snapshotReads += 1
@@ -37,8 +40,14 @@ private actor MutationStub: SessionMutationClient {
         return value
     }
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
+        var announced = queueRevision
         await receive(try snapshot(id))
-        try await Task.sleep(for: .seconds(60))
+        while true {
+            try await Task.sleep(for: .milliseconds(5))
+            guard queueRevision != announced else { continue }
+            announced = queueRevision
+            await receive(try snapshot(id))
+        }
     }
     func submit(_ session: String, input: WirePromptInput) async throws -> WirePromptSubmission {
         calls.append(input)
@@ -51,7 +60,10 @@ private actor MutationStub: SessionMutationClient {
         continuation = nil
     }
     func reject(_ error: ClientError) { continuation?.resume(throwing: error); continuation = nil }
-    func followUps(_ session: String) async throws -> FollowUpState { try FollowUpState(queue) }
+    func holdQueue(_ preview: String, failure: String) {
+        queue = WireFollowUpQueue(count: 1, previews: [preview], annotationIds: nil,
+                                  admissionFailure: WireFollowUpAdmissionFailure(message: failure))
+    }
     func restoreFollowUps(_ session: String) async throws -> WireRestoreFollowUpsResult {
         queue = WireFollowUpQueue(count: 0, previews: [], annotationIds: nil)
         return WireRestoreFollowUpsResult(messages: [WirePromptInput(text: "Restored", attachmentIds: ["attachment"], annotationIds: nil)], queue: queue)
@@ -262,6 +274,57 @@ private actor MutationStub: SessionMutationClient {
         try await wait { operations.submission == .acknowledged("Queued") }
         operations.reconcile(session(turns: []))
         #expect(operations.submission == .acknowledged("Sent"))
+    }
+
+    @Test func queueChangesFromTheSessionStreamReachTheTray() throws {
+        let operations = SessionOperations()
+        var session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "Test", model: "m", thinking: "high", workspace: "w", date: "", messages: [])
+        session.followUps = try FollowUpState(WireFollowUpQueue(count: 0, previews: [], annotationIds: nil))
+        operations.reconcile(session)
+        #expect(operations.queue?.count == 0)
+        // Another client queues a message, and it then cannot start.
+        session.followUps = try FollowUpState(WireFollowUpQueue(count: 1, previews: ["From another client"], annotationIds: nil))
+        operations.reconcile(session)
+        #expect(operations.queue?.previews == ["From another client"])
+        session.followUps = try FollowUpState(WireFollowUpQueue(count: 1, previews: ["From another client"], annotationIds: nil,
+                                                                admissionFailure: WireFollowUpAdmissionFailure(message: "attachment is unavailable")))
+        operations.reconcile(session)
+        #expect(operations.queue?.admissionFailure == "attachment is unavailable")
+        session.followUps = try FollowUpState(WireFollowUpQueue(count: 0, previews: [], annotationIds: nil))
+        operations.reconcile(session)
+        #expect(operations.queue?.count == 0)
+    }
+
+    @Test func aSubmissionsResponseDoesNotReplaceTheNewerQueueFromTheStream() async throws {
+        let client = MutationStub()
+        let operations = SessionOperations()
+        var session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "Test", model: "m", thinking: "high", workspace: "w", date: "", messages: [])
+        session.followUps = try FollowUpState(WireFollowUpQueue(count: 0, previews: [], annotationIds: nil))
+        operations.reconcile(session)
+        operations.submit(client: client, session: "s", input: WirePromptInput(text: "Follow up", attachmentIds: nil, annotationIds: nil),
+                          draft: .init(text: "Follow up", notes: [:], attachmentIDs: []), uncertain: {}, acknowledged: {})
+        try await wait { await client.continuation != nil }
+        // The message is queued and starts as the running turn ends. The
+        // stream shows the emptied queue before the response, which still
+        // lists the message, arrives.
+        operations.reconcile(session)
+        await client.acknowledge(queued: true)
+        try await wait { operations.submission == .acknowledged("Queued") }
+        #expect(operations.queue?.count == 0)
+    }
+
+    @Test func aPromptRefusedBehindAHeldQueueSaysHowToContinue() async throws {
+        let client = MutationStub()
+        await client.holdQueue("Read the notes", failure: "attachment is unavailable")
+        let state = try await store(client)
+        defer { state.detach() }
+        try await wait { state.operations.queue?.admissionFailure == "attachment is unavailable" }
+        state.ui.draft = "Something else"
+        state.send()
+        try await wait { await client.calls.count == 1 }
+        await client.reject(.http(409))
+        try await wait { state.operations.startFailure != nil }
+        #expect(state.operations.startFailure == "Edit or clear the queued messages before sending a new one.")
     }
 
     @Test func abortWaitsForAuthoritativeTerminalState() async throws {

@@ -50,8 +50,8 @@ messages, subagent tasks, and plugin notifications are keyed by that turn.
 | Context compaction | `compaction.started`, `compaction.completed` |
 | Provider retry | `provider.retry.scheduled`, `provider.retry.started` |
 | Context and usage accounting | `context.changed`, `usage.changed` |
-| Session metadata | `session.name.changed`, `session.cwd.changed` |
-| Shared state | `scratchpad.changed`, `subagent.changed`, `peer_query.changed` |
+| Session metadata | `session.name.changed`, `session.cwd.changed`, `session.configuration.changed` |
+| Shared state | `scratchpad.changed`, `subagent.changed`, `peer_query.changed`, `follow_ups.changed` |
 | Interactions | `interaction.requested`, `interaction.resolved` |
 | Annotations | `annotation.created`, `annotation.updated`, `annotation.deleted`, `annotation.submitted` |
 | Context records (boundaries) | `boundary.created` |

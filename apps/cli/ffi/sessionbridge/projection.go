@@ -51,6 +51,15 @@ type Event struct {
 	// Bash is the run a boundary.created event records when the boundary is
 	// a composer command.
 	Bash *Bash
+	// SessionName is the session's new name after session.name.changed.
+	SessionName string
+	// Configuration is the session's applied configuration after
+	// session.configuration.changed.
+	Configuration *protocol.SessionConfiguration
+	// FollowUps is the session's follow-up queue after follow_ups.changed.
+	FollowUps *protocol.FollowUpQueue
+	// CompactionID identifies the compaction a compaction event reports.
+	CompactionID string
 }
 
 // Content is the client-owned flat projection of transcript content.
@@ -155,6 +164,16 @@ func Events(source []protocol.SessionEvent) []Event {
 			projected.AnnotationIDs = payload.AnnotationIDs
 		case protocol.TurnCompletedEvent:
 			projected.Status, projected.ErrorMessage = string(payload.Status), payload.ErrorMessage
+		case protocol.CompactionStartedEvent:
+			projected.CompactionID = payload.CompactionID
+		case protocol.CompactionCompletedEvent:
+			projected.CompactionID, projected.ErrorMessage = payload.CompactionID, payload.ErrorMessage
+		case protocol.SessionNameChangedEvent:
+			projected.SessionName = payload.SessionName
+		case protocol.SessionConfigurationChangedEvent:
+			projected.Configuration = payload.Configuration
+		case protocol.FollowUpsChangedEvent:
+			projected.FollowUps = payload.FollowUps
 		case protocol.SubagentChangedEvent:
 			projected.SubagentConversationID = payload.SubagentConversationID
 		case protocol.BoundaryCreatedEvent:

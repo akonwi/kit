@@ -130,4 +130,14 @@ struct WorkspaceCommandTests {
         #expect(two.previews == ["One", "Two"])
         #expect(two.more == 0)
     }
+
+    @Test func aHeldQueueSaysWhyItsFirstMessageCouldNotStart() throws {
+        let waiting = try FollowUpState(WireFollowUpQueue(count: 2, previews: ["One", "Two"], annotationIds: nil))
+        #expect(QueuedTray.title(waiting) == "2 queued")
+        #expect(QueuedTray.failure(waiting) == nil)
+        let held = try FollowUpState(WireFollowUpQueue(count: 2, previews: ["One", "Two"], annotationIds: nil,
+                                                       admissionFailure: WireFollowUpAdmissionFailure(message: "attachment is unavailable")))
+        #expect(QueuedTray.title(held) == "2 held")
+        #expect(QueuedTray.failure(held) == "Couldn't start: attachment is unavailable")
+    }
 }

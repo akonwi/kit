@@ -125,7 +125,7 @@ struct SessionComposerRegion: View {
     }
 }
 
-/// The session's shell and queue monitors, which run whichever panes are shown.
+/// The session's shell monitor, which runs whichever panes are shown.
 struct SessionMonitors: View {
     @Bindable var state: SessionStore
     var body: some View {
@@ -133,9 +133,6 @@ struct SessionMonitors: View {
             .accessibilityHidden(true)
             .task(id: "bash/\(state.serverID)/\(state.selectedID)/\(state.unavailable)") {
                 if !state.unavailable { await state.monitorBash() }
-            }
-            .task(id: "\(state.serverID)/\(state.selectedID)/\(state.unavailable)") {
-                if !state.unavailable, let client = state.mutationClient { await state.operations.monitorQueue(client: client, session: state.selectedID) }
             }
     }
 }

@@ -409,10 +409,7 @@ impl Shell {
       true => "",
       false => "Restart Kit to reconnect",
     }
-    let status = chrome::session_status(
-      self.attached.recovery_status(),
-      self.attached.follow_ups.Count,
-    )
+    let status = chrome::session_status(self.attached.recovery_status(), self.attached.follow_ups)
     let update = match self.updates.shown() {
       true => {
         Maybe::new(
