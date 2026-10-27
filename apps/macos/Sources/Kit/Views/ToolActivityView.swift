@@ -18,9 +18,10 @@ extension EnvironmentValues {
     }
 }
 
-/// One batch of tool calls: a disclosure header, then a row per call. Rows
-/// share a title column as wide as the batch's longest title, within bounds,
-/// as in the terminal client.
+/// One batch of tool calls. A lone call is just its row; a group of
+/// consecutive calls has a disclosure header above a row per call. Rows share
+/// a title column as wide as the batch's longest title, within bounds, as in
+/// the terminal client.
 struct ToolActivityView: View {
     @Environment(\.mica) private var theme
     @Environment(\.transcriptToolContext) private var context
@@ -34,48 +35,54 @@ struct ToolActivityView: View {
     static let maximumTitleWidth: CGFloat = 180
 
     var body: some View {
-        let expanded = state.isExpanded(count: tools.count, inProgress: inProgress)
-        let presentations = tools.map { ToolPresentation($0, servers: context.servers) }
+        let disclosure = state.disclosure(count: tools.count)
         VStack(alignment: .leading, spacing: 2) {
-            Button {
-                state.expanded = !expanded
-                if !expanded { onExpand() }
-            } label: {
-                HStack(spacing: 10) {
-                    Group {
-                        if inProgress && !expanded {
-                            KitSpinner().foregroundStyle(theme.accent)
-                        } else {
-                            IconView(expanded ? .caretDown : .caretRight, size: 10)
-                        }
-                    }.frame(width: 16)
-                    Text("\(tools.count) tool \(tools.count == 1 ? "call" : "calls")")
-                    let failed = tools.filter(\.failed).count
-                    if failed > 0 {
-                        Text("·")
-                        Text("\(failed) failed").foregroundStyle(theme.danger)
-                    }
-                }
-                .font(.kit(size: 12))
-                .padding(.leading, 8).frame(height: 24).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain).foregroundStyle(theme.muted)
-            .accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(tools.count) recorded tool calls")
-            if expanded {
-                let titleWidth = Self.titleWidth(presentations.map(\.title))
-                ForEach(Array(zip(tools, presentations)), id: \.0.id) { tool, presentation in
-                    if let thinking = tool.thinking, !thinking.isEmpty {
-                        MarkdownView(source: thinking).padding(.leading, 34).padding(.vertical, 4)
-                    }
-                    ToolCallRow(tool: tool, presentation: presentation, titleWidth: titleWidth,
-                                open: state.selectedTool == tool.id, workspace: workspace) {
-                        state.selectedTool = state.selectedTool == tool.id ? nil : tool.id
-                    }
-                }
-            }
+            if case .group(let expanded) = disclosure { header(expanded: expanded) }
+            if disclosure.showsRows { rows }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
+    }
+
+    private func header(expanded: Bool) -> some View {
+        Button {
+            state.expanded = !expanded
+            if !expanded { onExpand() }
+        } label: {
+            HStack(spacing: 10) {
+                Group {
+                    if inProgress && !expanded {
+                        KitSpinner().foregroundStyle(theme.accent)
+                    } else {
+                        IconView(expanded ? .caretDown : .caretRight, size: 10)
+                    }
+                }.frame(width: 16)
+                Text("\(tools.count) tool calls")
+                let failed = tools.filter(\.failed).count
+                if failed > 0 {
+                    Text("·")
+                    Text("\(failed) failed").foregroundStyle(theme.danger)
+                }
+            }
+            .font(.kit(size: 12))
+            .padding(.leading, 8).frame(height: 24).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).foregroundStyle(theme.muted)
+        .accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(tools.count) recorded tool calls")
+    }
+
+    @ViewBuilder private var rows: some View {
+        let presentations = tools.map { ToolPresentation($0, servers: context.servers) }
+        let titleWidth = Self.titleWidth(presentations.map(\.title))
+        ForEach(Array(zip(tools, presentations)), id: \.0.id) { tool, presentation in
+            if let thinking = tool.thinking, !thinking.isEmpty {
+                MarkdownView(source: thinking).padding(.leading, 34).padding(.vertical, 4)
+            }
+            ToolCallRow(tool: tool, presentation: presentation, titleWidth: titleWidth,
+                        open: state.selectedTool == tool.id, workspace: workspace) {
+                state.selectedTool = state.selectedTool == tool.id ? nil : tool.id
+            }
+        }
     }
 
     /// The width of the title column shared by rows with these titles.

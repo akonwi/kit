@@ -127,7 +127,7 @@ import Testing
     @Test func progressiveGroupsResizeNativeRowsAndRespectManualExpansion() async throws {
         let presentation = TranscriptPresentationState()
         let workspace = WorkspaceState(demo: false)
-        var count = 5
+        var count = 1
         var active = true
         func input() -> NativeTranscript {
             let tools = (0..<count).map {
@@ -156,29 +156,47 @@ import Testing
             #expect(predicate(value), "Unexpected tool group height: \(value)")
             return value
         }
+        // Rows are 28 points and the group header 24, two points apart.
+        let row: CGFloat = 28, header: CGFloat = 24, gap: CGFloat = 2
+        func equals(_ expected: CGFloat) -> (CGFloat) -> Bool { { abs($0 - expected) < 0.5 } }
         adapter.receive(input())
-        let openHeight = try await height { $0 > 150 }
+        // A lone call is its row; the group's chrome is the rest of the height.
+        let single = try await height(matching: equals(60))
+        let chrome = single - row
+        // A second call brings the header in above the rows, still open.
+        count = 2
+        adapter.receive(input())
+        _ = try await height(matching: equals(chrome + header + 2 * (gap + row)))
+        #expect(adapter.distanceFromBottom < 1)
+        count = 5
+        adapter.receive(input())
+        let open = try await height(matching: equals(chrome + header + 5 * (gap + row)))
+        // Above the threshold a live group collapses to its header.
         count = 6
         adapter.receive(input())
-        let closedHeight = try await height { $0 < 80 }
-        #expect(openHeight > closedHeight)
+        _ = try await height(matching: equals(chrome + header))
         #expect(adapter.distanceFromBottom < 1)
         presentation.drawer(for: "group").expanded = true
-        _ = try await height { $0 > openHeight }
+        _ = try await height { $0 > open }
         count = 7
         adapter.receive(input())
-        _ = try await height { $0 > openHeight }
+        _ = try await height { $0 > open }
         active = false
         adapter.receive(input())
-        #expect(presentation.drawer(for: "group").isExpanded(count: count, inProgress: active))
+        #expect(presentation.drawer(for: "group").disclosure(count: count) == .group(expanded: true))
         presentation.drawer(for: "group").expanded = nil
-        _ = try await height { $0 < 80 }
+        _ = try await height(matching: equals(chrome + header))
+        // Finishing the turn keeps groups through the threshold, and lone calls, open.
         count = 3; active = true
         adapter.receive(input())
-        _ = try await height { $0 > 100 }
+        let three = try await height(matching: equals(chrome + header + 3 * (gap + row)))
         active = false
         adapter.receive(input())
-        _ = try await height { $0 < 80 }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(adapter.table.rect(ofRow: 0).height == three)
+        count = 1
+        adapter.receive(input())
+        _ = try await height(matching: equals(single))
     }
 
     @Test func pluginMessageRowExpandsByTurnAcrossLiveAndPersistedRows() async throws {

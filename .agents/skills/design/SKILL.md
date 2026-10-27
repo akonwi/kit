@@ -449,7 +449,7 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 - Fenced code uses a subtle surface, preserves selectable source order, expands tabs consistently, and wraps rather than silently clipping in transcript-width layouts.
 - Stream the latest thinking line as muted Markdown in the fixed one-row pending slot. Keep full thinking as Markdown evidence when a tool-backed Activity source exists, but do not create a transcript drawer for thinking alone.
 - Buffer assistant text deltas by message identity and reveal the completed Markdown atomically. Do not render pending assistant prose in Transcript or Activity; thinking and tool activity remain live.
-- Live tool groups auto-expand through five calls and collapse at six. Manual expansion/collapse overrides that default. A collapsed active group keeps the shared spinner, including between tool calls; completed groups use the normal collapsed presentation.
+- Live tool groups auto-expand through five calls and collapse at six. Manual expansion/collapse overrides that default. A collapsed active group keeps the shared spinner, including between tool calls; completed groups use the normal collapsed presentation. The macOS app shows a lone tool call as its row with no group header, and keeps groups of up to five calls open after they finish.
 
 ### Interactive elements
 

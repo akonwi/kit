@@ -165,10 +165,12 @@ compaction progress appears in the Agent pane's activity card, while reload prog
 palette until hidden or complete. Hiding the palette does not stop the reload.
 Input-specific errors remain at their source.
 
-Live tool groups reveal their first five calls, then collapse when the sixth arrives.
-The collapsed summary shows activity, the cumulative call count, and failures.
-Groups also settle closed at completion; a manual expand/collapse choice takes
-precedence and stays with the session. Automatic changes preserve scroll position.
+A lone tool call is shown as its row, with no group header, and never collapses.
+Consecutive calls form a group under a disclosure header. Groups of up to five
+calls stay open, live or finished; a group collapses when its sixth call
+arrives. The collapsed summary shows activity, the cumulative call count, and
+failures. A manual expand/collapse choice takes precedence and stays with the
+session. Automatic changes preserve scroll position.
 
 Long final responses open at their beginning when you were following the live turn.
 Reading earlier content keeps your current position. A quiet section menu and

@@ -102,11 +102,36 @@ final class SessionUIState {
 }
 
 @MainActor @Observable final class ToolDrawerState {
-    /// Nil follows the progressive default; explicit choices survive updates.
+    /// Groups larger than this collapse by default.
+    static let collapseThreshold = 5
+
+    /// Nil follows the default; explicit choices survive updates.
     var expanded: Bool?
     var selectedTool: String?
 
-    func isExpanded(count: Int, inProgress: Bool) -> Bool {
-        expanded ?? (inProgress && (1...5).contains(count))
+    /// How a batch of this many consecutive tool calls presents. A lone call
+    /// is just its row, never collapsed. A group has a disclosure header and
+    /// is open through the threshold, live or finished, and collapsed above
+    /// it, unless the user chose otherwise.
+    func disclosure(count: Int) -> ToolBatchDisclosure {
+        guard count > 1 else { return .single }
+        return .group(expanded: expanded ?? (count <= Self.collapseThreshold))
+    }
+}
+
+/// The presentation of a batch of tool calls.
+enum ToolBatchDisclosure: Equatable {
+    /// A lone call: its row with no header.
+    case single
+    /// Consecutive calls under a disclosure header, showing their rows when
+    /// expanded.
+    case group(expanded: Bool)
+
+    /// Whether the batch's rows are visible.
+    var showsRows: Bool {
+        switch self {
+        case .single: true
+        case .group(let expanded): expanded
+        }
     }
 }
