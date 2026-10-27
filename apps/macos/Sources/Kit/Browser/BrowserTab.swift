@@ -28,6 +28,25 @@ struct BrowserFailure: Equatable {
     let retry: URL?
 }
 
+/// Who opened a browser tab: the person, or the agent through a tool or a
+/// page it asked to open.
+enum BrowserTabOpener: String { case user, agent }
+
+/// Where the agent pointer is over a tab's page, in the page view's points
+/// from its top-left corner. `presses` counts the presses it has played.
+struct AgentPointer: Equatable {
+    var location: CGPoint
+    var presses = 0
+    var visible = true
+}
+
+/// A failure the browser agent reports to the model.
+struct BrowserAgentError: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
+}
+
 /// One browser tab: its address and page state, and the engine drawing it.
 /// The engine is created when the page is first loaded or shown, so a tab
 /// restored in a background session costs nothing until it's seen.
@@ -54,6 +73,15 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored var onRequest: (@MainActor (BrowserTabRequest) -> Void)?
     /// Receives an authorization's redirect; the tab closes once it has.
     @ObservationIgnored var redirectReceiver: BrowserRedirectReceiver?
+    @ObservationIgnored var opener = BrowserTabOpener.user
+    @ObservationIgnored private var closed = false
+    /// The page's dialog or file chooser waiting for an answer, if any.
+    private(set) var pageDialog: BrowserPageDialog?
+    /// The agent pointer, while the agent is acting on the page.
+    private(set) var agentPointer: AgentPointer?
+    @ObservationIgnored private var pointerFade: Task<Void, Never>?
+    /// How long the pointer stays after the agent's last action.
+    static let pointerLinger: Duration = .seconds(2)
 
     init(id: UUID = UUID(), url: URL? = nil, makeEngine: @escaping @MainActor () -> any BrowserEngine) {
         self.id = id
@@ -135,8 +163,71 @@ final class BrowserTab: Identifiable {
         return true
     }
 
+    // MARK: Agent
+
+    /// The engine, created and loading any waiting address, for the agent.
+    /// A restored tab that hasn't been shown starts its load now, since the
+    /// agent may read it before anything shows it. A closed tab has none.
+    func agentEngine() throws -> any BrowserEngine {
+        guard !closed else { throw BrowserAgentError("The tab was closed. Call browser__tabs for the tabs open now.") }
+        let engine = liveEngine
+        // A page never shown has no size; lay it out as a typical pane until
+        // a host sizes it.
+        if engine.view.frame.isEmpty { engine.view.frame = NSRect(origin: .zero, size: Self.unshownPageSize) }
+        if let pending {
+            self.pending = nil
+            engine.load(pending)
+        }
+        return engine
+    }
+
+    /// Whether a restored address is waiting for the page to be created.
+    var loadPending: Bool { pending != nil }
+    /// The size the agent lays out a page that hasn't been shown at.
+    static let unshownPageSize = CGSize(width: 1280, height: 800)
+
+    /// Whether the page's view is in a window on screen.
+    var onScreen: Bool {
+        guard let view = engine?.view, let window = view.window else { return false }
+        return window.isVisible && !view.isHiddenOrHasHiddenAncestor
+    }
+
+    /// Shows the agent pointer moving to `location`. It appears at the
+    /// page's centre the first time.
+    func moveAgentPointer(to location: CGPoint, in size: CGSize) {
+        guard location.x.isFinite, location.y.isFinite else { return }
+        pointerFade?.cancel()
+        let clamped = CGPoint(x: min(max(location.x, 0), max(size.width, 0)), y: min(max(location.y, 0), max(size.height, 0)))
+        if var pointer = agentPointer, pointer.visible {
+            pointer.location = clamped
+            agentPointer = pointer
+        } else {
+            agentPointer = AgentPointer(location: clamped)
+        }
+    }
+
+    /// Plays the agent pointer's press where it is.
+    func pressAgentPointer() {
+        guard agentPointer != nil else { return }
+        pointerFade?.cancel()
+        agentPointer?.presses += 1
+    }
+
+    /// Hides the agent pointer after it has lingered.
+    func releaseAgentPointer() {
+        pointerFade?.cancel()
+        guard agentPointer != nil else { return }
+        pointerFade = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.pointerLinger)
+            guard !Task.isCancelled else { return }
+            self?.agentPointer?.visible = false
+        }
+    }
+
     /// Stops the page before the tab is closed.
     func close() {
+        closed = true
+        pointerFade?.cancel()
         engine?.close()
         engine = nil
         onRequest = nil
@@ -197,13 +288,17 @@ final class BrowserTab: Identifiable {
         case .openedWindow(let child):
             // Without a workspace to show it, the window is refused.
             guard let onRequest else { child.close(); return }
-            onRequest(.openTab(BrowserTab(adopting: child, makeEngine: makeEngine)))
+            let tab = BrowserTab(adopting: child, makeEngine: makeEngine)
+            tab.opener = opener
+            onRequest(.openTab(tab))
         case .closeRequested:
             onRequest?(.close)
         case .downloadFinished(let file, let source):
             onRequest?(.downloadFinished(file: file, source: source))
         case .downloadFailed(let filename, let message):
             onRequest?(.downloadFailed(filename: filename, message: message))
+        case .dialogChanged(let dialog):
+            pageDialog = dialog
         case .downloadBlocked(let source):
             blockedDownload = source.map(BrowserAddress.hostLabel) ?? ""
         }

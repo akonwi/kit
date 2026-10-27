@@ -1085,6 +1085,17 @@ func ReadSessionEvents(body io.Reader, receive func(name, id string, batch proto
 
 // StreamSessionEvents opens the session's authenticated SSE event response.
 func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID string, after int64) (io.ReadCloser, error) {
+	return c.StreamClientPluginSessionEvents(ctx, sessionID, streamID, after, "")
+}
+
+// StreamClientPluginSessionEvents opens the session event stream bound to a
+// client-hosted plugin instance the caller attached, so the stream carries
+// that instance's calls (ADR 0051). An empty instanceID opens an unbound
+// stream.
+func (c *Client) StreamClientPluginSessionEvents(ctx context.Context, sessionID, streamID string, after int64, instanceID string) (io.ReadCloser, error) {
+	if instanceID != "" && !protocol.ValidClientPluginInstanceID(instanceID) {
+		return nil, fmt.Errorf("invalid client plugin instance id %q", instanceID)
+	}
 	ctx, cleanup := c.operationContext(ctx)
 	keepContext := false
 	defer func() {
@@ -1104,6 +1115,9 @@ func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID st
 		values.Set("stream", streamID)
 	}
 	values.Set("after", strconv.FormatInt(after, 10))
+	if instanceID != "" {
+		values.Set("clientPlugin", instanceID)
+	}
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/events/stream?" + values.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, connection.URL+path, nil)
 	if err != nil {
@@ -1253,6 +1267,41 @@ func (c *Client) sessionJSON(ctx context.Context, method, path string, input any
 
 // ExecutePluginCommand dispatches a selected command without starting a model run.
 // Failed requests are never retried automatically because effects may have occurred.
+// AttachClientPlugin declares or replaces a client-hosted plugin instance of
+// a session (ADR 0051).
+func (c *Client) AttachClientPlugin(ctx context.Context, sessionID, instanceID string, input protocol.AttachClientPluginInput) error {
+	if !protocol.ValidClientPluginInstanceID(instanceID) {
+		return fmt.Errorf("invalid client plugin instance id %q", instanceID)
+	}
+	if err := input.Validate(); err != nil {
+		return fmt.Errorf("validate client plugin attachment: %w", err)
+	}
+	_, err := httpapi.Call(ctx, c, httpapi.AttachClientPlugin, httpapi.ClientPluginPath{SessionID: sessionID, InstanceID: instanceID}, input)
+	return err
+}
+
+// DetachClientPlugin stops a client-hosted plugin instance of a session.
+func (c *Client) DetachClientPlugin(ctx context.Context, sessionID, instanceID string) error {
+	if !protocol.ValidClientPluginInstanceID(instanceID) {
+		return fmt.Errorf("invalid client plugin instance id %q", instanceID)
+	}
+	_, err := httpapi.Call(ctx, c, httpapi.DetachClientPlugin, httpapi.ClientPluginPath{SessionID: sessionID, InstanceID: instanceID}, httpapi.NoBody{})
+	return err
+}
+
+// CompleteClientPluginCall answers one pending call to a client-hosted
+// plugin instance.
+func (c *Client) CompleteClientPluginCall(ctx context.Context, sessionID, instanceID, callID string, input protocol.CompleteClientPluginCallInput) error {
+	if !protocol.ValidClientPluginInstanceID(instanceID) || !protocol.ValidClientPluginCallID(callID) {
+		return fmt.Errorf("invalid client plugin instance or call id")
+	}
+	if err := input.Validate(); err != nil {
+		return fmt.Errorf("validate client plugin call result: %w", err)
+	}
+	_, err := httpapi.Call(ctx, c, httpapi.CompleteClientPluginCall, httpapi.ClientPluginCallPath{SessionID: sessionID, InstanceID: instanceID, CallID: callID}, input)
+	return err
+}
+
 func (c *Client) ExecutePluginCommand(ctx context.Context, sessionID string, input protocol.PluginCommandInput) error {
 	if err := input.Validate(); err != nil {
 		return fmt.Errorf("validate plugin command request: %w", err)

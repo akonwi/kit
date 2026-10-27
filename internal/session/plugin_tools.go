@@ -10,14 +10,59 @@ import (
 	"sync/atomic"
 
 	"github.com/akonwi/kit/droids"
+	"github.com/akonwi/kit/internal/attachment"
+	"github.com/akonwi/kit/internal/modelimage"
 	"github.com/akonwi/kit/internal/subagent"
 )
+
+// pluginImageStore keeps the images plugin tools return as session
+// attachments, so clients can show them with the call. Without a store, or
+// for an image the store refuses, the image stays inline for the model only.
+type pluginImageStore struct {
+	sessionID string
+	store     attachment.Store
+}
+
+func (images pluginImageStore) content(ctx context.Context, toolName, mediaType string, data []byte) droids.FileContent {
+	inline := droids.NewImageData(mediaType, data)
+	if images.store == nil || images.sessionID == "" {
+		return inline
+	}
+	extension := strings.TrimPrefix(mediaType, "image/")
+	if extension == "jpeg" {
+		extension = "jpg"
+	}
+	input, err := attachment.InspectImage(toolName+"."+extension, bytes.NewReader(data), modelimage.Limits())
+	if err != nil || input.MediaType != mediaType {
+		return inline
+	}
+	input.SessionID = images.sessionID
+	record, err := images.store.Put(ctx, input)
+	if err != nil {
+		return inline
+	}
+	file := droids.NewFileData(record.Filename, record.MediaType, data)
+	file.AttachmentID = record.ID
+	return file
+}
 
 // PluginTool is the session-facing declaration of one executable registration.
 type PluginTool struct {
 	ID, Instance, ModelName, Description, ExecutionMode, PromptSnippet string
 	PromptGuidelines                                                   []string
 	InputSchema                                                        json.RawMessage
+	// Client marks a tool hosted by an attached client rather than a plugin
+	// process (ADR 0051). Only client-hosted tools reach subagents.
+	Client bool
+}
+
+// PluginToolCall identifies one model tool call and the agent that made it.
+// TurnID is set for the session's primary agent and SubagentConversationID
+// for a subagent.
+type PluginToolCall struct {
+	ID                     string
+	TurnID                 string
+	SubagentConversationID string
 }
 
 // PluginToolContent is one host-validated text or base64 image result part.
@@ -33,7 +78,7 @@ type PluginToolResult struct {
 // PluginToolHost exposes immutable catalogs and generation-fenced execution.
 type PluginToolHost interface {
 	Tools() []PluginTool
-	ExecuteTool(context.Context, PluginTool, string, json.RawMessage) (PluginToolResult, error)
+	ExecuteTool(context.Context, PluginTool, PluginToolCall, json.RawMessage) (PluginToolResult, error)
 }
 
 type pluginToolState struct{ warning atomic.Pointer[string] }
@@ -61,7 +106,18 @@ func (r *runtime) refreshPluginContributions() {
 	if r.pluginContributions.fingerprint == fingerprint {
 		return
 	}
-	tools, toolPrompt, err := projectPluginTools(toolHost, toolsCatalog)
+	tools, toolPrompt, err := projectPluginTools(toolHost, toolsCatalog, primaryPluginToolCall, r.pluginImages)
+	var clientTools []droids.AnyTool
+	var clientPrompt string
+	if err == nil {
+		var clientCatalog []PluginTool
+		for _, tool := range toolsCatalog {
+			if tool.Client {
+				clientCatalog = append(clientCatalog, tool)
+			}
+		}
+		clientTools, clientPrompt, err = projectPluginTools(toolHost, clientCatalog, subagentPluginToolCall, r.pluginImages)
+	}
 	var pluginDefinitions []subagent.Definition
 	var subagentPrompt string
 	if err == nil {
@@ -86,18 +142,31 @@ func (r *runtime) refreshPluginContributions() {
 		}
 		warning := pluginContributionWarning(err)
 		r.pluginToolState.warning.Store(&warning)
+		r.clientTools.publish(nil, "")
 		r.pluginContributions.effective = cloneSubagentLoadResult(r.pluginContributions.base)
 		r.pluginContributions.plugins = nil
 		r.pluginContributions.fingerprint = [32]byte{}
 	} else {
 		r.pluginToolState.warning.Store(nil)
+		r.clientTools.publish(clientTools, clientPrompt)
 		r.pluginContributions.effective = effective
 		r.pluginContributions.plugins = append([]PluginSubagent(nil), subagentCatalog...)
 		r.pluginContributions.fingerprint = fingerprint
 	}
 }
 
-func projectPluginTools(host PluginToolHost, catalog []PluginTool) ([]droids.AnyTool, string, error) {
+// primaryPluginToolCall identifies a call by the session's primary agent.
+func primaryPluginToolCall(call droids.ToolContext) PluginToolCall {
+	return PluginToolCall{ID: string(call.ToolCallID), TurnID: string(call.TurnID)}
+}
+
+// subagentPluginToolCall identifies a call by a subagent, whose droid
+// conversation is the subagent conversation.
+func subagentPluginToolCall(call droids.ToolContext) PluginToolCall {
+	return PluginToolCall{ID: string(call.ToolCallID), SubagentConversationID: string(call.ConversationID)}
+}
+
+func projectPluginTools(host PluginToolHost, catalog []PluginTool, caller func(droids.ToolContext) PluginToolCall, images pluginImageStore) ([]droids.AnyTool, string, error) {
 	var tools []droids.AnyTool
 	var prompt strings.Builder
 	for _, tool := range catalog {
@@ -108,7 +177,7 @@ func projectPluginTools(host PluginToolHost, catalog []PluginTool) ([]droids.Any
 			return nil, "", err
 		}
 		bound, err := droids.NewTool(droids.Tool[json.RawMessage]{RegistrationID: tool.Instance + ":" + tool.ID, Name: tool.ModelName, Description: tool.Description, Parameters: parameters, Mode: droids.ExecutionMode(tool.ExecutionMode), Execute: func(ctx context.Context, call droids.ToolContext, input json.RawMessage, _ droids.ToolUpdate) (droids.ToolResult, error) {
-			result, err := host.ExecuteTool(ctx, tool, string(call.ToolCallID), input)
+			result, err := host.ExecuteTool(ctx, tool, caller(call), input)
 			if err != nil {
 				return droids.ToolResult{}, err
 			}
@@ -122,7 +191,7 @@ func projectPluginTools(host PluginToolHost, catalog []PluginTool) ([]droids.Any
 					if err != nil {
 						return droids.ToolResult{}, err
 					}
-					projected.Content = append(projected.Content, droids.NewImageData(content.MIMEType, data))
+					projected.Content = append(projected.Content, images.content(ctx, tool.ModelName, content.MIMEType, data))
 				default:
 					return droids.ToolResult{}, fmt.Errorf("invalid plugin tool content")
 				}

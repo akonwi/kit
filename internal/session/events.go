@@ -8,6 +8,7 @@ import (
 	"math"
 	"mime"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -69,7 +70,75 @@ const (
 	// ephemeral: retained only in the live event log, never in snapshots or
 	// the transcript.
 	EventURLOpenRequested EventKind = "url.open.requested"
+	// EventClientPluginCallRequested asks one attached client to run a tool it
+	// hosts (ADR 0051). It is ephemeral like EventURLOpenRequested.
+	EventClientPluginCallRequested EventKind = "client_plugin.call.requested"
+	// EventClientPluginCallResolved reports how a client tool call ended. It is
+	// ephemeral like EventURLOpenRequested.
+	EventClientPluginCallResolved EventKind = "client_plugin.call.resolved"
 )
+
+// MaxClientPluginCallInputBytes bounds the input of one client tool call.
+const MaxClientPluginCallInputBytes = 64 << 10
+
+// Client plugin call outcomes carried by EventClientPluginCallResolved.
+const (
+	ClientPluginCallCompleted   = "completed"
+	ClientPluginCallFailed      = "failed"
+	ClientPluginCallTimedOut    = "timed_out"
+	ClientPluginCallWithdrawn   = "withdrawn"
+	ClientPluginCallUnavailable = "unavailable"
+)
+
+// ClientPluginCall is one call to a client-hosted plugin tool. A requested
+// event carries every field except Outcome; a resolved event carries only ID,
+// InstanceID, and Outcome.
+type ClientPluginCall struct {
+	ID                     string
+	InstanceID             string
+	PluginID               string
+	ToolID                 string
+	ToolCallID             string
+	TurnID                 string
+	SubagentConversationID string
+	Input                  json.RawMessage
+	Outcome                string
+}
+
+func (call ClientPluginCall) payloadBytes() int {
+	return len(call.ID) + len(call.InstanceID) + len(call.PluginID) + len(call.ToolID) + len(call.ToolCallID) + len(call.TurnID) + len(call.SubagentConversationID) + len(call.Input) + len(call.Outcome)
+}
+
+var clientPluginToolID = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+func validClientPluginOutcome(outcome string) bool {
+	switch outcome {
+	case ClientPluginCallCompleted, ClientPluginCallFailed, ClientPluginCallTimedOut, ClientPluginCallWithdrawn, ClientPluginCallUnavailable:
+		return true
+	}
+	return false
+}
+
+func (call ClientPluginCall) validate(kind EventKind) error {
+	if !identifier.Valid(call.ID, "clientcall_") || !identifier.Valid(call.InstanceID, "clientplugin_") {
+		return fmt.Errorf("client plugin call requires call and instance identity")
+	}
+	if kind == EventClientPluginCallResolved {
+		if !validClientPluginOutcome(call.Outcome) || call.PluginID != "" || call.ToolID != "" || call.ToolCallID != "" || call.TurnID != "" || call.SubagentConversationID != "" || len(call.Input) != 0 {
+			return fmt.Errorf("client plugin call resolution carries invalid payload")
+		}
+		return nil
+	}
+	if call.Outcome != "" || !pluginInteractionDomain.MatchString(call.PluginID) || len(call.ToolID) > 64 || !clientPluginToolID.MatchString(call.ToolID) ||
+		call.ToolCallID == "" || len(call.ToolCallID) > 512 || !utf8.ValidString(call.ToolCallID) || (call.TurnID == "") == (call.SubagentConversationID == "") ||
+		len(call.TurnID) > 128 || len(call.SubagentConversationID) > 128 {
+		return fmt.Errorf("client plugin call request carries invalid identity")
+	}
+	if len(call.Input) == 0 || len(call.Input) > MaxClientPluginCallInputBytes || !json.Valid(call.Input) || call.Input[0] != '{' {
+		return fmt.Errorf("client plugin call input must be a bounded JSON object")
+	}
+	return nil
+}
 
 // NewEvent is a live session update awaiting a runtime-local stream sequence.
 type NewEvent struct {
@@ -119,6 +188,8 @@ type NewEvent struct {
 	CreatedAt              time.Time
 	// URL is the canonical web address of a url.open.requested event.
 	URL string
+	// ClientPluginCall is the call of a client_plugin.call.* event.
+	ClientPluginCall *ClientPluginCall
 }
 
 // Event is one ordered live update retained by a loaded runtime.
@@ -181,6 +252,10 @@ func (event NewEvent) Validate() error {
 	} else if event.Kind == EventURLOpenRequested {
 		if event.TurnID != "" || event.RunID != "" {
 			return fmt.Errorf("url open request cannot carry parent turn identity")
+		}
+	} else if event.Kind == EventClientPluginCallRequested || event.Kind == EventClientPluginCallResolved {
+		if event.TurnID != "" || event.RunID != "" || event.ClientPluginCall == nil {
+			return fmt.Errorf("client plugin call event requires a call without parent turn identity")
 		}
 	} else if event.Kind == EventSubagentChanged {
 		if event.TurnID != "" || event.RunID != "" || event.SubagentConversationID == "" {
@@ -253,6 +328,9 @@ func (event NewEvent) Validate() error {
 			return fmt.Errorf("encode interaction event: %w", err)
 		}
 		payloadBytes += len(raw)
+	}
+	if event.ClientPluginCall != nil {
+		payloadBytes += event.ClientPluginCall.payloadBytes()
 	}
 	for _, block := range event.Content {
 		payloadBytes += len(block.Text) + len(block.ToolCallID) + len(block.ToolName) + len(block.Arguments) + len(block.Filename) + len(block.MediaType)
@@ -354,6 +432,13 @@ func (event NewEvent) Validate() error {
 	case EventURLOpenRequested:
 		if !weburl.IsCanonical(event.URL) || payloadBytes != len(event.URL) || event.MessageID != "" || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" {
 			return fmt.Errorf("url open request requires only a canonical web address")
+		}
+	case EventClientPluginCallRequested, EventClientPluginCallResolved:
+		if err := event.ClientPluginCall.validate(event.Kind); err != nil {
+			return err
+		}
+		if payloadBytes != event.ClientPluginCall.payloadBytes() || event.MessageID != "" || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" || event.ToolCallID != "" || event.ToolName != "" || event.IsError {
+			return fmt.Errorf("client plugin call event carries invalid payload")
 		}
 	case EventSubagentChanged, EventPeerQueryChanged, EventAnnotationDeleted, EventAnnotationSubmitted:
 	case EventBoundaryCreated:
@@ -459,6 +544,9 @@ func (event NewEvent) Validate() error {
 	}
 	if event.Kind != EventURLOpenRequested && event.URL != "" {
 		return fmt.Errorf("event kind %q cannot carry a url", event.Kind)
+	}
+	if event.Kind != EventClientPluginCallRequested && event.Kind != EventClientPluginCallResolved && event.ClientPluginCall != nil {
+		return fmt.Errorf("event kind %q cannot carry a client plugin call", event.Kind)
 	}
 	if event.Kind != EventInteractionRequested && event.Interaction != nil {
 		return fmt.Errorf("event kind %q cannot carry an interaction request", event.Kind)

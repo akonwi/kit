@@ -51,6 +51,21 @@ type HostConfig struct {
 	// request to the owning session's attached clients without waiting for
 	// any of them, and must honor ctx cancellation.
 	OpenURL func(context.Context, URLRequest) error
+	// ClientCallRequested is supplied by the session owner. It publishes a call
+	// to the client instance that hosts the tool and must not wait for the
+	// client (ADR 0051). It must honor ctx cancellation.
+	ClientCallRequested func(context.Context, ClientCallRequest) error
+	// ClientCallResolved is supplied by the session owner. It reports how a
+	// published call ended and must not block.
+	ClientCallResolved func(ClientCallResolution)
+	// ClientToolsChanged is called, outside host locks, when the client-hosted
+	// part of the tool catalog changes. Client tools are not part of any
+	// client-visible snapshot, so it need not invalidate clients. Without it,
+	// Changed is called instead.
+	ClientToolsChanged func()
+	// ClientGrace and ClientCallTimeout override DefaultClientGrace and
+	// DefaultClientCallTimeout when positive.
+	ClientGrace, ClientCallTimeout time.Duration
 }
 
 type hostEntry struct {
@@ -89,6 +104,9 @@ type Host struct {
 	footerClaims         map[InstanceID]map[string]struct{}
 	interactionsInFlight int
 	openURLTimes         []time.Time
+	clients              map[string]*clientInstance
+	nextClient           uint64
+	nextClientBinding    uint64
 	now                  func() time.Time
 	stateChanged         chan struct{}
 	changed              chan struct{}
@@ -124,7 +142,7 @@ func NewHost(parent context.Context, config HostConfig) *Host {
 	config.ReservedSubagents = append([]string(nil), config.ReservedSubagents...)
 	config.Session = cloneSessionContext(config.Session)
 	hostID, err := identifier.New("pluginhost_")
-	host := &Host{tools: make(map[string]Tool), subagents: make(map[string]Subagent), reservedSubagents: make(map[string]struct{}), commands: make(map[string]Command), stateChanged: make(chan struct{}), changed: make(chan struct{}, 1), runDone: make(chan struct{}), notifyDone: make(chan struct{}), gitDone: make(chan struct{}), id: hostID, config: config, now: time.Now, ctx: ctx, cancel: cancel, view: hostView{epoch: 1, projectEpoch: 1, cwd: config.CWD, session: config.Session}, reportedFailures: make(map[InstanceID]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{})}
+	host := &Host{tools: make(map[string]Tool), clients: make(map[string]*clientInstance), subagents: make(map[string]Subagent), reservedSubagents: make(map[string]struct{}), commands: make(map[string]Command), stateChanged: make(chan struct{}), changed: make(chan struct{}, 1), runDone: make(chan struct{}), notifyDone: make(chan struct{}), gitDone: make(chan struct{}), id: hostID, config: config, now: time.Now, ctx: ctx, cancel: cancel, view: hostView{epoch: 1, projectEpoch: 1, cwd: config.CWD, session: config.Session}, reportedFailures: make(map[InstanceID]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{})}
 	for _, name := range config.ReservedSubagents {
 		host.reservedSubagents[name] = struct{}{}
 	}
@@ -228,6 +246,7 @@ func (h *Host) Close(ctx context.Context) error {
 	h.mu.Lock()
 	if !h.closed {
 		h.closed = true
+		h.stopClientsLocked()
 		h.signalStateLocked()
 		h.publishChange()
 		h.cancel()
@@ -287,6 +306,9 @@ func (h *Host) Warnings() []string {
 	messages = append(messages, h.diagnostics...)
 	for _, diagnostic := range h.discoveryDiagnostics {
 		messages = append(messages, diagnostic.Message)
+	}
+	for _, id := range h.clientConflictsLocked() {
+		messages = append(messages, fmt.Sprintf("%s: an attached client's tools are hidden by the server plugin with the same ID", id))
 	}
 	h.mu.Unlock()
 	for _, status := range h.Instances() {
@@ -672,6 +694,7 @@ func (h *Host) notifyLoop() {
 	}
 	empty, _ := json.Marshal(presentation{})
 	previous := string(empty)
+	previousClientTools := "null"
 	for {
 		select {
 		case <-h.runDone:
@@ -684,12 +707,19 @@ func (h *Host) notifyLoop() {
 			h.pruneFooterLocked()
 			h.interceptorIdentityLocked()
 			h.mu.Unlock()
-			projection, _ := json.Marshal(presentation{h.Tools(), h.Subagents(), h.Commands(), h.Warnings(), h.Footer()})
-			if string(projection) != previous {
-				previous = string(projection)
-				if h.config.Changed != nil {
-					h.config.Changed()
-				}
+			h.mu.Lock()
+			clientTools, _ := json.Marshal(h.clientToolsLocked())
+			h.mu.Unlock()
+			projection, _ := json.Marshal(presentation{h.processTools(), h.Subagents(), h.Commands(), h.Warnings(), h.Footer()})
+			changed, clientsChanged := string(projection) != previous, string(clientTools) != previousClientTools
+			previous, previousClientTools = string(projection), string(clientTools)
+			if clientsChanged && h.config.ClientToolsChanged == nil {
+				changed = true
+			}
+			if changed && h.config.Changed != nil {
+				h.config.Changed()
+			} else if clientsChanged && h.config.ClientToolsChanged != nil {
+				h.config.ClientToolsChanged()
 			}
 		}
 	}

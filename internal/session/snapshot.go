@@ -13,6 +13,7 @@ import (
 
 	"github.com/akonwi/kit/droids"
 	droidsmcp "github.com/akonwi/kit/droids/mcp"
+	"github.com/akonwi/kit/internal/inspectimage"
 	"github.com/akonwi/kit/internal/scratchpad"
 	"github.com/akonwi/kit/internal/showimage"
 	"github.com/akonwi/kit/internal/subagent"
@@ -842,6 +843,11 @@ func projectToolImagePresentation(content []TranscriptContent, toolName string, 
 	for index := range content {
 		block := &content[index]
 		attachmentID := block.AttachmentID
+		// Images a plugin tool returned are stored for clients to show with
+		// the call; inspect_image's are for the model alone.
+		if block.Kind == TranscriptContentImage && attachmentID != "" && toolName != inspectimage.ToolName && toolName != showimage.ToolName {
+			continue
+		}
 		block.AttachmentID = ""
 		if !promoted && marked && block.Kind == TranscriptContentImage && attachmentID == details.AttachmentID &&
 			block.Filename == details.Filename && block.MediaType == details.MediaType {

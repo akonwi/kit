@@ -37,7 +37,7 @@ func TestPluginToolExecutionPreservesInputAndRegistrationOwnership(t *testing.T)
 		t.Fatalf("tool defaults = %#v", tool)
 	}
 	input := json.RawMessage(`{"value":9007199254740993}`)
-	result, err := host.ExecuteTool(t.Context(), tool, "call_exact", input)
+	result, err := host.ExecuteTool(t.Context(), tool, ToolCall{ID: "call_exact"}, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestPluginToolExecutionPreservesInputAndRegistrationOwnership(t *testing.T)
 	if sent.ID != "echo_value" || sent.ToolCallID != "call_exact" || string(sent.Input) != string(input) {
 		t.Fatalf("execute payload = %s", data)
 	}
-	if _, err := host.ExecuteTool(t.Context(), tool, "bad", json.RawMessage(`{"value":9007199254740992}`)); err == nil {
+	if _, err := host.ExecuteTool(t.Context(), tool, ToolCall{ID: "bad"}, json.RawMessage(`{"value":9007199254740992}`)); err == nil {
 		t.Fatal("rounded input passed exact schema")
 	}
 	if _, err := host.handleRequest(t.Context(), owner, "kit/tools/unregister", json.RawMessage(`{"id":"echo_value"}`)); err != nil {
@@ -68,11 +68,11 @@ func TestPluginToolExecutionPreservesInputAndRegistrationOwnership(t *testing.T)
 	if replacement.Registration == tool.Registration {
 		t.Fatal("registration identity reused")
 	}
-	if _, err := host.ExecuteTool(t.Context(), tool, "stale", input); !errors.Is(err, ErrToolUnavailable) {
+	if _, err := host.ExecuteTool(t.Context(), tool, ToolCall{ID: "stale"}, input); !errors.Is(err, ErrToolUnavailable) {
 		t.Fatalf("stale registration = %v", err)
 	}
 	host.Reload()
-	if _, err := host.ExecuteTool(t.Context(), replacement, "revoked", input); !errors.Is(err, ErrToolUnavailable) {
+	if _, err := host.ExecuteTool(t.Context(), replacement, ToolCall{ID: "revoked"}, input); !errors.Is(err, ErrToolUnavailable) {
 		t.Fatalf("revoked tool = %v", err)
 	}
 }
@@ -83,7 +83,7 @@ func TestPluginToolCancellationAndMalformedResult(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
-		_, err := host.ExecuteTool(ctx, wait, "call_wait", json.RawMessage(`{"value":9007199254740993}`))
+		_, err := host.ExecuteTool(ctx, wait, ToolCall{ID: "call_wait"}, json.RawMessage(`{"value":9007199254740993}`))
 		done <- err
 	}()
 	eventuallyHost(t, func() bool { _, err := os.Stat(filepath.Join(root, "tool.json")); return err == nil })
@@ -97,7 +97,7 @@ func TestPluginToolCancellationAndMalformedResult(t *testing.T) {
 		t.Fatal("tool cancellation blocked")
 	}
 	bad := registerTestTool(t, host, owner, "invalid")
-	if _, err := host.ExecuteTool(t.Context(), bad, "call_bad", json.RawMessage(`{"value":9007199254740993}`)); err == nil {
+	if _, err := host.ExecuteTool(t.Context(), bad, ToolCall{ID: "call_bad"}, json.RawMessage(`{"value":9007199254740993}`)); err == nil {
 		t.Fatal("malformed result accepted")
 	}
 	eventuallyHost(t, func() bool { return len(host.Tools()) == 0 })

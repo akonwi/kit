@@ -1,13 +1,64 @@
 import AppKit
 
 /// Standard macOS sheets for what a page asks of the person using it: page
-/// alerts, confirms and prompts, logins, and file choices. Each attaches to
-/// the window showing the page, or runs as a dialog when the page isn't in one.
+/// alerts, confirms and prompts, file choices, logins, and links to other
+/// apps. Each attaches to the window showing the page.
 ///
-/// A page that isn't on screen, as in a session tab that isn't shown, gets
-/// no dialog: an alert is dismissed, a confirm or login is cancelled, and a
-/// prompt returns nothing.
+/// A page's dialogs and file choosers wait for the page to be shown; logins
+/// and links to other apps on a page that isn't on screen are cancelled.
 @MainActor enum BrowserDialogs {
+    /// Shows a page's waiting dialog or file chooser as a sheet on `window`.
+    /// `completion` receives the person's answer: whether they accepted,
+    /// a prompt's text, the files chosen, and whether they stopped further
+    /// dialogs from the page. A sheet taken down for another answer, or
+    /// withdrawn, doesn't complete.
+    static func present(_ dialog: BrowserPageDialog, from host: String, in window: NSWindow,
+                        completion: @escaping @MainActor (PageDialogAnswer) -> Void) -> PageDialogSheet {
+        let sheet = PageDialogSheet()
+        if dialog.kind == .files {
+            let panel = NSOpenPanel()
+            panel.allowsMultipleSelection = dialog.multiple
+            panel.canChooseDirectories = dialog.directories
+            panel.canChooseFiles = true
+            panel.beginSheetModal(for: window) { [weak sheet] response in
+                guard let sheet, !sheet.ended else { return }
+                sheet.ended = true
+                completion(PageDialogAnswer(accept: response == .OK, files: response == .OK ? panel.urls : nil))
+            }
+            sheet.end = { [weak window, weak panel] in
+                guard let window, let panel, window.attachedSheet === panel else { return }
+                window.endSheet(panel, returnCode: .cancel)
+            }
+            return sheet
+        }
+        let alert = NSAlert()
+        alert.messageText = host.isEmpty ? "This page says" : "\(host) says"
+        alert.informativeText = dialog.message
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don’t allow more dialogs from this page"
+        alert.addButton(withTitle: "OK")
+        var field: NSTextField?
+        if dialog.kind != .alert { alert.addButton(withTitle: "Cancel") }
+        if dialog.kind == .prompt {
+            let input = NSTextField(string: dialog.defaultText ?? "")
+            input.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
+            alert.accessoryView = input
+            alert.window.initialFirstResponder = input
+            field = input
+        }
+        alert.beginSheetModal(for: window) { [weak sheet] response in
+            guard let sheet, !sheet.ended else { return }
+            sheet.ended = true
+            completion(PageDialogAnswer(accept: dialog.kind == .alert || response == .alertFirstButtonReturn,
+                                        text: field?.stringValue, suppress: alert.suppressionButton?.state == .on))
+        }
+        sheet.end = { [weak window, weak alert] in
+            guard let window, let alert, window.attachedSheet === alert.window else { return }
+            window.endSheet(alert.window, returnCode: .cancel)
+        }
+        return sheet
+    }
+
     /// Asks before a clicked link opens in another app.
     static func confirmOpen(in app: String, from host: String, in view: NSView) async -> Bool {
         let alert = NSAlert()
@@ -16,38 +67,6 @@ import AppKit
         alert.addButton(withTitle: "Open")
         alert.addButton(withTitle: "Cancel")
         return await present(alert, in: view) == .alertFirstButtonReturn
-    }
-
-    /// Each page dialog offers to stop further dialogs from the page;
-    /// `suppress` runs when that is chosen.
-    static func alert(_ message: String, from host: String, in view: NSView, suppress: () -> Void) async {
-        let alert = pageAlert(message, from: host)
-        alert.addButton(withTitle: "OK")
-        _ = await present(alert, in: view)
-        if alert.suppressionButton?.state == .on { suppress() }
-    }
-
-    static func confirm(_ message: String, from host: String, in view: NSView, suppress: () -> Void) async -> Bool {
-        let alert = pageAlert(message, from: host)
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        let response = await present(alert, in: view)
-        if alert.suppressionButton?.state == .on { suppress() }
-        return response == .alertFirstButtonReturn
-    }
-
-    static func prompt(_ message: String, defaultText: String?, from host: String, in view: NSView,
-                       suppress: () -> Void) async -> String? {
-        let alert = pageAlert(message, from: host)
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        let field = NSTextField(string: defaultText ?? "")
-        field.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-        let response = await present(alert, in: view)
-        if alert.suppressionButton?.state == .on { suppress() }
-        return response == .alertFirstButtonReturn ? field.stringValue : nil
     }
 
     /// Asks for a user name and password for `host`. `failed` says the last
@@ -78,32 +97,34 @@ import AppKit
         return (user.stringValue, password.stringValue)
     }
 
-    static func chooseFiles(multiple: Bool, directories: Bool, in view: NSView) async -> [URL]? {
-        guard let window = view.window else { return nil }
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = multiple
-        panel.canChooseDirectories = directories
-        panel.canChooseFiles = true
-        let response = await withCheckedContinuation { continuation in
-            panel.beginSheetModal(for: window) { continuation.resume(returning: $0) }
-        }
-        return response == .OK ? panel.urls : nil
-    }
-
-    private static func pageAlert(_ message: String, from host: String) -> NSAlert {
-        let alert = NSAlert()
-        alert.messageText = host.isEmpty ? "This page says" : "\(host) says"
-        alert.informativeText = message
-        alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = "Don’t allow more dialogs from this page"
-        return alert
-    }
-
     private static func present(_ alert: NSAlert, in view: NSView) async -> NSApplication.ModalResponse {
         // A sheet already up means the page is asking again; decline.
         guard let window = view.window, window.attachedSheet == nil else { return .cancel }
         return await withCheckedContinuation { continuation in
             alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
         }
+    }
+}
+
+/// A person's answer to a page dialog or file chooser.
+struct PageDialogAnswer {
+    var accept: Bool
+    var text: String?
+    var files: [URL]?
+    var suppress = false
+}
+
+/// A page dialog's sheet while it shows.
+@MainActor final class PageDialogSheet {
+    /// Whether the sheet has completed or been taken down.
+    fileprivate(set) var ended = false
+    fileprivate var end: () -> Void = {}
+
+    /// Takes the sheet down without completing it, as when another answer
+    /// came first or the page left the window.
+    func withdraw() {
+        guard !ended else { return }
+        ended = true
+        end()
     }
 }

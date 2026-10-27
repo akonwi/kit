@@ -721,6 +721,44 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/AttachClientPluginInput`.
+        internal struct AttachClientPluginInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttachClientPluginInput/pluginId`.
+            internal var pluginId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AttachClientPluginInput/tools`.
+            internal var tools: [Components.Schemas.ClientPluginToolDeclaration]
+            /// Creates a new `AttachClientPluginInput`.
+            ///
+            /// - Parameters:
+            ///   - pluginId:
+            ///   - tools:
+            internal init(
+                pluginId: Swift.String,
+                tools: [Components.Schemas.ClientPluginToolDeclaration]
+            ) {
+                self.pluginId = pluginId
+                self.tools = tools
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case pluginId
+                case tools
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.pluginId = try container.decode(
+                    Swift.String.self,
+                    forKey: .pluginId
+                )
+                self.tools = try container.decode(
+                    [Components.Schemas.ClientPluginToolDeclaration].self,
+                    forKey: .tools
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "pluginId",
+                    "tools"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/AttachmentContent`.
         internal typealias AttachmentContent = Swift.String
         /// - Remark: Generated from `#/components/schemas/AttachmentInfo`.
@@ -1626,6 +1664,159 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ClientPluginContent`.
+        internal struct ClientPluginContent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ClientPluginContent/data`.
+            internal var data: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ClientPluginContent/mimeType`.
+            internal var mimeType: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ClientPluginContent/text`.
+            internal var text: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ClientPluginContent/type`.
+            internal var _type: Swift.String
+            /// Creates a new `ClientPluginContent`.
+            ///
+            /// - Parameters:
+            ///   - data:
+            ///   - mimeType:
+            ///   - text:
+            ///   - _type:
+            internal init(
+                data: Swift.String? = nil,
+                mimeType: Swift.String? = nil,
+                text: Swift.String? = nil,
+                _type: Swift.String
+            ) {
+                self.data = data
+                self.mimeType = mimeType
+                self.text = text
+                self._type = _type
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case data
+                case mimeType
+                case text
+                case _type = "type"
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.data = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .data
+                )
+                self.mimeType = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .mimeType
+                )
+                self.text = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .text
+                )
+                self._type = try container.decode(
+                    Swift.String.self,
+                    forKey: ._type
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "data",
+                    "mimeType",
+                    "text",
+                    "type"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ClientPluginToolDeclaration`.
+        internal struct ClientPluginToolDeclaration: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ClientPluginToolDeclaration/description`.
+            internal var description: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginToolDeclaration/executionMode`.
+            internal var executionMode: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ClientPluginToolDeclaration/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginToolDeclaration/inputSchema`.
+            internal var inputSchema: OpenAPIRuntime.OpenAPIValueContainer
+            /// - Remark: Generated from `#/components/schemas/ClientPluginToolDeclaration/label`.
+            internal var label: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ClientPluginToolDeclaration/promptGuidelines`.
+            internal var promptGuidelines: [Swift.String]?
+            /// - Remark: Generated from `#/components/schemas/ClientPluginToolDeclaration/promptSnippet`.
+            internal var promptSnippet: Swift.String?
+            /// Creates a new `ClientPluginToolDeclaration`.
+            ///
+            /// - Parameters:
+            ///   - description:
+            ///   - executionMode:
+            ///   - id:
+            ///   - inputSchema:
+            ///   - label:
+            ///   - promptGuidelines:
+            ///   - promptSnippet:
+            internal init(
+                description: Swift.String,
+                executionMode: Swift.String? = nil,
+                id: Swift.String,
+                inputSchema: OpenAPIRuntime.OpenAPIValueContainer,
+                label: Swift.String? = nil,
+                promptGuidelines: [Swift.String]? = nil,
+                promptSnippet: Swift.String? = nil
+            ) {
+                self.description = description
+                self.executionMode = executionMode
+                self.id = id
+                self.inputSchema = inputSchema
+                self.label = label
+                self.promptGuidelines = promptGuidelines
+                self.promptSnippet = promptSnippet
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case description
+                case executionMode
+                case id
+                case inputSchema
+                case label
+                case promptGuidelines
+                case promptSnippet
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.description = try container.decode(
+                    Swift.String.self,
+                    forKey: .description
+                )
+                self.executionMode = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .executionMode
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.inputSchema = try container.decode(
+                    OpenAPIRuntime.OpenAPIValueContainer.self,
+                    forKey: .inputSchema
+                )
+                self.label = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .label
+                )
+                self.promptGuidelines = try container.decodeIfPresent(
+                    [Swift.String].self,
+                    forKey: .promptGuidelines
+                )
+                self.promptSnippet = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .promptSnippet
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "description",
+                    "executionMode",
+                    "id",
+                    "inputSchema",
+                    "label",
+                    "promptGuidelines",
+                    "promptSnippet"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/CompactSessionInput`.
         internal struct CompactSessionInput: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/CompactSessionInput/operationId`.
@@ -1708,6 +1899,55 @@ extension Components {
                     "compacted",
                     "eventStreamId",
                     "operationId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CompleteClientPluginCallInput`.
+        internal struct CompleteClientPluginCallInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CompleteClientPluginCallInput/content`.
+            internal var content: [Components.Schemas.ClientPluginContent]?
+            /// - Remark: Generated from `#/components/schemas/CompleteClientPluginCallInput/details`.
+            internal var details: OpenAPIRuntime.OpenAPIValueContainer?
+            /// - Remark: Generated from `#/components/schemas/CompleteClientPluginCallInput/error`.
+            internal var error: Swift.String?
+            /// Creates a new `CompleteClientPluginCallInput`.
+            ///
+            /// - Parameters:
+            ///   - content:
+            ///   - details:
+            ///   - error:
+            internal init(
+                content: [Components.Schemas.ClientPluginContent]? = nil,
+                details: OpenAPIRuntime.OpenAPIValueContainer? = nil,
+                error: Swift.String? = nil
+            ) {
+                self.content = content
+                self.details = details
+                self.error = error
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case content
+                case details
+                case error
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.content = try container.decodeIfPresent(
+                    [Components.Schemas.ClientPluginContent].self,
+                    forKey: .content
+                )
+                self.details = try container.decodeIfPresent(
+                    OpenAPIRuntime.OpenAPIValueContainer.self,
+                    forKey: .details
+                )
+                self.error = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .error
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "content",
+                    "details",
+                    "error"
                 ])
             }
         }

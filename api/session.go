@@ -70,6 +70,10 @@ type sessionTransport interface {
 	AbortBash(context.Context, string, string) error
 	GetBashHistory(context.Context, string, uint64, int) (protocol.BashHistoryPage, error)
 	StreamSessionEvents(context.Context, string, string, int64) (io.ReadCloser, error)
+	StreamClientPluginSessionEvents(context.Context, string, string, int64, string) (io.ReadCloser, error)
+	AttachClientPlugin(context.Context, string, string, protocol.AttachClientPluginInput) error
+	DetachClientPlugin(context.Context, string, string) error
+	CompleteClientPluginCall(context.Context, string, string, string, protocol.CompleteClientPluginCallInput) error
 	StartPromptInput(context.Context, string, protocol.PromptInput) (protocol.TurnReservation, error)
 	SubmitPromptInput(context.Context, string, protocol.PromptInput) (protocol.PromptSubmission, error)
 	RestoreFollowUps(context.Context, string) (protocol.RestoreFollowUpsResult, error)
@@ -156,6 +160,8 @@ type SessionUpdateStream struct {
 	cancel  context.CancelFunc
 	once    sync.Once
 	err     error
+	// hosting is the client plugin instance the stream is bound to, or nil.
+	hosting *clientPluginHosting
 }
 
 // PromptSubmission reports whether a prompt started immediately or was queued.
@@ -1084,7 +1090,7 @@ func (s *SessionUpdateStream) run(ctx context.Context, session *Session, snapsho
 	}
 	failure := 0
 	for {
-		body, err := session.transport.StreamSessionEvents(ctx, session.id, streamID, cursor)
+		body, err := s.open(ctx, session, streamID, cursor)
 		if err != nil {
 			if s.handleStreamFailure(ctx, session, &streamID, &cursor, err, &failure) {
 				continue

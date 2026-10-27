@@ -17,7 +17,7 @@ func Catalog() []Descriptor {
 		GetServerSettings.Describe(), UpdateServerSettings.Describe(),
 		GetWorkspace.Describe(), ListWorkspaceDirectory.Describe(), ReadWorkspaceFile.Describe(), ReadHostFile.Describe(), GetSessionFileIndex.Describe(),
 		GetSessionVCS.Describe(), StreamSessionVCS.Describe(),
-		ExecutePluginCommand.Describe(), StreamPluginToasts.Describe(),
+		ExecutePluginCommand.Describe(), StreamPluginToasts.Describe(), AttachClientPlugin.Describe(), DetachClientPlugin.Describe(), CompleteClientPluginCall.Describe(),
 		SubmitPrompt.Describe(), StartPrompt.Describe(), StartPromptCommand.Describe(), SubmitPromptCommand.Describe(), Prompt.Describe(),
 		RestoreTurnFollowUps.Describe(), PromoteTurnFollowUps.Describe(),
 		GetTurn.Describe(), AbortTurn.Describe(), RespondInteraction.Describe(),

@@ -104,6 +104,15 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/bash-history`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-history/get(getBashHistory)`.
     func getBashHistory(_ input: Operations.GetBashHistory.Input) async throws -> Operations.GetBashHistory.Output
+    /// - Remark: HTTP `PUT /v1/sessions/{sessionID}/client-plugins/{instanceID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/client-plugins/{instanceID}/put(attachClientPlugin)`.
+    func attachClientPlugin(_ input: Operations.AttachClientPlugin.Input) async throws -> Operations.AttachClientPlugin.Output
+    /// - Remark: HTTP `DELETE /v1/sessions/{sessionID}/client-plugins/{instanceID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/client-plugins/{instanceID}/delete(detachClientPlugin)`.
+    func detachClientPlugin(_ input: Operations.DetachClientPlugin.Input) async throws -> Operations.DetachClientPlugin.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/client-plugins/{instanceID}/calls/{callID}/result`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/client-plugins/{instanceID}/calls/{callID}/result/post(completeClientPluginCall)`.
+    func completeClientPluginCall(_ input: Operations.CompleteClientPluginCall.Input) async throws -> Operations.CompleteClientPluginCall.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/compact`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/compact/post(compactSession)`.
     func compactSession(_ input: Operations.CompactSession.Input) async throws -> Operations.CompactSession.Output
@@ -555,6 +564,43 @@ extension APIProtocol {
             path: path,
             query: query,
             headers: headers
+        ))
+    }
+    /// - Remark: HTTP `PUT /v1/sessions/{sessionID}/client-plugins/{instanceID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/client-plugins/{instanceID}/put(attachClientPlugin)`.
+    internal func attachClientPlugin(
+        path: Operations.AttachClientPlugin.Input.Path,
+        headers: Operations.AttachClientPlugin.Input.Headers,
+        body: Operations.AttachClientPlugin.Input.Body
+    ) async throws -> Operations.AttachClientPlugin.Output {
+        try await attachClientPlugin(Operations.AttachClientPlugin.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `DELETE /v1/sessions/{sessionID}/client-plugins/{instanceID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/client-plugins/{instanceID}/delete(detachClientPlugin)`.
+    internal func detachClientPlugin(
+        path: Operations.DetachClientPlugin.Input.Path,
+        headers: Operations.DetachClientPlugin.Input.Headers
+    ) async throws -> Operations.DetachClientPlugin.Output {
+        try await detachClientPlugin(Operations.DetachClientPlugin.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/client-plugins/{instanceID}/calls/{callID}/result`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/client-plugins/{instanceID}/calls/{callID}/result/post(completeClientPluginCall)`.
+    internal func completeClientPluginCall(
+        path: Operations.CompleteClientPluginCall.Input.Path,
+        headers: Operations.CompleteClientPluginCall.Input.Headers,
+        body: Operations.CompleteClientPluginCall.Input.Body
+    ) async throws -> Operations.CompleteClientPluginCall.Output {
+        try await completeClientPluginCall(Operations.CompleteClientPluginCall.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/compact`.

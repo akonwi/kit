@@ -518,6 +518,12 @@ final class SessionStore {
         demo?.select(selectedSnapshot)
         operationsBySession[replica.selectedID] = SessionOperations()
         configurations[replica.selectedID] = ComposerConfiguration()
+        if !client.isDemo {
+            // The window's browser tabs, offered to the agent (ADR 0051).
+            let browser = BrowserAgentPlugin(workspace: { [weak self] in self?.ui.workspace },
+                                             workingDirectory: { [weak self] in self?.selected?.cwd })
+            replica.pluginHost = ClientPluginHost(declaration: BrowserAgentPlugin.declaration) { await browser.perform($0) }
+        }
         if let cwd = replica.snapshot?.cwd { knownDirectories[replica.selectedID] = cwd }
         replica.onReceive = { [weak self] session in
             self?.feedback(for: session.id).observe(session, manualCompaction: self?.compactions[session.id]?.pending == true) {
@@ -657,6 +663,7 @@ final class SessionStore {
 
     /// Ends the session tab's work, including its browser pages and shells.
     func stop() {
+        replica.pluginHost?.leave()
         demo?.stop()
         ui.closeLiveTabs()
     }

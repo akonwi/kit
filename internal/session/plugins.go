@@ -10,6 +10,10 @@ import (
 type PluginSession struct {
 	ID, Name, CWD string
 	SubagentNames []string
+	// ClientToolsChanged refreshes the session's tool catalog after a change
+	// to client-hosted tools, which clients do not see in snapshots and so
+	// need not resynchronize for (ADR 0051).
+	ClientToolsChanged func()
 }
 
 // PluginTurn is the bounded public projection delivered to session plugins.

@@ -158,6 +158,10 @@ type sessionService interface {
 	ConfigureSubagent(context.Context, string, string, protocol.ConfigureSubagentInput) (protocol.ConfigureSubagentResult, error)
 	SubagentTranscript(context.Context, string, string, string) (protocol.SubagentTranscript, error)
 	SubagentEvents(context.Context, string, string, string, int64) (protocol.SubagentLiveEventPage, error)
+	AttachClientPlugin(context.Context, string, string, protocol.AttachClientPluginInput) error
+	DetachClientPlugin(context.Context, string, string) error
+	CompleteClientPluginCall(context.Context, string, string, string, protocol.CompleteClientPluginCallInput) error
+	BindClientPluginStream(context.Context, string, string) (clientPluginStream, error)
 }
 
 type runtimeSessionService struct {
@@ -1573,6 +1577,21 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 		}
 	case kitsession.EventURLOpenRequested:
 		return protocol.URLOpenRequestedEvent{URL: event.URL}
+	case kitsession.EventClientPluginCallRequested:
+		call := event.ClientPluginCall
+		if call == nil {
+			return nil
+		}
+		return protocol.ClientPluginCallRequestedEvent{ClientPluginCallID: call.ID, ClientPluginInstanceID: call.InstanceID, ClientPluginCall: &protocol.ClientPluginCall{
+			PluginID: call.PluginID, ToolID: call.ToolID, ToolCallID: call.ToolCallID, TurnID: call.TurnID, SubagentConversationID: call.SubagentConversationID,
+			Input: append(json.RawMessage(nil), call.Input...),
+		}}
+	case kitsession.EventClientPluginCallResolved:
+		call := event.ClientPluginCall
+		if call == nil {
+			return nil
+		}
+		return protocol.ClientPluginCallResolvedEvent{ClientPluginCallID: call.ID, ClientPluginInstanceID: call.InstanceID, ClientPluginCallResolution: protocol.ClientPluginCallResolution(call.Outcome)}
 	default:
 		return nil
 	}
@@ -1886,6 +1905,9 @@ type sessionEventStreamSource struct {
 	liveAfter int64
 	initial   *protocol.SessionEventBatch
 	terminal  bool
+	// clientPlugin is the client plugin instance this stream carries calls
+	// for, or nil (ADR 0051).
+	clientPlugin clientPluginStream
 }
 
 // withholdCaughtUpURLs removes the address from every url.open.requested
@@ -1916,6 +1938,7 @@ func (source *sessionEventStreamSource) Next(ctx context.Context) (httpapi.Strea
 		}
 	}
 	withholdCaughtUpURLs(&batch, source.liveAfter)
+	withholdClientPluginCalls(&batch, source.clientPlugin)
 	if err := batch.Validate(); err != nil {
 		return httpapi.StreamRecord[protocol.SessionEventBatch]{}, err
 	}
@@ -1935,7 +1958,11 @@ func (source *sessionEventStreamSource) Next(ctx context.Context) (httpapi.Strea
 	return httpapi.StreamRecord[protocol.SessionEventBatch]{Name: name, ID: id, Payload: batch}, nil
 }
 
-func (*sessionEventStreamSource) Close() {}
+func (source *sessionEventStreamSource) Close() {
+	if source.clientPlugin != nil {
+		source.clientPlugin.Release()
+	}
+}
 
 func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 	registerSessionRoutesWithStreamShutdown(mux, service, nil)
@@ -2305,8 +2332,10 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 			writeSessionError(writer, err)
 			return
 		}
-		// A page is never live, so it carries no URL request addresses.
+		// A page is never live, so it carries no URL request addresses or
+		// client plugin calls.
 		withholdCaughtUpURLs(&batch, math.MaxInt64)
+		withholdClientPluginCalls(&batch, nil)
 		if err := batch.Validate(); err != nil {
 			writeSessionError(writer, fmt.Errorf("invalid session event page: %w", err))
 			return
@@ -2318,14 +2347,32 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 		if err != nil {
 			return nil, err
 		}
+		var clientPlugin clientPluginStream
+		if params.ClientPlugin != "" {
+			if !protocol.ValidClientPluginInstanceID(params.ClientPlugin) {
+				return nil, clientPluginInvalid("client plugin instance id must be clientplugin_ and 32 lowercase hex digits")
+			}
+			// Bind before reading the catch-up so that a call published in
+			// between is still delivered to this stream.
+			clientPlugin, err = service.BindClientPluginStream(ctx, params.SessionID, params.ClientPlugin)
+			if err != nil {
+				return nil, clientPluginAPIError(err)
+			}
+		}
 		batch, err := service.Events(ctx, params.SessionID, streamID, after)
+		if err == nil {
+			err = batch.Validate()
+			if err != nil {
+				err = fmt.Errorf("invalid session event batch: %w", err)
+			}
+		}
 		if err != nil {
+			if clientPlugin != nil {
+				clientPlugin.Release()
+			}
 			return nil, err
 		}
-		if err := batch.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid session event batch: %w", err)
-		}
-		return &sessionEventStreamSource{service: service, sessionID: params.SessionID, streamID: streamID, after: after, liveAfter: batch.LastSequence, initial: &batch}, nil
+		return &sessionEventStreamSource{service: service, sessionID: params.SessionID, streamID: streamID, after: after, liveAfter: batch.LastSequence, initial: &batch, clientPlugin: clientPlugin}, nil
 	})
 	httpapi.Handle(mux, httpOptions, httpapi.CreateSession, func(ctx context.Context, _ httpapi.NoBody, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
 		if err := input.Validate(); err != nil {
@@ -2355,6 +2402,7 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 	})
 	registerVCSRoutes(mux, httpOptions, service)
 	registerPluginRoutes(mux, httpOptions, service)
+	registerClientPluginRoutes(mux, httpOptions, service)
 	httpapi.Handle(mux, httpOptions, httpapi.GetScratchpad, func(ctx context.Context, params httpapi.SessionPath, _ httpapi.NoBody) (protocol.Scratchpad, error) {
 		record, err := service.Scratchpad(ctx, params.SessionID)
 		if err != nil {

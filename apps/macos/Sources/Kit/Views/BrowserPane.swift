@@ -39,6 +39,7 @@ struct BrowserPane: View {
                         .allowsHitTesting(tab.failure == nil)
                         .accessibilityHidden(tab.failure != nil)
                         .workspaceFocusTarget(pane, when: tab.failure == nil)
+                    AgentPointerOverlay(pointer: tab.failure == nil ? tab.agentPointer : nil)
                 }
                 if let failure = tab.failure {
                     BrowserFailureView(failure: failure) { tab.reload() }

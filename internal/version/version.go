@@ -43,6 +43,9 @@ const (
 	// streams add boundary.created (ADR 0033).
 	// 49: The session live stream adds url.open.requested, which asks attached
 	// clients to open a plugin-requested web page and carries its address only
-	// when delivered live (ADR 0049).
+	// when delivered live (ADR 0049). Clients may host session plugins: the
+	// client-plugins operations, the event stream's clientPlugin binding, and
+	// the client_plugin.call.requested and client_plugin.call.resolved live
+	// events (ADR 0051).
 	SessionProtocolVersion = 49
 )

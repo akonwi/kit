@@ -83,7 +83,7 @@ func (h *mockPluginHost) Tools() []session.PluginTool {
 	defer h.mu.Unlock()
 	return append([]session.PluginTool(nil), h.tools...)
 }
-func (h *mockPluginHost) ExecuteTool(context.Context, session.PluginTool, string, json.RawMessage) (session.PluginToolResult, error) {
+func (h *mockPluginHost) ExecuteTool(context.Context, session.PluginTool, session.PluginToolCall, json.RawMessage) (session.PluginToolResult, error) {
 	return session.PluginToolResult{}, errors.New("not implemented")
 }
 func (h *mockPluginHost) Subagents() []session.PluginSubagent {

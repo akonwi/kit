@@ -27,7 +27,11 @@ type ChildRuntimeFactory struct {
 	// MCPTools must be set before the supervisor starts. A child borrows its
 	// owning session's MCP namespaces instead of starting duplicate server
 	// processes, and never closes them.
-	MCPTools     func(context.Context, string) ([]droids.AnyTool, error)
+	MCPTools func(context.Context, string) ([]droids.AnyTool, error)
+	// ClientTools must be set before the supervisor starts. A child receives
+	// its owning session's client-hosted plugin tools and follows changes to
+	// them while it is open (ADR 0051).
+	ClientTools  func(context.Context, string) (ClientToolFeed, error)
 	SiblingTools *subagent.SiblingToolService
 	// InboxRequests reads the request behind a delivered request or reply so
 	// its boundary details can name the other agent. It is optional.
@@ -240,8 +244,20 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 		_ = store.Close()
 		return nil, fmt.Errorf("reconcile child reasoning: %w", err)
 	}
+	detachClientTools := func() {}
+	if f.ClientTools != nil {
+		feed, err := f.ClientTools(ctx, conversation.OwnerSessionID)
+		if err == nil {
+			detachClientTools, err = feed.Attach(droid)
+		}
+		if err != nil {
+			_ = droid.Close()
+			_ = store.Close()
+			return nil, fmt.Errorf("attach child client plugin tools: %w", err)
+		}
+	}
 	return &childRuntime{
-		droid: droid, store: store, requests: f.InboxRequests,
+		droid: droid, store: store, requests: f.InboxRequests, detachClientTools: detachClientTools,
 		requestConfiguration: droids.RequestConfiguration{
 			SystemPrompt: systemPrompt, Reasoning: conversation.ThinkingLevel,
 			ContextWindow: model.ContextWindow, Tools: tools,
@@ -385,6 +401,8 @@ type childRuntime struct {
 	droid    *droids.Droid
 	store    *sqlitestore.Store
 	requests InboxRequestReader
+	// detachClientTools stops client tool updates to droid.
+	detachClientTools func()
 
 	mu                   sync.Mutex
 	closed               bool
@@ -846,6 +864,9 @@ func (r *childRuntime) Close(ctx context.Context) error {
 	defer r.mu.Unlock()
 	if r.closed {
 		return nil
+	}
+	if r.detachClientTools != nil {
+		r.detachClientTools()
 	}
 	if err := r.droid.Shutdown(ctx); err != nil {
 		// Droids continues cleanup after a deadline. Leave the Store open so a

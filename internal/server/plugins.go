@@ -25,7 +25,7 @@ func pluginHostFactory(paths apphome.Paths, cache *githubpr.Cache, logger *slog.
 			name = &value
 		}
 		host := &sessionPluginHost{vcs: vcs.NewObserver(ctx, input.CWD, cache), logger: logger}
-		host.Host = plugin.NewHost(ctx, plugin.HostConfig{Home: paths, Session: plugin.SessionContext{ID: input.ID, Name: name}, CWD: input.CWD, ReservedIDs: protocol.ReservedCommandDomains(), ReservedSubagents: input.SubagentNames, Changed: changed, Project: host.projectContext, ProjectChanged: host.vcs.Updates(), Toast: host.publishToast, Failure: host.reportFailure, Interaction: host.requestInteraction, SubmitMessage: host.submitMessage, OpenURL: host.openURL})
+		host.Host = plugin.NewHost(ctx, plugin.HostConfig{Home: paths, Session: plugin.SessionContext{ID: input.ID, Name: name}, CWD: input.CWD, ReservedIDs: protocol.ReservedCommandDomains(), ReservedSubagents: input.SubagentNames, Changed: changed, Project: host.projectContext, ProjectChanged: host.vcs.Updates(), Toast: host.publishToast, Failure: host.reportFailure, Interaction: host.requestInteraction, SubmitMessage: host.submitMessage, OpenURL: host.openURL, ClientCallRequested: host.requestClientCall, ClientCallResolved: host.resolveClientCall, ClientToolsChanged: input.ClientToolsChanged})
 		return host
 	}
 }
@@ -43,6 +43,9 @@ type sessionPluginHost struct {
 	messageObserver func(context.Context, session.PluginMessageInput, func() bool) (session.PluginMessageResult, error)
 	urlMu           sync.RWMutex
 	urlObserver     func(context.Context, session.PluginURLRequest, func() bool) error
+	clientCallMu    sync.RWMutex
+	clientRequested func(context.Context, session.ClientPluginCall) error
+	clientResolved  func(session.ClientPluginCall)
 }
 
 func pluginCommandInstance(owner plugin.InstanceID) string {
@@ -273,17 +276,17 @@ func pluginToolInstance(tool plugin.Tool) string {
 func (h *sessionPluginHost) Tools() []session.PluginTool {
 	var result []session.PluginTool
 	for _, tool := range h.Host.Tools() {
-		result = append(result, session.PluginTool{ID: tool.ID, Instance: pluginToolInstance(tool), ModelName: tool.ModelName, Description: tool.Description, ExecutionMode: tool.ExecutionMode, InputSchema: tool.InputSchema, PromptSnippet: tool.PromptSnippet, PromptGuidelines: tool.PromptGuidelines})
+		result = append(result, session.PluginTool{ID: tool.ID, Instance: pluginToolInstance(tool), ModelName: tool.ModelName, Description: tool.Description, ExecutionMode: tool.ExecutionMode, InputSchema: tool.InputSchema, PromptSnippet: tool.PromptSnippet, PromptGuidelines: tool.PromptGuidelines, Client: tool.ClientInstance != ""})
 	}
 	return result
 }
 
-func (h *sessionPluginHost) ExecuteTool(ctx context.Context, selection session.PluginTool, callID string, input json.RawMessage) (session.PluginToolResult, error) {
+func (h *sessionPluginHost) ExecuteTool(ctx context.Context, selection session.PluginTool, call session.PluginToolCall, input json.RawMessage) (session.PluginToolResult, error) {
 	for _, tool := range h.Host.Tools() {
 		if tool.ID != selection.ID || pluginToolInstance(tool) != selection.Instance {
 			continue
 		}
-		source, err := h.Host.ExecuteTool(ctx, tool, callID, input)
+		source, err := h.Host.ExecuteTool(ctx, tool, plugin.ToolCall{ID: call.ID, TurnID: call.TurnID, SubagentConversationID: call.SubagentConversationID}, input)
 		if err != nil {
 			return session.PluginToolResult{}, err
 		}

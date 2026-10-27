@@ -51,11 +51,15 @@ type EventPagePath struct {
 
 // EventStreamPath describes the resumable stream cursor. LastEventID uses the
 // canonical streamID:sequence cursor when supplied by an SSE client.
+//
+// ClientPlugin binds the stream to a client-hosted plugin instance the client
+// attached (ADR 0051); the stream then carries that instance's calls.
 type EventStreamPath struct {
-	SessionID   string `path:"sessionID"`
-	StreamID    string `query:"stream,omitempty"`
-	After       int64  `query:"after,omitempty"`
-	LastEventID string `header:"Last-Event-ID,omitempty"`
+	SessionID    string `path:"sessionID"`
+	StreamID     string `query:"stream,omitempty"`
+	After        int64  `query:"after,omitempty"`
+	ClientPlugin string `query:"clientPlugin,omitempty"`
+	LastEventID  string `header:"Last-Event-ID,omitempty"`
 }
 
 var turnErrors = []ErrorResponse{

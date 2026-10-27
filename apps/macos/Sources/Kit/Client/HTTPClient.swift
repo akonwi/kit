@@ -123,7 +123,7 @@ struct ServerIdentity: Equatable, Sendable {
     }
 }
 
-final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, HostFileClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, SessionDeletionClient, SessionDisposalClient, SessionActivityClient, SessionForkClient, ComposerClient, AttachmentClient {
+final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, HostFileClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, ClientPluginHostingClient, SessionDeletionClient, SessionDisposalClient, SessionActivityClient, SessionForkClient, ComposerClient, AttachmentClient {
     let serverID: String
     let isDemo = false
     let endpoint: URL
@@ -1440,6 +1440,14 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     static let liveDeliveryInterval: Duration = .milliseconds(100)
 
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
+        try await watch(id, hosting: nil, receive: receive)
+    }
+
+    /// Watches the session; with `hosting`, on streams bound to that client
+    /// plugin instance, which is attached again before each connection
+    /// (ADR 0051).
+    func watch(_ id: String, hosting: ClientPluginHosting?,
+               receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
         let projection = BashWatchProjection(receive: receive)
         let publisher = LatestValuePublisher<SessionExcerpt>(interval: Self.liveDeliveryInterval) {
             await projection.stream($0)
@@ -1447,7 +1455,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask { await publisher.run() }
             group.addTask {
-                try await self.watchEvents(id) { session, live in await publisher.send(session, coalesce: live) }
+                try await self.watchEvents(id, hosting: hosting) { session, live in await publisher.send(session, coalesce: live) }
             }
             // Shell executions have no events; poll only the ones that are running.
             group.addTask {
@@ -1460,13 +1468,14 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
 
     /// `live` marks per-batch event projections that may be coalesced;
     /// authoritative snapshots are delivered with `live == false`.
-    private func watchEvents(_ id: String, receive: @escaping @Sendable (SessionExcerpt, _ live: Bool) async -> Void) async throws {
+    private func watchEvents(_ id: String, hosting: ClientPluginHosting? = nil,
+                             receive: @escaping @Sendable (SessionExcerpt, _ live: Bool) async -> Void) async throws {
         var rapidResyncs = 0
         while !Task.isCancelled {
             let started = Date()
             do {
                 let generation = UUID().uuidString
-                try await watchStream(id) { snapshot, live in
+                try await watchStream(id, hosting: hosting) { snapshot, live in
                     var snapshot = snapshot
                     snapshot.watchGeneration = generation
                     await receive(snapshot, live)
@@ -1496,7 +1505,10 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         return message
     }
 
-    private func watchStream(_ id: String, receive: @escaping @Sendable (SessionExcerpt, _ live: Bool) async -> Void) async throws {
+    private func watchStream(_ id: String, hosting: ClientPluginHosting? = nil,
+                             receive: @escaping @Sendable (SessionExcerpt, _ live: Bool) async -> Void) async throws {
+        // A plugin the server refuses doesn't stop the session's own stream.
+        let bound = await attachHosting(hosting, session: id)
         var snapshot = try await wireSnapshot(id, validate: false)
         var projection = try SessionEventProjection(snapshot)
         await receive(projection.session, false)
@@ -1507,8 +1519,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         // The last sequence this connection received. A refresh can move
         // `cursor` past events the stream has not delivered yet.
         var streamed = cursor
-        let output = try await generatedOperation { try await api.streamSessionEvents(path: .init(sessionID: id), query: .init(stream: stream, after: after), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._49)) }
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let response = try await openEventStream(id, stream: stream, after: after, hosting: bound)
         let body = try response.body.textEventStream
         var parser = SSEParser()
         for try await chunk in body {
@@ -1521,6 +1532,11 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
                 let updated: Int64
                 do { updated = try EventCursor.accept(batch, session: id, stream: stream, cursor: cursor) }
                 catch ClientError.disconnected { throw StreamResync() }
+                if let bound {
+                    for event in batch.events ?? [] where event.sequence > streamed {
+                        if let call = ClientPluginCallEvent(event, instance: bound.instanceID) { await bound.receive(call) }
+                    }
+                }
                 // A refresh snapshot covers transcript events it already holds,
                 // but never page requests, so one it covers still opens when it
                 // arrives live on this stream.
@@ -1590,6 +1606,62 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             }
         }
         throw StreamResync()
+    }
+}
+
+extension HTTPClient {
+    /// Attaches the hosted instance, or returns nil when the server refuses
+    /// it, so the session is still watched without it.
+    fileprivate func attachHosting(_ hosting: ClientPluginHosting?, session id: String) async -> ClientPluginHosting? {
+        guard let hosting else { return nil }
+        do {
+            try await attachClientPlugin(session: id, instance: hosting.instanceID, input: hosting.declaration)
+            return hosting
+        } catch {
+            if !(error is CancellationError) { hosting.refused(error) }
+            return nil
+        }
+    }
+
+    /// Opens the event stream, bound to `hosting`'s instance when given. A
+    /// stream the server won't bind opens unbound, so a lost instance never
+    /// stops the session's own stream.
+    fileprivate func openEventStream(_ id: String, stream: String, after: Int,
+                                     hosting: ClientPluginHosting?) async throws -> Operations.StreamSessionEvents.Output.Ok {
+        let headers = Operations.StreamSessionEvents.Input.Headers(xKitInstanceID: instance, xKitProtocolVersion: ._49)
+        if let hosting {
+            do {
+                let output = try await generatedOperation { try await api.streamSessionEvents(path: .init(sessionID: id), query: .init(stream: stream, after: after, clientPlugin: hosting.instanceID), headers: headers) }
+                guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+                return response
+            } catch ClientError.http(let status) where ![401, 403].contains(status) {
+                hosting.refused(ClientError.http(status))
+            }
+        }
+        let output = try await generatedOperation { try await api.streamSessionEvents(path: .init(sessionID: id), query: .init(stream: stream, after: after), headers: headers) }
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        return response
+    }
+
+    func attachClientPlugin(session id: String, instance instanceID: String, input: WireAttachClientPluginInput) async throws {
+        guard ClientPluginHosting.validInstanceID(instanceID) else { throw ClientError.invalidPayload }
+        let body: Components.Schemas.AttachClientPluginInput = try generated(input, as: Components.Schemas.AttachClientPluginInput.self)
+        let output = try await generatedOperation { try await api.attachClientPlugin(path: .init(sessionID: id, instanceID: instanceID), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._49), body: .json(body)) }
+        guard case .noContent = output else { throw ClientError.invalidPayload }
+    }
+
+    func detachClientPlugin(session id: String, instance instanceID: String) async throws {
+        guard ClientPluginHosting.validInstanceID(instanceID) else { throw ClientError.invalidPayload }
+        let output = try await generatedOperation { try await api.detachClientPlugin(path: .init(sessionID: id, instanceID: instanceID), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._49)) }
+        guard case .noContent = output else { throw ClientError.invalidPayload }
+    }
+
+    func completeClientPluginCall(session id: String, instance instanceID: String, call: String,
+                                  result: WireCompleteClientPluginCallInput) async throws {
+        guard ClientPluginHosting.validInstanceID(instanceID), ClientPluginHosting.validCallID(call) else { throw ClientError.invalidPayload }
+        let body: Components.Schemas.CompleteClientPluginCallInput = try generated(result, as: Components.Schemas.CompleteClientPluginCallInput.self)
+        let output = try await generatedOperation { try await api.completeClientPluginCall(path: .init(sessionID: id, instanceID: instanceID, callID: call), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._49), body: .json(body)) }
+        guard case .noContent = output else { throw ClientError.invalidPayload }
     }
 }
 

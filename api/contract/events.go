@@ -20,37 +20,39 @@ const (
 type SessionEventKind string
 
 const (
-	SessionEventTurnStarted            SessionEventKind = "turn.started"
-	SessionEventUserMessageAdded       SessionEventKind = "user.message.added"
-	SessionEventPluginMessageAdded     SessionEventKind = "plugin.message.added"
-	SessionEventAssistantStarted       SessionEventKind = "assistant.started"
-	SessionEventAssistantTextDelta     SessionEventKind = "assistant.text.delta"
-	SessionEventThinkingDelta          SessionEventKind = "assistant.thinking.delta"
-	SessionEventAssistantCompleted     SessionEventKind = "assistant.completed"
-	SessionEventToolPlanned            SessionEventKind = "tool.planned"
-	SessionEventToolStarted            SessionEventKind = "tool.started"
-	SessionEventToolOutputDelta        SessionEventKind = "tool.output.delta"
-	SessionEventToolCompleted          SessionEventKind = "tool.completed"
-	SessionEventCompactionStarted      SessionEventKind = "compaction.started"
-	SessionEventCompactionCompleted    SessionEventKind = "compaction.completed"
-	SessionEventProviderRetryScheduled SessionEventKind = "provider.retry.scheduled"
-	SessionEventProviderRetryStarted   SessionEventKind = "provider.retry.started"
-	SessionEventContextChanged         SessionEventKind = "context.changed"
-	SessionEventUsageChanged           SessionEventKind = "usage.changed"
-	SessionEventTurnCompleted          SessionEventKind = "turn.completed"
-	SessionEventSessionNameChanged     SessionEventKind = "session.name.changed"
-	SessionEventSessionCWDChanged      SessionEventKind = "session.cwd.changed"
-	SessionEventSubagentChanged        SessionEventKind = "subagent.changed"
-	SessionEventPeerQueryChanged       SessionEventKind = "peer_query.changed"
-	SessionEventInteractionRequested   SessionEventKind = "interaction.requested"
-	SessionEventInteractionResolved    SessionEventKind = "interaction.resolved"
-	SessionEventAnnotationCreated      SessionEventKind = "annotation.created"
-	SessionEventAnnotationUpdated      SessionEventKind = "annotation.updated"
-	SessionEventAnnotationDeleted      SessionEventKind = "annotation.deleted"
-	SessionEventAnnotationSubmitted    SessionEventKind = "annotation.submitted"
-	SessionEventScratchpadChanged      SessionEventKind = "scratchpad.changed"
-	SessionEventBoundaryCreated        SessionEventKind = "boundary.created"
-	SessionEventURLOpenRequested       SessionEventKind = "url.open.requested"
+	SessionEventTurnStarted               SessionEventKind = "turn.started"
+	SessionEventUserMessageAdded          SessionEventKind = "user.message.added"
+	SessionEventPluginMessageAdded        SessionEventKind = "plugin.message.added"
+	SessionEventAssistantStarted          SessionEventKind = "assistant.started"
+	SessionEventAssistantTextDelta        SessionEventKind = "assistant.text.delta"
+	SessionEventThinkingDelta             SessionEventKind = "assistant.thinking.delta"
+	SessionEventAssistantCompleted        SessionEventKind = "assistant.completed"
+	SessionEventToolPlanned               SessionEventKind = "tool.planned"
+	SessionEventToolStarted               SessionEventKind = "tool.started"
+	SessionEventToolOutputDelta           SessionEventKind = "tool.output.delta"
+	SessionEventToolCompleted             SessionEventKind = "tool.completed"
+	SessionEventCompactionStarted         SessionEventKind = "compaction.started"
+	SessionEventCompactionCompleted       SessionEventKind = "compaction.completed"
+	SessionEventProviderRetryScheduled    SessionEventKind = "provider.retry.scheduled"
+	SessionEventProviderRetryStarted      SessionEventKind = "provider.retry.started"
+	SessionEventContextChanged            SessionEventKind = "context.changed"
+	SessionEventUsageChanged              SessionEventKind = "usage.changed"
+	SessionEventTurnCompleted             SessionEventKind = "turn.completed"
+	SessionEventSessionNameChanged        SessionEventKind = "session.name.changed"
+	SessionEventSessionCWDChanged         SessionEventKind = "session.cwd.changed"
+	SessionEventSubagentChanged           SessionEventKind = "subagent.changed"
+	SessionEventPeerQueryChanged          SessionEventKind = "peer_query.changed"
+	SessionEventInteractionRequested      SessionEventKind = "interaction.requested"
+	SessionEventInteractionResolved       SessionEventKind = "interaction.resolved"
+	SessionEventAnnotationCreated         SessionEventKind = "annotation.created"
+	SessionEventAnnotationUpdated         SessionEventKind = "annotation.updated"
+	SessionEventAnnotationDeleted         SessionEventKind = "annotation.deleted"
+	SessionEventAnnotationSubmitted       SessionEventKind = "annotation.submitted"
+	SessionEventScratchpadChanged         SessionEventKind = "scratchpad.changed"
+	SessionEventBoundaryCreated           SessionEventKind = "boundary.created"
+	SessionEventURLOpenRequested          SessionEventKind = "url.open.requested"
+	SessionEventClientPluginCallRequested SessionEventKind = "client_plugin.call.requested"
+	SessionEventClientPluginCallResolved  SessionEventKind = "client_plugin.call.resolved"
 )
 
 // SessionEvent is one ordered update in a loaded runtime stream.
@@ -133,6 +135,10 @@ func (event sessionEventWire) validate() error {
 		if event.TurnID != "" {
 			return fmt.Errorf("url open request cannot carry parent turn identity")
 		}
+	} else if event.Kind == SessionEventClientPluginCallRequested || event.Kind == SessionEventClientPluginCallResolved {
+		if event.TurnID != "" {
+			return fmt.Errorf("client plugin call event cannot carry parent turn identity")
+		}
 	} else if event.Kind == SessionEventSubagentChanged {
 		if event.TurnID != "" || event.SubagentConversationID == "" {
 			return fmt.Errorf("subagent event requires conversation identity without parent turn identity")
@@ -181,7 +187,10 @@ func (event sessionEventWire) validate() error {
 	if len(event.Content) > maxSessionEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxSessionEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8 + len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource) + len(event.CreatedAt) + len(event.URL)
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8 + len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource) + len(event.CreatedAt) + len(event.URL) + len(event.ClientPluginCallID) + len(event.ClientPluginInstanceID) + len(event.ClientPluginCallResolution)
+	if event.ClientPluginCall != nil {
+		payloadBytes += event.ClientPluginCall.payloadBytes()
+	}
 	if event.Scratchpad != nil {
 		payloadBytes += len(event.Scratchpad.OwnerSessionID) + len(event.Scratchpad.Content) + 64
 	}
@@ -312,6 +321,29 @@ func (event sessionEventWire) validate() error {
 				return fmt.Errorf("boundary event: %w", err)
 			}
 		}
+	case SessionEventClientPluginCallRequested, SessionEventClientPluginCallResolved:
+		if !ValidClientPluginCallID(event.ClientPluginCallID) || !ValidClientPluginInstanceID(event.ClientPluginInstanceID) || event.MessageID != "" || event.SubagentConversationID != "" || event.ToolCallID != "" {
+			return fmt.Errorf("client plugin call event requires call and instance identity")
+		}
+		if event.Kind == SessionEventClientPluginCallResolved {
+			if event.ClientPluginCall != nil || !event.ClientPluginCallResolution.valid() {
+				return fmt.Errorf("client plugin call resolution is invalid")
+			}
+		} else if event.ClientPluginCallResolution != "" {
+			return fmt.Errorf("client plugin call request cannot carry a resolution")
+		} else if event.ClientPluginCall != nil {
+			// Copies for other streams, pages, and replays omit the call.
+			if err := event.ClientPluginCall.Validate(); err != nil {
+				return err
+			}
+		}
+		expected := len(event.ClientPluginCallID) + len(event.ClientPluginInstanceID) + len(event.ClientPluginCallResolution)
+		if event.ClientPluginCall != nil {
+			expected += event.ClientPluginCall.payloadBytes()
+		}
+		if payloadBytes != expected {
+			return fmt.Errorf("client plugin call event carries invalid payload")
+		}
 	case SessionEventURLOpenRequested:
 		// Replayed and caught-up copies omit the address; see URLOpenRequestedEvent.
 		if event.URL != "" && !weburl.IsCanonical(event.URL) || payloadBytes != len(event.URL) {
@@ -424,6 +456,9 @@ func (event sessionEventWire) validate() error {
 	}
 	if event.Kind != SessionEventURLOpenRequested && event.URL != "" {
 		return fmt.Errorf("event kind %q cannot carry a url", event.Kind)
+	}
+	if event.Kind != SessionEventClientPluginCallRequested && event.Kind != SessionEventClientPluginCallResolved && (event.ClientPluginCallID != "" || event.ClientPluginInstanceID != "" || event.ClientPluginCall != nil || event.ClientPluginCallResolution != "") {
+		return fmt.Errorf("event kind %q cannot carry a client plugin call", event.Kind)
 	}
 	if event.Kind != SessionEventSessionCWDChanged && event.Workspace != nil {
 		return fmt.Errorf("event kind %q cannot carry a workspace", event.Kind)
@@ -544,7 +579,7 @@ func (batch SessionEventBatch) Validate() error {
 		if batch.FirstSequence > 0 && wire.Sequence < batch.FirstSequence || batch.LastSequence > 0 && wire.Sequence > batch.LastSequence {
 			return fmt.Errorf("event %d sequence is outside the retention range", index)
 		}
-		if wire.Kind == SessionEventSessionNameChanged || wire.Kind == SessionEventSessionCWDChanged || wire.Kind == SessionEventScratchpadChanged || wire.Kind == SessionEventSubagentChanged || wire.Kind == SessionEventPeerQueryChanged || wire.Kind == SessionEventAnnotationCreated || wire.Kind == SessionEventAnnotationUpdated || wire.Kind == SessionEventAnnotationDeleted || wire.Kind == SessionEventAnnotationSubmitted || wire.Kind == SessionEventURLOpenRequested {
+		if wire.Kind == SessionEventSessionNameChanged || wire.Kind == SessionEventSessionCWDChanged || wire.Kind == SessionEventScratchpadChanged || wire.Kind == SessionEventSubagentChanged || wire.Kind == SessionEventPeerQueryChanged || wire.Kind == SessionEventAnnotationCreated || wire.Kind == SessionEventAnnotationUpdated || wire.Kind == SessionEventAnnotationDeleted || wire.Kind == SessionEventAnnotationSubmitted || wire.Kind == SessionEventURLOpenRequested || wire.Kind == SessionEventClientPluginCallRequested || wire.Kind == SessionEventClientPluginCallResolved {
 			previous = wire.Sequence
 			continue
 		}

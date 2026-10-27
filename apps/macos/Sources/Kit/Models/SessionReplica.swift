@@ -46,6 +46,8 @@ final class SessionReplica {
     private var historyGeneration = UUID()
     @ObservationIgnored private var historyTask: Task<Void, Never>?
     @ObservationIgnored private var watchTask: Task<Void, Never>?
+    /// The client plugin instance the session watch hosts, if any (ADR 0051).
+    @ObservationIgnored var pluginHost: ClientPluginHost?
     private var attachmentGeneration = UUID()
     private var titleRevision = 0
     @ObservationIgnored private var vcsTask: Task<Void, Never>?
@@ -77,6 +79,7 @@ final class SessionReplica {
     func select(_ id: String) {
         workspaceFiles = []
         detach()
+        if id != selectedID { pluginHost?.leave() }
         unavailable = false
         if let lastReceived, let index = sessions.firstIndex(where: { $0.id == lastReceived.id }) {
             sessions[index] = lastReceived
@@ -293,6 +296,7 @@ final class SessionReplica {
     /// a new name. Streams end; attaching opens them through `client`.
     func rebind(to client: any SessionClient) {
         detach()
+        pluginHost?.leave()
         self.client = client
     }
 
@@ -335,13 +339,20 @@ final class SessionReplica {
         let client = client
         let identity = SessionIdentity(server: client.serverID, session: selectedID)
         let generation = attachmentGeneration
+        let hostingClient = client as? any ClientPluginHostingClient
+        let hosting = hostingClient.flatMap { pluginHost?.hosting(session: identity.session, client: $0) }
         watchTask = Task { [weak self] in
             var delay = 1
             while !Task.isCancelled {
                 self?.connectionState = .loading
                 do {
-                    try await client.watch(identity.session) { [weak self] snapshot in
+                    let receive: @Sendable (SessionExcerpt) async -> Void = { [weak self] snapshot in
                         await self?.receive(snapshot, generation: generation)
+                    }
+                    if let hostingClient, let hosting {
+                        try await hostingClient.watch(identity.session, hosting: hosting, receive: receive)
+                    } else {
+                        try await client.watch(identity.session, receive: receive)
                     }
                     return
                 } catch {

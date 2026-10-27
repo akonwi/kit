@@ -33,7 +33,10 @@ type Tool struct {
 	InputSchema                                                              json.RawMessage
 	Owner                                                                    InstanceID
 	Registration                                                             uint64
-	validator                                                                *validator.Schema
+	// ClientInstance names the client instance that hosts the tool; it is
+	// empty for a process plugin's tool (ADR 0051).
+	ClientInstance string
+	validator      *validator.Schema
 }
 
 // ToolContent is one validated text or base64 image result part.
@@ -164,10 +167,23 @@ func (h *Host) pruneToolsLocked() {
 	}
 }
 
-// Tools returns a detached snapshot without waiting for process IO.
+// Tools returns a detached snapshot without waiting for process IO. It
+// includes the tools of each plugin ID's current client instance.
 func (h *Host) Tools() []Tool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	result := append(h.processToolsLocked(), h.clientToolsLocked()...)
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+func (h *Host) processTools() []Tool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.processToolsLocked()
+}
+
+func (h *Host) processToolsLocked() []Tool {
 	var result []Tool
 	for _, tool := range h.tools {
 		if h.activeEntryLocked(tool.Owner) == nil {
@@ -183,7 +199,8 @@ func (h *Host) Tools() []Tool {
 }
 
 // ExecuteTool validates input and dispatches only to the captured registration.
-func (h *Host) ExecuteTool(ctx context.Context, selection Tool, callID string, input json.RawMessage) (ToolResult, error) {
+func (h *Host) ExecuteTool(ctx context.Context, selection Tool, call ToolCall, input json.RawMessage) (ToolResult, error) {
+	callID := call.ID
 	if len(input) > MaxToolInputBytes || !contributionText(callID, 512, true) {
 		return ToolResult{}, rpcError(-32602, "Invalid tool call or input size")
 	}
@@ -193,6 +210,9 @@ func (h *Host) ExecuteTool(ctx context.Context, selection Tool, callID string, i
 	}
 	if _, ok := value.(map[string]any); !ok {
 		return ToolResult{}, rpcError(-32602, "Tool input must be an object")
+	}
+	if selection.ClientInstance != "" {
+		return h.executeClientTool(ctx, selection, call, value, input)
 	}
 	h.mu.Lock()
 	tool, ok := h.tools[selection.ID]

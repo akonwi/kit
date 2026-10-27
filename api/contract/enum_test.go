@@ -13,7 +13,7 @@ type stringEnum interface{ EnumValues() []string }
 func TestStringEnumValuesCoverDeclaredConstants(t *testing.T) {
 	t.Parallel()
 	enums := map[string]stringEnum{"FirstTurnErrorCode": FirstTurnErrorCode(""), "ScratchpadErrorCode": ScratchpadErrorCode(""), "VCSHeadKind": VCSHeadKind(""),
-		"LoginMethod": LoginMethod(""), "CredentialSource": CredentialSource(""), "LoginState": LoginState(""), "PromptCacheRetention": PromptCacheRetention(""), "SessionActivity": SessionActivity("")}
+		"LoginMethod": LoginMethod(""), "CredentialSource": CredentialSource(""), "LoginState": LoginState(""), "PromptCacheRetention": PromptCacheRetention(""), "SessionActivity": SessionActivity(""), "ClientPluginCallResolution": ClientPluginCallResolution("")}
 	files, err := parser.ParseDir(token.NewFileSet(), ".", nil, 0)
 	if err != nil {
 		t.Fatal(err)

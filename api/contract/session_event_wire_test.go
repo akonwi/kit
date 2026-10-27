@@ -53,6 +53,28 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 			event: SessionEvent{StreamID: "stream_1", Sequence: 6, SessionID: "session_1", Payload: URLOpenRequestedEvent{}},
 			want:  `{"streamId":"stream_1","sequence":6,"sessionId":"session_1","kind":"url.open.requested"}`,
 		},
+		{
+			name: "client plugin call request on its instance's stream carries the call",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 7, SessionID: "session_1", Payload: ClientPluginCallRequestedEvent{
+				ClientPluginCallID: "clientcall_0123456789abcdef0123456789abcdef", ClientPluginInstanceID: "clientplugin_0123456789abcdef0123456789abcdef",
+				ClientPluginCall: &ClientPluginCall{PluginID: "browser", ToolID: "snapshot", ToolCallID: "call_1", TurnID: "run_1", Input: json.RawMessage(`{"tab":"t1"}`)},
+			}},
+			want: `{"streamId":"stream_1","sequence":7,"sessionId":"session_1","kind":"client_plugin.call.requested","clientPluginCallId":"clientcall_0123456789abcdef0123456789abcdef","clientPluginInstanceId":"clientplugin_0123456789abcdef0123456789abcdef","clientPluginCall":{"pluginId":"browser","toolId":"snapshot","toolCallId":"call_1","turnId":"run_1","input":{"tab":"t1"}}}`,
+		},
+		{
+			name: "client plugin call request elsewhere omits the call",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 8, SessionID: "session_1", Payload: ClientPluginCallRequestedEvent{
+				ClientPluginCallID: "clientcall_0123456789abcdef0123456789abcdef", ClientPluginInstanceID: "clientplugin_0123456789abcdef0123456789abcdef",
+			}},
+			want: `{"streamId":"stream_1","sequence":8,"sessionId":"session_1","kind":"client_plugin.call.requested","clientPluginCallId":"clientcall_0123456789abcdef0123456789abcdef","clientPluginInstanceId":"clientplugin_0123456789abcdef0123456789abcdef"}`,
+		},
+		{
+			name: "client plugin call resolution",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 9, SessionID: "session_1", Payload: ClientPluginCallResolvedEvent{
+				ClientPluginCallID: "clientcall_0123456789abcdef0123456789abcdef", ClientPluginInstanceID: "clientplugin_0123456789abcdef0123456789abcdef", ClientPluginCallResolution: ClientPluginCallTimedOut,
+			}},
+			want: `{"streamId":"stream_1","sequence":9,"sessionId":"session_1","kind":"client_plugin.call.resolved","clientPluginCallId":"clientcall_0123456789abcdef0123456789abcdef","clientPluginInstanceId":"clientplugin_0123456789abcdef0123456789abcdef","clientPluginCallResolution":"timed_out"}`,
+		},
 	}
 	for _, test := range cases {
 		got, err := json.Marshal(test.event)
@@ -65,8 +87,8 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 func TestSessionEventPayloadVocabularyIsClosed(t *testing.T) {
 	t.Parallel()
 	variants := sessionEventVariants()
-	if len(variants) != 31 {
-		t.Fatalf("session event variants = %d; want 31", len(variants))
+	if len(variants) != 33 {
+		t.Fatalf("session event variants = %d; want 33", len(variants))
 	}
 	seen := make(map[SessionEventKind]bool, len(variants))
 	for _, variant := range variants {

@@ -178,6 +178,14 @@ final class WorkspaceState {
         focus(tile: tile)
     }
 
+    /// Brings an open pane to the front of its tile, ending a zoom that hides
+    /// it, without moving focus to its tile, as when the agent acts on it.
+    func reveal(_ pane: WorkspacePane) {
+        guard let tile = tile(containing: pane) else { return }
+        tiles[tile]?.selected = pane
+        if let zoomedTile, zoomedTile != tile { self.zoomedTile = nil }
+    }
+
     /// Opens a pane as a tab in the focused tile, or selects it if it is open.
     func open(_ pane: WorkspacePane) {
         if case .browser(let id) = pane, browsers[id] == nil { return }
@@ -553,8 +561,9 @@ final class WorkspaceState {
             guard case .browser = pane, let tile = self.tile(containing: pane), tile != home else { return nil }
             return tile
         }.first
-        if let target { return openBrowser(url, in: target) }
-        return openBrowser(url, beside: anchor)
+        let tab = target.map { openBrowser(url, in: $0) } ?? openBrowser(url, beside: anchor)
+        tab.opener = .agent
+        return tab
     }
 
     /// Opens a web link in a browser tab beside `anchor`. Returns false,

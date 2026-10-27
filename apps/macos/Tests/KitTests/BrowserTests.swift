@@ -21,6 +21,38 @@ import Testing
     func stop() {}
     func close() { closed = true }
 
+    /// Agent page operations asked of the page, and how the page answers.
+    private(set) var agentScripts: [(operation: String, arguments: [String: Any])] = []
+    var agentResults: [String: String] = [:]
+    var pageDialog: BrowserPageDialog?
+    private(set) var dialogAnswers: [(accept: Bool, text: String?)] = []
+    var viewport: CGImage?
+    func runAgentScript(_ operation: String, arguments: [String: Any]) async throws -> String {
+        agentScripts.append((operation, arguments))
+        guard let result = agentResults[operation] else { throw BrowserAgentError("No result for \(operation).") }
+        return result
+    }
+    func viewportImage() async throws -> CGImage {
+        guard let viewport else { throw BrowserAgentError("No viewport.") }
+        return viewport
+    }
+    func answerPageDialog(accept: Bool, text: String?) -> Bool {
+        guard pageDialog != nil else { return false }
+        pageDialog = nil
+        dialogAnswers.append((accept, text))
+        return true
+    }
+    private(set) var chosenFiles: [[URL]] = []
+    func choosePageFiles(_ files: [URL]) -> Bool {
+        guard pageDialog?.kind == .files else { return false }
+        pageDialog = nil
+        chosenFiles.append(files)
+        return true
+    }
+    /// Native input delivered to the page.
+    private(set) var inputs: [BrowserInput] = []
+    func sendInput(_ input: BrowserInput) throws { inputs.append(input) }
+
     func send(_ event: BrowserEngineEvent) { onEvent?(event) }
     /// The page goes to `url`, as by a link or redirect; false when the
     /// tab stopped it.

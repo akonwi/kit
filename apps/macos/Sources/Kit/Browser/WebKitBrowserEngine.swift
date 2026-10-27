@@ -21,6 +21,11 @@ import WebKit
     /// Kit's own controls started the next navigation.
     private var explicitNavigation = false
     private(set) var state = BrowserPageState()
+    /// The page dialog or file chooser waiting for an answer.
+    private var waiting: WaitingDialog?
+    var pageDialog: BrowserPageDialog? { waiting?.dialog }
+    /// Numbers native events, as the window server would.
+    private var inputEvents = 0
     var onEvent: (@MainActor (BrowserEngineEvent) -> Void)?
     var interceptsNavigation: (@MainActor (URL) -> Bool)?
     var view: NSView { webView }
@@ -61,6 +66,7 @@ import WebKit
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.isInspectable = true
+        webView.windowChanged = { [weak self] in self?.showWaitingDialog() }
         observe()
     }
 
@@ -76,6 +82,8 @@ import WebKit
     func stop() { webView.stopLoading() }
 
     func close() {
+        // A page closing with a dialog open gets the dialog's cancel.
+        if let waiting { finish(waiting, PageDialogAnswer(accept: false)) }
         faviconTask?.cancel()
         observations.removeAll()
         webView.stopLoading()
@@ -301,27 +309,79 @@ extension WebKitBrowserEngine: WKUIDelegate {
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo) async {
         guard !dialogsSuppressed else { return }
-        await BrowserDialogs.alert(message, from: Self.host(of: frame), in: webView) { dialogsSuppressed = true }
+        _ = await wait(for: BrowserPageDialog(kind: .alert, message: message), from: Self.host(of: frame))
     }
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo) async -> Bool {
         guard !dialogsSuppressed else { return false }
-        return await BrowserDialogs.confirm(message, from: Self.host(of: frame), in: webView) { dialogsSuppressed = true }
+        return await wait(for: BrowserPageDialog(kind: .confirm, message: message), from: Self.host(of: frame)).accept
     }
 
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String,
                  defaultText: String?, initiatedByFrame frame: WKFrameInfo) async -> String? {
         guard !dialogsSuppressed else { return nil }
-        return await BrowserDialogs.prompt(prompt, defaultText: defaultText, from: Self.host(of: frame), in: webView) {
-            dialogsSuppressed = true
-        }
+        let answer = await wait(for: BrowserPageDialog(kind: .prompt, message: prompt, defaultText: defaultText),
+                                from: Self.host(of: frame))
+        return answer.accept ? answer.text ?? defaultText ?? "" : nil
     }
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
                  initiatedByFrame frame: WKFrameInfo) async -> [URL]? {
-        await BrowserDialogs.chooseFiles(multiple: parameters.allowsMultipleSelection,
-                                         directories: parameters.allowsDirectories, in: webView)
+        let dialog = BrowserPageDialog(kind: .files, multiple: parameters.allowsMultipleSelection,
+                                       directories: parameters.allowsDirectories)
+        let answer = await wait(for: dialog, from: Self.host(of: frame))
+        guard answer.accept, let files = answer.files, !files.isEmpty else { return nil }
+        return parameters.allowsMultipleSelection ? files : Array(files.prefix(1))
+    }
+
+    /// Holds a page's dialog until the person or the agent answers it. The
+    /// page waits, and only the page; its sheet shows while the page is in a
+    /// window on screen. WebKit asks one at a time for a page.
+    private func wait(for dialog: BrowserPageDialog, from host: String) async -> PageDialogAnswer {
+        let answer = await withCheckedContinuation { continuation in
+            waiting = WaitingDialog(dialog: dialog, host: host) { continuation.resume(returning: $0) }
+            emit(.dialogChanged(dialog))
+            showWaitingDialog()
+        }
+        if answer.suppress { dialogsSuppressed = true }
+        return answer
+    }
+
+    /// Shows the waiting dialog's sheet once the page is in a window on
+    /// screen, and takes it down, still waiting, when the page leaves it.
+    fileprivate func showWaitingDialog() {
+        guard let waiting else { return }
+        guard let window = webView.window, window.isVisible else {
+            waiting.sheet?.withdraw()
+            waiting.sheet = nil
+            return
+        }
+        guard waiting.sheet == nil, window.attachedSheet == nil else { return }
+        waiting.sheet = BrowserDialogs.present(waiting.dialog, from: waiting.host, in: window) { [weak self] answer in
+            self?.finish(waiting, answer)
+        }
+    }
+
+    private func finish(_ dialog: WaitingDialog, _ answer: PageDialogAnswer) {
+        guard waiting === dialog else { return }
+        waiting = nil
+        dialog.sheet?.withdraw()
+        emit(.dialogChanged(nil))
+        dialog.resume(answer)
+    }
+
+    func answerPageDialog(accept: Bool, text: String?) -> Bool {
+        guard let waiting else { return false }
+        finish(waiting, PageDialogAnswer(accept: waiting.dialog.kind == .alert || (accept && waiting.dialog.kind != .files),
+                                         text: text))
+        return true
+    }
+
+    func choosePageFiles(_ files: [URL]) -> Bool {
+        guard let waiting, waiting.dialog.kind == .files else { return false }
+        finish(waiting, PageDialogAnswer(accept: true, files: files))
+        return true
     }
 
     private static func host(of frame: WKFrameInfo) -> String {
@@ -329,6 +389,75 @@ extension WebKitBrowserEngine: WKUIDelegate {
         guard !origin.host.isEmpty else { return "" }
         let standard = (origin.protocol == "https" && origin.port == 443) || (origin.protocol == "http" && origin.port == 80)
         return origin.port == 0 || standard ? origin.host : "\(origin.host):\(origin.port)"
+    }
+}
+
+// MARK: Agent
+
+extension WebKitBrowserEngine {
+    /// Agent page scripts run here, apart from the page's own scripts.
+    private static let agentWorld = WKContentWorld.world(name: "kit.browser-agent")
+    private static let agentLibrary: String = Bundle.module.url(forResource: "BrowserAgent", withExtension: "js")
+        .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+
+    func runAgentScript(_ operation: String, arguments: [String: Any]) async throws -> String {
+        guard !Self.agentLibrary.isEmpty else { throw BrowserAgentError("The browser agent script is missing from this build.") }
+        let body = Self.agentLibrary + "\nreturn globalThis.__kitAgent.run(op, args);"
+        let result = try await webView.callAsyncJavaScript(body, arguments: ["op": operation, "args": arguments],
+                                                           in: nil, contentWorld: Self.agentWorld)
+        guard let text = result as? String else { throw BrowserAgentError("The page returned no result.") }
+        return text
+    }
+
+    func sendInput(_ input: BrowserInput) throws {
+        guard let window = webView.window else { throw BrowserAgentError("The page isn’t in a window.") }
+        try webView.deliverAgentInput { try deliver(input, in: window) }
+    }
+
+    private func deliver(_ input: BrowserInput, in window: NSWindow) throws {
+        func mouse(_ type: NSEvent.EventType, _ point: CGPoint, clicks: Int) throws -> NSEvent {
+            inputEvents += 1
+            guard let event = NSEvent.mouseEvent(with: type, location: webView.convert(point, to: nil), modifierFlags: [],
+                                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                 context: nil, eventNumber: inputEvents, clickCount: clicks,
+                                                 pressure: type == .leftMouseUp || type == .mouseMoved ? 0 : 1) else {
+                throw BrowserAgentError("The input couldn’t be made.")
+            }
+            return event
+        }
+        switch input {
+        case .move(let point): webView.mouseMoved(with: try mouse(.mouseMoved, point, clicks: 0))
+        case .down(let point, let clicks): webView.mouseDown(with: try mouse(.leftMouseDown, point, clicks: clicks))
+        case .dragged(let point): webView.mouseDragged(with: try mouse(.leftMouseDragged, point, clicks: 1))
+        case .up(let point, let clicks): webView.mouseUp(with: try mouse(.leftMouseUp, point, clicks: clicks))
+        case .keys(let keys):
+            // Keys type only into the first responder. Borrow it and give it
+            // back in this same step, so no keystroke of the person's lands
+            // in the page.
+            let previous = window.firstResponder
+            if previous !== webView { window.makeFirstResponder(webView) }
+            defer { if previous !== webView { window.makeFirstResponder(previous) } }
+            for key in keys {
+                for type in [NSEvent.EventType.keyDown, .keyUp] {
+                    guard let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: key.modifiers,
+                                                       timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                       context: nil, characters: key.characters,
+                                                       charactersIgnoringModifiers: key.characters.lowercased(),
+                                                       isARepeat: false, keyCode: key.keyCode) else {
+                        throw BrowserAgentError("The key couldn’t be made.")
+                    }
+                    if type == .keyDown { webView.keyDown(with: event) } else { webView.keyUp(with: event) }
+                }
+            }
+        }
+    }
+
+    func viewportImage() async throws -> CGImage {
+        let image = try await webView.takeSnapshot(configuration: nil)
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            throw BrowserAgentError("The page couldn’t be captured.")
+        }
+        return cgImage
     }
 }
 
@@ -385,7 +514,30 @@ extension WebKitBrowserEngine {
 }
 
 /// The page's view, noting when the person last clicked or typed in it.
+/// A page dialog or file chooser waiting for an answer, and its sheet
+/// while one shows.
+@MainActor private final class WaitingDialog {
+    let dialog: BrowserPageDialog
+    let host: String
+    let resume: (PageDialogAnswer) -> Void
+    var sheet: PageDialogSheet?
+
+    init(dialog: BrowserPageDialog, host: String, resume: @escaping (PageDialogAnswer) -> Void) {
+        self.dialog = dialog
+        self.host = host
+        self.resume = resume
+    }
+}
+
 private final class KitWebView: WKWebView {
+    /// Told when the page enters or leaves a window.
+    var windowChanged: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        windowChanged?()
+    }
+
     private var lastInteraction: Date?
 
     /// How long after a click or key press the page may start a download,
@@ -396,7 +548,19 @@ private final class KitWebView: WKWebView {
         lastInteraction.map { Date().timeIntervalSince($0) < Self.activationWindow } ?? false
     }
 
-    func interacted() { lastInteraction = Date() }
+    func interacted() { if !agentInput { lastInteraction = Date() } }
+
+    /// Whether the agent's input is being delivered. The agent's input
+    /// isn't the person's: it gives the page no activation for downloads or
+    /// links to other apps, and ends any the person gave.
+    private var agentInput = false
+
+    func deliverAgentInput(_ deliver: () throws -> Void) rethrows {
+        lastInteraction = nil
+        agentInput = true
+        defer { agentInput = false }
+        try deliver()
+    }
 
     override func mouseDown(with event: NSEvent) { interacted(); super.mouseDown(with: event) }
     override func rightMouseDown(with event: NSEvent) { interacted(); super.rightMouseDown(with: event) }

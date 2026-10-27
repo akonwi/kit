@@ -393,6 +393,8 @@ enum WireSessionEventKind: String, Codable, Sendable {
     case value28 = "scratchpad.changed"
     case value29 = "boundary.created"
     case value30 = "url.open.requested"
+    case value31 = "client_plugin.call.requested"
+    case value32 = "client_plugin.call.resolved"
 }
 
 enum WireTurnStatus: String, Codable, Sendable {
@@ -472,6 +474,49 @@ struct WireSessionEvent: Codable, Sendable {
     let `boundarySource`: String?
     let `createdAt`: String?
     let `url`: String?
+    let `clientPluginCallId`: String?
+    let `clientPluginInstanceId`: String?
+    let `clientPluginCall`: WireClientPluginCall?
+    let `clientPluginCallResolution`: String?
+}
+
+/// The work a client_plugin.call.requested event asks this app to do
+/// (ADR 0051). It is present only on the stream bound to the instance.
+struct WireClientPluginCall: Codable, Sendable {
+    let `pluginId`: String
+    let `toolId`: String
+    let `toolCallId`: String
+    let `turnId`: String?
+    let `subagentConversationId`: String?
+    let `input`: WireJSON
+}
+
+struct WireClientPluginToolDeclaration: Codable, Sendable {
+    let `id`: String
+    let `label`: String?
+    let `description`: String
+    let `inputSchema`: WireJSON
+    let `executionMode`: String?
+    let `promptSnippet`: String?
+    let `promptGuidelines`: [String]?
+}
+
+struct WireAttachClientPluginInput: Codable, Sendable {
+    let `pluginId`: String
+    let `tools`: [WireClientPluginToolDeclaration]
+}
+
+struct WireClientPluginContent: Codable, Sendable {
+    let `type`: String
+    let `text`: String?
+    let `data`: String?
+    let `mimeType`: String?
+}
+
+struct WireCompleteClientPluginCallInput: Codable, Sendable {
+    let `content`: [WireClientPluginContent]?
+    let `details`: WireJSON?
+    let `error`: String?
 }
 
 struct WireSessionEventBatch: Codable, Sendable {

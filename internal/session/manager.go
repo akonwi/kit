@@ -214,8 +214,12 @@ type runtime struct {
 	closeErr     error
 	cleanupOwner *sync.WaitGroup
 
-	pluginToolState            pluginToolState
-	pluginContributions        pluginContributionState
+	pluginToolState     pluginToolState
+	pluginContributions pluginContributionState
+	// clientTools shares client-hosted plugin tools with subagents.
+	clientTools clientToolFeed
+	// pluginImages stores the images plugin tools return.
+	pluginImages               pluginImageStore
 	interception               *pluginInterceptorBridge
 	turnEvents                 *pluginTurnEventBridge
 	plugins                    PluginHost
@@ -2675,6 +2679,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		interception: interception, turnEvents: turnEvents, droid: droid, model: model, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
 		workspace: workspace, events: events, eventCursor: snapshot.LastEvent, eventChanged: make(chan struct{}),
 		runs: make(map[string]*liveRun), interactions: interactions,
+		pluginImages: pluginImageStore{sessionID: record.ID, store: m.attachments},
 	}
 	loaded.pluginContributions.initialize(bundle.Subagents, droid)
 	interactions.authority = &loaded.mu
@@ -2694,7 +2699,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		loaded.events.invalidate()
 	}
 	if m.pluginFactory != nil {
-		loaded.plugins = m.pluginFactory(m.pluginContext, PluginSession{ID: record.ID, Name: record.Name, CWD: record.CWD, SubagentNames: pluginSubagentNames(bundle.Subagents)}, func() { loaded.refreshPluginContributions(); loaded.events.invalidate() })
+		loaded.plugins = m.pluginFactory(m.pluginContext, PluginSession{ID: record.ID, Name: record.Name, CWD: record.CWD, SubagentNames: pluginSubagentNames(bundle.Subagents), ClientToolsChanged: loaded.refreshPluginContributions}, func() { loaded.refreshPluginContributions(); loaded.events.invalidate() })
 		if loaded.plugins != nil {
 			turnEvents.binding.Store(&pluginTurnEventBinding{host: loaded.plugins})
 		}
@@ -2714,6 +2719,14 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		if host, ok := loaded.plugins.(PluginURLHost); ok {
 			host.SetURLObserver(func(ctx context.Context, request PluginURLRequest, current func() bool) error {
 				return m.requestPluginURL(ctx, loaded, record.ID, request, current)
+			})
+		}
+		if host, ok := loaded.plugins.(PluginClientHost); ok {
+			host.SetClientPluginCallObserver(func(ctx context.Context, call ClientPluginCall) error {
+				return m.publishClientPluginCall(ctx, loaded, record.ID, EventClientPluginCallRequested, call)
+			}, func(call ClientPluginCall) {
+				// A runtime that no longer owns the session has no stream to tell.
+				_ = m.publishClientPluginCall(context.Background(), loaded, record.ID, EventClientPluginCallResolved, call)
 			})
 		}
 		if host, ok := loaded.plugins.(PluginMessageHost); ok {
@@ -2919,6 +2932,9 @@ func (r *runtime) finishClose(interactionReason string) {
 	if r.interactions != nil {
 		r.interactions.cancelAll(interactionReason)
 	}
+	// Subagents stop offering client-hosted tools before the host that runs
+	// them closes.
+	r.clientTools.close()
 	if r.plugins != nil {
 		cleanupErr = errors.Join(cleanupErr, r.plugins.Close(context.Background()))
 	}

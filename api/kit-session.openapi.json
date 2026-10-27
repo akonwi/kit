@@ -304,6 +304,25 @@
         ],
         "type": "object"
       },
+      "AttachClientPluginInput": {
+        "additionalProperties": false,
+        "properties": {
+          "pluginId": {
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/ClientPluginToolDeclaration"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "pluginId",
+          "tools"
+        ],
+        "type": "object"
+      },
       "AttachmentContent": {
         "format": "byte",
         "type": "string"
@@ -697,6 +716,60 @@
         ],
         "type": "object"
       },
+      "ClientPluginContent": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "ClientPluginToolDeclaration": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "executionMode": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "inputSchema": {},
+          "label": {
+            "type": "string"
+          },
+          "promptGuidelines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "promptSnippet": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "description",
+          "inputSchema"
+        ],
+        "type": "object"
+      },
       "CompactSessionInput": {
         "additionalProperties": false,
         "properties": {
@@ -730,6 +803,22 @@
           "compacted",
           "eventStreamId"
         ],
+        "type": "object"
+      },
+      "CompleteClientPluginCallInput": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "items": {
+              "$ref": "#/components/schemas/ClientPluginContent"
+            },
+            "type": "array"
+          },
+          "details": {},
+          "error": {
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "ConfigureSessionInput": {
@@ -16401,6 +16490,1124 @@
         ]
       }
     },
+    "/v1/sessions/{sessionID}/client-plugins/{instanceID}": {
+      "delete": {
+        "operationId": "detachClientPlugin",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Kit-Protocol-Version",
+            "required": true,
+            "schema": {
+              "enum": [
+                49
+              ],
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "instanceID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_request": "#/components/schemas/InvalidRequestError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidRequestError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "credential_expired": "#/components/schemas/PluginCredentialExpiredError",
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/PluginCredentialExpiredError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "not_found": "#/components/schemas/NotFoundError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/NotFoundError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/PluginRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/PluginRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "plugin"
+        ]
+      },
+      "put": {
+        "operationId": "attachClientPlugin",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Kit-Protocol-Version",
+            "required": true,
+            "schema": {
+              "enum": [
+                49
+              ],
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "instanceID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachClientPluginInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_request": "#/components/schemas/InvalidRequestError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidRequestError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "credential_expired": "#/components/schemas/PluginCredentialExpiredError",
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/PluginCredentialExpiredError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "not_found": "#/components/schemas/NotFoundError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/NotFoundError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "capacity_exceeded": "#/components/schemas/CapacityExceededError",
+                          "rate_limited": "#/components/schemas/PluginRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/CapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/PluginRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "plugin"
+        ]
+      }
+    },
+    "/v1/sessions/{sessionID}/client-plugins/{instanceID}/calls/{callID}/result": {
+      "post": {
+        "operationId": "completeClientPluginCall",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Kit-Protocol-Version",
+            "required": true,
+            "schema": {
+              "enum": [
+                49
+              ],
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "instanceID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "callID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteClientPluginCallInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_request": "#/components/schemas/InvalidRequestError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidRequestError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "credential_expired": "#/components/schemas/PluginCredentialExpiredError",
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/PluginCredentialExpiredError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "not_found": "#/components/schemas/NotFoundError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/NotFoundError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "limit_exceeded": "#/components/schemas/LimitExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/LimitExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "rate_limited": "#/components/schemas/PluginRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/PluginRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "plugin"
+        ]
+      }
+    },
     "/v1/sessions/{sessionID}/compact": {
       "post": {
         "operationId": "compactSession",
@@ -20244,6 +21451,14 @@
             "required": false,
             "schema": {
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "clientPlugin",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           },
           {
