@@ -38,6 +38,11 @@ struct SubagentRoster: Decodable, Sendable, Equatable {
     let items: [Item]
     let diagnostics: [String]
 
+    init(items: [Item], diagnostics: [String] = []) {
+        self.items = items
+        self.diagnostics = diagnostics
+    }
+
     init(_ snapshot: WireSessionSnapshot) throws {
         let definitions = snapshot.subagentDefinitions ?? []
         let conversations = snapshot.subagentConversations ?? []

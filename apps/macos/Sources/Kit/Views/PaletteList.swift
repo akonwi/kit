@@ -14,14 +14,18 @@ enum PaletteMetrics {
 /// Column widths shared by every row of one list, measured from the whole
 /// catalog so columns hold still while the query filters it.
 struct PaletteColumns: Equatable {
+    var status: CGFloat = 0
     var name: CGFloat = 104
     var hint: CGFloat = 0
+    /// The status column's width, when any row has a status.
+    static let statusWidth: CGFloat = 14
 
     @MainActor init(_ rows: [PaletteCommand]) {
         let font = Typography.shared.font(size: 12, mono: true)
         func width(_ text: String) -> CGFloat {
             ceil((text as NSString).size(withAttributes: [.font: font]).width)
         }
+        status = rows.contains { $0.status != nil } ? Self.statusWidth : 0
         name = min(200, max(104, rows.map { width($0.name) }.max() ?? 0))
         let hints = rows.map(\.hint).filter { !$0.isEmpty }
         hint = hints.isEmpty ? 0 : min(140, max(72, hints.map(width).max() ?? 0))
@@ -52,6 +56,11 @@ struct PaletteListScreen: View {
     var problem: String? = nil
     /// A refused row to flash, so its unavailable reason catches the eye.
     var refusal: PaletteRefusal? = nil
+    /// Content between the rows and the footer, such as warnings or actions
+    /// for the selected row.
+    var accessory: AnyView? = nil
+    /// A row's context menu, for lists whose rows have their own actions.
+    var rowMenu: ((PaletteCommand) -> AnyView)? = nil
     let activate: (PaletteCommand) -> Void
     let dismiss: () -> Void
     @State private var selectedID: String?
@@ -76,6 +85,7 @@ struct PaletteListScreen: View {
                 Rule()
             }
             list(rows, key: key).frame(maxHeight: .infinity)
+            if let accessory { accessory }
             if let footer {
                 Rule()
                 Text(footer).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
@@ -121,6 +131,7 @@ struct PaletteListScreen: View {
                                 .onHover { hoveredID = $0 ? row.id : (hoveredID == row.id ? nil : hoveredID) }
                                 .onTapGesture { selectedID = row.id; activate(row) }
                                 .accessibilityAction { selectedID = row.id; activate(row) }
+                                .modifier(PaletteRowMenu(row: row, menu: rowMenu))
                         }
                     }.padding(PaletteMetrics.listPadding)
                 }
@@ -219,6 +230,9 @@ struct PaletteRow: View {
     var body: some View {
         let dimmed = row.unavailableReason != nil
         HStack(spacing: 12) {
+            if columns.status > 0 {
+                PaletteStatusMarker(status: row.status).frame(width: columns.status)
+            }
             Text(row.name).font(.kit(size: 12, design: .monospaced))
                 .foregroundStyle(dimmed ? theme.strongBorder : theme.text)
                 .lineLimit(1).truncationMode(.tail)
@@ -249,8 +263,10 @@ struct PaletteRow: View {
         .frame(height: PaletteMetrics.rowHeight)
         .background(background, in: RoundedRectangle(cornerRadius: 3))
         .contentShape(Rectangle())
-        .help(row.prompt.map { $0.sourceLabel + " · " + $0.location } ?? row.unavailableReason ?? row.description)
         .accessibilityElement(children: .combine)
+        // After combining, so the row carries one tooltip rather than its
+        // children each repeating it.
+        .help(row.prompt.map { $0.sourceLabel + " · " + $0.location } ?? row.unavailableReason ?? row.description)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .task(id: refusal) {
             guard refusal > 0 else {
@@ -270,6 +286,46 @@ struct PaletteRow: View {
     private var background: Color {
         if flashing { return theme.warning.opacity(theme.dark ? 0.2 : 0.14) }
         return selected ? theme.accent.opacity(0.18) : hovered ? theme.hover : .clear
+    }
+}
+
+/// A row's context menu, when its list offers one. Rows of other lists get
+/// none, rather than an empty menu.
+private struct PaletteRowMenu: ViewModifier {
+    let row: PaletteCommand
+    let menu: ((PaletteCommand) -> AnyView)?
+
+    func body(content: Content) -> some View {
+        if let menu { content.contextMenu { menu(row) } } else { content }
+    }
+}
+
+/// A palette row's status: the shared spinner while working, ✗ failed,
+/// ⊘ stopped short, ○ idle, and nothing for a row without one.
+struct PaletteStatusMarker: View {
+    @Environment(\.mica) private var theme
+    let status: PaletteRowStatus?
+
+    var body: some View {
+        switch status {
+        case .working: KitSpinner().foregroundStyle(theme.accent).accessibilityLabel(Self.label(.working))
+        case .failed: IconView(.x, size: 12, label: Self.label(.failed)).foregroundStyle(theme.danger)
+        case .stopped: IconView(.prohibit, size: 12, label: Self.label(.stopped)).foregroundStyle(theme.warning)
+        case .idle:
+            Circle().strokeBorder(theme.muted, lineWidth: 1.25).frame(width: 10, height: 10)
+                .accessibilityLabel(Self.label(.idle))
+        case nil: Color.clear.frame(height: 14)
+        }
+    }
+
+    /// The status as VoiceOver reads it before the row's name.
+    static func label(_ status: PaletteRowStatus) -> String {
+        switch status {
+        case .working: "Running"
+        case .failed: "Failed"
+        case .stopped: "Stopped"
+        case .idle: "Idle"
+        }
     }
 }
 

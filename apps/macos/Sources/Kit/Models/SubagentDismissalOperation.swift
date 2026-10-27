@@ -6,6 +6,9 @@ final class SubagentDismissalOperation {
     private(set) var pending = false
     private(set) var error: String?
 
+    /// Forgets the last failure, so a picker opened later doesn't show it.
+    func clearError() { if !pending { error = nil } }
+
     func dismiss(session: String, conversation: String, generation: UInt64,
                  client: any SubagentDismissalClient,
                  refresh: @MainActor () async throws -> Void) async -> Bool {

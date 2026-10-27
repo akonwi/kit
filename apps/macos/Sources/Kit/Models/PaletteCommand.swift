@@ -1,5 +1,11 @@
 import Foundation
 
+/// What a palette row's subject is doing, such as a subagent that is working
+/// or stopped short. The TUI's status icons, in the same tones.
+enum PaletteRowStatus: Equatable {
+    case working, failed, stopped, idle
+}
+
 /// One palette row. Built-ins use their name as identity; prompt and plugin
 /// rows carry their definitions. Rows in nested choice screens (models,
 /// thinking levels, tabs) use the same shape so every list reads alike.
@@ -14,6 +20,9 @@ struct PaletteCommand: Identifiable {
     var searchTerms: [String] = []
     /// Why the row can't run now. The row stays listed, dimmed.
     var unavailableReason: String? = nil
+    /// What the row's subject is doing, drawn before its name. Lists with
+    /// any status reserve the column on every row so names line up.
+    var status: PaletteRowStatus? = nil
     var plugin: PluginCommand? = nil
     var prompt: PromptCommand? = nil
 
