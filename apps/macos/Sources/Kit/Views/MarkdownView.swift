@@ -367,6 +367,7 @@ private struct MarkdownPreviewRow: View {
 
 private struct MarkdownInline: View {
     @Environment(\.mica) private var theme
+    @Environment(\.transcriptSessionLink) private var sessionLink
     let value: AttributedString
 
     var body: some View {
@@ -379,7 +380,39 @@ private struct MarkdownInline: View {
             text[run.range].font = .kit(size: 12, design: .monospaced)
             text[run.range].backgroundColor = theme.raised
         }
-        return text
+        return SessionMentions.presented(text, link: sessionLink, theme: theme)
+    }
+}
+
+extension SessionMentions {
+    /// `text` with each mention link drawn as `#` and its session's title in
+    /// accent on the composer's mention tint. A session the app doesn't know
+    /// reads `#unknown session`, muted and not a link. Without a session
+    /// context, as outside a transcript, the token stays as written.
+    @MainActor static func presented(_ text: AttributedString, link: TranscriptSessionLink?, theme: MicaTheme) -> AttributedString {
+        var result = text
+        // Replace from the end, by offset, so earlier spans stay where they were.
+        for (url, original) in text.runs[\.link].reversed() {
+            guard let url, let id = session(in: url) else { continue }
+            let start = text.characters.distance(from: text.startIndex, to: original.lowerBound)
+            let length = text.characters.distance(from: original.lowerBound, to: original.upperBound)
+            let lower = result.characters.index(result.startIndex, offsetBy: start)
+            let range = lower..<result.characters.index(lower, offsetBy: length)
+            guard let link else { result[range].link = nil; continue }
+            let title = link.title(id)
+            var piece = AttributedString(label(title: title))
+            piece.inlinePresentationIntent = text[original].runs.first?.inlinePresentationIntent
+            if title != nil {
+                piece.link = url
+                piece.foregroundColor = theme.accent
+                piece.backgroundColor = theme.accent.opacity(0.14)
+            } else {
+                piece.foregroundColor = theme.muted
+                piece.backgroundColor = theme.raised
+            }
+            result.replaceSubrange(range, with: piece)
+        }
+        return result
     }
 }
 

@@ -164,7 +164,7 @@ struct NativeTranscript: NSViewRepresentable {
             })
             .environment(\.transcriptSessionLink, input.sessionLink)
             .environment(\.transcriptToolContext, input.toolContext)
-            .environment(\.openURL, .workspace(input.workspace, beside: input.pane))
+            .environment(\.openURL, .transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink))
             .foregroundStyle(input.theme.text)
             .environment(\.colorScheme, input.theme.dark ? .dark : .light)
             .frame(width: min(780, max(1, scroll.contentSize.width - 64)), alignment: .leading)

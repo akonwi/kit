@@ -92,7 +92,8 @@ struct ComposerView: View {
                                       state.changeQueue(.edit); return true
                                   }, mentionRevision: mentions.revision,
                                   mentionIdentity: state.serverID + "/" + state.selectedID,
-                                  mentionLoader: mentionLoader, pickerAnchor: pickerAnchor, theme: theme,
+                                  mentionLoader: mentionLoader, sessionMentionLoader: sessionMentionLoader,
+                                  pickerAnchor: pickerAnchor, theme: theme,
                                   selection: $ui.composerSelection)
                 .fixedSize(horizontal: false, vertical: true)
                 .workspaceFocusTarget(.conversation)
@@ -163,6 +164,18 @@ struct ComposerView: View {
         return { refresh in
             guard let client else { return FileIndex(paths: fixtures) }
             return try await cache.load(key: key, refresh: refresh) { try await client.fileIndex(id, refresh: $0) }
+        }
+    }
+
+    /// Lists the other sessions on this session's server afresh, with what
+    /// each is doing when the server reports it.
+    private var sessionMentionLoader: @Sendable () async throws -> [SessionMention] {
+        let client = state.catalogClient, id = state.selectedID
+        return {
+            let reporter = client as? any SessionActivityClient
+            async let activity: [String: SessionTabStatus]? = try? await reporter?.sessionActivity()
+            let sessions = try await client.sessions()
+            return SessionMentions.candidates(sessions, activity: await activity ?? [:], excluding: id)
         }
     }
 

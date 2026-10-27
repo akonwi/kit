@@ -59,8 +59,8 @@ private struct ComposerPickerHost: View {
     func show(editor: ComposerTextView, state: ComposerMentionState, theme: MicaTheme,
               select: @escaping (String) -> Void, retry: @escaping () -> Void) {
         present(editor: editor, open: state.isOpen,
-                height: CGFloat(max(1, state.visibleMatches.count) * 30 + 8 + (state.error == nil ? 0 : 34) + (state.indexNotice == nil ? 0 : 26)),
-                label: "File mentions", theme: theme,
+                height: CGFloat(max(1, state.visibleMatches.count) * 30 + 8 + (state.error == nil ? 0 : 34) + (state.indexNotice == nil || state.kind != .file ? 0 : 26)),
+                label: state.kind == .session ? "Session mentions" : "File mentions", theme: theme,
                 close: { [weak state] in state?.close() },
                 content: AnyView(ComposerMentionList(state: state, select: select, retry: retry)))
     }
@@ -170,25 +170,69 @@ private struct ComposerMentionList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if state.visibleMatches.isEmpty {
-                Text(state.loading ? "Loading…" : state.error ?? "No results")
-                    .foregroundStyle(theme.muted).lineLimit(1).frame(height: 30).padding(.horizontal, 10)
+                Text(state.emptyText)
+                    .foregroundStyle(state.kind == .session && state.error != nil ? theme.danger : theme.muted)
+                    .lineLimit(1).frame(height: 30).padding(.horizontal, 10)
             }
-            ForEach(state.visibleMatches, id: \.self) { path in
-                Button { select(path) } label: {
-                    HStack(spacing: 8) {
-                        IconView(path.hasSuffix("/") ? .folder : .file, size: 12)
-                        Text(path).lineLimit(1).truncationMode(.middle)
-                        Spacer(minLength: 0)
-                        if path.hasSuffix("/") { Text("directory").foregroundStyle(theme.muted) }
-                    }.padding(.horizontal, 10).frame(height: 30)
-                        .background(state.selected == path ? theme.hover : Color.clear)
-                        .contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityAddTraits(state.selected == path ? .isSelected : [])
+            if state.kind == .session {
+                ForEach(state.visibleMatches, id: \.self) { id in
+                    if let session = state.session(id) {
+                        SessionMentionRow(session: session, selected: state.selected == id) { select(id) }
+                    }
+                }
+            } else {
+                fileRows
             }
-            if let notice = state.indexNotice { Text(notice).font(.kit(size: 10)).foregroundStyle(theme.muted).padding(.horizontal, 10).frame(height: 26) }
+            if let notice = state.indexNotice, state.kind == .file { Text(notice).font(.kit(size: 10)).foregroundStyle(theme.muted).padding(.horizontal, 10).frame(height: 26) }
             if state.error != nil { Button("Retry", action: retry).buttonStyle(.plain).padding(8) }
         }.font(.kit(size: 12)).foregroundStyle(theme.text).padding(.top, 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var fileRows: some View {
+        ForEach(state.visibleMatches, id: \.self) { path in
+            Button { select(path) } label: {
+                HStack(spacing: 8) {
+                    IconView(path.hasSuffix("/") ? .folder : .file, size: 12)
+                    Text(path).lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 0)
+                    if path.hasSuffix("/") { Text("directory").foregroundStyle(theme.muted) }
+                }.padding(.horizontal, 10).frame(height: 30)
+                    .background(state.selected == path ? theme.hover : Color.clear)
+                    .contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityAddTraits(state.selected == path ? .isSelected : [])
+        }
+    }
+}
+
+/// A session in the mention list, in the launcher's shape: what it is doing,
+/// its title, its folder, and its status or age.
+struct SessionMentionRow: View {
+    @Environment(\.mica) private var theme
+    let session: SessionMention
+    let selected: Bool
+    let choose: () -> Void
+
+    var body: some View {
+        Button(action: choose) {
+            HStack(spacing: 8) {
+                SessionTabStatusMarker(status: session.status, finished: false).frame(width: 14)
+                Text(session.title).lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(session.folder).font(.kit(size: 11, design: .monospaced))
+                    .foregroundStyle(theme.muted).lineLimit(1)
+                    .help(WorkspaceLocation.homeRelative(session.cwd))
+                Text(session.trailing()).foregroundStyle(theme.muted)
+                    .lineLimit(1).frame(width: 76, alignment: .trailing)
+            }
+            .padding(.horizontal, 10).frame(height: 30)
+            .background(selected ? theme.hover : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(session.title), \(session.cwd)")
+        .accessibilityValue(session.status.label ?? "")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

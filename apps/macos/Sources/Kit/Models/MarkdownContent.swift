@@ -136,8 +136,8 @@ struct MarkdownContent {
 
     private static func blocks(of node: any Markup) -> [Block] {
         switch node {
-        case let value as Paragraph: return [.paragraph(inline(value))]
-        case let value as Heading: return [.heading(value.level, inline(value))]
+        case let value as Paragraph: return [.paragraph(text(value))]
+        case let value as Heading: return [.heading(value.level, text(value))]
         case let value as Markdown.CodeBlock:
             if Mermaid.isMermaid(value.language ?? "") { return [.mermaid(MermaidDiagram(source: value.code))] }
             return [.code(value.language ?? "", value.code)]
@@ -165,13 +165,19 @@ struct MarkdownContent {
                     default: return .leading
                     }
                 },
-                header: value.head.cells.map { inline($0) },
-                rows: value.body.rows.map { $0.cells.map { inline($0) } }
+                header: value.head.cells.map { text($0) },
+                rows: value.body.rows.map { $0.cells.map { text($0) } }
             ))]
         case is ThematicBreak: return [.rule]
         case let value as HTMLBlock: return [.code("html", value.rawHTML)]
         default: return blocks(in: node)
         }
+    }
+
+    /// A block's inline text. Session mentions become links once the whole
+    /// block is joined: the parser splits `#[session:<id>]` at its brackets.
+    private static func text(_ node: any Markup) -> AttributedString {
+        SessionMentions.linked(inline(node))
     }
 
     private static func inline(_ node: any Markup) -> AttributedString {

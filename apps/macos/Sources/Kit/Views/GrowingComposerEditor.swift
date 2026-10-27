@@ -29,6 +29,8 @@ struct GrowingComposerEditor: NSViewRepresentable {
     var mentionRevision = 0
     var mentionIdentity = ""
     var mentionLoader: (@Sendable (Bool) async throws -> FileIndex)? = nil
+    /// Lists the sessions a `#` mention can reference.
+    var sessionMentionLoader: (@Sendable () async throws -> [SessionMention])? = nil
     var pickerAnchor: ComposerPickerAnchor? = nil
     var theme = MicaTheme(dark: false)
     /// Where the caret was, kept outside the view so a remounted editor puts
@@ -160,13 +162,14 @@ struct GrowingComposerEditor: NSViewRepresentable {
             let source = view.string, theme = parent.theme
             guard !view.shellPrefix.isEmpty else {
                 highlightTask?.cancel(); highlightedSource = nil; highlightedTheme = nil
-                view.layoutManager?.removeTemporaryAttribute(.foregroundColor, forCharacterRange: NSRange(location: 0, length: view.string.utf16.count))
+                view.highlightSessionMentions(theme: theme)
                 return
             }
             guard highlightedSource != source || highlightedTheme != theme else { return }
             highlightedSource = source; highlightedTheme = theme
             highlightTask?.cancel()
             view.layoutManager?.removeTemporaryAttribute(.foregroundColor, forCharacterRange: NSRange(location: 0, length: source.utf16.count))
+            view.layoutManager?.removeTemporaryAttribute(.backgroundColor, forCharacterRange: NSRange(location: 0, length: source.utf16.count))
             highlightTask = Task { [weak view] in
                 do {
                     try await Task.sleep(for: .milliseconds(40))
@@ -177,8 +180,15 @@ struct GrowingComposerEditor: NSViewRepresentable {
             }
         }
         func loadMentions(force: Bool = false) {
-            guard let loader = parent.mentionLoader else { return }
-            parent.mentions?.load(loader, force: force)
+            guard let mentions = parent.mentions else { return }
+            switch mentions.kind {
+            case .file:
+                guard let loader = parent.mentionLoader else { return }
+                mentions.load(loader, force: force)
+            case .session:
+                guard let loader = parent.sessionMentionLoader else { return }
+                mentions.loadSessions(loader)
+            }
         }
         func renderMentions(_ view: ComposerTextView) {
             if let history = parent.history {
@@ -192,8 +202,8 @@ struct GrowingComposerEditor: NSViewRepresentable {
             }
 
             guard let mentions = parent.mentions else { panel.dismiss(); return }
-            panel.show(editor: view, state: mentions, theme: parent.theme, select: { [weak view] path in
-                view?.insertMention(path)
+            panel.show(editor: view, state: mentions, theme: parent.theme, select: { [weak view] key in
+                view?.insertMention(key)
             }, retry: { [weak self] in self?.loadMentions(force: true) })
         }
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -210,7 +220,9 @@ struct GrowingComposerEditor: NSViewRepresentable {
             let draft = view.draftText
             if !view.hasMarkedText() { view.setDraftText(draft) }
             if parent.history?.mode == .bash { parent.history?.setQuery(view.string.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            let opened = parent.mentions?.observe(previous: previousText, next: view.string, pasted: view.pasting || view.hasMarkedText()) == true
+            // Shell commands take no mentions; `#` there starts a comment.
+            let opened = view.shellPrefix.isEmpty &&
+                parent.mentions?.observe(previous: previousText, next: view.string, pasted: view.pasting || view.hasMarkedText()) == true
             previousText = view.string
             parent.text = draft
             highlight(view)
@@ -319,6 +331,23 @@ final class ComposerTextView: NSTextView {
         }
     }
 
+    /// The tint behind a session mention token, here and in the transcript.
+    static func sessionMentionTint(_ theme: MicaTheme) -> NSColor { NSColor(theme.accent.opacity(0.14)) }
+
+    /// Draws each session mention token in accent on a light accent tint.
+    /// The text stays the raw token, so it edits like any other text.
+    func highlightSessionMentions(theme: MicaTheme) {
+        guard let layoutManager else { return }
+        let all = NSRange(location: 0, length: string.utf16.count)
+        layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: all)
+        layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: all)
+        for match in SessionMentions.matches(in: string) {
+            layoutManager.addTemporaryAttributes([.foregroundColor: NSColor(theme.accent),
+                                                  .backgroundColor: Self.sessionMentionTint(theme)],
+                                                 forCharacterRange: match.range)
+        }
+    }
+
     func applyShellHighlighting(_ spans: [SyntaxSpan], theme: MicaTheme) {
         guard let layoutManager else { return }
         let length = string.utf16.count
@@ -409,8 +438,8 @@ final class ComposerTextView: NSTextView {
         super.deleteBackward(sender)
     }
 
-    func insertMention(_ path: String? = nil) {
-        guard let replacement = mentions?.replacement(in: string, path: path) else { return }
+    func insertMention(_ key: String? = nil) {
+        guard let replacement = mentions?.replacement(in: string, key: key) else { return }
         mentions?.close()
         insertText(replacement.text, replacementRange: replacement.range)
         window?.makeFirstResponder(self)

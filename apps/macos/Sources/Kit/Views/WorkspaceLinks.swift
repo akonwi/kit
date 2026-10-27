@@ -13,4 +13,19 @@ extension OpenURLAction {
             return workspace?.openLink(url, beside: anchor, externally: externally) == true ? .handled : .systemAction
         }
     }
+
+    /// Transcript links: a session mention opens its session's tab, however
+    /// it's clicked; other links open as `workspace` opens them.
+    @MainActor static func transcript(_ workspace: WorkspaceState, beside anchor: WorkspacePane,
+                                      sessionLink: TranscriptSessionLink?) -> OpenURLAction {
+        let other = OpenURLAction.workspace(workspace, beside: anchor)
+        return OpenURLAction { url in
+            if let id = SessionMentions.session(in: url) {
+                sessionLink?.open(id)
+                return .handled
+            }
+            other(url)
+            return .handled
+        }
+    }
 }
