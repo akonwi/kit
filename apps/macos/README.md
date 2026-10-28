@@ -65,9 +65,9 @@ the Cask, which is marked `auto_updates`.
 The app **does not include or start** a server. Install and start a compatible Kit
 server separately. Discovery authenticates the registered server, checks its
 identity and readiness, and checks protocol compatibility. The app attaches to
-any server speaking its session protocol (49 for this build), regardless of the
-server's release label; the app and CLI need not share a version. Apps 0.6.1 and
-earlier use older protocols and cannot attach to a protocol-49 server. Incompatible running
+any server speaking its session protocol (50 for this build), regardless of the
+server's release label; the app and CLI need not share a version. Apps 0.7.0 and
+earlier use older protocols and cannot attach to a protocol-50 server. Incompatible running
 servers are left alone; update to compatible releases rather than restarting or
 replacing one from the app.
 
