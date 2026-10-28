@@ -739,6 +739,10 @@ final class SessionStore {
     }
     /// Sends a request's answer for session `id`. Returns false when there
     /// is nothing to send or no client to send it with.
+    ///
+    /// The session's stream stays open throughout: the server publishes the
+    /// request's resolution, and any request that follows, on it. A failed
+    /// answer stays docked with its error so it can be sent again.
     @discardableResult
     private func respond(to flow: InteractionFlow, in id: String, cancelled: Bool) -> Bool {
         guard let client = composerClient, !flow.submitting, let input = flow.response(cancelled: cancelled) else { return false }
@@ -747,19 +751,19 @@ final class SessionStore {
             do {
                 try await client.respond(id, input: input)
                 guard let self, self.selectedID == id else { flow.submitting = false; return }
-                // Held before resynchronizing, so the dock never empties
-                // while a plugin's next request is on its way. It stays in
-                // its sending state until something replaces it.
+                // Held so the dock never empties while a plugin's next
+                // request is on its way. It stays in its sending state until
+                // something replaces it.
                 self.interactionHold.hold(flow) { [weak self] in
                     guard let self, self.selectedID == id else { return }
                     if self.interactions.isEmpty { self.ui.composerFocus += 1 }
                 }
-                _ = try? await self.replica.resynchronize()
             } catch {
                 flow.error = error.localizedDescription
                 flow.submitting = false
-                if let self, self.selectedID == id { _ = try? await self.replica.resynchronize() }
             }
+            // Only a stream reports what the server did with the answer.
+            if let self, self.selectedID == id, self.watchStopped { self.attach() }
         }
         return true
     }
