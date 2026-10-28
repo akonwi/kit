@@ -148,29 +148,32 @@ func (call ClientPluginCall) validate(kind EventKind) error {
 
 // NewEvent is a live session update awaiting a runtime-local stream sequence.
 type NewEvent struct {
-	SessionID              string
-	TurnID                 string
-	RunID                  string
-	MessageID              string
-	Kind                   EventKind
-	ContentIndex           int
-	Delta                  string
-	Text                   string
-	PluginID               string
-	Thinking               string
-	ToolCallID             string
-	ToolName               string
-	Arguments              string
-	ArgumentsTruncated     bool
-	Content                []TranscriptContent
-	ContentTruncated       bool
-	Details                json.RawMessage
-	DetailsOmitted         bool
-	IsError                bool
-	Status                 RunStatus
-	ErrorKind              ProviderErrorKind
-	ErrorMessage           string
-	CompactionID           string
+	SessionID          string
+	TurnID             string
+	RunID              string
+	MessageID          string
+	Kind               EventKind
+	ContentIndex       int
+	Delta              string
+	Text               string
+	PluginID           string
+	Thinking           string
+	ToolCallID         string
+	ToolName           string
+	Arguments          string
+	ArgumentsTruncated bool
+	Content            []TranscriptContent
+	ContentTruncated   bool
+	Details            json.RawMessage
+	DetailsOmitted     bool
+	IsError            bool
+	Status             RunStatus
+	ErrorKind          ProviderErrorKind
+	ErrorMessage       string
+	CompactionID       string
+	// CompactionFailure classifies a failed compaction, and a run that
+	// failed because of one.
+	CompactionFailure      CompactionFailureReason
 	ProviderRetry          *ProviderRetry
 	ContextTokens          int
 	ContextWindow          int
@@ -355,7 +358,7 @@ func (event NewEvent) Validate() error {
 	if len(event.Content) > maxLiveEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxLiveEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8 + len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource) + len(event.URL)
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.CompactionFailure) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8 + len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource) + len(event.URL)
 	if event.Scratchpad != nil {
 		payloadBytes += len(event.Scratchpad.OwnerSessionID) + len(event.Scratchpad.Content) + 64
 	}
@@ -435,8 +438,8 @@ func (event NewEvent) Validate() error {
 			return fmt.Errorf("compaction event requires a valid identity")
 		}
 	case EventCompactionFailed:
-		if !validLiveCompactionID(event.CompactionID) || event.ErrorKind != "" || event.ErrorMessage == "" || rendererSafeLiveError(event.ErrorMessage) != event.ErrorMessage {
-			return fmt.Errorf("failed compaction requires a renderer-safe error message")
+		if !validLiveCompactionID(event.CompactionID) || !event.CompactionFailure.Valid() {
+			return fmt.Errorf("failed compaction requires a valid identity and a declared reason")
 		}
 	case EventProviderRetryScheduled:
 		if event.ProviderRetry == nil || event.ProviderRetry.Count <= 0 || event.ProviderRetry.RetryAt.IsZero() {
@@ -531,6 +534,9 @@ func (event NewEvent) Validate() error {
 		default:
 			return fmt.Errorf("run finish status %q is invalid", event.Status)
 		}
+		if event.CompactionFailure != "" && (event.Status != RunStatusFailed || !event.CompactionFailure.Valid()) {
+			return fmt.Errorf("only a failed run can carry a declared compaction failure reason")
+		}
 	default:
 		return fmt.Errorf("event kind %q is invalid", event.Kind)
 	}
@@ -575,8 +581,11 @@ func (event NewEvent) Validate() error {
 	if event.Kind != EventRunStarted && event.Kind != EventRunFinished && event.Status != "" {
 		return fmt.Errorf("event kind %q cannot carry run status", event.Kind)
 	}
-	if event.Kind != EventRunFinished && event.Kind != EventCompactionFailed && (event.ErrorKind != "" || event.ErrorMessage != "") {
+	if event.Kind != EventRunFinished && (event.ErrorKind != "" || event.ErrorMessage != "") {
 		return fmt.Errorf("event kind %q cannot carry run error metadata", event.Kind)
+	}
+	if event.Kind != EventRunFinished && event.Kind != EventCompactionFailed && event.CompactionFailure != "" {
+		return fmt.Errorf("event kind %q cannot carry a compaction failure reason", event.Kind)
 	}
 	if event.Kind != EventUsageUpdated && event.Usage != nil {
 		return fmt.Errorf("event kind %q cannot carry session usage", event.Kind)
@@ -1057,9 +1066,9 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 		switch typed.Kind {
 		case "compaction.started", "compaction.completed", "compaction.failed":
 			var data struct {
-				CompactionID string `json:"compaction_id"`
-				OperationID  string `json:"operation_id"`
-				Error        string `json:"error"`
+				CompactionID string                         `json:"compaction_id"`
+				OperationID  string                         `json:"operation_id"`
+				Reason       droids.CompactionFailureReason `json:"reason"`
 			}
 			if json.Unmarshal(typed.Data, &data) != nil {
 				return nil
@@ -1077,11 +1086,9 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 			case "compaction.completed":
 				base.Kind = EventCompactionCompleted
 			case "compaction.failed":
-				if strings.TrimSpace(data.Error) == "" {
-					data.Error = "Context compaction failed"
-				}
+				// A failure recorded before reasons existed is unclassified.
 				base.Kind = EventCompactionFailed
-				base.ErrorMessage = rendererSafeLiveError(data.Error)
+				base.CompactionFailure = projectCompactionFailure(data.Reason)
 			}
 		case "attempt.retry_scheduled":
 			var data struct {

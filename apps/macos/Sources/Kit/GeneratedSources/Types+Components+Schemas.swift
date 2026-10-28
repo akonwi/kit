@@ -1902,6 +1902,42 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/CompactionFailedErrorDetails`.
+        internal struct CompactionFailedErrorDetails: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CompactionFailedErrorDetails/reason`.
+            internal enum ReasonPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case summaryTruncated = "summary_truncated"
+                case summaryInvalid = "summary_invalid"
+                case policyStop = "policy_stop"
+                case providerError = "provider_error"
+                case notAdaptable = "not_adaptable"
+                case canceled = "canceled"
+                case conflict = "conflict"
+                case internalError = "internal_error"
+            }
+            /// - Remark: Generated from `#/components/schemas/CompactionFailedErrorDetails/reason`.
+            internal var reason: Components.Schemas.CompactionFailedErrorDetails.ReasonPayload
+            /// Creates a new `CompactionFailedErrorDetails`.
+            ///
+            /// - Parameters:
+            ///   - reason:
+            internal init(reason: Components.Schemas.CompactionFailedErrorDetails.ReasonPayload) {
+                self.reason = reason
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case reason
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.reason = try container.decode(
+                    Components.Schemas.CompactionFailedErrorDetails.ReasonPayload.self,
+                    forKey: .reason
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "reason"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/CompleteClientPluginCallInput`.
         internal struct CompleteClientPluginCallInput: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/CompleteClientPluginCallInput/content`.
@@ -7719,6 +7755,19 @@ extension Components {
         }
         /// - Remark: Generated from `#/components/schemas/PromptOutcome`.
         internal struct PromptOutcome: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PromptOutcome/compactionFailureReason`.
+            internal enum CompactionFailureReasonPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case summaryTruncated = "summary_truncated"
+                case summaryInvalid = "summary_invalid"
+                case policyStop = "policy_stop"
+                case providerError = "provider_error"
+                case notAdaptable = "not_adaptable"
+                case canceled = "canceled"
+                case conflict = "conflict"
+                case internalError = "internal_error"
+            }
+            /// - Remark: Generated from `#/components/schemas/PromptOutcome/compactionFailureReason`.
+            internal var compactionFailureReason: Components.Schemas.PromptOutcome.CompactionFailureReasonPayload?
             /// - Remark: Generated from `#/components/schemas/PromptOutcome/errorKind`.
             internal var errorKind: Swift.String?
             /// - Remark: Generated from `#/components/schemas/PromptOutcome/errorMessage`.
@@ -7736,6 +7785,7 @@ extension Components {
             /// Creates a new `PromptOutcome`.
             ///
             /// - Parameters:
+            ///   - compactionFailureReason:
             ///   - errorKind:
             ///   - errorMessage:
             ///   - sessionId:
@@ -7744,6 +7794,7 @@ extension Components {
             ///   - text:
             ///   - turnId:
             internal init(
+                compactionFailureReason: Components.Schemas.PromptOutcome.CompactionFailureReasonPayload? = nil,
                 errorKind: Swift.String? = nil,
                 errorMessage: Swift.String? = nil,
                 sessionId: Swift.String,
@@ -7752,6 +7803,7 @@ extension Components {
                 text: Swift.String,
                 turnId: Swift.String
             ) {
+                self.compactionFailureReason = compactionFailureReason
                 self.errorKind = errorKind
                 self.errorMessage = errorMessage
                 self.sessionId = sessionId
@@ -7761,6 +7813,7 @@ extension Components {
                 self.turnId = turnId
             }
             internal enum CodingKeys: String, CodingKey {
+                case compactionFailureReason
                 case errorKind
                 case errorMessage
                 case sessionId
@@ -7771,6 +7824,10 @@ extension Components {
             }
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.compactionFailureReason = try container.decodeIfPresent(
+                    Components.Schemas.PromptOutcome.CompactionFailureReasonPayload.self,
+                    forKey: .compactionFailureReason
+                )
                 self.errorKind = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .errorKind
@@ -7800,6 +7857,7 @@ extension Components {
                     forKey: .turnId
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "compactionFailureReason",
                     "errorKind",
                     "errorMessage",
                     "sessionId",
@@ -10277,6 +10335,59 @@ extension Components {
                     "cwd",
                     "sessionId",
                     "status"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SessionsCompactionFailedError`.
+        internal struct SessionsCompactionFailedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionsCompactionFailedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case compactionFailed = "compaction_failed"
+            }
+            /// - Remark: Generated from `#/components/schemas/SessionsCompactionFailedError/code`.
+            internal var code: Components.Schemas.SessionsCompactionFailedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/SessionsCompactionFailedError/details`.
+            internal var details: Components.Schemas.CompactionFailedErrorDetails
+            /// - Remark: Generated from `#/components/schemas/SessionsCompactionFailedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `SessionsCompactionFailedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - details:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.SessionsCompactionFailedError.CodePayload,
+                details: Components.Schemas.CompactionFailedErrorDetails,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.details = details
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case details
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.SessionsCompactionFailedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.details = try container.decode(
+                    Components.Schemas.CompactionFailedErrorDetails.self,
+                    forKey: .details
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "details",
+                    "message"
                 ])
             }
         }
@@ -12973,6 +13084,19 @@ extension Components {
         }
         /// - Remark: Generated from `#/components/schemas/TurnInfo`.
         internal struct TurnInfo: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TurnInfo/compactionFailureReason`.
+            internal enum CompactionFailureReasonPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case summaryTruncated = "summary_truncated"
+                case summaryInvalid = "summary_invalid"
+                case policyStop = "policy_stop"
+                case providerError = "provider_error"
+                case notAdaptable = "not_adaptable"
+                case canceled = "canceled"
+                case conflict = "conflict"
+                case internalError = "internal_error"
+            }
+            /// - Remark: Generated from `#/components/schemas/TurnInfo/compactionFailureReason`.
+            internal var compactionFailureReason: Components.Schemas.TurnInfo.CompactionFailureReasonPayload?
             /// - Remark: Generated from `#/components/schemas/TurnInfo/errorMessage`.
             internal var errorMessage: Swift.String?
             /// - Remark: Generated from `#/components/schemas/TurnInfo/sessionId`.
@@ -12984,22 +13108,26 @@ extension Components {
             /// Creates a new `TurnInfo`.
             ///
             /// - Parameters:
+            ///   - compactionFailureReason:
             ///   - errorMessage:
             ///   - sessionId:
             ///   - status:
             ///   - turnId:
             internal init(
+                compactionFailureReason: Components.Schemas.TurnInfo.CompactionFailureReasonPayload? = nil,
                 errorMessage: Swift.String? = nil,
                 sessionId: Swift.String,
                 status: Swift.String,
                 turnId: Swift.String
             ) {
+                self.compactionFailureReason = compactionFailureReason
                 self.errorMessage = errorMessage
                 self.sessionId = sessionId
                 self.status = status
                 self.turnId = turnId
             }
             internal enum CodingKeys: String, CodingKey {
+                case compactionFailureReason
                 case errorMessage
                 case sessionId
                 case status
@@ -13007,6 +13135,10 @@ extension Components {
             }
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.compactionFailureReason = try container.decodeIfPresent(
+                    Components.Schemas.TurnInfo.CompactionFailureReasonPayload.self,
+                    forKey: .compactionFailureReason
+                )
                 self.errorMessage = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .errorMessage
@@ -13024,6 +13156,7 @@ extension Components {
                     forKey: .turnId
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "compactionFailureReason",
                     "errorMessage",
                     "sessionId",
                     "status",

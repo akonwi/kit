@@ -106,9 +106,10 @@ type wireInputContent struct {
 }
 
 type durableDroidError struct {
-	Kind      DroidErrorKind `json:"kind"`
-	Message   string         `json:"message"`
-	Retryable bool           `json:"retryable"`
+	Kind              DroidErrorKind          `json:"kind"`
+	Message           string                  `json:"message"`
+	Retryable         bool                    `json:"retryable"`
+	CompactionFailure CompactionFailureReason `json:"compaction_failure,omitempty"`
 }
 
 type toolPhase string

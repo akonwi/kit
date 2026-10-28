@@ -44,6 +44,8 @@ type (
 	CompactSessionInput               = contract.CompactSessionInput
 	CompactSessionResult              = contract.CompactSessionResult
 	CompactionCompletedEvent          = contract.CompactionCompletedEvent
+	CompactionFailedErrorDetails      = contract.CompactionFailedErrorDetails
+	CompactionFailureReason           = contract.CompactionFailureReason
 	CompactionStartedEvent            = contract.CompactionStartedEvent
 	CompleteClientPluginCallInput     = contract.CompleteClientPluginCallInput
 	ConfigureSessionInput             = contract.ConfigureSessionInput
@@ -283,6 +285,14 @@ const (
 	ClientPluginCallTimedOut                = contract.ClientPluginCallTimedOut
 	ClientPluginCallUnavailable             = contract.ClientPluginCallUnavailable
 	ClientPluginCallWithdrawn               = contract.ClientPluginCallWithdrawn
+	CompactionFailureCanceled               = contract.CompactionFailureCanceled
+	CompactionFailureConflict               = contract.CompactionFailureConflict
+	CompactionFailureInternal               = contract.CompactionFailureInternal
+	CompactionFailureNotAdaptable           = contract.CompactionFailureNotAdaptable
+	CompactionFailurePolicyStop             = contract.CompactionFailurePolicyStop
+	CompactionFailureProviderError          = contract.CompactionFailureProviderError
+	CompactionFailureSummaryInvalid         = contract.CompactionFailureSummaryInvalid
+	CompactionFailureSummaryTruncated       = contract.CompactionFailureSummaryTruncated
 	CredentialSourceEnvironment             = contract.CredentialSourceEnvironment
 	CredentialSourceStore                   = contract.CredentialSourceStore
 	DefaultAnnotationPageSize               = contract.DefaultAnnotationPageSize

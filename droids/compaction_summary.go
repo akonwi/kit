@@ -115,7 +115,7 @@ func (rt *sdkRuntime) summarizeCompaction(ctx context.Context, provider Provider
 	reasoning := compactionSummaryReasoning(model)
 	reservedOutput, err := resolveRequestMaxTokens(model, 0, reasoning)
 	if err != nil {
-		return "", err
+		return "", compactionFailed(CompactionFailureNotAdaptable, err)
 	}
 	requestMaxTokens := reservedOutput
 	if model.OutputLimitMode == OutputLimitProviderControlled {
@@ -157,7 +157,7 @@ func (rt *sdkRuntime) summarizeCompaction(ctx context.Context, provider Provider
 		// The summary request is an independent request with no dispatched
 		// configuration updates of its own.
 		if err := validateContextReplay(ctx, provider, model, request); err != nil {
-			return "", fmt.Errorf("droids: compaction summary request is not replayable: %w", err)
+			return "", compactionFailed(CompactionFailureNotAdaptable, fmt.Errorf("droids: compaction summary request is not replayable: %w", err))
 		}
 		previous, err = rt.requestCompactionSummary(ctx, provider, model, request, turnID)
 		if err != nil {
@@ -198,31 +198,51 @@ func compactionRequestFits(model Model, request Request, reservedOutput int) boo
 func (rt *sdkRuntime) requestCompactionSummary(ctx context.Context, provider Provider, model Model, request Request, turnID TurnID) (string, error) {
 	stream, err := provider.Stream(ctx, model, request)
 	if err != nil {
-		return "", err
+		return "", compactionFailed(CompactionFailureProviderError, err)
 	}
 	if assistantStreamIsNil(stream) {
-		return "", fmt.Errorf("droids: compaction provider returned a nil stream")
+		return "", compactionFailed(CompactionFailureProviderError, fmt.Errorf("droids: compaction provider returned a nil stream"))
 	}
 	defer stream.Close()
 	if err := consumeAssistantStream(ctx, stream, func(StreamEvent) {}); err != nil {
-		return "", err
+		return "", compactionFailed(CompactionFailureProviderError, err)
 	}
 	response, resultErr := stream.Result()
 	if err := rt.accountCompactionResponse(ctx, model, &response, turnID); err != nil {
 		return "", err
 	}
 	if resultErr != nil {
-		return "", resultErr
+		return "", compactionFailed(CompactionFailureProviderError, resultErr)
 	}
 	if response.StopReason != StopReasonStop {
-		return "", fmt.Errorf("droids: compaction model stopped with %s: %s", response.StopReason, errText(response))
+		return "", compactionFailed(compactionStopReason(response), fmt.Errorf("droids: compaction model stopped with %s: %s", response.StopReason, errText(response)))
 	}
 	if len(response.ToolCalls()) > 0 {
-		return "", fmt.Errorf("droids: compaction model returned tool calls instead of a summary")
+		return "", compactionFailed(CompactionFailureSummaryInvalid, fmt.Errorf("droids: compaction model returned tool calls instead of a summary"))
 	}
 	summary := response.Text()
 	if strings.TrimSpace(summary) == "" {
-		return "", fmt.Errorf("droids: compaction model returned an empty summary")
+		return "", compactionFailed(CompactionFailureSummaryInvalid, fmt.Errorf("droids: compaction model returned an empty summary"))
 	}
 	return summary, nil
+}
+
+// compactionStopReason classifies a summary response that did not stop
+// normally.
+func compactionStopReason(response AssistantMessage) CompactionFailureReason {
+	switch response.StopReason {
+	case StopReasonLength:
+		return CompactionFailureSummaryTruncated
+	case StopReasonContextWindow:
+		return CompactionFailureNotAdaptable
+	case StopReasonAborted:
+		return CompactionFailureCanceled
+	case StopReasonError:
+		if response.IsPolicyStop() {
+			return CompactionFailurePolicyStop
+		}
+		return CompactionFailureProviderError
+	default:
+		return CompactionFailureSummaryInvalid
+	}
 }

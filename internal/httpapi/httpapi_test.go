@@ -247,3 +247,28 @@ func TestAnUnroutedNotFoundIsAnOperationTheServerDoesNotServe(t *testing.T) {
 		t.Fatalf("a malformed JSON error is not an unrouted request: %v", err)
 	}
 }
+
+func TestDecodeOperationErrorCarriesTheCompactionFailureReason(t *testing.T) {
+	for _, op := range []func(int, []byte) error{
+		func(status int, body []byte) error { return DecodeOperationError(CompactSession, status, body) },
+		func(status int, body []byte) error { return DecodeOperationError(ConfigureSession, status, body) },
+	} {
+		var apiErr *APIError
+		err := op(http.StatusUnprocessableEntity, []byte(`{"error":{"code":"compaction_failed","message":"context compaction failed","details":{"reason":"not_adaptable"}}}`))
+		if !errors.As(err, &apiErr) || apiErr.Code != string(ErrorCompactionFailed) ||
+			apiErr.TypedDetails != (protocol.CompactionFailedErrorDetails{Reason: protocol.CompactionFailureNotAdaptable}) {
+			t.Fatalf("decoded compaction failure = %#v", err)
+		}
+		for name, body := range map[string]string{
+			"undeclared reason": `{"error":{"code":"compaction_failed","message":"context compaction failed","details":{"reason":"disk_full"}}}`,
+			"missing reason":    `{"error":{"code":"compaction_failed","message":"context compaction failed","details":{}}}`,
+			"omitted details":   `{"error":{"code":"compaction_failed","message":"context compaction failed"}}`,
+			"provider text":     `{"error":{"code":"compaction_failed","message":"context compaction failed","details":{"reason":"provider_error","cause":"HTTP 500"}}}`,
+			"generic code":      `{"error":{"code":"unprocessable","message":"context compaction failed"}}`,
+		} {
+			if err := op(http.StatusUnprocessableEntity, []byte(body)); errors.As(err, &apiErr) {
+				t.Errorf("%s: accepted %#v", name, apiErr)
+			}
+		}
+	}
+}

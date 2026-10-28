@@ -20,7 +20,49 @@ private actor CompactClient: SessionCompactionClient {
     }
 }
 
+/// A server that reports every compaction as failed for one reason.
+private actor FailingCompactClient: SessionCompactionClient {
+    nonisolated let serverID = "test"
+    nonisolated let isDemo = false
+    let reason: WireCompactionFailureReason
+    init(_ reason: WireCompactionFailureReason) { self.reason = reason }
+    func sessions() async throws -> [SessionExcerpt] { [] }
+    func snapshot(_ id: String) async throws -> SessionExcerpt { throw ClientError.disconnected }
+    func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {}
+    func compactSession(_ id: String, input: WireCompactSessionInput) async throws -> WireCompactSessionResult {
+        throw CompactionFailed(reason: reason)
+    }
+}
+
 @MainActor struct SessionCompactionTests {
+    @Test func eachFailureReasonHasItsOwnExplanation() {
+        let explanations = Dictionary(uniqueKeysWithValues: WireCompactionFailureReason.allCases.map { ($0, $0.explanation) })
+        #expect(explanations == [
+            .summaryTruncated: "The summary was longer than the compaction model's output limit.",
+            .summaryInvalid: "The compaction model didn't return a usable summary.",
+            .policyStop: "The provider stopped the summary under its usage policy.",
+            .providerError: "The request to the model provider failed.",
+            .notAdaptable: "The conversation can't be reduced to fit the model's context.",
+            .canceled: "Compaction was canceled before it finished.",
+            .conflict: "The session changed while compacting.",
+            .internalError: "Kit couldn't finish compacting because of an internal error.",
+        ])
+        #expect(WireCompactionFailureReason.allCases.filter { !$0.retryable } == [.summaryTruncated, .policyStop, .notAdaptable])
+    }
+
+    @Test func aFailedCompactionExplainsItsReasonAndRetriesOnlyWhenItCouldHelp() async {
+        let repeating = SessionCompactionOperation()
+        await repeating.perform(session: "s", client: FailingCompactClient(.notAdaptable)) {}
+        #expect(repeating.title == "Compaction failed")
+        #expect(repeating.error == "The conversation can't be reduced to fit the model's context.")
+        #expect(repeating.retryable == false)
+
+        let transient = SessionCompactionOperation()
+        await transient.perform(session: "s", client: FailingCompactClient(.providerError)) {}
+        #expect(transient.error == "The request to the model provider failed.")
+        #expect(transient.retryable)
+    }
+
     @Test func lostAcknowledgementKeepsIdentityAndRefreshesBeforeExplicitRetry() async {
         let client = CompactClient(loseFirst: true)
         let operation = SessionCompactionOperation()

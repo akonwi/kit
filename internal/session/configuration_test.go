@@ -994,6 +994,8 @@ type configurationProviders struct {
 	// value as each request starts waiting.
 	compactionGate    chan struct{}
 	compactionEntered chan struct{}
+	// compactionStop, when set, ends every summary with this stop reason.
+	compactionStop droids.StopReason
 }
 
 func (p *configurationProviders) Models() []droids.Model {
@@ -1024,7 +1026,14 @@ func (p *configurationProviders) Stream(ctx context.Context, model droids.Model,
 	}
 	block, started := p.block, p.started
 	gate, entered := p.compactionGate, p.compactionEntered
+	compactionStop := p.compactionStop
 	p.mu.Unlock()
+	if compaction && compactionStop != "" {
+		return &configurationStream{message: droids.AssistantMessage{
+			Provider: "test", Model: model.ID, StopReason: compactionStop,
+			Content: []droids.AssistantContent{droids.TextContent{Text: "partial summary"}},
+		}}
+	}
 	if gate != nil && compaction {
 		if entered != nil {
 			entered <- struct{}{}

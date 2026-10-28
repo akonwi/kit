@@ -26,6 +26,9 @@ struct TranscriptEvent {
     var status: String?
     var usage: WireSessionUsage?
     var compactionID: String?
+    /// Why a compaction failed, on its compaction.completed and on the
+    /// turn.completed of a turn it failed.
+    var compactionFailureReason: WireCompactionFailureReason?
     var contextTokens: Int?
     var contextWindow: Int?
     var annotation: WireAnnotation?
@@ -56,7 +59,7 @@ struct TranscriptEvent {
         content = event.content; isError = event.isError; sessionName = event.sessionName
         details = SessionProjection.json(event.details)
         providerRetry = event.providerRetry; errorMessage = event.errorMessage; status = event.status?.rawValue
-        compactionID = event.compactionId
+        compactionID = event.compactionId; compactionFailureReason = event.compactionFailureReason
         usage = event.usage
         contextTokens = event.contextTokens; contextWindow = event.contextWindow
         interaction = event.interaction; interactionId = event.interactionId

@@ -315,7 +315,9 @@ struct SessionEventProjection {
                 case "interrupted": .interrupted
                 default: .failed
                 }
-                let row = SessionProjection.turnEndRow(turn: event.turnId, end: end, message: error)
+                // A turn that compaction failed says why.
+                let message = event.compactionFailureReason.map(CompactionFailed.turnText) ?? error
+                let row = SessionProjection.turnEndRow(turn: event.turnId, end: end, message: message)
                 if !session.messages.contains(where: { $0.id == row.id }) { session.messages.append(row) }
                 turnEnd = row
             }
@@ -330,12 +332,10 @@ struct SessionEventProjection {
             session.activity = LiveActivity.compacting
         case "compaction.completed":
             if let id = event.compactionID, session.activeCompactionID == id {
-                // The server reports a failed compaction by its error message.
-                let detail = event.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let failed = event.isError == true || !(detail ?? "").isEmpty
-                session.compactionOutcome = CompactionOutcome(id: id, failed: failed,
-                                                              detail: failed && (detail?.isEmpty ?? true)
-                                                                  ? "Context compaction failed" : (detail ?? ""),
+                // The server reports a failed compaction by its reason.
+                let reason = event.compactionFailureReason
+                session.compactionOutcome = CompactionOutcome(id: id, failed: reason != nil,
+                                                              detail: reason?.explanation ?? "",
                                                               automatic: !event.turnId.isEmpty)
                 session.activeCompactionID = nil
                 session.activity = activeRunID == nil ? nil : LiveActivity.working

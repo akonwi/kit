@@ -31,6 +31,7 @@ type sessionEventWire struct {
 	ErrorKind                  ProviderErrorKind          `json:"errorKind,omitempty"`
 	ErrorMessage               string                     `json:"errorMessage,omitempty"`
 	CompactionID               string                     `json:"compactionId,omitempty"`
+	CompactionFailureReason    CompactionFailureReason    `json:"compactionFailureReason,omitempty"`
 	ProviderRetry              *ProviderRetry             `json:"providerRetry,omitempty"`
 	ContextTokens              int                        `json:"contextTokens,omitempty"`
 	ContextWindow              int                        `json:"contextWindow,omitempty"`

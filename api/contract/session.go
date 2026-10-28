@@ -678,12 +678,101 @@ const (
 	ProviderErrorProtocol       ProviderErrorKind = "protocol"
 )
 
+// CompactionFailureReason classifies why a context compaction failed. The
+// vocabulary is closed: it never carries provider text, credentials, or
+// conversation content, and clients word each reason themselves.
+type CompactionFailureReason string
+
+const (
+	// CompactionFailureSummaryTruncated: the summary stopped at the
+	// compaction model's output limit.
+	CompactionFailureSummaryTruncated CompactionFailureReason = "summary_truncated"
+	// CompactionFailureSummaryInvalid: the compaction model returned no usable
+	// summary, such as empty text or tool calls.
+	CompactionFailureSummaryInvalid CompactionFailureReason = "summary_invalid"
+	// CompactionFailurePolicyStop: the provider stopped the summary under its
+	// usage policy.
+	CompactionFailurePolicyStop CompactionFailureReason = "policy_stop"
+	// CompactionFailureProviderError: a request to the model provider failed.
+	CompactionFailureProviderError CompactionFailureReason = "provider_error"
+	// CompactionFailureNotAdaptable: the conversation cannot be reduced to fit
+	// the model's context.
+	CompactionFailureNotAdaptable CompactionFailureReason = "not_adaptable"
+	// CompactionFailureCanceled: compaction was canceled, timed out, or its
+	// runtime closed before it finished.
+	CompactionFailureCanceled CompactionFailureReason = "canceled"
+	// CompactionFailureConflict: the session changed while compacting.
+	CompactionFailureConflict CompactionFailureReason = "conflict"
+	// CompactionFailureInternal: any other failure.
+	CompactionFailureInternal CompactionFailureReason = "internal_error"
+)
+
+// Values returns every declared compaction failure reason.
+func (CompactionFailureReason) Values() []CompactionFailureReason {
+	return []CompactionFailureReason{
+		CompactionFailureSummaryTruncated, CompactionFailureSummaryInvalid, CompactionFailurePolicyStop,
+		CompactionFailureProviderError, CompactionFailureNotAdaptable, CompactionFailureCanceled,
+		CompactionFailureConflict, CompactionFailureInternal,
+	}
+}
+
+// EnumValues returns the string values for contract reflection.
+func (CompactionFailureReason) EnumValues() []string {
+	values := CompactionFailureReason("").Values()
+	result := make([]string, len(values))
+	for index, value := range values {
+		result[index] = string(value)
+	}
+	return result
+}
+
+// Valid reports whether reason is declared.
+func (reason CompactionFailureReason) Valid() bool {
+	for _, value := range reason.Values() {
+		if reason == value {
+			return true
+		}
+	}
+	return false
+}
+
+// validateTurnCompactionFailure checks that only a failed turn carries a
+// compaction failure reason, and that the reason is declared.
+func validateTurnCompactionFailure(status TurnStatus, reason CompactionFailureReason) error {
+	if reason == "" {
+		return nil
+	}
+	if status != TurnStatusFailed {
+		return fmt.Errorf("turn status %q cannot carry a compaction failure reason", status)
+	}
+	if !reason.Valid() {
+		return fmt.Errorf("compaction failure reason %q is invalid", reason)
+	}
+	return nil
+}
+
+// CompactionFailedErrorDetails are the details of a compaction_failed error.
+type CompactionFailedErrorDetails struct {
+	Reason CompactionFailureReason `json:"reason"`
+}
+
+// Validate checks compaction failure details from a remote boundary.
+func (details CompactionFailedErrorDetails) Validate() error {
+	if !details.Reason.Valid() {
+		return fmt.Errorf("compaction failure reason %q is invalid", details.Reason)
+	}
+	return nil
+}
+
 // TurnInfo is the canonical status of one droid turn.
 type TurnInfo struct {
 	SessionID    string     `json:"sessionId"`
 	TurnID       string     `json:"turnId"`
 	Status       TurnStatus `json:"status"`
 	ErrorMessage string     `json:"errorMessage,omitempty"`
+	// CompactionFailureReason is set on a turn that failed because its
+	// context could not be compacted.
+	CompactionFailureReason CompactionFailureReason `json:"compactionFailureReason,omitempty"`
 }
 
 // TurnAbortResult acknowledges that cancellation was requested for a turn.
@@ -705,4 +794,7 @@ type PromptOutcome struct {
 	Status       TurnStatus        `json:"status"`
 	ErrorKind    ProviderErrorKind `json:"errorKind,omitempty"`
 	ErrorMessage string            `json:"errorMessage,omitempty"`
+	// CompactionFailureReason is set on a turn that failed because its
+	// context could not be compacted.
+	CompactionFailureReason CompactionFailureReason `json:"compactionFailureReason,omitempty"`
 }

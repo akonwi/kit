@@ -98,15 +98,16 @@ final class SessionStore {
         defer { operation.dismissFeedback() }
         // A compaction that ran shows as its transcript marker.
         if detail == nil, operation.result?.compacted != false { return }
+        // A failure that would repeat offers no retry.
         let retry: (@MainActor () -> Void)?
-        if detail != nil {
+        if detail != nil, operation.result != nil || operation.retryable {
             retry = { [weak self] in
                 guard let self, self.selectedID == id else { return }
                 Task { await self.compactSession() }
             }
         } else { retry = nil }
         feedback.show(key: "compaction", title: operation.title, detail: detail ?? "", tone: detail == nil ? .info : .error,
-                      persistent: detail != nil, actionTitle: detail == nil ? nil : (operation.result == nil ? "Retry" : "Refresh session"),
+                      persistent: detail != nil, actionTitle: retry == nil ? nil : (operation.result == nil ? "Retry" : "Refresh session"),
                       action: retry)
     }
 

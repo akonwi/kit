@@ -109,6 +109,56 @@ const (
 // session; supervised server processes still end with the runtime lifetime.
 const mcpCloseDeadline = 5 * time.Second
 
+// CompactionFailureReason is Kit's protocol-facing classification of a failed
+// context compaction. It carries no provider text or conversation content.
+type CompactionFailureReason string
+
+const (
+	CompactionFailureSummaryTruncated CompactionFailureReason = "summary_truncated"
+	CompactionFailureSummaryInvalid   CompactionFailureReason = "summary_invalid"
+	CompactionFailurePolicyStop       CompactionFailureReason = "policy_stop"
+	CompactionFailureProviderError    CompactionFailureReason = "provider_error"
+	CompactionFailureNotAdaptable     CompactionFailureReason = "not_adaptable"
+	CompactionFailureCanceled         CompactionFailureReason = "canceled"
+	CompactionFailureConflict         CompactionFailureReason = "conflict"
+	CompactionFailureInternal         CompactionFailureReason = "internal_error"
+)
+
+// Valid reports whether reason is declared.
+func (reason CompactionFailureReason) Valid() bool {
+	switch reason {
+	case CompactionFailureSummaryTruncated, CompactionFailureSummaryInvalid, CompactionFailurePolicyStop,
+		CompactionFailureProviderError, CompactionFailureNotAdaptable, CompactionFailureCanceled,
+		CompactionFailureConflict, CompactionFailureInternal:
+		return true
+	}
+	return false
+}
+
+// projectCompactionFailure maps a droids reason onto Kit's vocabulary. A
+// reason Kit does not declare is an internal failure.
+func projectCompactionFailure(reason droids.CompactionFailureReason) CompactionFailureReason {
+	if projected := CompactionFailureReason(reason); projected.Valid() {
+		return projected
+	}
+	return CompactionFailureInternal
+}
+
+// compactionFailureReason classifies err, returned by a droid compaction.
+func compactionFailureReason(err error) CompactionFailureReason {
+	reason, _ := droids.CompactionFailureOf(err)
+	return projectCompactionFailure(reason)
+}
+
+// turnCompactionFailure is the reason a turn failed for compaction, if it
+// did. A failure recorded before reasons existed has none.
+func turnCompactionFailure(failure *droids.DroidError) CompactionFailureReason {
+	if failure == nil || failure.Kind != droids.DroidErrorCompaction || !failure.CompactionFailure.Valid() {
+		return ""
+	}
+	return projectCompactionFailure(failure.CompactionFailure)
+}
+
 // PromptResult is the terminal projection of one droid turn.
 type PromptResult struct {
 	SessionID    string
@@ -118,7 +168,10 @@ type PromptResult struct {
 	StopReason   string
 	ErrorKind    ProviderErrorKind
 	ErrorMessage string
-	Status       RunStatus
+	// CompactionFailure is set on a turn that failed because its context
+	// could not be compacted.
+	CompactionFailure CompactionFailureReason
+	Status            RunStatus
 }
 
 // When locks must nest, acquire them in this order: runtime transitionMu,
@@ -2271,6 +2324,9 @@ func (m *Manager) GetRun(ctx context.Context, sessionID, runID string) (RunProje
 	if turn.Error != nil {
 		record.Error = turn.Error.Message
 	}
+	if record.Status == RunStatusFailed {
+		record.CompactionFailure = turnCompactionFailure(turn.Error)
+	}
 	if record.Status != RunStatusCompleted && record.Error == "" {
 		record.Error = "droid execution " + string(turn.Status)
 	}
@@ -2328,12 +2384,13 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 	if err := loaded.events.append([]NewEvent{{
 		SessionID: sessionID, TurnID: turnID, RunID: turnID,
 		Kind: EventRunFinished, Status: result.Status, ErrorKind: result.ErrorKind,
-		ErrorMessage: result.ErrorMessage,
+		ErrorMessage: result.ErrorMessage, CompactionFailure: result.CompactionFailure,
 	}}); err != nil {
 		loaded.events.invalidate()
 	}
 	run.record.Status = result.Status
 	run.record.Error = result.ErrorMessage
+	run.record.CompactionFailure = result.CompactionFailure
 	run.result = result
 	if loaded.activeRun == turnID {
 		loaded.activeRun = ""
@@ -2498,6 +2555,9 @@ func promptResultFromOutcome(sessionID, turnID string, outcome droids.Outcome, w
 	}
 	if outcome.Error != nil && result.ErrorMessage == "" {
 		result.ErrorMessage = outcome.Error.Message
+	}
+	if result.Status == RunStatusFailed {
+		result.CompactionFailure = turnCompactionFailure(outcome.Error)
 	}
 	if result.Status != RunStatusCompleted && result.ErrorMessage == "" {
 		if waitErr != nil {
@@ -3032,7 +3092,7 @@ func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 		}
 		loaded.mu.Lock()
 		loaded.events.invalidate()
-		run.record.Status, run.record.Error, run.result = result.Status, result.ErrorMessage, result
+		run.record.Status, run.record.Error, run.record.CompactionFailure, run.result = result.Status, result.ErrorMessage, result.CompactionFailure, result
 		loaded.activeRun = ""
 		loaded.signalEventChangedLocked()
 		close(run.done)
@@ -3055,10 +3115,10 @@ func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 	}
 	result := promptResultFromOutcome(sessionID, turnID, outcome, errors.Join(waitErr, drainErr))
 	loaded.mu.Lock()
-	if err := loaded.events.append([]NewEvent{{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventRunFinished, Status: result.Status, ErrorKind: result.ErrorKind, ErrorMessage: result.ErrorMessage}}); err != nil {
+	if err := loaded.events.append([]NewEvent{{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventRunFinished, Status: result.Status, ErrorKind: result.ErrorKind, ErrorMessage: result.ErrorMessage, CompactionFailure: result.CompactionFailure}}); err != nil {
 		loaded.events.invalidate()
 	}
-	run.record.Status, run.record.Error, run.result = result.Status, result.ErrorMessage, result
+	run.record.Status, run.record.Error, run.record.CompactionFailure, run.result = result.Status, result.ErrorMessage, result.CompactionFailure, result
 	loaded.activeRun = ""
 	loaded.signalEventChangedLocked()
 	close(run.done)

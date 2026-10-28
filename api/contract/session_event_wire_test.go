@@ -96,8 +96,8 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 		},
 		{
 			name:  "session compaction omits turn identity",
-			event: SessionEvent{StreamID: "stream_1", Sequence: 13, SessionID: "session_1", Payload: CompactionCompletedEvent{CompactionID: "compact_1", ErrorMessage: "Context compaction failed"}},
-			want:  `{"streamId":"stream_1","sequence":13,"sessionId":"session_1","kind":"compaction.completed","errorMessage":"Context compaction failed","compactionId":"compact_1"}`,
+			event: SessionEvent{StreamID: "stream_1", Sequence: 13, SessionID: "session_1", Payload: CompactionCompletedEvent{CompactionID: "compact_1", CompactionFailureReason: CompactionFailureNotAdaptable}},
+			want:  `{"streamId":"stream_1","sequence":13,"sessionId":"session_1","kind":"compaction.completed","compactionId":"compact_1","compactionFailureReason":"not_adaptable"}`,
 		},
 	}
 	for _, test := range cases {

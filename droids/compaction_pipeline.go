@@ -132,7 +132,7 @@ func (rt *sdkRuntime) compactContext(
 			}
 		}
 	}
-	return compactedContext{}, errors.Join(ErrContextNotAdaptable, lastErr)
+	return compactedContext{}, compactionFailed(CompactionFailureNotAdaptable, errors.Join(ErrContextNotAdaptable, lastErr))
 }
 
 func (rt *sdkRuntime) compactCandidate(
@@ -158,12 +158,12 @@ func (rt *sdkRuntime) compactCandidate(
 		model = cloneModel(rt.config.Compaction.Model)
 		provider = model.boundProvider()
 		if provider == nil || provider.ID() != model.Provider {
-			return compactedContext{}, fmt.Errorf("droids: compaction Model must be resolved")
+			return compactedContext{}, compactionFailed(CompactionFailureNotAdaptable, fmt.Errorf("droids: compaction Model must be resolved"))
 		}
 	}
 	reservedSummary, err := resolveRequestMaxTokens(model, 0, "")
 	if err != nil {
-		return compactedContext{}, err
+		return compactedContext{}, compactionFailed(CompactionFailureNotAdaptable, err)
 	}
 	reservedSummary = compactionSummaryHeadroom(reservedSummary, before, currentBefore, configuration)
 	var placeholder Message = ContextMessage{
@@ -278,8 +278,12 @@ func (rt *sdkRuntime) validateCompactionReplacement(
 		}
 		if err := validateContextReplay(ctx, replay.provider, replay.model,
 			replayRequest(string(rt.conversation), replay.model, configuration, messages, replay.reasoning, maxTokens, nil)); err != nil {
-			if contextError(ctx) != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if contextError(ctx) != nil {
 				return ContextUsage{}, err
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				// The provider's own timeout, while the compaction is live.
+				return ContextUsage{}, compactionFailed(CompactionFailureProviderError, err)
 			}
 			return ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compacted context is not replayable by %s/%s: %w", replay.model.Provider, replay.model.ID, err))
 		}

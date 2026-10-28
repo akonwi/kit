@@ -24,7 +24,12 @@ final class SessionCompactionOperation {
     func dismissFeedback() { feedbackDismissed = true }
     private(set) var result: WireCompactSessionResult?
     private(set) var error: String?
+    /// Why the server reported the compaction failed, when it did.
+    private(set) var failure: CompactionFailed?
     private(set) var refreshError: String?
+    /// Whether asking again might succeed: not when the server reported a
+    /// failure that would repeat.
+    var retryable: Bool { failure?.reason.retryable ?? true }
 
     var title: String {
         if pending { return result == nil ? "Compacting session…" : "Refreshing session…" }
@@ -37,7 +42,7 @@ final class SessionCompactionOperation {
                  refresh: @MainActor () async throws -> Void) async {
         guard !pending else { return }
         feedbackDismissed = false
-        pending = true; error = nil; refreshError = nil
+        pending = true; error = nil; failure = nil; refreshError = nil
         defer { pending = false }
         if operationID == nil {
             operationID = "compact_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
@@ -47,6 +52,7 @@ final class SessionCompactionOperation {
                 result = try await client.compactSession(session, input: .init(operationId: operationID!))
             } catch {
                 self.error = error.localizedDescription
+                failure = error as? CompactionFailed
                 // Preserve identity for every ambiguous outcome, including a later busy response.
             }
         }
@@ -57,6 +63,6 @@ final class SessionCompactionOperation {
 
     func beginNewIfResolved() {
         guard !pending, result != nil, refreshError == nil else { return }
-        operationID = nil; result = nil; error = nil
+        operationID = nil; result = nil; error = nil; failure = nil
     }
 }

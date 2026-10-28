@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/clienttransport"
 )
 
@@ -54,7 +55,24 @@ const (
 	// ErrorRateLimited reports too many failed authentications or pairing
 	// redemptions; the client may retry later.
 	ErrorRateLimited ErrorCode = "rate_limited"
+	// ErrorCompactionFailed reports a context compaction that failed; its
+	// Details are a protocol.CompactionFailedErrorDetails with the reason.
+	ErrorCompactionFailed ErrorCode = "compaction_failed"
 )
+
+// CompactionFailure reports the classified reason a session compaction, or a
+// model change that needed one, failed. It is false for any other error.
+func CompactionFailure(err error) (protocol.CompactionFailureReason, bool) {
+	var server *ServerError
+	if !errors.As(err, &server) || server.Code != ErrorCompactionFailed {
+		return "", false
+	}
+	details, ok := server.Details.(protocol.CompactionFailedErrorDetails)
+	if !ok || !details.Reason.Valid() {
+		return "", false
+	}
+	return details.Reason, true
+}
 
 // ServerError is one failure declared by a Kit server operation.
 type ServerError struct {

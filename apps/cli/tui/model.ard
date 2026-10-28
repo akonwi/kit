@@ -6,6 +6,7 @@ use cooper/cui
 use cooper/keymap
 use cooper/ui
 use go:kit/ffi/contextbridge
+use go:kit/ffi/sessionbridge
 use kit/tui/format
 use kit/tui/modal
 use kit/tui/palette
@@ -249,9 +250,10 @@ impl Picker {
         let _ = dispatch(fn() {
           if self.generation == generation {
             self.pending = false
+            // A model change may need compaction, and a failure says why.
             match result {
               ok(applied) => self.props.applied(applied),
-              err(failure) => { self.error = failure.error() },
+              err(failure) => { self.error = sessionbridge::OperationErrorText(failure) },
             }
           }
         })

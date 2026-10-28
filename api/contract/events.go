@@ -199,7 +199,7 @@ func (event sessionEventWire) validate() error {
 	if len(event.Content) > maxSessionEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxSessionEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8 + len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource) + len(event.CreatedAt) + len(event.URL) + len(event.ClientPluginCallID) + len(event.ClientPluginInstanceID) + len(event.ClientPluginCallResolution)
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.CompactionFailureReason) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8 + len(event.BoundaryID) + len(event.BoundaryKind) + len(event.BoundarySource) + len(event.CreatedAt) + len(event.URL) + len(event.ClientPluginCallID) + len(event.ClientPluginInstanceID) + len(event.ClientPluginCallResolution)
 	if event.ClientPluginCall != nil {
 		payloadBytes += event.ClientPluginCall.payloadBytes()
 	}
@@ -296,7 +296,7 @@ func (event sessionEventWire) validate() error {
 			return fmt.Errorf("compaction event requires a valid identity")
 		}
 	case SessionEventCompactionCompleted:
-		if !validRendererText(event.CompactionID, 256) || event.ErrorKind != "" || (event.ErrorMessage != "" && !validRendererText(event.ErrorMessage, maxSessionEventPayloadBytes)) {
+		if !validRendererText(event.CompactionID, 256) || (event.CompactionFailureReason != "" && !event.CompactionFailureReason.Valid()) {
 			return fmt.Errorf("completed compaction is invalid")
 		}
 	case SessionEventSessionConfigurationChanged:
@@ -436,6 +436,9 @@ func (event sessionEventWire) validate() error {
 		default:
 			return fmt.Errorf("turn completion status %q is invalid", event.Status)
 		}
+		if err := validateTurnCompactionFailure(event.Status, event.CompactionFailureReason); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("event kind %q is invalid", event.Kind)
 	}
@@ -467,8 +470,11 @@ func (event sessionEventWire) validate() error {
 	if event.Kind != SessionEventTurnStarted && event.Kind != SessionEventTurnCompleted && event.Status != "" {
 		return fmt.Errorf("event kind %q cannot carry turn status", event.Kind)
 	}
-	if event.Kind != SessionEventTurnCompleted && event.Kind != SessionEventCompactionCompleted && (event.ErrorKind != "" || event.ErrorMessage != "") {
+	if event.Kind != SessionEventTurnCompleted && (event.ErrorKind != "" || event.ErrorMessage != "") {
 		return fmt.Errorf("event kind %q cannot carry turn error metadata", event.Kind)
+	}
+	if event.Kind != SessionEventTurnCompleted && event.Kind != SessionEventCompactionCompleted && event.CompactionFailureReason != "" {
+		return fmt.Errorf("event kind %q cannot carry a compaction failure reason", event.Kind)
 	}
 	if event.Kind != SessionEventUsageChanged && event.Usage != nil {
 		return fmt.Errorf("event kind %q cannot carry session usage", event.Kind)

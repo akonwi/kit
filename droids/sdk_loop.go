@@ -1745,6 +1745,9 @@ func (rt *sdkRuntime) finishRunFailure(turnID TurnID, kind DroidErrorKind, err e
 		return
 	}
 	failure := &DroidError{Kind: kind, Message: safeRuntimeError(kind, err), Cause: err}
+	if kind == DroidErrorCompaction {
+		failure.CompactionFailure = classifyCompactionFailure(nil, err).Reason
+	}
 	if settleErr := rt.settleLocked(context.Background(), ExecutionFailed, failure); settleErr != nil {
 		rt.workerSettlementFailedLocked(errors.Join(err, settleErr))
 	}

@@ -39945,8 +39945,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/422/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/422/content/json/error/UnprocessableError`.
-                            case unprocessable(Components.Schemas.UnprocessableError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/compact/POST/responses/422/content/json/error/SessionsCompactionFailedError`.
+                            case compactionFailed(Components.Schemas.SessionsCompactionFailedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -39957,8 +39957,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
-                                case "unprocessable":
-                                    self = .unprocessable(try .init(from: decoder))
+                                case "compaction_failed":
+                                    self = .compactionFailed(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -39969,7 +39969,7 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
-                                case let .unprocessable(value):
+                                case let .compactionFailed(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -41392,8 +41392,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/422/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/422/content/json/error/UnprocessableError`.
-                            case unprocessable(Components.Schemas.UnprocessableError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/configure/POST/responses/422/content/json/error/SessionsCompactionFailedError`.
+                            case compactionFailed(Components.Schemas.SessionsCompactionFailedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -41404,8 +41404,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
-                                case "unprocessable":
-                                    self = .unprocessable(try .init(from: decoder))
+                                case "compaction_failed":
+                                    self = .compactionFailed(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -41416,7 +41416,7 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
-                                case let .unprocessable(value):
+                                case let .compactionFailed(value):
                                     try value.encode(to: encoder)
                                 }
                             }

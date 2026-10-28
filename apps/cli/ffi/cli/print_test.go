@@ -157,6 +157,24 @@ func TestExecutePrintKeepsFailuresOffStdout(t *testing.T) {
 	}
 }
 
+func TestExecutePrintExplainsACompactionFailure(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSessionClient{
+		sessions: []protocol.SessionInfo{{ID: "session-1", Model: "test/echo"}},
+		outcome: protocol.PromptOutcome{
+			SessionID: "session-1", Status: protocol.TurnStatusFailed, ErrorMessage: "Context compaction failed",
+			CompactionFailureReason: protocol.CompactionFailureSummaryTruncated,
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := executePrintWith(context.Background(), client.operations(), printOptions{CWD: "/workspace", Prompt: "go"}, &stdout, &stderr)
+	want := "kit: Context compaction failed. The summary was longer than the compaction model's output limit.\n"
+	if code != 1 || stdout.Len() != 0 || stderr.String() != want {
+		t.Fatalf("exit = %d stdout = %q stderr = %q, want %q", code, stdout.String(), stderr.String(), want)
+	}
+}
+
 func TestExecutePrintDisposesAmbiguousTemporaryCreate(t *testing.T) {
 	t.Parallel()
 

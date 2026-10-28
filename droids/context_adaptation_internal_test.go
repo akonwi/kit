@@ -8,10 +8,10 @@ import (
 
 func TestCompactionCancellationDoesNotRecordFailureLifecycle(t *testing.T) {
 	runtime := &sdkRuntime{}
-	if err := runtime.recordCompactionFailure("turn_cancelled", context.Canceled); !errors.Is(err, context.Canceled) {
+	if err := runtime.recordCompactionFailure(context.Background(), "turn_cancelled", context.Canceled); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation error = %v", err)
 	}
-	if err := runtime.recordCompactionFailure("turn_timed_out", context.DeadlineExceeded); !errors.Is(err, context.DeadlineExceeded) {
+	if err := runtime.recordCompactionFailure(context.Background(), "turn_timed_out", context.DeadlineExceeded); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("deadline error = %v", err)
 	}
 }

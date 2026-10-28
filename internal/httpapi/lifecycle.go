@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"reflect"
 
 	protocol "github.com/akonwi/kit/api/contract"
 )
@@ -9,6 +10,18 @@ import (
 // ListSessionsPath binds the optional working-directory session filter.
 type ListSessionsPath struct {
 	CWD string `query:"cwd,omitempty"`
+}
+
+// compactingErrors are the failures of a lifecycle operation that may compact
+// context. A failed compaction is compaction_failed, with its classified
+// reason.
+func compactingErrors() []ErrorResponse {
+	responses := lifecycleErrors(400, 413, 404, 409)
+	responses = append(responses, ErrorResponse{
+		Status: http.StatusUnprocessableEntity, Codes: []ErrorCode{ErrorCompactionFailed},
+		Details: map[ErrorCode]reflect.Type{ErrorCompactionFailed: reflect.TypeOf(protocol.CompactionFailedErrorDetails{})},
+	})
+	return append(responses, lifecycleErrors(503, 500)...)
 }
 
 func lifecycleErrors(statuses ...int) []ErrorResponse {
@@ -58,9 +71,9 @@ var (
 	// ChangeSessionCWD changes a session working directory.
 	ChangeSessionCWD = Operation[SessionPath, protocol.ChangeCWDInput, protocol.ChangeWorkspaceCWDResult]{ID: "changeSessionCWD", Tag: "sessions", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/cwd", Success: http.StatusOK, Errors: lifecycleErrors(400, 413, 404, 409, 503, 500)}
 	// ConfigureSession applies a revision-guarded model configuration.
-	ConfigureSession = Operation[SessionPath, protocol.ConfigureSessionInput, protocol.ConfigureSessionResult]{ID: "configureSession", Tag: "sessions", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/configure", Success: http.StatusOK, Errors: lifecycleErrors(400, 413, 404, 409, 422, 503, 500)}
+	ConfigureSession = Operation[SessionPath, protocol.ConfigureSessionInput, protocol.ConfigureSessionResult]{ID: "configureSession", Tag: "sessions", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/configure", Success: http.StatusOK, Errors: compactingErrors()}
 	// CompactSession performs an explicit context compaction.
-	CompactSession = Operation[SessionPath, protocol.CompactSessionInput, protocol.CompactSessionResult]{ID: "compactSession", Tag: "sessions", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/compact", Success: http.StatusOK, Errors: lifecycleErrors(400, 413, 404, 409, 422, 503, 500)}
+	CompactSession = Operation[SessionPath, protocol.CompactSessionInput, protocol.CompactSessionResult]{ID: "compactSession", Tag: "sessions", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/compact", Success: http.StatusOK, Errors: compactingErrors()}
 	// ReloadSession refreshes an idle session runtime.
 	ReloadSession = Operation[SessionPath, NoBody, protocol.ReloadSessionResult]{ID: "reloadSession", Tag: "sessions", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/reload", Success: http.StatusOK, Errors: lifecycleErrors(400, 404, 409, 503, 500)}
 )

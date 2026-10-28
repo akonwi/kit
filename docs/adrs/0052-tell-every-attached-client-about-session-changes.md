@@ -60,7 +60,8 @@ snapshot shows the prompt both queued and running.
 
 `compaction.started` and `compaction.completed` without a turn report a
 compaction a client requested, or one a model change needed, including a
-failed one, whose `compaction.completed` carries its error message. A repeated
+failed one, whose `compaction.completed` carries its failure reason
+([ADR 0053](0053-classify-compaction-failures.md)). A repeated
 request for a compaction that already succeeded returns its result without
 compacting again and is not announced again. A snapshot waits for such a
 compaction to end, so it never shows one in progress.

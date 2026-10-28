@@ -43,14 +43,18 @@ func TestEventsProjectsSessionChangesAnotherClientMade(t *testing.T) {
 		session(2, protocol.SessionConfigurationChangedEvent{Configuration: configuration}),
 		session(3, protocol.FollowUpsChangedEvent{FollowUps: queue}),
 		session(4, protocol.CompactionStartedEvent{CompactionID: "compact_1"}),
-		session(5, protocol.CompactionCompletedEvent{CompactionID: "compact_1", ErrorMessage: "Context compaction failed"}),
+		session(5, protocol.CompactionCompletedEvent{CompactionID: "compact_1", CompactionFailureReason: protocol.CompactionFailureSummaryTruncated}),
+		{StreamID: "stream_test", Sequence: 6, SessionID: "session_test", TurnID: "turn_1", Payload: protocol.TurnCompletedEvent{
+			Status: protocol.TurnStatusFailed, ErrorMessage: "Context compaction failed", CompactionFailureReason: protocol.CompactionFailureNotAdaptable,
+		}},
 	})
 	want := []Event{
 		{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Kind: "session.name.changed", SessionName: "Renamed"},
 		{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", Kind: "session.configuration.changed", Configuration: configuration},
 		{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", Kind: "follow_ups.changed", FollowUps: queue},
 		{StreamID: "stream_test", Sequence: 4, SessionID: "session_test", Kind: "compaction.started", CompactionID: "compact_1"},
-		{StreamID: "stream_test", Sequence: 5, SessionID: "session_test", Kind: "compaction.completed", CompactionID: "compact_1", ErrorMessage: "Context compaction failed"},
+		{StreamID: "stream_test", Sequence: 5, SessionID: "session_test", Kind: "compaction.completed", CompactionID: "compact_1", CompactionFailureReason: "summary_truncated"},
+		{StreamID: "stream_test", Sequence: 6, SessionID: "session_test", TurnID: "turn_1", Kind: "turn.completed", Status: "failed", ErrorMessage: "Context compaction failed", CompactionFailureReason: "not_adaptable"},
 	}
 	if !reflect.DeepEqual(projected, want) {
 		t.Fatalf("Events() = %+v\nwant %+v", projected, want)

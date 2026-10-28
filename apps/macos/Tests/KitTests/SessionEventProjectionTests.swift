@@ -53,9 +53,10 @@ struct SessionEventProjectionTests {
         var state = try SessionEventProjection(snapshot())
         try state.apply(event("compaction.started", ["turnId": "", "compactionId": "compact_other"]))
         #expect(state.session.activity == "Compacting session…")
-        try state.apply(event("compaction.completed", ["turnId": "", "compactionId": "compact_other", "errorMessage": "context canceled"]))
+        try state.apply(event("compaction.completed", ["turnId": "", "compactionId": "compact_other", "compactionFailureReason": "canceled"]))
         #expect(state.session.activity == nil)
-        #expect(state.session.compactionOutcome == CompactionOutcome(id: "compact_other", failed: true, detail: "context canceled", automatic: false))
+        #expect(state.session.compactionOutcome == CompactionOutcome(id: "compact_other", failed: true,
+                                                                     detail: "Compaction was canceled before it finished.", automatic: false))
         // The client that asked for it, or for the model change that needed
         // it, reports how it ended.
         let feedback = SessionFeedback()
@@ -209,23 +210,33 @@ struct SessionEventProjectionTests {
         #expect(state.session.activity == "Working…")
     }
 
-    @MainActor @Test func failedCompactionAlwaysProvidesToastDetail() throws {
+    @MainActor @Test func aFailedAutoCompactionExplainsItsReason() throws {
         var state = try SessionEventProjection(snapshot())
         try state.apply(event("compaction.started", ["compactionId": "compact_a"]))
-        try state.apply(event("compaction.completed", ["compactionId": "compact_a", "isError": true]))
-        #expect(state.session.compactionOutcome?.failed == true)
-        #expect(state.session.compactionOutcome?.detail == "Context compaction failed")
+        try state.apply(event("compaction.completed", ["compactionId": "compact_a", "compactionFailureReason": "summary_truncated"]))
+        #expect(state.session.compactionOutcome == CompactionOutcome(
+            id: "compact_a", failed: true, detail: "The summary was longer than the compaction model's output limit."))
         let feedback = SessionFeedback()
         feedback.observe(state.session)
-        #expect(feedback.notices.first?.detail == "Context compaction failed")
+        #expect(feedback.notices.map(\.title) == ["Auto-compaction failed"])
+        #expect(feedback.notices.first?.detail == "The summary was longer than the compaction model's output limit.")
 
-        try state.apply(event("compaction.started", ["compactionId": "compact_b"]))
-        try state.apply(event("compaction.completed", ["compactionId": "compact_b", "errorMessage": "  ", "isError": true]))
-        #expect(state.session.compactionOutcome?.detail == "Context compaction failed")
+        // A reason this app doesn't know is refused, never shown as text.
+        #expect(throws: (any Error).self) {
+            try event("compaction.completed", ["compactionId": "compact_b", "compactionFailureReason": "disk_full"])
+        }
+    }
 
-        try state.apply(event("compaction.started", ["compactionId": "compact_c"]))
-        try state.apply(event("compaction.completed", ["compactionId": "compact_c", "errorMessage": "Provider unavailable", "isError": true]))
-        #expect(state.session.compactionOutcome?.detail == "Provider unavailable")
+    @Test func aTurnThatCompactionFailedSaysWhy() throws {
+        var state = try SessionEventProjection(snapshot())
+        try state.apply(event("turn.started"))
+        try state.apply(event("turn.completed", ["status": "failed", "errorMessage": "Context compaction failed",
+                                                 "compactionFailureReason": "not_adaptable"]))
+        let text = "Context compaction failed. The conversation can't be reduced to fit the model's context."
+        #expect(state.session.messages.last?.marker == .turnEnded(.failed, message: text))
+        // The row survives a refresh whose snapshot holds no reason.
+        let refreshed = try SessionEventProjection(snapshot(), turnEnd: state.turnEnd)
+        #expect(refreshed.session.messages.last?.marker == .turnEnded(.failed, message: text))
     }
 
     @Test func contextTracksSnapshotUpdatesAndCompaction() throws {

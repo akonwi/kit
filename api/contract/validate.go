@@ -715,7 +715,7 @@ func (turn TurnInfo) Validate() error {
 	if turn.Status != TurnStatusQueued && turn.Status != TurnStatusRunning && turn.Status != TurnStatusCompleted && turn.ErrorMessage == "" {
 		return fmt.Errorf("turn info status %q requires an error message", turn.Status)
 	}
-	return nil
+	return validateTurnCompactionFailure(turn.Status, turn.CompactionFailureReason)
 }
 
 // Validate checks a terminal prompt outcome received across a transport boundary.
@@ -741,7 +741,7 @@ func (outcome PromptOutcome) Validate() error {
 	if outcome.Status == TurnStatusCompleted && outcome.ErrorKind != "" {
 		return fmt.Errorf("completed prompt outcome has error kind %q", outcome.ErrorKind)
 	}
-	return nil
+	return validateTurnCompactionFailure(outcome.Status, outcome.CompactionFailureReason)
 }
 
 // MaxErrorMessageBytes is the longest error message a server writes. Clients

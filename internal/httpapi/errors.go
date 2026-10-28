@@ -37,6 +37,9 @@ const (
 	// ErrorRateLimited reports too many failed authentications or pairing
 	// redemptions; the client may retry later.
 	ErrorRateLimited ErrorCode = "rate_limited"
+	// ErrorCompactionFailed reports a context compaction that failed. Its
+	// details carry the classified reason.
+	ErrorCompactionFailed ErrorCode = "compaction_failed"
 )
 
 // CommonErrorResponses are rejections that can happen before routing any
@@ -180,6 +183,15 @@ func decodeDeclaredError(declared []ErrorResponse, statusCode int, body []byte) 
 			return fmt.Errorf("daemon returned malformed plugin command error: %w", err)
 		}
 		apiError.pluginCommandError = typed
+	}
+	if envelope.Error.Code == ErrorCompactionFailed {
+		details, ok := apiError.TypedDetails.(protocol.CompactionFailedErrorDetails)
+		if !ok {
+			return fmt.Errorf("daemon returned malformed compaction failure details")
+		}
+		if err := details.Validate(); err != nil {
+			return fmt.Errorf("daemon returned malformed compaction failure: %w", err)
+		}
 	}
 	if code := protocol.ScratchpadErrorCode(envelope.Error.Code); code.Valid() {
 		var current *protocol.Scratchpad

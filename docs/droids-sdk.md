@@ -955,7 +955,13 @@ the same prefix.
 
 Compaction emits started, completed, and failed events. A failed or insufficient
 compaction preserves the prior checkpoint and returns a typed compaction or
-context-overflow outcome. Summary validation requires `StopReasonStop`; any
+context-overflow outcome. Every failure is classified by a closed
+`CompactionFailureReason` (`summary_truncated`, `summary_invalid`,
+`policy_stop`, `provider_error`, `not_adaptable`, `canceled`, `conflict`, or
+`internal_error`): `CompactContext` returns a `*CompactionError` carrying it,
+the durable `compaction.failed` event records it, and a turn that compaction
+failed records it as its `DroidError.CompactionFailure`. The reason carries no
+provider text; the error's cause is diagnostic only. Summary validation requires `StopReasonStop`; any
 non-stop result (including `StopReasonLength`), empty output, and tool calls are
 rejected. Checkpoint installation guards the captured request configuration as
 well as the source context; concurrent reconfiguration returns a conflict

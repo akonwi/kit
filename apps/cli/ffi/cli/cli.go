@@ -19,6 +19,7 @@ import (
 
 	kit "github.com/akonwi/kit/api"
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/apps/cli/ffi/sessionbridge"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/daemonctl"
@@ -376,7 +377,9 @@ func executePrintWith(
 	}
 	if outcome.Status != protocol.TurnStatusCompleted {
 		message := outcome.ErrorMessage
-		if message == "" {
+		if outcome.CompactionFailureReason != "" {
+			message = sessionbridge.CompactionFailedTurnText(string(outcome.CompactionFailureReason))
+		} else if message == "" {
 			message = "agent turn " + string(outcome.Status)
 		}
 		fmt.Fprintf(stderr, "kit: %s\n", message)

@@ -95,11 +95,11 @@ type CompactionStartedEvent struct {
 	CompactionID string `json:"compactionId"`
 }
 
-// CompactionCompletedEvent records a completed compaction. ErrorMessage is set
-// when compaction completed unsuccessfully.
+// CompactionCompletedEvent records how a compaction ended.
+// CompactionFailureReason is set when it failed.
 type CompactionCompletedEvent struct {
-	CompactionID string `json:"compactionId"`
-	ErrorMessage string `json:"errorMessage,omitempty"`
+	CompactionID            string                  `json:"compactionId"`
+	CompactionFailureReason CompactionFailureReason `json:"compactionFailureReason,omitempty"`
 }
 
 // ProviderRetryScheduledEvent records a retry deadline.
@@ -128,6 +128,9 @@ type TurnCompletedEvent struct {
 	Status       TurnStatus        `json:"status"`
 	ErrorKind    ProviderErrorKind `json:"errorKind,omitempty"`
 	ErrorMessage string            `json:"errorMessage,omitempty"`
+	// CompactionFailureReason is set on a turn that failed because its
+	// context could not be compacted.
+	CompactionFailureReason CompactionFailureReason `json:"compactionFailureReason,omitempty"`
 }
 
 // SessionNameChangedEvent records the new session name.

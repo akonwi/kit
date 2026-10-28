@@ -432,6 +432,19 @@ enum WireProviderErrorKind: String, Codable, Sendable {
     case value5 = "protocol"
 }
 
+/// Why a context compaction failed. The vocabulary is closed, so an event
+/// with a reason this app does not know fails to decode.
+enum WireCompactionFailureReason: String, Codable, Sendable, CaseIterable {
+    case summaryTruncated = "summary_truncated"
+    case summaryInvalid = "summary_invalid"
+    case policyStop = "policy_stop"
+    case providerError = "provider_error"
+    case notAdaptable = "not_adaptable"
+    case canceled = "canceled"
+    case conflict = "conflict"
+    case internalError = "internal_error"
+}
+
 struct WireAnnotation: Codable, Sendable {
     let `id`: UInt64
     let `sessionId`: String
@@ -469,6 +482,7 @@ struct WireSessionEvent: Codable, Sendable {
     let `errorKind`: WireProviderErrorKind?
     let `errorMessage`: String?
     let `compactionId`: String?
+    let `compactionFailureReason`: WireCompactionFailureReason?
     let `providerRetry`: WireProviderRetry?
     let `contextTokens`: Int?
     let `contextWindow`: Int?

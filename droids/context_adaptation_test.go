@@ -596,6 +596,9 @@ func TestSDKShutdownCancelsQuiescentCompaction(t *testing.T) {
 		if !errors.Is(err, droids.ErrClosed) {
 			t.Fatalf("CompactContext() shutdown error = %v", err)
 		}
+		if reason, ok := droids.CompactionFailureOf(err); !ok || reason != droids.CompactionFailureCanceled {
+			t.Fatalf("shutdown reason = %q, %v; want canceled", reason, ok)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("compaction did not stop during shutdown")
 	}

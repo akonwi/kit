@@ -35,7 +35,7 @@ func TestSessionEventValidatesPayloadVariants(t *testing.T) {
 		ToolCompletedEvent{ToolCallID: "call_1", ToolName: "read"},
 		CompactionStartedEvent{CompactionID: "compact_00000000000000000000000000000001"},
 		CompactionCompletedEvent{CompactionID: "compact_00000000000000000000000000000001"},
-		CompactionCompletedEvent{CompactionID: "compact_00000000000000000000000000000001", ErrorMessage: "failed"},
+		CompactionCompletedEvent{CompactionID: "compact_00000000000000000000000000000001", CompactionFailureReason: CompactionFailureSummaryTruncated},
 		ProviderRetryScheduledEvent{ProviderRetry: &ProviderRetry{Count: 1, RetryAt: time.Now().UTC().Format(time.RFC3339Nano)}},
 		ProviderRetryStartedEvent{ProviderRetry: &ProviderRetry{Count: 1}}, ContextChangedEvent{ContextWindow: 100},
 		UsageChangedEvent{Usage: &SessionUsage{}}, TurnCompletedEvent{Status: TurnStatusCompleted},
@@ -205,7 +205,7 @@ func TestCompactionEventsMayBelongToTheSession(t *testing.T) {
 	for _, payload := range []SessionEventPayload{
 		CompactionStartedEvent{CompactionID: "compact_1"},
 		CompactionCompletedEvent{CompactionID: "compact_1"},
-		CompactionCompletedEvent{CompactionID: "compact_1", ErrorMessage: "Context compaction failed"},
+		CompactionCompletedEvent{CompactionID: "compact_1", CompactionFailureReason: CompactionFailureProviderError},
 	} {
 		event := SessionEvent{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Payload: payload}
 		if err := event.Validate(); err != nil {
@@ -257,5 +257,38 @@ func TestBoundaryCreatedEventIsASessionScopedRecord(t *testing.T) {
 	}
 	if err := eventForTest(1, valid).Validate(); err == nil {
 		t.Fatal("boundary event accepted a turn identity")
+	}
+}
+
+func TestCompactionFailureReasonsAreClosed(t *testing.T) {
+	for name, event := range map[string]SessionEvent{
+		"undeclared compaction reason": eventForTest(1, CompactionCompletedEvent{CompactionID: "compact_1", CompactionFailureReason: "disk_full"}),
+		"reason on a completed turn":   eventForTest(1, TurnCompletedEvent{Status: TurnStatusCompleted, CompactionFailureReason: CompactionFailureProviderError}),
+		"reason on an aborted turn":    eventForTest(1, TurnCompletedEvent{Status: TurnStatusAborted, ErrorMessage: "Stopped", CompactionFailureReason: CompactionFailureCanceled}),
+		"undeclared turn reason":       eventForTest(1, TurnCompletedEvent{Status: TurnStatusFailed, ErrorMessage: "Context compaction failed", CompactionFailureReason: "disk_full"}),
+	} {
+		if err := event.Validate(); err == nil {
+			t.Errorf("%s: Validate() accepted %+v", name, event)
+		}
+	}
+	failed := eventForTest(1, TurnCompletedEvent{Status: TurnStatusFailed, ErrorMessage: "Context compaction failed", CompactionFailureReason: CompactionFailureSummaryInvalid})
+	if err := failed.Validate(); err != nil {
+		t.Fatalf("failed turn with a reason: %v", err)
+	}
+
+	turn := TurnInfo{SessionID: "session_1", TurnID: "turn_1", Status: TurnStatusFailed, ErrorMessage: "Context compaction failed", CompactionFailureReason: CompactionFailureConflict}
+	if err := turn.Validate(); err != nil {
+		t.Fatalf("turn info with a reason: %v", err)
+	}
+	turn.CompactionFailureReason = "disk_full"
+	if err := turn.Validate(); err == nil {
+		t.Fatal("turn info accepted an undeclared reason")
+	}
+	outcome := PromptOutcome{SessionID: "session_1", TurnID: "turn_1", Status: TurnStatusCompleted, CompactionFailureReason: CompactionFailureConflict}
+	if err := outcome.Validate(); err == nil {
+		t.Fatal("completed outcome accepted a compaction failure reason")
+	}
+	if err := (CompactionFailedErrorDetails{Reason: "disk_full"}).Validate(); err == nil {
+		t.Fatal("error details accepted an undeclared reason")
 	}
 }

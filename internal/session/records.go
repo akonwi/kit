@@ -77,6 +77,9 @@ type RunProjection struct {
 	TurnID    string
 	Status    RunStatus
 	Error     string
+	// CompactionFailure is set on a run that failed because its context
+	// could not be compacted.
+	CompactionFailure CompactionFailureReason
 }
 
 // ConfigurationUpdate is one atomic exact model and thinking change guarded by

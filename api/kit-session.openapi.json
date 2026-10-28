@@ -805,6 +805,28 @@
         ],
         "type": "object"
       },
+      "CompactionFailedErrorDetails": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "enum": [
+              "summary_truncated",
+              "summary_invalid",
+              "policy_stop",
+              "provider_error",
+              "not_adaptable",
+              "canceled",
+              "conflict",
+              "internal_error"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
       "CompleteClientPluginCallInput": {
         "additionalProperties": false,
         "properties": {
@@ -3223,6 +3245,19 @@
       "PromptOutcome": {
         "additionalProperties": false,
         "properties": {
+          "compactionFailureReason": {
+            "enum": [
+              "summary_truncated",
+              "summary_invalid",
+              "policy_stop",
+              "provider_error",
+              "not_adaptable",
+              "canceled",
+              "conflict",
+              "internal_error"
+            ],
+            "type": "string"
+          },
           "errorKind": {
             "type": "string"
           },
@@ -4321,6 +4356,31 @@
         "required": [
           "sessionId",
           "cwd"
+        ],
+        "type": "object"
+      },
+      "SessionsCompactionFailedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "compaction_failed"
+            ],
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/CompactionFailedErrorDetails"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "details"
         ],
         "type": "object"
       },
@@ -5439,6 +5499,19 @@
       "TurnInfo": {
         "additionalProperties": false,
         "properties": {
+          "compactionFailureReason": {
+            "enum": [
+              "summary_truncated",
+              "summary_invalid",
+              "policy_stop",
+              "provider_error",
+              "not_adaptable",
+              "canceled",
+              "conflict",
+              "internal_error"
+            ],
+            "type": "string"
+          },
           "errorMessage": {
             "type": "string"
           },
@@ -17896,13 +17969,13 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "unprocessable": "#/components/schemas/UnprocessableError"
+                          "compaction_failed": "#/components/schemas/SessionsCompactionFailedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
-                          "$ref": "#/components/schemas/UnprocessableError"
+                          "$ref": "#/components/schemas/SessionsCompactionFailedError"
                         }
                       ]
                     }
@@ -18316,13 +18389,13 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "unprocessable": "#/components/schemas/UnprocessableError"
+                          "compaction_failed": "#/components/schemas/SessionsCompactionFailedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
-                          "$ref": "#/components/schemas/UnprocessableError"
+                          "$ref": "#/components/schemas/SessionsCompactionFailedError"
                         }
                       ]
                     }

@@ -123,8 +123,18 @@ func (d *Droid) AssessContext(ctx context.Context, target ContextTarget) (Contex
 
 // CompactContext idempotently adapts settled active context to a target model.
 // It leaves the droid configured with its current model; the replacement context
-// is validated against both current and target configurations.
+// is validated against both current and target configurations. Every failure is
+// a *CompactionError that classifies it and still matches the runtime's
+// sentinel errors, such as ErrBusy and ErrClosed.
 func (d *Droid) CompactContext(ctx context.Context, options CompactContextOptions) (CompactContextResult, error) {
+	result, err := d.runContextCompaction(ctx, options)
+	if err != nil {
+		return CompactContextResult{}, classifyCompactionFailure(ctx, err)
+	}
+	return result, nil
+}
+
+func (d *Droid) runContextCompaction(ctx context.Context, options CompactContextOptions) (CompactContextResult, error) {
 	if d == nil || d.sdk == nil {
 		return CompactContextResult{}, fmt.Errorf("droids: CompactContext requires a droid opened with droids.Spawn")
 	}
@@ -379,11 +389,11 @@ func (rt *sdkRuntime) compactCapturedContext(
 
 	compacted, err := rt.compactContext(ctx, target, contextWire, assessment.Usage, currentBefore, currentConfiguration, "")
 	if err != nil {
-		return CompactContextResult{}, rt.recordExplicitCompactionFailure(operationID, err)
+		return CompactContextResult{}, rt.recordExplicitCompactionFailure(ctx, operationID, err)
 	}
 	checkpointID, err := newCheckpointID()
 	if err != nil {
-		return CompactContextResult{}, rt.recordExplicitCompactionFailure(operationID, err)
+		return CompactContextResult{}, rt.recordExplicitCompactionFailure(ctx, operationID, err)
 	}
 	result.Compacted = true
 	result.CheckpointID = checkpointID
@@ -493,19 +503,23 @@ func (rt *sdkRuntime) commitCompactionResult(
 	return nil
 }
 
-func (rt *sdkRuntime) recordExplicitCompactionFailure(operationID string, failure error) error {
+// recordExplicitCompactionFailure records the classified failure of a
+// settled-context compaction that has started, and returns it.
+func (rt *sdkRuntime) recordExplicitCompactionFailure(ctx context.Context, operationID string, failure error) error {
+	classified := classifyCompactionFailure(ctx, failure)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if rt.closed {
-		return ErrClosed
+		return classifyCompactionFailure(nil, errors.Join(ErrClosed, failure))
 	}
 	event, _ := lifecycleEvent("compaction.failed", "", "", map[string]any{
-		"operation_id": operationID, "error": safeRuntimeError(DroidErrorCompaction, failure),
+		"operation_id": operationID, "error": safeRuntimeError(DroidErrorCompaction, classified),
+		"reason": classified.Reason,
 	})
 	if err := rt.commitLocked(context.Background(), nil, []EncodedDurableEvent{event}); err != nil {
-		return errorsJoin(failure, err)
+		return errors.Join(classified, err)
 	}
-	return failure
+	return classified
 }
 
 func boolPointer(value bool) *bool { return &value }

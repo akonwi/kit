@@ -948,6 +948,9 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard Self.validScratchpadSession(id), !input.operationId.isEmpty, input.operationId.utf8.count <= 256, let version = Operations.CompactSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
         let body: Components.Schemas.CompactSessionInput = try generated(input, as: Components.Schemas.CompactSessionInput.self)
         let output = try await api.compactSession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+        if case let .unprocessableContent(response) = output {
+            switch try response.body.json.error { case .compactionFailed(let error): throw CompactionFailed(error.details) }
+        }
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let result: WireCompactSessionResult = try generated(try response.body.json, as: WireCompactSessionResult.self)
         guard result.operationId == input.operationId, result.eventStreamId.hasPrefix("stream_"), !result.compacted || !(result.checkpointId ?? "").isEmpty else { throw ClientError.invalidPayload }
@@ -1097,6 +1100,10 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard Self.validScratchpadSession(id), let version = Operations.ConfigureSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
         let body: Components.Schemas.ConfigureSessionInput = try generated(input, as: Components.Schemas.ConfigureSessionInput.self)
         let output = try await api.configureSession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+        // A model change that needs compaction fails when the compaction does.
+        if case let .unprocessableContent(response) = output {
+            switch try response.body.json.error { case .compactionFailed(let error): throw CompactionFailed(error.details) }
+        }
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let result: WireConfigureSessionResult = try generated(try response.body.json, as: WireConfigureSessionResult.self)
         guard result.session.id == id, result.session.model == input.model, result.session.configurationRevision > input.expectedRevision, !result.eventStreamId.isEmpty else { throw ClientError.invalidPayload }

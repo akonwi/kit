@@ -126,3 +126,27 @@ func TestSessionEventsProjectQueuesAndConfigurations(t *testing.T) {
 		t.Fatalf("configuration payload = %#v; want %#v", configuration, want)
 	}
 }
+
+func TestSessionEventsProjectCompactionFailureReasons(t *testing.T) {
+	service := runtimeSessionService{}
+	failed := service.projectSessionEventPayload(kitsession.Event{NewEvent: kitsession.NewEvent{
+		SessionID: "session_test", Kind: kitsession.EventCompactionFailed, CompactionID: "compact_1",
+		CompactionFailure: kitsession.CompactionFailureNotAdaptable,
+	}})
+	if want := (protocol.CompactionCompletedEvent{CompactionID: "compact_1", CompactionFailureReason: protocol.CompactionFailureNotAdaptable}); failed != want {
+		t.Fatalf("failed compaction payload = %#v; want %#v", failed, want)
+	}
+	turn := service.projectSessionEventPayload(kitsession.Event{NewEvent: kitsession.NewEvent{
+		SessionID: "session_test", TurnID: "turn_1", RunID: "turn_1", Kind: kitsession.EventRunFinished,
+		Status: kitsession.RunStatusFailed, ErrorMessage: "Context compaction failed", CompactionFailure: kitsession.CompactionFailureSummaryInvalid,
+	}})
+	if want := (protocol.TurnCompletedEvent{Status: protocol.TurnStatusFailed, ErrorMessage: "Context compaction failed", CompactionFailureReason: protocol.CompactionFailureSummaryInvalid}); turn != want {
+		t.Fatalf("failed turn payload = %#v; want %#v", turn, want)
+	}
+	completed := service.projectSessionEventPayload(kitsession.Event{NewEvent: kitsession.NewEvent{
+		SessionID: "session_test", TurnID: "turn_1", RunID: "turn_1", Kind: kitsession.EventRunFinished, Status: kitsession.RunStatusCompleted,
+	}})
+	if want := (protocol.TurnCompletedEvent{Status: protocol.TurnStatusCompleted}); completed != want {
+		t.Fatalf("completed turn payload = %#v; want %#v", completed, want)
+	}
+}

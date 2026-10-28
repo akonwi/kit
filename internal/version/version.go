@@ -51,6 +51,8 @@ const (
 	// The live stream adds follow_ups.changed and session.configuration.changed;
 	// follow-up queues carry an admissionFailure while a queued message cannot
 	// start; compaction.started and compaction.completed may belong to the
-	// session rather than a turn (ADR 0052).
+	// session rather than a turn (ADR 0052). A failed compaction carries a
+	// classified compactionFailureReason on its events, turn status, and the
+	// compaction_failed operation error instead of error text (ADR 0053).
 	SessionProtocolVersion = 50
 )

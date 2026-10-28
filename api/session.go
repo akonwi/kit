@@ -1440,6 +1440,7 @@ func (r *Turn) Wait(ctx context.Context) (protocol.PromptOutcome, error) {
 			return protocol.PromptOutcome{
 				SessionID: r.sessionID, TurnID: r.turnID,
 				Status: info.Status, ErrorMessage: info.ErrorMessage,
+				CompactionFailureReason: info.CompactionFailureReason,
 			}, nil
 		default:
 			return protocol.PromptOutcome{}, fmt.Errorf("daemon returned unknown turn status %q", info.Status)

@@ -1528,7 +1528,7 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 	case kitsession.EventCompactionCompleted:
 		return protocol.CompactionCompletedEvent{CompactionID: event.CompactionID}
 	case kitsession.EventCompactionFailed:
-		return protocol.CompactionCompletedEvent{CompactionID: event.CompactionID, ErrorMessage: event.ErrorMessage}
+		return protocol.CompactionCompletedEvent{CompactionID: event.CompactionID, CompactionFailureReason: projectCompactionFailure(event.CompactionFailure)}
 	case kitsession.EventProviderRetryScheduled:
 		return protocol.ProviderRetryScheduledEvent{ProviderRetry: providerRetry()}
 	case kitsession.EventProviderRetryStarted:
@@ -1538,7 +1538,7 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 	case kitsession.EventUsageUpdated:
 		return protocol.UsageChangedEvent{Usage: projectSessionUsagePointer(event.Usage)}
 	case kitsession.EventRunFinished:
-		return protocol.TurnCompletedEvent{Status: protocol.TurnStatus(event.Status), ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage}
+		return protocol.TurnCompletedEvent{Status: protocol.TurnStatus(event.Status), ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage, CompactionFailureReason: projectTurnCompactionFailure(event.CompactionFailure)}
 	case kitsession.EventSessionRenamed:
 		return protocol.SessionNameChangedEvent{SessionName: event.SessionName}
 	case kitsession.EventSessionCWDChanged:
@@ -1822,6 +1822,7 @@ func (s runtimeSessionService) Turn(ctx context.Context, sessionID, turnID strin
 	return protocol.TurnInfo{
 		SessionID: record.SessionID, TurnID: record.TurnID,
 		Status: protocol.TurnStatus(record.Status), ErrorMessage: record.Error,
+		CompactionFailureReason: projectTurnCompactionFailure(record.CompactionFailure),
 	}, nil
 }
 
@@ -1834,8 +1835,27 @@ func (s runtimeSessionService) Prompt(ctx context.Context, sessionID string, inp
 		SessionID: result.SessionID, TurnID: result.TurnID,
 		Text: result.Text, StopReason: result.StopReason,
 		Status: protocol.TurnStatus(result.Status), ErrorKind: projectProviderErrorKind(result.ErrorKind),
-		ErrorMessage: result.ErrorMessage,
+		ErrorMessage: result.ErrorMessage, CompactionFailureReason: projectTurnCompactionFailure(result.CompactionFailure),
 	}, nil
+}
+
+// projectCompactionFailure maps a compaction failure onto the wire
+// vocabulary. A reason the wire does not declare is an internal failure, so
+// the server never sends one clients would refuse.
+func projectCompactionFailure(reason kitsession.CompactionFailureReason) protocol.CompactionFailureReason {
+	if projected := protocol.CompactionFailureReason(reason); projected.Valid() {
+		return projected
+	}
+	return protocol.CompactionFailureInternal
+}
+
+// projectTurnCompactionFailure is projectCompactionFailure for a turn, which
+// has no reason unless compaction failed it.
+func projectTurnCompactionFailure(reason kitsession.CompactionFailureReason) protocol.CompactionFailureReason {
+	if reason == "" {
+		return ""
+	}
+	return projectCompactionFailure(reason)
 }
 
 func projectProviderErrorKind(kind kitsession.ProviderErrorKind) protocol.ProviderErrorKind {
@@ -2879,7 +2899,7 @@ func lifecycleAPIError(err error) error {
 	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrDeleteBusy), errors.As(err, new(*kitsession.ConfigurationConflictError)):
 		status, code, message = http.StatusConflict, httpapi.ErrorConflict, "operation conflicts with session state"
 	case errors.Is(err, kitsession.ErrCompactionFailed):
-		status, code, message = http.StatusUnprocessableEntity, httpapi.ErrorUnprocessable, "context compaction failed"
+		return compactionAPIError(err)
 	case errors.Is(err, kitsession.ErrClosed):
 		status, code, message = http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "session is unavailable"
 	case workspaceUnavailable:
@@ -2888,6 +2908,21 @@ func lifecycleAPIError(err error) error {
 		status, code, message = http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request"
 	}
 	apiErr = httpapi.NewAPIError(status, code, message, nil)
+	apiErr.Cause = err
+	return apiErr
+}
+
+// compactionAPIError projects a failed compaction as compaction_failed with
+// its classified reason. Only the reason crosses the boundary; the cause can
+// reflect provider text and stays in the server log.
+func compactionAPIError(err error) *httpapi.APIError {
+	reason := protocol.CompactionFailureInternal
+	var failure *kitsession.CompactionFailedError
+	if errors.As(err, &failure) {
+		reason = projectCompactionFailure(failure.Reason)
+	}
+	apiErr := httpapi.NewAPIError(http.StatusUnprocessableEntity, httpapi.ErrorCompactionFailed, "context compaction failed",
+		protocol.CompactionFailedErrorDetails{Reason: reason})
 	apiErr.Cause = err
 	return apiErr
 }

@@ -342,8 +342,8 @@ func TestSessionCompactionReachesEveryAttachedClient(t *testing.T) {
 		t.Fatal("cancelled compaction succeeded")
 	}
 	ended := watcher.next(session.EventCompactionFailed)
-	if ended.TurnID != "" || ended.CompactionID != "compact_watch_failed" || ended.ErrorMessage == "" {
-		t.Fatalf("failed compaction = %+v", ended)
+	if ended.TurnID != "" || ended.CompactionID != "compact_watch_failed" || ended.CompactionFailure != session.CompactionFailureCanceled || ended.ErrorMessage != "" {
+		t.Fatalf("failed compaction = %+v, want canceled", ended)
 	}
 
 	// Every client sees a successful compaction start before its result

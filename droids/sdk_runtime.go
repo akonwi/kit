@@ -2053,14 +2053,30 @@ func durableError(err *DroidError) *durableDroidError {
 	if err == nil {
 		return nil
 	}
-	return &durableDroidError{Kind: err.Kind, Message: boundedDiagnostic(err.Message), Retryable: err.Retryable}
+	return &durableDroidError{
+		Kind: err.Kind, Message: boundedDiagnostic(err.Message), Retryable: err.Retryable,
+		CompactionFailure: durableCompactionFailure(err.Kind, err.CompactionFailure),
+	}
 }
 
 func expandDurableError(err *durableDroidError) *DroidError {
 	if err == nil {
 		return nil
 	}
-	return &DroidError{Kind: err.Kind, Message: err.Message, Retryable: err.Retryable}
+	return &DroidError{
+		Kind: err.Kind, Message: err.Message, Retryable: err.Retryable,
+		CompactionFailure: durableCompactionFailure(err.Kind, err.CompactionFailure),
+	}
+}
+
+// durableCompactionFailure keeps a declared reason on a compaction failure.
+// A record from a later release may carry a reason this one does not know;
+// it reads as an unclassified compaction failure.
+func durableCompactionFailure(kind DroidErrorKind, reason CompactionFailureReason) CompactionFailureReason {
+	if kind != DroidErrorCompaction || !reason.Valid() {
+		return ""
+	}
+	return reason
 }
 
 func cloneDroidError(err *DroidError) *DroidError {

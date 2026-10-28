@@ -41,18 +41,24 @@ func serveCompactRoute(t *testing.T, err error) (*httptest.ResponseRecorder, str
 	return response, logs.String()
 }
 
-func TestCompactionFailureIsUnprocessableAndLogsCause(t *testing.T) {
-	cause := fmt.Errorf("%w: droids: compaction model stopped with length: ", kitsession.ErrCompactionFailed)
-	response, logs := serveCompactRoute(t, cause)
+func TestCompactionFailureReturnsItsReasonAndLogsCause(t *testing.T) {
+	cause := &kitsession.CompactionFailedError{Reason: kitsession.CompactionFailureSummaryTruncated}
+	response, logs := serveCompactRoute(t, fmt.Errorf("compact: %w", cause))
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d %s", response.Code, response.Body.String())
 	}
-	if got, want := response.Body.String(), `{"error":{"code":"unprocessable","message":"context compaction failed"}}`+"\n"; got != want {
+	if got, want := response.Body.String(), `{"error":{"code":"compaction_failed","details":{"reason":"summary_truncated"},"message":"context compaction failed"}}`+"\n"; got != want {
 		t.Fatalf("body = %q, want %q", got, want)
 	}
-	want := `level=ERROR msg="request failed" method=POST path=/v1/sessions/session_test/compact status=422 error="context compaction failed: droids: compaction model stopped with length: "` + "\n"
+	want := `level=ERROR msg="request failed" method=POST path=/v1/sessions/session_test/compact status=422 error="compact: context compaction failed: summary_truncated"` + "\n"
 	if logs != want {
 		t.Fatalf("logs = %q, want %q", logs, want)
+	}
+
+	// A failure the session layer did not classify is an internal one.
+	response, _ = serveCompactRoute(t, fmt.Errorf("%w: droids: compaction model stopped with length: provider text", kitsession.ErrCompactionFailed))
+	if got, want := response.Body.String(), `{"error":{"code":"compaction_failed","details":{"reason":"internal_error"},"message":"context compaction failed"}}`+"\n"; got != want {
+		t.Fatalf("unclassified body = %q, want %q", got, want)
 	}
 }
 

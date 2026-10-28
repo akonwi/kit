@@ -1280,14 +1280,17 @@ impl Controller {
     self.recovering_run = ""
   }
 
-  // Adds an error row for a turn that did not complete.
+  // Adds an error row for a turn that did not complete. A turn that failed
+  // because its context could not be compacted says why.
   private fn mut report_unsuccessful(info: protocol::TurnInfo) {
     let status = info.Status.to_str()
     if status != "completed" {
       let row = mut transcript::message("", info.TurnID, transcript::Role::assistant)
-      row.text = match info.ErrorMessage == "" {
-        true => "Run {status}",
-        false => info.ErrorMessage,
+      let compaction = info.CompactionFailureReason.to_str()
+      row.text = match {
+        compaction != "" => sessionbridge::CompactionFailedTurnText(compaction),
+        info.ErrorMessage == "" => "Run {status}",
+        _ => info.ErrorMessage,
       }
       row.error_message = info.ErrorMessage
       row.is_error = true
@@ -1836,7 +1839,7 @@ impl Controller {
                             if not self.absorbs(failure) {
                               (self.host.toast)(
                                 "Compaction failed",
-                                failure.error(),
+                                sessionbridge::OperationErrorText(failure),
                                 toast::Variant::error,
                                 true,
                               )
@@ -4330,7 +4333,7 @@ test fn a_session_compaction_is_session_work_until_it_ends() Void!Str {
         Sequence: 2,
         Kind: "compaction.completed",
         CompactionID: "compact_other",
-        ErrorMessage: "context canceled",
+        CompactionFailureReason: "canceled",
       },
     ],
   )
@@ -4791,6 +4794,53 @@ test fn a_final_snapshot_settles_a_turn_that_finished_while_disconnected() Void!
   try testing::assert(subject.live.messages.size() == 0, "the live turn is replaced")
   try testing::assert(subject.run_id == "turn-2", "the successor becomes active")
   testing::assert(subject.recovery_status() == "", "syncing ends")
+}
+
+test fn a_turn_that_compaction_failed_says_why() Void!Str {
+  let effects = mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
+  subject.run_id = "turn-1"
+  subject.live.submit("a", [])
+  subject.settle_run(
+    protocol::TurnInfo{
+      TurnID: "turn-1",
+      Status: protocol::TurnStatusFailed,
+      ErrorMessage: "Context compaction failed",
+      CompactionFailureReason: protocol::CompactionFailureNotAdaptable,
+    },
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["a"], 1),
+    },
+  )
+  let error_row = subject.messages.at(1).expect("error row")
+  let explained = "Context compaction failed. The conversation can't be reduced to fit the model's context."
+  try testing::assert(
+    error_row.is_error and error_row.text == explained,
+    "the row explains the compaction failure: {error_row.text}",
+  )
+  subject.run_id = "turn-2"
+  subject.settle_run(
+    protocol::TurnInfo{
+      TurnID: "turn-2",
+      Status: protocol::TurnStatusFailed,
+      ErrorMessage: "Context compaction failed",
+    },
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["a"], 1),
+    },
+  )
+  let unclassified = subject.messages.at(1).expect("error row")
+  testing::assert(
+    unclassified.text == "Context compaction failed",
+    "a failure recorded without a reason keeps the server's message: {unclassified.text}",
+  )
 }
 
 test fn a_persisted_failure_is_not_reported_twice() Void!Str {

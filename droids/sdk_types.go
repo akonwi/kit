@@ -282,7 +282,10 @@ type DroidError struct {
 	Kind      DroidErrorKind
 	Message   string
 	Retryable bool
-	Cause     error `json:"-"`
+	// CompactionFailure classifies a DroidErrorCompaction failure. It is
+	// empty for other kinds and for failures recorded before it existed.
+	CompactionFailure CompactionFailureReason
+	Cause             error `json:"-"`
 }
 
 // ProviderRetry is the authoritative retry delay for an execution.

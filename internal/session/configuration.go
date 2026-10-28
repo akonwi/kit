@@ -220,7 +220,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 		compaction, err = loaded.droid.CompactContext(ctx, droids.CompactContextOptions{OperationID: operationID, Target: target})
 		announce(err)
 		if err != nil {
-			return ConfigureSessionResult{}, fmt.Errorf("adapt session %q context for %q: %w", sessionID, targetSelector, err)
+			return ConfigureSessionResult{}, fmt.Errorf("adapt session %q context for %q: %w", sessionID, targetSelector, compactionFailure(err))
 		}
 	}
 	replacement, err := m.bundleBuilder.Build(ctx, targetRecord, loaded.workspace.CWD)
@@ -478,9 +478,9 @@ func publishSessionCompaction(events *eventLog, sessionID, operationID string) f
 			publish(NewEvent{SessionID: sessionID, Kind: EventCompactionCompleted, CompactionID: compactionID})
 			return
 		}
-		// rendererSafeLiveError names the failure when err carries no text.
-		message := rendererSafeLiveError(err.Error())
-		publish(NewEvent{SessionID: sessionID, Kind: EventCompactionFailed, CompactionID: compactionID, ErrorMessage: message})
+		// The reason, never the cause's text, which can reflect provider
+		// responses.
+		publish(NewEvent{SessionID: sessionID, Kind: EventCompactionFailed, CompactionID: compactionID, CompactionFailure: compactionFailureReason(err)})
 	}
 }
 
@@ -709,13 +709,36 @@ func (m *Manager) persistSessionConfiguration(ctx context.Context, previous Sess
 	return current, nil
 }
 
+// CompactionFailedError is a compaction that failed for Reason. It matches
+// ErrCompactionFailed. Its cause is diagnostic: it can reflect provider text,
+// so it is logged but never returned to clients.
+type CompactionFailedError struct {
+	Reason CompactionFailureReason
+	cause  error
+}
+
+func (e *CompactionFailedError) Error() string {
+	if e.cause == nil {
+		return ErrCompactionFailed.Error() + ": " + string(e.Reason)
+	}
+	return ErrCompactionFailed.Error() + ": " + e.cause.Error()
+}
+
+// Unwrap returns ErrCompactionFailed and the diagnostic cause.
+func (e *CompactionFailedError) Unwrap() []error { return []error{ErrCompactionFailed, e.cause} }
+
 // compactionFailure classifies a failed compaction attempt while preserving
-// its cause. Admission, lifecycle, and cancellation errors keep their meaning.
+// its cause. A compaction refused as busy or conflicting, or canceled, keeps
+// its admission, lifecycle, or cancellation error. Any other reason is a
+// compaction failure, even when its cause carries one of those errors, as a
+// provider's own timeout carries a deadline.
 func compactionFailure(err error) error {
-	for _, kept := range []error{context.Canceled, context.DeadlineExceeded, droids.ErrBusy, droids.ErrClosed, droids.ErrConflict} {
-		if errors.Is(err, kept) {
-			return err
+	if reason, ok := droids.CompactionFailureOf(err); !ok || reason == droids.CompactionFailureCanceled || reason == droids.CompactionFailureConflict {
+		for _, kept := range []error{context.Canceled, context.DeadlineExceeded, droids.ErrBusy, droids.ErrClosed, droids.ErrConflict} {
+			if errors.Is(err, kept) {
+				return err
+			}
 		}
 	}
-	return fmt.Errorf("%w: %w", ErrCompactionFailed, err)
+	return &CompactionFailedError{Reason: compactionFailureReason(err), cause: err}
 }

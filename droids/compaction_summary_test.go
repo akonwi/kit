@@ -265,6 +265,8 @@ type compactionTestProvider struct {
 	normalCount     int
 	summaryResponse func(int) AssistantMessage
 	normalResponse  func(int) AssistantMessage
+	// summaryErr fails summary requests before they stream.
+	summaryErr error
 }
 
 func newCompactionTestProvider(window int) *compactionTestProvider {
@@ -291,6 +293,9 @@ func (p *compactionTestProvider) Stream(_ context.Context, _ Model, request Requ
 	}
 	if request.SystemPrompt != "normal system" {
 		p.summaryCount++
+		if p.summaryErr != nil {
+			return nil, p.summaryErr
+		}
 		message = p.summaryMessage()
 		if p.summaryResponse != nil {
 			message = p.summaryResponse(p.summaryCount)

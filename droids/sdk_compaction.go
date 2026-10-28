@@ -20,7 +20,7 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	sourceCheckpoint := rt.state.CheckpointID
 	rt.mu.Unlock()
 	if err != nil {
-		return rt.recordCompactionFailure(turnID, err)
+		return rt.recordCompactionFailure(ctx, turnID, err)
 	}
 	messages := make([]Message, 0, len(envelopes))
 	for _, envelope := range envelopes {
@@ -29,7 +29,7 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	configuration := rt.currentRequestConfiguration()
 	usage, err := rt.measureContextWithConfiguration(ctx, rt.provider, rt.droid.model, configuration.reasoning, configuration.maxTokens, messages, configuration, history)
 	if err != nil {
-		return rt.recordCompactionFailure(turnID, err)
+		return rt.recordCompactionFailure(ctx, turnID, err)
 	}
 	rt.mu.Lock()
 	recovering := rt.state.Compaction != nil && rt.state.Compaction.TurnID == turnID && rt.state.Compaction.ID != ""
@@ -43,10 +43,10 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 
 	prefixEnds, err := compactionPrefixEnds(messages, unconsumedCompactionTail(messages))
 	if err != nil {
-		return rt.recordCompactionFailure(turnID, err)
+		return rt.recordCompactionFailure(ctx, turnID, err)
 	}
 	if len(prefixEnds) == 0 {
-		return rt.recordCompactionFailure(turnID, ErrContextNotAdaptable)
+		return rt.recordCompactionFailure(ctx, turnID, ErrContextNotAdaptable)
 	}
 
 	rt.mu.Lock()
@@ -81,20 +81,20 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	}
 	compacted, err := rt.compactContext(ctx, target, contextWire, usage, usage, configuration, turnID)
 	if err != nil {
-		return rt.recordCompactionFailure(turnID, err)
+		return rt.recordCompactionFailure(ctx, turnID, err)
 	}
 	checkpointID, err := newCheckpointID()
 	if err != nil {
-		return rt.recordCompactionFailure(turnID, err)
+		return rt.recordCompactionFailure(ctx, turnID, err)
 	}
 
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if rt.state.TurnID != turnID || rt.state.CheckpointID != sourceCheckpoint || !sameContext(rt.state.Context, contextWire) {
-		return fmt.Errorf("droids: active context changed during compaction")
+		return classifyCompactionFailure(nil, fmt.Errorf("droids: active context changed during compaction: %w", ErrConflict))
 	}
 	if rt.currentRequestConfiguration() != configuration {
-		return rt.recordCompactionFailureLocked(turnID, fmt.Errorf("droids: request configuration changed during compaction: %w", ErrConflict))
+		return rt.recordCompactionFailureLocked(ctx, classifyCompactionFailure(ctx, fmt.Errorf("droids: request configuration changed during compaction: %w", ErrConflict)), turnID)
 	}
 	before, err := cloneDurableRuntime(rt.state)
 	if err != nil {
@@ -169,7 +169,7 @@ func (rt *sdkRuntime) measureContextWithConfiguration(
 	if measurer, ok := provider.(ContextMeasurer); ok {
 		usage, err := measurer.MeasureContext(ctx, model, request)
 		if err != nil {
-			return ContextUsage{}, err
+			return ContextUsage{}, compactionFailed(CompactionFailureProviderError, err)
 		}
 		usage.Model = model.metadata()
 		return usage, nil
@@ -205,17 +205,29 @@ func sdkShouldCompact(usage ContextUsage) bool {
 	return false
 }
 
-func (rt *sdkRuntime) recordCompactionFailure(turnID TurnID, failure error) error {
-	if errors.Is(failure, context.Canceled) || errors.Is(failure, context.DeadlineExceeded) {
-		return failure
+// recordCompactionFailure records the classified failure of the turn's
+// compaction and returns it. A compaction its context canceled is not
+// recorded: the turn it belongs to ends as aborted or interrupted instead.
+func (rt *sdkRuntime) recordCompactionFailure(ctx context.Context, turnID TurnID, failure error) error {
+	classified := classifyCompactionFailure(ctx, failure)
+	if canceledByContext(ctx, classified) {
+		return classified
 	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	return rt.recordCompactionFailureLocked(turnID, failure)
+	return rt.recordCompactionFailureLocked(ctx, classified, turnID)
 }
 
-func (rt *sdkRuntime) recordCompactionFailureLocked(turnID TurnID, failure error) error {
-	if errors.Is(failure, context.Canceled) || errors.Is(failure, context.DeadlineExceeded) {
+// canceledByContext reports a cancellation of the compaction itself: its
+// context ended, or the failure is a context error. A provider's own report
+// that it stopped is not one.
+func canceledByContext(ctx context.Context, failure *CompactionError) bool {
+	return failure.Reason == CompactionFailureCanceled &&
+		(ctx != nil && ctx.Err() != nil || errors.Is(failure, context.Canceled) || errors.Is(failure, context.DeadlineExceeded))
+}
+
+func (rt *sdkRuntime) recordCompactionFailureLocked(ctx context.Context, failure *CompactionError, turnID TurnID) error {
+	if canceledByContext(ctx, failure) {
 		return failure
 	}
 	compactionID := ""
@@ -226,27 +238,18 @@ func (rt *sdkRuntime) recordCompactionFailureLocked(turnID TurnID, failure error
 		var err error
 		compactionID, err = newID("compact_")
 		if err != nil {
-			return errorsJoin(failure, err)
+			return errors.Join(failure, err)
 		}
 	}
 	before := rt.state.Compaction
 	rt.state.Compaction = nil
 	event, _ := lifecycleEvent("compaction.failed", turnID, rt.state.AttemptID, map[string]any{
 		"compaction_id": compactionID, "error": safeRuntimeError(DroidErrorCompaction, failure),
+		"reason": failure.Reason,
 	})
 	if err := rt.commitLocked(context.Background(), nil, []EncodedDurableEvent{event}); err != nil {
 		rt.state.Compaction = before
-		return errorsJoin(failure, err)
+		return errors.Join(failure, err)
 	}
 	return failure
-}
-
-func errorsJoin(first, second error) error {
-	if first == nil {
-		return second
-	}
-	if second == nil {
-		return first
-	}
-	return fmt.Errorf("%v: %w", first, second)
 }

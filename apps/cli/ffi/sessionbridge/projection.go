@@ -60,6 +60,10 @@ type Event struct {
 	FollowUps *protocol.FollowUpQueue
 	// CompactionID identifies the compaction a compaction event reports.
 	CompactionID string
+	// CompactionFailureReason is why a compaction failed, on its
+	// compaction.completed event and on the turn.completed of a turn it
+	// failed.
+	CompactionFailureReason string
 }
 
 // Content is the client-owned flat projection of transcript content.
@@ -164,10 +168,12 @@ func Events(source []protocol.SessionEvent) []Event {
 			projected.AnnotationIDs = payload.AnnotationIDs
 		case protocol.TurnCompletedEvent:
 			projected.Status, projected.ErrorMessage = string(payload.Status), payload.ErrorMessage
+			projected.CompactionFailureReason = string(payload.CompactionFailureReason)
 		case protocol.CompactionStartedEvent:
 			projected.CompactionID = payload.CompactionID
 		case protocol.CompactionCompletedEvent:
-			projected.CompactionID, projected.ErrorMessage = payload.CompactionID, payload.ErrorMessage
+			projected.CompactionID = payload.CompactionID
+			projected.CompactionFailureReason = string(payload.CompactionFailureReason)
 		case protocol.SessionNameChangedEvent:
 			projected.SessionName = payload.SessionName
 		case protocol.SessionConfigurationChangedEvent:
