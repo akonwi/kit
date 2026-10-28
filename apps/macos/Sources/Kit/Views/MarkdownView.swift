@@ -431,7 +431,10 @@ private struct MarkdownTable: View {
                     GridRow(alignment: .top) { self.cells(cells, header: false) }
                     Rule().gridCellUnsizedAxes(.horizontal)
                 }
-            }.fixedSize(horizontal: true, vertical: false)
+            }
+            // Rows take their tallest cell's height rather than sharing out any
+            // extra height a parent proposes to the cells stretched below.
+            .fixedSize()
         }
         .background(theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -449,6 +452,9 @@ private struct MarkdownTable: View {
                 .containerRelativeFrame(.horizontal, alignment: alignment(index)) { width, _ in
                     MarkdownTableSizing.columnWidth(viewport: width, columns: table.header.count)
                 }
+                // Fill the row's height so a row's background is one band
+                // when its cells wrap to different heights.
+                .frame(maxHeight: .infinity, alignment: .top)
                 .background(header ? theme.raised : theme.surface)
         }
     }
