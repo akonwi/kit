@@ -91,10 +91,16 @@ family. The working directory isn't in the sidebar; the session bar shows it.
   the family's rail runs under that title. Indentation stops after three
   levels; deeper sessions share the third level's rail.
 - Top tabs stay flat, in the window's tab order. Dragging a top tab moves it
-  alone, not its family; an accent bar marks the gap it will land in, among
-  the tabs in view, and Esc cancels. VoiceOver's Move Left and Move Right do
-  the same. The sidebar's tree follows the new order, and dragging a sidebar
-  family regroups the strip. The order is restored on relaunch.
+  alone, not its family. The held tab lifts, raised with a shadow, and slides
+  along the strip with the pointer. Its empty slot is where it will land: a
+  neighbor slides aside into it once the held tab is nearer the neighbor's
+  place than its own. Holding
+  the tab at an edge of an overflowing strip scrolls the strip, faster the
+  farther past the edge the pointer goes, so a tab can move anywhere. Letting
+  go glides the tab into its slot without selecting it, and Esc returns it to
+  where it started. VoiceOver's Move Left and Move Right move a tab too. The
+  sidebar's tree follows the new order, and dragging a sidebar family
+  regroups the strip. The order is restored on relaunch.
 - A 1 pt hairline divides inactive top tabs. It hides beside the selected tab,
   which is raised in the tile surface, and beside the hovered tab.
 - A tab doesn't name another server. Its tooltip and spoken name do ("On

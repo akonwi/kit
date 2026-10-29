@@ -105,83 +105,153 @@ import Testing
         #expect(model.tabs.map { SessionTabStrip.project(of: $0, selected: selected) } == [nil, nil, "ard", "kit"])
     }
 
-    @Test func aDragWhoseTabClosesEnds() {
-        let drag = SessionTabStripDrag()
-        let kept = UUID(), closed = UUID()
-        drag.update(closed, gap: 2)
-        drag.forget(keeping: [kept, closed])
-        #expect(drag.id == closed && drag.gap == 2)
-        drag.forget(keeping: [kept])
-        #expect(drag.id == nil && drag.gap == nil)
-        drag.update(kept, gap: 0)
-        #expect(drag.id == kept)
-        // A cancelled drag whose tab closes doesn't swallow a later drag.
-        #expect(drag.cancel())
-        drag.forget(keeping: [])
-        drag.update(kept, gap: 1)
-        #expect(drag.id == kept && drag.gap == 1)
-    }
-
-    @Test func dividersHideBesideTheSelectedAndHoveredTabsAndTheDropGap() {
-        let ids = (0..<5).map { _ in UUID() }
-        func dividers(selected: Int, hovered: Int? = nil, drop: Int? = nil) -> [Bool] {
-            (0..<4).map { SessionTabStrip.showsDivider(after: $0, of: ids, selected: ids[selected],
-                                                       hovered: hovered.map { ids[$0] }, dropGap: drop) }
-        }
-        #expect(dividers(selected: 1) == [false, false, true, true])
-        #expect(dividers(selected: 1, hovered: 3) == [false, false, false, false])
-        #expect(dividers(selected: 0, drop: 3) == [false, true, false, true])
-        #expect(dividers(selected: 4) == [true, true, true, false])
-    }
-
     /// Five tabs at the strip's pitch: 220 pt with 9 pt between.
     private let spans: [ClosedRange<CGFloat>] = (0..<5).map { index in
         let minX = CGFloat(index) * 229
         return minX...(minX + 220)
     }
 
-    @Test func aDragDropsInTheGapBetweenTheMiddlesAroundThePointer() {
-        let visible: ClosedRange<CGFloat> = 0...1200
-        #expect(SessionTabStrip.dropGap(at: 400, dragging: 0, frames: spans, visible: visible) == 2)
-        #expect(SessionTabStrip.dropGap(at: 1100, dragging: 0, frames: spans, visible: visible) == 5)
-        #expect(SessionTabStrip.dropGap(at: 10, dragging: 3, frames: spans, visible: visible) == 0)
-        // The gaps on either side of the dragged tab leave it in place.
-        #expect(SessionTabStrip.dropGap(at: 300, dragging: 0, frames: spans, visible: visible) == nil)
-        #expect(SessionTabStrip.dropGap(at: 120, dragging: 0, frames: spans, visible: visible) == nil)
+    @Test func dividersHideBesideTheSelectedAndHoveredTabsAndTheHeldTabsSlot() {
+        let ids = (0..<5).map { _ in UUID() }
+        func dividers(selected: Int, hovered: Int? = nil, held: Int? = nil) -> [Bool] {
+            (0..<4).map { SessionTabStrip.showsDivider(after: $0, of: ids, selected: ids[selected],
+                                                       hovered: hovered.map { ids[$0] }, held: held.map { ids[$0] }) }
+        }
+        #expect(dividers(selected: 1) == [false, false, true, true])
+        #expect(dividers(selected: 1, hovered: 3) == [false, false, false, false])
+        #expect(dividers(selected: 0, held: 3) == [false, true, false, false])
+        #expect(dividers(selected: 4) == [true, true, true, false])
     }
 
-    @Test func aDragPastAScrolledEdgeStaysAmongTheTabsInView() {
-        // Gaps sit at 0, 224.5, 453.5, 682.5, 911.5 and 1136.
-        #expect(SessionTabStrip.dropGap(at: 1100, dragging: 0, frames: spans, visible: 0...500) == 2)
-        #expect(SessionTabStrip.dropGap(at: 0, dragging: 4, frames: spans, visible: 300...800) == 2)
-        #expect(SessionTabStrip.position(ofGap: 2, in: spans) == 453.5)
-        #expect(SessionTabStrip.position(ofGap: 0, in: spans) == 0)
-        #expect(SessionTabStrip.position(ofGap: 5, in: spans) == 1136)
+    @Test func theTabsAHeldTabPassesMakeWayForIt() {
+        let tabs = ["a", "b", "c", "d", "e"]
+        #expect(SessionTabStrip.arranged(tabs, moving: 1, to: 3) == ["a", "c", "d", "b", "e"])
+        #expect(SessionTabStrip.arranged(tabs, moving: 3, to: 0) == ["d", "a", "b", "c", "e"])
+        #expect(SessionTabStrip.arranged(tabs, moving: 2, to: 2) == tabs)
+        // Dropping there moves the tab into the gap that gives the same order.
+        #expect(SessionTabStrip.gap(moving: 1, to: 3) == 4)
+        #expect(SessionTabStrip.gap(moving: 3, to: 0) == 0)
+        #expect(SessionTabStrip.gap(moving: 2, to: 2) == nil)
     }
 
-    @Test func dropsAvoidTheEdgeFadesThatAreShowing() {
+    @Test func aNeighborMakesWayOnceTheLiftedTabIsNearerItsPlace() {
+        // Slots start every 229 pt; tab 1 starts at 229.
+        #expect(SessionTabStrip.target(of: 229, among: spans) == 1)
+        // 114 pt right, it is nearer its own slot; 115 pt right, the next one's.
+        #expect(SessionTabStrip.target(of: 343, among: spans) == 1)
+        #expect(SessionTabStrip.target(of: 344, among: spans) == 2)
+        #expect(SessionTabStrip.target(of: 115, among: spans) == 1)
+        #expect(SessionTabStrip.target(of: 114, among: spans) == 0)
+        #expect(SessionTabStrip.target(of: 2000, among: spans) == 4)
+    }
+
+    @Test func theLiftedCopyFollowsThePointerWithinTheTabsAndClearOfTheFades() {
+        #expect(SessionTabStrip.liftedLeading(329, width: 220, among: spans, visible: 0...1200) == 329)
+        // It stops at the first tab's leading edge and the last tab's trailing edge.
+        #expect(SessionTabStrip.liftedLeading(-171, width: 220, among: spans, visible: 0...1200) == 0)
+        #expect(SessionTabStrip.liftedLeading(2229, width: 220, among: spans, visible: 0...1200) == 916)
+        // When tabs overflow, it stops short of the edge fades, where the strip scrolls.
+        #expect(SessionTabStrip.liftedLeading(2229, width: 220, among: spans, visible: 0...404) == 184)
+        #expect(SessionTabStrip.liftedLeading(-171, width: 220, among: spans, visible: 332...704) == 332)
+        // In a clear span narrower than the tab, it stops once it no longer covers the span.
+        #expect(SessionTabStrip.liftedLeading(250, width: 220, among: spans, visible: 300...400) == 250)
+        #expect(SessionTabStrip.liftedLeading(329, width: 220, among: spans, visible: 300...400) == 300)
+        #expect(SessionTabStrip.liftedLeading(100, width: 220, among: spans, visible: 300...400) == 180)
         #expect(SessionTabStrip.clearSpan(offset: 300, viewport: 500, fadingBefore: 32, fadingAfter: 96) == 332...704)
         #expect(SessionTabStrip.clearSpan(offset: 0, viewport: 500, fadingBefore: 0, fadingAfter: 96) == 0...404)
         #expect(SessionTabStrip.clearSpan(offset: 0, viewport: 100, fadingBefore: 32, fadingAfter: 96) == nil)
-        // With the trailing fade, the third gap (453.5) is out of reach.
-        #expect(SessionTabStrip.dropGap(at: 1100, dragging: 0, frames: spans, visible: 0...404) == nil)
-        #expect(SessionTabStrip.dropGap(at: 1100, dragging: 3, frames: spans, visible: 0...404) == 1)
     }
 
-    @Test func escapeCancelsADragUntilItEnds() {
+    @Test func theStripScrollsFasterTheFartherPastTheEdgeThePointerIs() {
+        #expect(SessionTabStrip.scrollSpeed(past: 0) == 0)
+        #expect(SessionTabStrip.scrollSpeed(past: 20) == 200)
+        #expect(SessionTabStrip.scrollSpeed(past: -60) == -600)
+        #expect(SessionTabStrip.scrollSpeed(past: 500) == 1200)
+        #expect(SessionTabStrip.scrollSpeed(past: -500) == -1200)
+    }
+
+    @Test func aDroppedTabSettlesIntoTheSlotItWasHeldOver() {
         let drag = SessionTabStripDrag()
         let tab = UUID()
-        drag.update(tab, gap: 2)
-        #expect(drag.id == tab && drag.gap == 2)
+        #expect(drag.begin(tab, at: 1, slots: spans, grab: 40))
+        #expect(drag.dragging && drag.origin == 1 && drag.target == 1)
+        drag.follow(leading: 600, overshoot: 0, edge: 0)
+        drag.retarget(3)
+        #expect(drag.drop(tab) == (true, 4))
+        // The tab order now has it in its new place; the copy glides there.
+        #expect(!drag.dragging && drag.settling && drag.origin == 3 && drag.target == 3)
+        drag.settle()
+        #expect(drag.leading == 687)
+        // Its gesture's end, also reported, doesn't drop it again.
+        #expect(drag.drop(tab) == (false, nil))
+        drag.finish(tab)
+        #expect(drag.id == nil && drag.leading == nil && !drag.settling)
+    }
+
+    @Test func lettingGoOfADraggedTabDoesntClickIt() {
+        let drag = SessionTabStripDrag()
+        let tab = UUID(), other = UUID()
+        #expect(!drag.claimsRelease(of: tab))
+        #expect(drag.begin(tab, at: 1, slots: spans, grab: 40))
+        // The button may see the release before the drag ends, or after.
+        #expect(drag.claimsRelease(of: tab) && !drag.claimsRelease(of: other))
+        _ = drag.drop(tab)
+        drag.finish(tab)
+        #expect(drag.claimsRelease(of: tab))
+        drag.released(tab)
+        #expect(!drag.claimsRelease(of: tab))
+    }
+
+    @Test func escapeReturnsTheHeldTabUntilTheDragEnds() {
+        let drag = SessionTabStripDrag()
+        let tab = UUID()
+        #expect(drag.begin(tab, at: 2, slots: spans, grab: 40))
+        drag.follow(leading: 10, overshoot: -30, edge: -1)
+        drag.retarget(0)
         #expect(drag.cancel())
-        #expect(drag.id == nil && drag.gap == nil)
-        // The gesture keeps reporting until the button is released.
-        drag.update(tab, gap: 3)
-        #expect(drag.id == nil)
-        #expect(drag.end(tab, gap: 3) == nil)
-        drag.update(tab, gap: 1)
-        #expect(drag.end(tab, gap: 1) == 1)
+        #expect(!drag.dragging && drag.target == 2 && drag.edge == 0)
+        drag.settle()
+        #expect(drag.leading == 458)
+        drag.finish(tab)
+        // The gesture keeps reporting until the button is released, or the
+        // gesture is cancelled.
+        #expect(!drag.begin(tab, at: 2, slots: spans, grab: 40))
+        #expect(drag.drop(tab) == (false, nil))
+        #expect(drag.begin(tab, at: 2, slots: spans, grab: 40))
+        #expect(drag.cancel())
         #expect(!drag.cancel())
+    }
+
+    @Test func aDragEndsWhenTheTabsChange() {
+        let ids = (0..<5).map { _ in UUID() }
+        let drag = SessionTabStripDrag()
+        #expect(drag.begin(ids[1], at: 1, slots: spans, grab: 40))
+        #expect(drag.holds(ids))
+        // Moving other tabs past it keeps it.
+        let swapped = [ids[0], ids[1], ids[3], ids[2], ids[4]]
+        drag.forget(keeping: swapped)
+        #expect(drag.holds(swapped))
+        // Moving it ends it, as does another tab opening, and its gesture's
+        // later reports are ignored.
+        let moved = [ids[1], ids[0], ids[2], ids[3], ids[4]]
+        #expect(!drag.holds(moved))
+        drag.forget(keeping: moved)
+        #expect(drag.id == nil)
+        #expect(!drag.begin(ids[1], at: 0, slots: spans, grab: 40))
+        #expect(drag.drop(ids[1]) == (false, nil))
+        #expect(drag.begin(ids[1], at: 1, slots: spans, grab: 40))
+        #expect(!drag.holds(ids + [UUID()]))
+        drag.forget(keeping: ids + [UUID()])
+        #expect(drag.id == nil)
+        #expect(drag.drop(ids[1]) == (false, nil))
+        // A held tab that closes ends its drag; a cancelled one doesn't swallow a later drag.
+        #expect(drag.begin(ids[2], at: 2, slots: spans, grab: 40))
+        drag.forget(keeping: ids.filter { $0 != ids[2] })
+        #expect(drag.id == nil)
+        #expect(drag.begin(ids[0], at: 0, slots: spans, grab: 40))
+        #expect(drag.cancel())
+        drag.forget(keeping: [])
+        #expect(drag.begin(ids[0], at: 0, slots: spans, grab: 40))
     }
 
     @Test func anotherServersTabNamesItInItsTooltipAndSpokenName() {
