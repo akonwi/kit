@@ -92,7 +92,7 @@ func ShowOutput(call Call, result Result, running bool) Output {
 		case running:
 			blocks = append(blocks, code("", result.Text))
 		case unifiedDiff(result.Text):
-			blocks = append(blocks, diffBlocks(result.Text)...)
+			blocks = append(blocks, diffBlocks(result.Text, false)...)
 		default:
 			blocks = append(blocks, code(dumpedFile(command), result.Text))
 		}
@@ -287,9 +287,21 @@ func unifiedDiff(output string) bool {
 	return header && hunk
 }
 
+// FencedDiff splits a Markdown diff fence's source into the runs tool output
+// shows for a unified diff. Lines before any file header are diff lines, so a
+// snippet without headers or hunks reads as changes.
+func FencedDiff(source string) []Block {
+	if strings.TrimRight(source, "\n") == "" {
+		return []Block{}
+	}
+	return diffBlocks(source, true)
+}
+
 // diffBlocks splits a unified diff into runs of lines of one kind. Context
-// lines keep a blank marker so their text aligns with changed lines.
-func diffBlocks(output string) []Block {
+// lines keep a blank marker so their text aligns with changed lines. Lines
+// from a file header up to its hunk, or its `+++` line, are header lines;
+// inHunk is whether lines before any header are diff lines instead.
+func diffBlocks(output string, inHunk bool) []Block {
 	blocks := []Block{}
 	add := func(kind, marker, line string) {
 		if last := len(blocks) - 1; last >= 0 && blocks[last].Kind == kind && blocks[last].Marker == marker {
@@ -299,7 +311,6 @@ func diffBlocks(output string) []Block {
 		blocks = append(blocks, Block{Kind: kind, Text: line, Marker: marker})
 	}
 	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
-	inHunk := false
 	for index, line := range lines {
 		next := ""
 		if index+1 < len(lines) {
@@ -312,7 +323,8 @@ func diffBlocks(output string) []Block {
 			inHunk = true
 			add(BlockHunk, "", line)
 		case fileHeader || !inHunk:
-			inHunk = false
+			// A header ends at its new path; what follows is its hunk.
+			inHunk = strings.HasPrefix(line, "+++ ")
 			add(BlockHeader, "", line)
 		case strings.HasPrefix(line, "-"):
 			add(BlockRemoved, "-", line[1:])

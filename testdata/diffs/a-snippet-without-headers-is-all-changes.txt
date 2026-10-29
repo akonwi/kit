@@ -1,0 +1,4 @@
+context server:
+removed   retries: 3
+added   retries: 5
+context   timeout: 30s

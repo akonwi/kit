@@ -1,0 +1,10 @@
+header diff --git a/Sources/Kit/Models/TileArrangement.swift b/Sources/Kit/Models/TileArrangement.swift
+header index 3f2a1c4..9b7e0d2 100644
+header --- a/Sources/Kit/Models/TileArrangement.swift
+header +++ b/Sources/Kit/Models/TileArrangement.swift
+hunk @@ -12,6 +12,7 @@ struct TileArrangement {
+context     var tiles: [Tile]
+removed     let version = 1
+added     let version = 2
+added     var layouts: [String: TileLayout]?
+context     var focused: Tile.ID?

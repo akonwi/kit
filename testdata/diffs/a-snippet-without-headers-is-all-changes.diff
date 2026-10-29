@@ -1,0 +1,4 @@
+server:
+-  retries: 3
++  retries: 5
+   timeout: 30s

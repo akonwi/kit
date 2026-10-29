@@ -1,0 +1,13 @@
+diff --git a/a.go b/a.go
+--- a/a.go
++++ b/a.go
+@@ -1 +1 @@
+-a
++b
+diff --git a/b.go b/b.go
+new file mode 100644
+--- /dev/null
++++ b/b.go
+@@ -0,0 +1,2 @@
++package b
++

@@ -1015,3 +1015,78 @@ test fn a_quote_rail_runs_beside_every_row() Void!Str {
     ["│ one", "│ two", "│ a line long enough to", "│ wrap in a narrow pane", ""],
   )
 }
+
+fn style_at(terminal: headless::TestApp, x: Int, y: Int) ui::TextStyle {
+  terminal.frame().cell(x, y).expect("cell {x},{y}").style
+}
+
+fn has_color(color: ui::Color?, expected: ui::Color) Bool {
+  match color {
+    value => same_color(value, expected),
+    _ => false,
+  }
+}
+
+test fn diff_fence_draws_the_rows_tool_output_gives_a_unified_diff() Void!Str {
+  let terminal = mount(
+    "```diff\ndiff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n```",
+    30,
+    8,
+  )
+  defer terminal.destroy()
+  try expect_prefix_rows(
+    terminal,
+    [
+      " diff --git a/x b/x",
+      " --- a/x",
+      " +++ b/x",
+      " @@ -1,2 +1,2 @@",
+      "   keep",
+      " - old",
+      " + new",
+    ],
+  )
+  let colors = theme::system()
+  try testing::assert(style_at(terminal, 1, 0).bold, "file header lines are bold")
+  try testing::assert(style_at(terminal, 1, 2).bold, "the header runs to its +++ line")
+  try testing::assert(has_color(style_at(terminal, 1, 3).foreground, colors.muted), "the hunk is muted")
+  try testing::assert(
+    has_color(style_at(terminal, 3, 4).background, colors.surface),
+    "context sits on the code fill",
+  )
+  try testing::assert(
+    has_color(style_at(terminal, 1, 5).foreground, colors.danger_text),
+    "removed marker",
+  )
+  try testing::assert(has_color(style_at(terminal, 3, 5).background, colors.diff_removed), "removed fill")
+  try testing::assert(has_color(style_at(terminal, 1, 6).foreground, colors.success_text), "added marker")
+  testing::assert(
+    has_color(style_at(terminal, 29, 6).background, colors.diff_added),
+    "the added fill spans the row",
+  )
+}
+
+test fn diff_fence_wraps_a_changed_line_under_its_text() Void!Str {
+  let terminal = mount("```patch\n retry:\n+  backoff: exponential, from 200ms\n```", 28, 4)
+  defer terminal.destroy()
+  try expect_prefix_rows(terminal, ["   retry:", " +   backoff: exponential,", "   from 200ms"])
+  let colors = theme::system()
+  try testing::assert(
+    has_color(style_at(terminal, 1, 2).background, colors.diff_added),
+    "the marker lane keeps the fill",
+  )
+  testing::assert(
+    has_color(style_at(terminal, 3, 2).background, colors.diff_added),
+    "wrapped text keeps the fill",
+  )
+}
+
+test fn streaming_diff_fence_draws_rows_as_lines_arrive() Void!Str {
+  let terminal = mount("Change:\n\n```diff\n-old\n+ne", 20, 5)
+  defer terminal.destroy()
+  try expect_prefix_rows(terminal, ["Change:", "", " - old", " + ne"])
+  testing::assert(
+    has_color(style_at(terminal, 3, 3).background, theme::system().diff_added),
+    "added fill",
+  )
+}

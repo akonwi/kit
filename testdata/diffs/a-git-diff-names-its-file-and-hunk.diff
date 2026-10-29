@@ -1,0 +1,10 @@
+diff --git a/Sources/Kit/Models/TileArrangement.swift b/Sources/Kit/Models/TileArrangement.swift
+index 3f2a1c4..9b7e0d2 100644
+--- a/Sources/Kit/Models/TileArrangement.swift
++++ b/Sources/Kit/Models/TileArrangement.swift
+@@ -12,6 +12,7 @@ struct TileArrangement {
+     var tiles: [Tile]
+-    let version = 1
++    let version = 2
++    var layouts: [String: TileLayout]?
+     var focused: Tile.ID?

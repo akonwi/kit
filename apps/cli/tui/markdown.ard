@@ -4,6 +4,7 @@ use cooper/ui
 use go:github.com/akonwi/kit/internal/hyperlink
 use go:github.com/akonwi/kit/internal/markdown as parser
 use kit/tui/code
+use kit/tui/diff_fence
 use kit/tui/figure
 use kit/tui/mermaid
 use kit/tui/theme
@@ -444,6 +445,9 @@ private fn render_block(
     },
     block.Kind == parser::BlockCode and complete and figure::is_figure(block.Info) => {
       figure::view(themes, "{id}:{block_index}", block.Info, block.Code, base, semantic)
+    },
+    block.Kind == parser::BlockCode and semantic and diff_fence::is_diff(block.Language) => {
+      diff_fence::view(themes, "{id}:{block_index}", block.Code, base)
     },
     block.Kind == parser::BlockHeading => {
       rich_text(

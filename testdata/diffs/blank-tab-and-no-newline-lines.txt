@@ -1,0 +1,6 @@
+hunk @@ -4,4 +4,4 @@
+context first
+context 
+removed 	indented
+added 	re-indented
+context \ No newline at end of file

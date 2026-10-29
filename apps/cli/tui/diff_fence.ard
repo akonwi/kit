@@ -1,0 +1,106 @@
+use cooper/cui
+use cooper/ui
+use go:kit/ffi/toolpresentation
+use kit/tui/theme
+use go:strings
+
+// Diff fences in Markdown (```diff and ```patch), drawn with the rows tool
+// output gives a unified diff: file header lines bold, hunk lines muted, and
+// removed and added lines on the diff fills with their marker in its own
+// lane. Long lines wrap under their text, not under the marker. Rows are
+// line-local, so a fence still streaming draws as its lines arrive.
+
+// Whether a fenced code block's language is a diff.
+fn is_diff(language: Str) Bool {
+  let name = strings::ToLower(strings::TrimSpace(language))
+  name == "diff" or name == "patch"
+}
+
+fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle) cui::View {
+  let colors = themes.current()
+  let rows = mut List::new<cui::View>()
+  for block in toolpresentation::FencedDiff(source) {
+    for line in strings::Split(block.Text, "\n") {
+      rows.push(
+        row(colors, "diff:{id}:{rows.size()}", block, strings::ReplaceAll(line, "\t", "  "), base),
+      )
+    }
+  }
+  cui::box(rows.@, key: "diff:{id}", styles: ui::style(flex_direction: ui::FlexDirection::column))
+}
+
+// One source line: header and hunk lines start at the inset, and diff lines
+// put their marker in a two-cell lane before the text.
+private fn row(
+  colors: theme::Theme,
+  key: Str,
+  block: toolpresentation::Block,
+  text: Str,
+  base: ui::TextStyle,
+) cui::View {
+  // Kinds are toolpresentation's Block* constants.
+  let fill = match block.Kind {
+    "removed" => colors.diff_removed,
+    "added" => colors.diff_added,
+    _ => colors.surface,
+  }
+  let style = mut base
+  style.background = fill
+  match block.Kind {
+    "header" => {
+      style.bold = true
+      ()
+    },
+    "hunk" => {
+      style.foreground = Maybe::new(colors.muted)
+      ()
+    },
+    _ => (),
+  }
+  let marker_color = match block.Kind {
+    "removed" => Maybe::new(colors.danger_text),
+    "added" => Maybe::new(colors.success_text),
+    _ => Maybe::new<ui::Color>(),
+  }
+  let children = mut List::new<cui::View>()
+  if block.Marker != "" {
+    let marker = mut base
+    marker.background = fill
+    marker.foreground = marker_color
+    children.push(
+      cui::text(
+        "{block.Marker} ",
+        text_style: marker.@,
+        wrap: ui::TextWrap::none,
+        styles: ui::style(flex_shrink: 0.0),
+      ),
+    )
+  }
+  children.push(
+    cui::text(
+      match text == "" {
+        true => " ",
+        false => text,
+      },
+      text_style: style.@,
+      wrap: ui::TextWrap::word,
+      selectable: true,
+      selection_style: theme::selection_style(colors),
+      styles: ui::style(flex_shrink: 1.0),
+    ),
+  )
+  cui::box(
+    children.@,
+    key: key,
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::row,
+      background: fill,
+      padding: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(1),
+        bottom: ui::cells(0),
+        left: ui::cells(1),
+      },
+    ),
+  )
+}

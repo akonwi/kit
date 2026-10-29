@@ -560,6 +560,8 @@ struct CodeBlock: View {
                 .font(.kit(size: 12, design: .monospaced)).foregroundStyle(theme.text).lineSpacing(3)
                 .textSelection(.enabled)
                 .compactFence()
+        } else if UnifiedDiff.isFenceLanguage(language) {
+            DiffFence(language: language, source: source)
         } else {
             FenceCard(label: language.isEmpty ? "CODE" : language.uppercased(), copy: source) {
                 ScrollView(.horizontal) {

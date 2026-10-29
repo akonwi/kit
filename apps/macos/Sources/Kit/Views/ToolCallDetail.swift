@@ -285,6 +285,7 @@ private struct DiffLineRow: View {
     @Environment(\.mica) private var theme
     let kind: ToolDiffLine.Kind
     let text: String
+    var fontSize: CGFloat = 11
 
     var body: some View {
         HStack(spacing: 0) {
@@ -296,7 +297,7 @@ private struct DiffLineRow: View {
                 .foregroundStyle(foreground).lineLimit(1).textSelection(.enabled)
             Spacer(minLength: 12)
         }
-        .font(.kit(size: 11, design: .monospaced))
+        .font(.kit(size: fontSize, design: .monospaced))
         .frame(height: 18)
         .background(background)
     }
@@ -371,6 +372,11 @@ struct UnifiedDiff: Equatable {
         case hunk(String)
         case line(ToolDiffLine.Kind, String)
     }
+    /// What a source line is, as the terminal client's reference records it
+    /// in `testdata/diffs`.
+    enum Kind: String {
+        case header, hunk, context, removed, added
+    }
     let lines: [Line]
 
     /// Whether output reads as a unified diff: a file header and a hunk.
@@ -384,38 +390,71 @@ struct UnifiedDiff: Equatable {
         return false
     }
 
-    init(_ output: String) {
-        let source = ToolPresentation.lines(output)
-        var result: [Line] = []
-        var inHunk = false
+    /// Whether a Markdown fence's language is a diff.
+    static func isFenceLanguage(_ language: String) -> Bool {
+        ["diff", "patch"].contains(language.trimmingCharacters(in: .whitespaces).lowercased())
+    }
+
+    /// Each line of source with its kind and the text shown after any marker.
+    /// Lines from a file header up to its hunk, or its `+++` line, are header
+    /// lines; inHunk is whether lines before any header are diff lines instead.
+    static func classify(_ source: String, inHunk start: Bool) -> [(kind: Kind, text: String)] {
+        var trimmed = Substring(source)
+        while trimmed.hasSuffix("\n") { trimmed = trimmed.dropLast() }
+        guard !trimmed.isEmpty else { return [] }
+        let source = trimmed.components(separatedBy: "\n")
+        var result: [(kind: Kind, text: String)] = []
+        var inHunk = start
         for (index, line) in source.enumerated() {
             let next = index + 1 < source.count ? source[index + 1] : ""
             let fileHeader = line.hasPrefix("diff --git ") || (line.hasPrefix("--- ") && next.hasPrefix("+++ "))
             if line.hasPrefix("@@") {
                 inHunk = true
-                result.append(.hunk(line))
+                result.append((.hunk, line))
             } else if fileHeader || !inHunk {
-                inHunk = false
-                // Name each file once, by its new path.
-                if line.hasPrefix("+++ ") {
-                    let name = String(line.dropFirst(4))
-                    result.append(.header(name.hasPrefix("b/") ? String(name.dropFirst(2)) : name))
-                }
+                // A header ends at its new path; what follows is its hunk.
+                inHunk = line.hasPrefix("+++ ")
+                result.append((.header, line))
             } else if line.hasPrefix("-") {
-                result.append(.line(.removed, String(line.dropFirst())))
+                result.append((.removed, String(line.dropFirst())))
             } else if line.hasPrefix("+") {
-                result.append(.line(.added, String(line.dropFirst())))
+                result.append((.added, String(line.dropFirst())))
             } else {
-                result.append(.line(.context, line.hasPrefix(" ") ? String(line.dropFirst()) : line))
+                result.append((.context, line.hasPrefix(" ") ? String(line.dropFirst()) : line))
             }
         }
-        lines = result
+        return result
+    }
+
+    /// A diff from tool output, which starts at a file header.
+    init(_ output: String) { self.init(output, inHunk: false) }
+
+    /// A Markdown diff fence, whose lines before any file header are changes.
+    init(fence source: String) { self.init(source, inHunk: true) }
+
+    private init(_ source: String, inHunk: Bool) {
+        lines = Self.classify(source, inHunk: inHunk).compactMap { kind, text in
+            switch kind {
+            // Name each file once, by its new path.
+            case .header:
+                guard text.hasPrefix("+++ ") else { return nil }
+                let name = text.dropFirst(4)
+                return .header(String(name.hasPrefix("b/") ? name.dropFirst(2) : name))
+            case .hunk: return .hunk(text)
+            case .context: return .line(.context, text)
+            case .removed: return .line(.removed, text)
+            case .added: return .line(.added, text)
+            }
+        }
     }
 }
 
-private struct UnifiedDiffView: View {
+/// A unified diff's rows: file names, muted hunks, and changed lines on the
+/// diff fills with their marker in the inset.
+struct UnifiedDiffView: View {
     @Environment(\.mica) private var theme
     let diff: UnifiedDiff
+    var fontSize: CGFloat = 11
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -425,10 +464,10 @@ private struct UnifiedDiffView: View {
                     Text(name).font(.kit(size: 12, weight: .medium))
                         .padding(.leading, ToolCallDetail.inset).padding(.top, 6).padding(.bottom, 2)
                 case .hunk(let text):
-                    Text(text).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
+                    Text(text).font(.kit(size: fontSize, design: .monospaced)).foregroundStyle(theme.muted)
                         .lineLimit(1).padding(.leading, ToolCallDetail.inset).frame(height: 18)
                 case .line(let kind, let text):
-                    DiffLineRow(kind: kind, text: text)
+                    DiffLineRow(kind: kind, text: text, fontSize: fontSize)
                 }
             }
         }

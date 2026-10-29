@@ -81,6 +81,21 @@ KIT_UPDATE_MERMAID_FIXTURES=1 ard test test/mermaid_fixtures_test.ard
 Then update the Swift port in the same change until the macOS client's
 `MermaidFixtureTests` pass.
 
+## Diff fixtures
+
+`FencedDiff` in `ffi/toolpresentation` decides how each line of a ```` ```diff ````
+or ```` ```patch ```` fence reads, and the macOS app's `UnifiedDiff` follows it.
+The shared fixtures in `testdata/diffs` pair each `.diff` source with the kind
+and text of its lines in the matching `.txt`. After changing how lines are read,
+or adding a source, review the records it makes and write them:
+
+```sh
+KIT_UPDATE_DIFF_FIXTURES=1 go test ./ffi/toolpresentation
+```
+
+Then update `UnifiedDiff` in the same change until the macOS client's
+`DiffFenceTests` pass.
+
 ## Release build
 
 Release builds must define the version and commit; `--release` rejects

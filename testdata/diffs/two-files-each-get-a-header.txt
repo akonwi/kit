@@ -1,0 +1,13 @@
+header diff --git a/a.go b/a.go
+header --- a/a.go
+header +++ b/a.go
+hunk @@ -1 +1 @@
+removed a
+added b
+header diff --git a/b.go b/b.go
+header new file mode 100644
+header --- /dev/null
+header +++ b/b.go
+hunk @@ -0,0 +1,2 @@
+added package b
+added 

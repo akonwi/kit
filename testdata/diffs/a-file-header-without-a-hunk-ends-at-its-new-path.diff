@@ -1,0 +1,4 @@
+--- a/config.yml
++++ b/config.yml
+-retries: 3
++retries: 5
