@@ -1,0 +1,20 @@
+figure decision
+title "Database"
+status accepted
+date "Mar 12"
+note "Revisit if writes pass 2k a second."
+item label="Postgres" value="" note="we already run it" accent=true muted=false scale=0 share="" spark=
+item label="Mongo" value="" note="no joins we trust" accent=false muted=true scale=0 share="" spark=
+item label="SQLite" value="" note="fine until the second writer" accent=false muted=false scale=0 share="" spark=
+laid out 48
+┌─ Database ──────────────────────────────────┐
+│                                             │
+│  Accepted · Mar 12                          │
+│                                             │
+│  ●  Postgres  we already run it             │
+│  ×  Mongo     no joins we trust             │
+│  ○  SQLite    fine until the second writer  │
+│                                             │
+│  Revisit if writes pass 2k a second.        │
+│                                             │
+└─────────────────────────────────────────────┘

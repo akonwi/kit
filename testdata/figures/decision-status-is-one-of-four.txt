@@ -1,0 +1,1 @@
+not drawn: `status` is `proposed`, `accepted`, `rejected` or `superseded`

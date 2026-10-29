@@ -1,0 +1,1 @@
+not drawn: a figure has at most 8 attributes

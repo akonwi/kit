@@ -1,0 +1,16 @@
+figure steps
+title ""
+item label="4" value="Draft" note="" accent=false muted=false scale=0 share="" spark=
+item label="5" value="Review" note="two approvals" accent=false muted=false scale=0 share="" spark=
+item label="6" value="Merge" note="" accent=false muted=false scale=0 share="" spark=
+laid out 48
+┌────────────────────┐
+│                    │
+│  4  Draft          │
+│  │                 │
+│  5  Review         │
+│  │  two approvals  │
+│  │                 │
+│  6  Merge          │
+│                    │
+└────────────────────┘

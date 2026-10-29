@@ -1,0 +1,1 @@
+not drawn: a compare table's second row is its `| --- |` divider

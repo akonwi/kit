@@ -1,0 +1,369 @@
+use ard/testing
+
+use cooper/ui
+use kit/tui/figure/drawing
+use kit/tui/figure/grammar
+use kit/tui/figure/model
+use kit/tui/format
+use go:math
+use go:strings
+
+// `delta`: what changed, either signed values with an optional total or
+// values before and after, with an optional computed change. Colors say
+// which way is better only when `better` does (docs/figures.md).
+
+let max_rows = 20
+
+// The widest label drawn; longer labels end in `…`.
+let max_label = 32
+
+// The largest percent change shown; a larger one shows as `>9999%`.
+let max_percent = 9999
+
+// A row's value before and after, split at ` → ` or ` -> `.
+private fn change(text: Str) [Str]? {
+  mut at = strings::Index(text, " → ")
+  mut width = 5
+  if at < 0 {
+    at = strings::Index(text, " -> ")
+    width = 4
+  }
+  match at > 0 {
+    true => {
+      Maybe::new(
+        [
+          strings::TrimSpace(text.slice(end: at).or("")),
+          strings::TrimSpace(text.slice(start: at + width).or("")),
+        ],
+      )
+    },
+    false => Maybe::new<[Str]>(),
+  }
+}
+
+// Whether a change of difference is better or worse, as better says; empty
+// when nothing changed or better doesn't say.
+private fn trend(difference: Float64, better: Str) Str {
+  match {
+    better == "" or difference == 0.0 => "",
+    (difference > 0.0) == (better == "up") => "better",
+    _ => "worse",
+  }
+}
+
+// The change from before to after as a whole percent of before, `–` when
+// before is zero.
+fn percent(before: Float64, after: Float64) Str {
+  match before == 0.0 {
+    true => "–",
+    false => {
+      let share = (after - before) / math::Abs(before) * 100.0
+      let rounded = math::Round(share)
+      let sign = match {
+        rounded > 0.0 => "+",
+        rounded < 0.0 => "−",
+        _ => "",
+      }
+      match math::Abs(share) >= Float64::fit(max_percent) + 0.5 {
+        true => "{sign}>{max_percent}%",
+        false => "{sign}{Int::fit(math::Abs(rounded))}%",
+      }
+    },
+  }
+}
+
+private struct Row {
+  item: model::Item,
+  // Whether the row is written before and after.
+  paired: Bool,
+}
+
+private fn row(each: grammar::Item, info: grammar::Info) Row!Str {
+  let better = grammar::attribute(info, "better")
+  let computed = grammar::attribute(info, "change")
+  match grammar::label_value(each.text) {
+    parts => {
+      let written = parts.at(1).or("")
+      let made = mut model::item(parts.at(0).or(""), written)
+      made.note = each.note
+      made.accent = each.bold
+      made.muted = each.italic
+      try check_details(each)
+      match change(written) {
+        pair => {
+          let before = pair.at(0).or("")
+          let after = pair.at(1).or("")
+          let from = try grammar::number(before)
+          let to = try grammar::number(after)
+          try check_unit(before, after, written)
+          made.from = before
+          made.value = after
+          made.trend = trend(to - from, better)
+          made.change = match computed {
+            "percent" => percent(from, to),
+            "absolute" => {
+              grammar::written(
+                to - from,
+                grammar::common([grammar::shape(after), grammar::shape(before)]),
+                true,
+              )
+            },
+            _ => "",
+          }
+          Result::ok(Row{item: made.@, paired: true})
+        },
+        _ => {
+          let value = try grammar::number(written)
+          let signed = strings::HasPrefix(written, "+") or strings::HasPrefix(written, "-")
+          if signed {
+            made.value = strings::TrimSpace(written.slice(start: 1).or(""))
+          }
+          // A signed zero changed nothing, so it has no sign or trend.
+          if signed and value != 0.0 {
+            made.sign = match value < 0.0 or strings::HasPrefix(written, "-") {
+              true => "−",
+              false => "+",
+            }
+            made.trend = match strings::HasPrefix(written, "-") {
+              true => trend(-1.0, better),
+              false => trend(1.0, better),
+            }
+          }
+          Result::ok(Row{item: made.@, paired: false})
+        },
+      }
+    },
+    _ => {
+      Result::err(
+        "a delta row is `label: value` or `label: from → to`, got `{grammar::clip(each.text)}`",
+      )
+    },
+  }
+}
+
+// Rejects a row whose values before and after are in different units.
+private fn check_unit(before: Str, after: Str, written: Str) Void!Str {
+  match grammar::same_unit(grammar::shape(before), grammar::shape(after)) {
+    true => Result::ok(()),
+    false => {
+      Result::err(
+        "a delta row's values before and after are in the same unit, got `{grammar::clip(written)}`",
+      )
+    },
+  }
+}
+
+private fn check_details(each: grammar::Item) Void!Str {
+  match each.details.size() > 0 {
+    true => Result::err("a delta row takes no indented lines"),
+    false => Result::ok(()),
+  }
+}
+
+private fn check_choice(info: grammar::Info, key: Str, allowed: [Str]) Void!Str {
+  let value = grammar::attribute(info, key)
+  mut known = value == ""
+  for each in allowed {
+    if each == value {
+      known = true
+    }
+  }
+  match known {
+    true => Result::ok(()),
+    false => Result::err("`{key}` is `{strings::Join(mut allowed, "` or `")}`"),
+  }
+}
+
+fn parse(info: grammar::Info, body: Str) model::Figure!Str {
+  try grammar::check_attributes(info, ["title", "from", "to", "change", "better"])
+  try check_choice(info, "change", ["percent", "absolute"])
+  try check_choice(info, "better", ["up", "down"])
+  let items = try grammar::items(body)
+  let rows = mut List::new<Row>()
+  for each in items {
+    rows.push(try row(each, info))
+  }
+  mut paired = 0
+  mut early_bold = false
+  mut index = 0
+  for each in rows {
+    if each.paired {
+      paired =+ 1
+    }
+    if each.item.accent and index < rows.size() - 1 {
+      early_bold = true
+    }
+    index =+ 1
+  }
+  mut needs_pairs = ""
+  for key in ["from", "to", "change"] {
+    if grammar::attribute(info, key) != "" and paired == 0 and needs_pairs == "" {
+      needs_pairs = key
+    }
+  }
+  let made = mut List::new<model::Item>()
+  for each in rows {
+    made.push(each.item)
+  }
+  match {
+    rows.size() == 0 => Result::err("the figure has no rows"),
+    rows.size() > max_rows => Result::err("a delta figure has at most {max_rows} rows"),
+    paired > 0 and paired < rows.size() => {
+      Result::err("a delta's rows are all `label: value` or all `label: from → to`")
+    },
+    early_bold => Result::err("only the last row can be bold, as the total"),
+    needs_pairs != "" => Result::err("`{needs_pairs}` needs rows of `label: from → to`"),
+    _ => {
+      let figure = mut model::figure("delta", grammar::attribute(info, "title"), made.@)
+      let from = grammar::attribute(info, "from")
+      let to = grammar::attribute(info, "to")
+      if from != "" or to != "" {
+        figure.headings = [from, to]
+      }
+      Result::ok(figure.@)
+    },
+  }
+}
+
+private fn widest(texts: [Str]) Int {
+  mut width = 0
+  for text in texts {
+    let cells = ui::text_width(text)
+    if cells > width {
+      width = cells
+    }
+  }
+  width
+}
+
+// The role a change takes: success or danger when the figure says which
+// way is better, and otherwise the row's own.
+private fn trend_role(trend: Str, otherwise: drawing::Role) drawing::Role {
+  match trend {
+    "better" => drawing::Role::success,
+    "worse" => drawing::Role::danger,
+    _ => otherwise,
+  }
+}
+
+private fn run(text: Str, role: drawing::Role, bold: Bool) drawing::Segment {
+  match bold {
+    true => drawing::bold(text, role),
+    false => drawing::segment(text, role),
+  }
+}
+
+fn draw(figure: model::Figure) drawing::Drawing {
+  let labels = mut List::new<Str>()
+  let froms = mut List::new<Str>()
+  let values = mut List::new<Str>()
+  let changes = mut List::new<Str>()
+  mut signs = false
+  mut paired = false
+  for each in figure.items {
+    labels.push(format::truncate_cells(each.label, max_label))
+    froms.push(each.from)
+    values.push(each.value)
+    changes.push(each.change)
+    if each.sign != "" {
+      signs = true
+    }
+    if each.from != "" {
+      paired = true
+    }
+  }
+  froms.push(figure.headings.at(0).or(""))
+  values.push(figure.headings.at(1).or(""))
+  let label_lane = widest(labels.@)
+  let from_lane = widest(froms.@)
+  let value_lane = widest(values.@)
+  let change_lane = widest(changes.@)
+  let rows = mut List::new<[drawing::Segment]>()
+  if figure.headings.size() > 0 {
+    rows.push(
+      [
+        drawing::segment(strings::Repeat(" ", label_lane), drawing::Role::text),
+        drawing::segment(
+          "  {drawing::pad(figure.headings.at(0).or(""), from_lane, true)}",
+          drawing::Role::muted,
+        ),
+        drawing::segment(
+          "     {drawing::pad(figure.headings.at(1).or(""), value_lane, true)}",
+          drawing::Role::muted,
+        ),
+      ],
+    )
+  }
+  mut index = 0
+  for each in figure.items {
+    let total = each.accent
+    let base = match each.muted {
+      true => drawing::Role::muted,
+      false => drawing::Role::text,
+    }
+    let line = mut List::new<drawing::Segment>()
+    line.push(run(drawing::pad(labels.at(index).or(""), label_lane, false), base, total))
+    if paired {
+      line.push(
+        drawing::segment("  {drawing::pad(each.from, from_lane, true)}", drawing::Role::muted),
+      )
+      line.push(drawing::segment("  →", drawing::Role::muted))
+    } else if signs {
+      line.push(drawing::segment("  ", drawing::Role::text))
+      line.push(
+        run(
+          match each.sign == "" {
+            true => " ",
+            false => each.sign,
+          },
+          trend_role(each.trend, base),
+          total,
+        ),
+      )
+    }
+    let value_role = match {
+      total => drawing::Role::accent,
+      paired => base,
+      _ => trend_role(each.trend, base),
+    }
+    line.push(run("  {drawing::pad(each.value, value_lane, true)}", value_role, total))
+    if change_lane > 0 {
+      line.push(
+        run(
+          "  {drawing::pad(each.change, change_lane, true)}",
+          trend_role(each.trend, base),
+          total,
+        ),
+      )
+    }
+    if each.note != "" {
+      line.push(drawing::segment("  {each.note}", drawing::Role::muted))
+    }
+    if total and figure.items.size() > 1 {
+      mut width = 0
+      for done in rows {
+        width = maximum(width, drawing::row_width(done))
+      }
+      width = maximum(width, drawing::row_width(line.@))
+      rows.push([drawing::segment(strings::Repeat("─", width), drawing::Role::frame)])
+    }
+    rows.push(line.@)
+    index =+ 1
+  }
+  drawing::framed(figure.title, rows.@)
+}
+
+private fn maximum(a: Int, b: Int) Int {
+  match a > b {
+    true => a,
+    false => b,
+  }
+}
+
+test fn percent_changes_round_to_a_whole_percent() Void!Str {
+  try testing::assert(percent(8200.0, 12400.0) == "+51%", "got {percent(8200.0, 12400.0)}")
+  try testing::assert(percent(5100.0, 4100.0) == "−20%", "got {percent(5100.0, 4100.0)}")
+  try testing::assert(percent(0.0, 5.0) == "–", "got {percent(0.0, 5.0)}")
+  try testing::assert(percent(1000.0, 1001.0) == "0%", "got {percent(1000.0, 1001.0)}")
+  testing::assert(percent(1.0, 1000.0) == "+>9999%", "got {percent(1.0, 1000.0)}")
+}

@@ -1,0 +1,23 @@
+figure bars
+title "Routes"
+item label="/docs" value="12,400" note="" accent=false muted=false scale=1000 share="" spark=
+item label="/install" value="4,100" note="" accent=false muted=false scale=330 share="" spark=
+item label="/plot" value="860" note="" accent=false muted=false scale=69 share="" spark=
+item label="/rank" value="420" note="" accent=false muted=false scale=33 share="" spark=
+drawn 48 8
+┌─ Routes ─────────────────────────────────────┐
+│                                              │
+│  /docs     ████████████████████████  12,400  │
+│  /install  ███████▉················   4,100  │
+│  /plot     █▋······················     860  │
+│  /rank     ▊·······················     420  │
+│                                              │
+└──────────────────────────────────────────────┘
+ff TTTTTT ffffffffffffffffffffffffffffffffffffff
+f                                              f
+f  xxxxx     xxxxxxxxxxxxxxxxxxxxxxxx  xxxxxx  f
+f  xxxxxxxx  xxxxxxxxkkkkkkkkkkkkkkkk   xxxxx  f
+f  xxxxx     xxkkkkkkkkkkkkkkkkkkkkkk     xxx  f
+f  xxxxx     xkkkkkkkkkkkkkkkkkkkkkkk     xxx  f
+f                                              f
+ffffffffffffffffffffffffffffffffffffffffffffffff

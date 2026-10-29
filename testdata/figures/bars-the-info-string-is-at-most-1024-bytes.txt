@@ -1,0 +1,1 @@
+not drawn: the fence's info string is over 1024 bytes

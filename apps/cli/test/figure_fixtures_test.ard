@@ -1,0 +1,148 @@
+use ard/testing
+
+use go:bytes
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/figure
+use kit/tui/figure/drawing
+use kit/tui/figure/model
+use kit/tui/theme
+use go:os
+use go:path/filepath
+use go:sort
+use go:strings
+
+// The shared figure fixtures in `testdata/figures`: each `.md` fence and, in
+// the matching `.txt`, the figure this renderer parses from it and the
+// drawing it makes (a timeline or steps as laid out in a narrow pane), or
+// the reason it isn't drawn. The macOS client's port is
+// checked against the parsed figure (ADR 0054). Set
+// KIT_UPDATE_FIGURE_FIXTURES=1 to write what this renderer makes.
+
+let fixtures = "../../testdata/figures"
+
+// The width a listing is laid out at in a fixture, narrow enough that its
+// prose wraps.
+let listing_width = 48
+
+// A listing laid out at listing_width cells, as its rows of text with
+// trailing spaces and the blank rows below it removed.
+fn laid_out(info: Str, body: Str) Str {
+  let terminal = headless::new(listing_width, 60)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(
+    app,
+    figure::view(themes, "fixture", info, body, ui::text_style(), true),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let frame = terminal.frame()
+  let rows = mut List::new<Str>()
+  mut y = 0
+  while y < 60 {
+    let cells = mut List::new<Str>()
+    mut x = 0
+    while x < listing_width {
+      cells.push(frame.cell(x, y).expect("cell").grapheme)
+      x =+ 1
+    }
+    rows.push(strings::TrimRight(strings::Join(cells, ""), " "))
+    y =+ 1
+  }
+  // The rows up to the last one with anything in it.
+  mut count = 0
+  mut index = 0
+  for row in rows {
+    index =+ 1
+    if row != "" {
+      count = index
+    }
+  }
+  let kept = mut List::new<Str>()
+  for row in rows {
+    if kept.size() < count {
+      kept.push(row)
+    }
+  }
+  "laid out {listing_width}\n{strings::Join(kept, "\n")}\n"
+}
+
+// A fixture's fence as its info string and body.
+fn fence(source: Str) [Str] {
+  let lines = strings::Split(strings::TrimRight(source, "\n"), "\n")
+  let opening = strings::TrimLeft(lines.at(0).or(""), "`~")
+  let body = mut List::new<Str>()
+  mut index = 1
+  while index + 1 < lines.size() {
+    body.push(lines.at(index).or(""))
+    index =+ 1
+  }
+  [opening, strings::Join(body, "\n")]
+}
+
+// What the renderer makes of a fixture's fence, as fixture text.
+fn expected(source: Str) Str {
+  let parts = fence(source)
+  match figure::parse(parts.at(0).or(""), parts.at(1).or("")) {
+    ok(parsed) => {
+      match figure::is_listing(parsed.kind) {
+        true => model::record(parsed) + laid_out(parts.at(0).or(""), parts.at(1).or("")),
+        false => model::record(parsed) + drawing::record(figure::draw(parsed)),
+      }
+    },
+    err(reason) => "not drawn: {reason}\n",
+  }
+}
+
+private fn read(path: Str) Str!Str {
+  match os::ReadFile(path) {
+    ok(content) => Result::ok(bytes::NewBuffer(mut content).String()),
+    err(failure) => Result::err("{path}: {failure.error()}"),
+  }
+}
+
+private fn write(path: Str, content: Str) Void!Str {
+  match os::Create(path) {
+    ok(file) => {
+      let written = file.WriteString(content)
+      let closed = file.Close()
+      match {
+        written.is_err() => Result::err("{path}: couldn't write"),
+        closed.is_err() => Result::err("{path}: couldn't close"),
+        _ => Result::ok(()),
+      }
+    },
+    err(failure) => Result::err("{path}: {failure.error()}"),
+  }
+}
+
+test fn the_renderer_draws_each_shared_fixture() Void!Str {
+  let update = os::Getenv("KIT_UPDATE_FIGURE_FIXTURES") == "1"
+  let found = filepath::Glob(filepath::Join(fixtures, "*.md")).or([])
+  let sources = mut found
+  sort::Strings(sources)
+  try testing::assert(sources.size() > 0, "no fixtures in {fixtures}")
+  let failures = mut List::new<Str>()
+  for path in sources {
+    let source = try read(path)
+    let want_path = strings::TrimSuffix(path, ".md") + ".txt"
+    let got = expected(source)
+    match update {
+      true => try write(want_path, got),
+      false => {
+        let want = read(want_path).or("(missing)\n")
+        if got != want {
+          failures.push("{filepath::Base(path)}:\ngot:\n{got}want:\n{want}")
+        }
+      },
+    }
+  }
+  testing::assert(
+    failures.size() == 0,
+    "{failures.size()} fixtures differ; regenerate with KIT_UPDATE_FIGURE_FIXTURES=1 after reviewing:\n{strings::Join(failures, "\n")}",
+  )
+}

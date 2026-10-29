@@ -1,0 +1,14 @@
+figure decision
+title ""
+date "Mar 12"
+item label="Ship it" value="" note="" accent=true muted=false scale=0 share="" spark=
+item label="Wait a week" value="" note="the CDN purge is slow" accent=false muted=false scale=0 share="" spark=
+laid out 48
+┌─────────────────────────────────────────┐
+│                                         │
+│  Mar 12                                 │
+│                                         │
+│  ●  Ship it                             │
+│  ○  Wait a week  the CDN purge is slow  │
+│                                         │
+└─────────────────────────────────────────┘

@@ -1,0 +1,20 @@
+figure delta
+title ""
+item label="a" value="0" note="" accent=false muted=false scale=0 share="" spark=
+item label="b" value="0 kb" note="" accent=false muted=false scale=0 share="" spark=
+item label="c" value="2" note="" accent=false muted=false scale=0 share="" spark= sign="+" trend=better
+drawn 16 7
+┌──────────────┐
+│              │
+│  a        0  │
+│  b     0 kb  │
+│  c  +     2  │
+│              │
+└──────────────┘
+ffffffffffffffff
+f              f
+f  x        x  f
+f  x     x xx  f
+f  x  s     s  f
+f              f
+ffffffffffffffff

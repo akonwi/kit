@@ -1,0 +1,15 @@
+figure decision
+title "Cache"
+status proposed
+date "Apr 02"
+item label="Redis" value="" note="one more service to run" accent=false muted=false scale=0 share="" spark=
+item label="In-memory" value="" note="lost on deploy" accent=false muted=false scale=0 share="" spark=
+laid out 48
+┌─ Cache ─────────────────────────────────┐
+│                                         │
+│  Proposed · Apr 02                      │
+│                                         │
+│  ○  Redis      one more service to run  │
+│  ○  In-memory  lost on deploy           │
+│                                         │
+└─────────────────────────────────────────┘

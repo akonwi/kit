@@ -1,0 +1,231 @@
+use ard/testing
+
+use go:strconv
+use go:strings
+
+// A parsed figure: what both clients draw, recorded in the shared fixtures
+// (ADR 0054). Values are kept as written; the numbers each kind derives from
+// them, such as a bar's length, are computed here so both clients show the
+// same.
+
+// One row, column, or point of a figure.
+struct Item {
+  label: Str,
+  // The value as written.
+  value: Str,
+  note: Str,
+  // The item to read, which takes the accent.
+  accent: Bool,
+  // An item that recedes.
+  muted: Bool,
+  // A bar's length, in thousandths of the track.
+  scale: Int,
+  // A bar's share, such as `33%`, or empty.
+  share: Str,
+  // A stat's sparkline, each point in thousandths of the line's range.
+  spark: [Int],
+  // A meter row's target as written, or empty.
+  target: Str,
+  // A meter past its target or past 100%, which turns warning.
+  over: Bool,
+  // Where a timeline item or step stands against the bold one: `done`,
+  // `now`, `next`, or empty when nothing is bold.
+  state: Str,
+  // A timeline item's or step's indented body, its lines joined.
+  body: Str,
+  // A delta row's value before, as written, or empty.
+  from: Str,
+  // A delta row's sign as shown, `+` or `−`, or empty.
+  sign: Str,
+  // A delta row's computed change, or empty.
+  change: Str,
+  // Whether a delta row's change is `better` or `worse`, or empty when the
+  // figure doesn't say which way is better or nothing changed.
+  trend: Str,
+  // A tree node's depth, from 1 at the top level, or 0.
+  level: Int,
+  // A compare row's cells as written, one per option.
+  cells: [Str],
+  // A score's filled half dots and its dots, or 0.
+  filled: Int,
+  slots: Int,
+  // A stack row's segments, each in thousandths of the row's total.
+  parts: [Int],
+}
+
+struct Figure {
+  kind: Str,
+  title: Str,
+  items: [Item],
+  // A decision's status, or empty.
+  status: Str,
+  // A decision's date, or empty.
+  date: Str,
+  // A decision's closing paragraph, or empty.
+  note: Str,
+  // Column headings: a delta's from and to, a compare's options, or a
+  // stack's segment names.
+  headings: [Str],
+  // The compare option that is the pick, or -1.
+  pick: Int,
+}
+
+fn figure(kind: Str, title: Str, items: [Item]) Figure {
+  Figure{
+    kind: kind,
+    title: title,
+    items: items,
+    status: "",
+    date: "",
+    note: "",
+    headings: [],
+    pick: -1,
+  }
+}
+
+fn item(label: Str, value: Str) Item {
+  Item{
+    label: label,
+    value: value,
+    note: "",
+    accent: false,
+    muted: false,
+    scale: 0,
+    share: "",
+    spark: [],
+    target: "",
+    over: false,
+    state: "",
+    body: "",
+    from: "",
+    sign: "",
+    change: "",
+    trend: "",
+    level: 0,
+    cells: [],
+    filled: 0,
+    slots: 0,
+    parts: [],
+  }
+}
+
+// text as a quoted fixture string, with `\` and `"` escaped.
+private fn quoted(text: Str) Str {
+  "\"{strings::ReplaceAll(strings::ReplaceAll(text, "\\", "\\\\"), "\"", "\\\"")}\""
+}
+
+private fn flag(value: Bool) Str {
+  match value {
+    true => "true",
+    false => "false",
+  }
+}
+
+private fn quoted_list(texts: [Str]) Str {
+  let parts = mut List::new<Str>()
+  for text in texts {
+    parts.push(quoted(text))
+  }
+  strings::Join(parts, ",")
+}
+
+private fn numbers(values: [Int]) Str {
+  let parts = mut List::new<Str>()
+  for value in values {
+    parts.push(strconv::Itoa(value))
+  }
+  strings::Join(parts, ",")
+}
+
+// figure as fixture text: a line for the kind and the title, a line for
+// each figure field a kind sets, then a line per item. Fields only some
+// kinds use follow the shared ones when set.
+fn record(figure: Figure) Str {
+  let lines = mut ["figure {figure.kind}", "title {quoted(figure.title)}"]
+  if figure.status != "" {
+    lines.push("status {figure.status}")
+  }
+  if figure.date != "" {
+    lines.push("date {quoted(figure.date)}")
+  }
+  if figure.note != "" {
+    lines.push("note {quoted(figure.note)}")
+  }
+  if figure.headings.size() > 0 {
+    lines.push("headings {quoted_list(figure.headings)}")
+  }
+  if figure.pick >= 0 {
+    lines.push("pick {figure.pick}")
+  }
+  for each in figure.items {
+    let points = mut List::new<Str>()
+    for point in each.spark {
+      points.push(strconv::Itoa(point))
+    }
+    let extra = mut List::new<Str>()
+    if each.target != "" {
+      extra.push(" target={quoted(each.target)}")
+    }
+    if each.over {
+      extra.push(" over=true")
+    }
+    if each.state != "" {
+      extra.push(" state={each.state}")
+    }
+    if each.body != "" {
+      extra.push(" body={quoted(each.body)}")
+    }
+    if each.from != "" {
+      extra.push(" from={quoted(each.from)}")
+    }
+    if each.sign != "" {
+      extra.push(" sign={quoted(each.sign)}")
+    }
+    if each.change != "" {
+      extra.push(" change={quoted(each.change)}")
+    }
+    if each.trend != "" {
+      extra.push(" trend={each.trend}")
+    }
+    if each.level > 0 {
+      extra.push(" level={each.level}")
+    }
+    if each.cells.size() > 0 {
+      extra.push(" cells={quoted_list(each.cells)}")
+    }
+    if each.slots > 0 {
+      extra.push(" filled={each.filled} slots={each.slots}")
+    }
+    if each.parts.size() > 0 {
+      extra.push(" parts={numbers(each.parts)}")
+    }
+    lines.push(
+      "item label={quoted(each.label)} value={quoted(each.value)} note={quoted(each.note)} accent={flag(each.accent)} muted={flag(each.muted)} scale={each.scale} share={quoted(each.share)} spark={strings::Join(points, ",")}{strings::Join(extra, "")}",
+    )
+  }
+  strings::Join(lines, "\n") + "\n"
+}
+
+test fn records_add_the_fields_a_kind_sets() Void!Str {
+  let row = mut item("Docs", "9")
+  row.target = "12"
+  row.over = true
+  row.state = "now"
+  row.body = "a b"
+  let got = record(figure("meter", "", [row.@]))
+  testing::assert(
+    got == "figure meter\ntitle \"\"\nitem label=\"Docs\" value=\"9\" note=\"\" accent=false muted=false scale=0 share=\"\" spark= target=\"12\" over=true state=now body=\"a b\"\n",
+    "got {got}",
+  )
+}
+
+test fn records_quote_text_and_list_each_field() Void!Str {
+  let row = mut item("a \"b\"", "1")
+  row.accent = true
+  row.spark = [0, 1000]
+  let got = record(figure("stat", "x\\y", [row.@]))
+  testing::assert(
+    got == "figure stat\ntitle \"x\\\\y\"\nitem label=\"a \\\"b\\\"\" value=\"1\" note=\"\" accent=true muted=false scale=0 share=\"\" spark=0,1000\n",
+    "got {got}",
+  )
+}

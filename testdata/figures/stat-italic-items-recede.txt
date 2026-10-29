@@ -1,0 +1,17 @@
+figure stat
+title ""
+item label="shipped" value="12" note="" accent=false muted=false scale=0 share="" spark=
+item label="cut" value="3" note="" accent=false muted=true scale=0 share="" spark=
+drawn 20 6
+┌──────────────────┐
+│                  │
+│  12         3    │
+│  shipped    cut  │
+│                  │
+└──────────────────┘
+ffffffffffffffffffff
+f                  f
+f  XX         m    f
+f  mmmmmmm    mmm  f
+f                  f
+ffffffffffffffffffff

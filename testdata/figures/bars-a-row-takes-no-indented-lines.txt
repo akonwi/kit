@@ -1,0 +1,1 @@
+not drawn: a bars row takes no indented lines

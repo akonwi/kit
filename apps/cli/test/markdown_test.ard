@@ -898,3 +898,120 @@ test fn drawn_mermaid_repaints_with_the_theme() Void!Str {
     "participant boxes repaint in the new border color",
   )
 }
+
+test fn closed_figure_fence_draws_its_figure() Void!Str {
+  let terminal = mount("Routes:\n\n```bars title=\"Routes\"\n- /docs: 12\n- /plot: 6\n```", 44, 10)
+  defer terminal.destroy()
+  expect_prefix_rows(
+    terminal,
+    [
+      "Routes:",
+      "",
+      "┌─ Routes ──────────────────────────────┐",
+      "│                                       │",
+      "│  /docs  ████████████████████████  12  │",
+      "│  /plot  ████████████············   6  │",
+      "│                                       │",
+      "└───────────────────────────────────────┘",
+      "",
+    ],
+  )
+}
+
+test fn a_timeline_wraps_its_prose_to_the_pane() Void!Str {
+  let terminal = mount(
+    "```timeline title=\"Ship\"\n- **Mar 18: Docs and live previews** — blocked on the registry\n- Apr 02: Listed\n```",
+    30,
+    12,
+  )
+  defer terminal.destroy()
+  expect_prefix_rows(
+    terminal,
+    [
+      "┌─ Ship ─────────────────────┐",
+      "│                            │",
+      "│  ●  Mar 18  Docs and       │",
+      "│  │          live previews  │",
+      "│  │          blocked on     │",
+      "│  │          the registry   │",
+      "│  │                         │",
+      "│  ○  Apr 02  Listed         │",
+      "│                            │",
+      "└────────────────────────────┘",
+      "",
+    ],
+  )
+}
+
+test fn streaming_figure_fence_shows_source_until_it_closes() Void!Str {
+  let terminal = headless::new(44, 10)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut SourceModel{source: "```stat\n- 12 open"}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(app, cui::child(source_host, SourceProps{model: model, themes: themes}))
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_prefix_rows(terminal, [" - 12 open", ""])
+  renderer.update(fn() {
+    model.source = "```stat\n- 12 open\n```"
+  })
+  terminal.flush()
+  expect_prefix_rows(
+    terminal,
+    [
+      "┌────────┐",
+      "│        │",
+      "│  12    │",
+      "│  open  │",
+      "│        │",
+      "└────────┘",
+      "",
+    ],
+  )
+}
+
+test fn undrawable_figure_shows_source_with_the_reason() Void!Str {
+  let terminal = mount("```bars sort=\"desc\"\n- a: 1\n```", 44, 6)
+  defer terminal.destroy()
+  expect_prefix_rows(
+    terminal,
+    [" - a: 1", "Figure not drawn: `bars` has no `sort`", "attribute", ""],
+  )
+}
+
+test fn github_alerts_show_their_kind_on_a_colored_rail() Void!Str {
+  let terminal = mount(
+    "> [!WARNING] Breaking change\n> Edit the source.\n\n> [!TIP]\n>\n> - first",
+    40,
+    8,
+  )
+  defer terminal.destroy()
+  try expect_prefix_rows(
+    terminal,
+    ["│ Warning · Breaking change", "│ Edit the source.", "", "│ Tip", "│ • first", ""],
+  )
+  let colors = theme::context(theme::store(theme::system())).current()
+  let frame = terminal.frame()
+  let warning_rail = frame.cell(0, 0).expect("warning rail").style.foreground.expect("rail color")
+  let warning_label = frame.cell(2, 0).expect("warning label")
+  let tip_rail = frame.cell(0, 3).expect("tip rail").style.foreground.expect("rail color")
+  try testing::assert(
+    same_color(warning_rail, colors.warning_text),
+    "a warning's rail takes the warning color",
+  )
+  try testing::assert(
+    warning_label.style.bold and same_color(warning_label.style.foreground.expect("label color"), colors.warning_text),
+    "a warning's label is bold in the warning color",
+  )
+  testing::assert(same_color(tip_rail, colors.success_text), "a tip's rail takes the success color")
+}
+
+test fn a_quote_rail_runs_beside_every_row() Void!Str {
+  let terminal = mount("> one\n> two\n> a line long enough to wrap in a narrow pane", 24, 6)
+  defer terminal.destroy()
+  expect_prefix_rows(
+    terminal,
+    ["│ one", "│ two", "│ a line long enough to", "│ wrap in a narrow pane", ""],
+  )
+}

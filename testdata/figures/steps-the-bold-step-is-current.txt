@@ -1,0 +1,17 @@
+figure steps
+title "Release"
+item label="1" value="Freeze the tokens" note="" accent=false muted=false scale=0 share="" spark= state=done
+item label="2" value="Ship the registry JSON" note="" accent=true muted=false scale=0 share="" spark= state=now body="Waiting on the CDN purge before the registry index can update."
+item label="3" value="Write the postmortem" note="" accent=false muted=false scale=0 share="" spark= state=next
+laid out 48
+┌─ Release ────────────────────────────────────┐
+│                                              │
+│  ✓  Freeze the tokens                        │
+│  │                                           │
+│  2  Ship the registry JSON                   │
+│  │  Waiting on the CDN purge before the      │
+│  │  registry index can update.               │
+│  │                                           │
+│  3  Write the postmortem                     │
+│                                              │
+└──────────────────────────────────────────────┘

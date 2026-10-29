@@ -1,0 +1,22 @@
+figure stack
+title ""
+headings "x","y"
+item label="empty" value="0" note="" accent=false muted=false scale=0 share="" spark= parts=0,0
+item label="full" value="2" note="" accent=false muted=false scale=1000 share="" spark= parts=500,500
+drawn 40 8
+┌──────────────────────────────────────┐
+│                                      │
+│  empty  ························  0  │
+│  full   ████████████▓▓▓▓▓▓▓▓▓▓▓▓  2  │
+│                                      │
+│  █ x   ▓ y                           │
+│                                      │
+└──────────────────────────────────────┘
+ffffffffffffffffffffffffffffffffffffffff
+f                                      f
+f  xxxxx  kkkkkkkkkkkkkkkkkkkkkkkk  x  f
+f  xxxx   xxxxxxxxxxxxxxxxxxxxxxxx  x  f
+f                                      f
+f  m m   m m                           f
+f                                      f
+ffffffffffffffffffffffffffffffffffffffff

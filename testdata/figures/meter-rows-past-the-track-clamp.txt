@@ -1,0 +1,17 @@
+figure meter
+title ""
+item label="Build" value="300" note="" accent=false muted=false scale=1000 share="" spark= target="100" over=true
+item label="Test" value="100" note="" accent=false muted=false scale=800 share="" spark= target="100"
+drawn 54 6
+┌────────────────────────────────────────────────────┐
+│                                                    │
+│  Build  ████████████████████████│█████  300 / 100  │
+│  Test   ████████████████████████│·····  100 / 100  │
+│                                                    │
+└────────────────────────────────────────────────────┘
+ffffffffffffffffffffffffffffffffffffffffffffffffffffff
+f                                                    f
+f  xxxxx  wwwwwwwwwwwwwwwwwwwwwwwwxwwwww  www w www  f
+f  xxxx   xxxxxxxxxxxxxxxxxxxxxxxxxkkkkk  xxx x xxx  f
+f                                                    f
+ffffffffffffffffffffffffffffffffffffffffffffffffffffff

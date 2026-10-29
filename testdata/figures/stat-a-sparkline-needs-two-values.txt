@@ -1,0 +1,1 @@
+not drawn: a sparkline needs at least 2 values

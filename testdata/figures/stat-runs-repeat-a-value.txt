@@ -1,0 +1,18 @@
+figure stat
+title ""
+item label="uptime" value="99.9%" note="" accent=false muted=false scale=0 share="" spark=1000,1000,1000,1000,1000,0,1000,1000,1000,1000,1000,1000
+drawn 18 7
+┌────────────────┐
+│                │
+│  99.9%         │
+│  uptime        │
+│  █████▁██████  │
+│                │
+└────────────────┘
+ffffffffffffffffff
+f                f
+f  XXXXX         f
+f  mmmmmm        f
+f  mmmmmmmmmmma  f
+f                f
+ffffffffffffffffff

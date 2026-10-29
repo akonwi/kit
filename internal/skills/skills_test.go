@@ -15,6 +15,37 @@ import (
 	"github.com/akonwi/kit/internal/systemprompt"
 )
 
+func TestEmbeddedSkillsReadTheirFrontmatter(t *testing.T) {
+	registry := mustRegistry(t)
+	for _, name := range []string{KitCustomizationName, KitFiguresName} {
+		skill, ok := registry.Lookup(name)
+		if !ok {
+			t.Fatalf("registry does not contain %s", name)
+		}
+		if !strings.HasPrefix(skill.Content, "---\nname: "+name+"\n") || skill.Description == "" ||
+			strings.Contains(skill.Description, "\n") {
+			t.Fatalf("embedded skill %s = %#v", name, skill)
+		}
+	}
+}
+
+func TestEmbeddedSkillRejectsFrontmatterForAnotherName(t *testing.T) {
+	for _, definition := range []string{
+		"---\nname: other\ndescription: d\n---\nbody\n",
+		"---\nname: kit-figures\n---\nbody\n",
+		"# No frontmatter\n",
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("embeddedSkill accepted %q", definition)
+				}
+			}()
+			embeddedSkill(KitFiguresName, definition)
+		}()
+	}
+}
+
 func TestRegistryContainsEmbeddedCustomizationSkill(t *testing.T) {
 	registry := mustRegistry(t)
 	skill, ok := registry.Lookup(KitCustomizationName)
@@ -37,11 +68,11 @@ func TestRegistryContainsEmbeddedCustomizationSkill(t *testing.T) {
 }
 
 func TestRegistryRejectsReservedDuplicateAndCallerBuiltins(t *testing.T) {
-	collision := Skill{
-		Name: KitCustomizationName, Description: "shadow", Content: "shadow", Source: SourceProject,
-	}
-	if _, err := NewRegistry(collision); !errors.Is(err, ErrReservedName) {
-		t.Fatalf("reserved collision error = %v, want ErrReservedName", err)
+	for _, name := range []string{KitCustomizationName, KitFiguresName} {
+		collision := Skill{Name: name, Description: "shadow", Content: "shadow", Source: SourceProject}
+		if _, err := NewRegistry(collision); !errors.Is(err, ErrReservedName) {
+			t.Fatalf("reserved collision %q error = %v, want ErrReservedName", name, err)
+		}
 	}
 
 	skill := Skill{Name: "review", Description: "Review changes", Content: "Review carefully.", Source: SourceUser}
@@ -99,7 +130,7 @@ func TestRegistryOrdersSkillsByStableName(t *testing.T) {
 	for _, skill := range registry.Skills() {
 		names = append(names, skill.Name)
 	}
-	want := []string{"a-first", KitCustomizationName, "z-last"}
+	want := []string{"a-first", KitCustomizationName, KitFiguresName, "z-last"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("skill names = %#v, want %#v", names, want)
 	}
@@ -140,6 +171,11 @@ When a skill's instructions reference a relative path, resolve it against the sk
     <source>built-in</source>
   </skill>
   <skill>
+    <name>kit-figures</name>
+    <description>Syntax for the data figures and callouts Kit draws in replies: stat, bars, meter, timeline, steps, decision, delta, spec, tree, compare, score and stack fences, and GitHub-alert callouts. Load it before writing any of them, and before a reply with a Markdown table of numbers or options, an ASCII file tree, or several numbers, a change, progress, a decision or ratings, even if the user didn&apos;t ask for a chart. Figures draw only in Kit, not in text to paste elsewhere.</description>
+    <source>built-in</source>
+  </skill>
+  <skill>
     <name>z-last</name>
     <description>Use for &lt;z&gt; &amp; &quot;quotes&quot;</description>
     <source>plugin</source>
@@ -151,6 +187,7 @@ When a skill's instructions reference a relative path, resolve it against the sk
 	wantSources := []systemprompt.Source{
 		{ID: "skill:a-first", Path: `/repo/a&b/SKILL.md`},
 		{ID: "skill:" + KitCustomizationName},
+		{ID: "skill:" + KitFiguresName},
 		{ID: "skill:z-last"},
 	}
 	if !reflect.DeepEqual(section.Sources, wantSources) {
@@ -159,7 +196,7 @@ When a skill's instructions reference a relative path, resolve it against the sk
 }
 
 func TestCatalogSectionEnforcesAggregateBound(t *testing.T) {
-	additions := make([]Skill, maxSkillsPerRegistry-1)
+	additions := make([]Skill, maxSkillsPerRegistry-len(builtinSkills()))
 	for index := range additions {
 		additions[index] = Skill{
 			Name:        fmt.Sprintf("skill-%d", index),
@@ -212,7 +249,7 @@ func TestActivateSkillReportsUnknownName(t *testing.T) {
 	if !result.IsError {
 		t.Fatalf("unknown activation result = %#v", result)
 	}
-	want := `Unknown skill "missing". Available skills: kit-customization.`
+	want := `Unknown skill "missing". Available skills: kit-customization, kit-figures.`
 	if got := toolResultText(t, result); got != want {
 		t.Fatalf("unknown activation text = %q, want %q", got, want)
 	}

@@ -1,0 +1,14 @@
+figure meter
+title "Seats"
+item label="" value="18 / 24" note="" accent=true muted=false scale=750 share="" spark=
+drawn 45 5
+┌─ Seats ───────────────────────────────────┐
+│                                           │
+│  ██████████████████████▌·······  18 / 24  │
+│                                           │
+└───────────────────────────────────────────┘
+ff TTTTT ffffffffffffffffffffffffffffffffffff
+f                                           f
+f  aaaaaaaaaaaaaaaaaaaaaaakkkkkkk  XX X XX  f
+f                                           f
+fffffffffffffffffffffffffffffffffffffffffffff

@@ -12,7 +12,9 @@ import (
 
 const (
 	// KitCustomizationName is the reserved identity of Kit's embedded customization skill.
-	KitCustomizationName         = "kit-customization"
+	KitCustomizationName = "kit-customization"
+	// KitFiguresName is the reserved identity of Kit's embedded figure-grammar skill.
+	KitFiguresName               = "kit-figures"
 	maxSkillNameBytes            = 64
 	maxDescriptionBytes          = 1024
 	maxSkillContentBytes         = 256 << 10
@@ -29,8 +31,14 @@ var (
 	ErrDuplicateName = errors.New("skill name is duplicated")
 )
 
-//go:embed kit-customization.md
-var kitCustomizationContent string
+// Embedded skill definitions use the same format as discovered SKILL.md
+// files: YAML frontmatter with name and description, then instructions.
+var (
+	//go:embed kit-customization.md
+	kitCustomizationDefinition string
+	//go:embed kit-figures.md
+	kitFiguresDefinition string
+)
 
 // Source identifies who owns a skill definition.
 type Source string
@@ -67,11 +75,12 @@ type Registry struct {
 // NewRegistry constructs a complete registry from Kit's embedded skills and
 // ordered session-specific additions. Any collision rejects the complete set.
 func NewRegistry(additions ...Skill) (*Registry, error) {
-	if len(additions)+1 > maxSkillsPerRegistry {
+	builtins := builtinSkills()
+	if len(additions)+len(builtins) > maxSkillsPerRegistry {
 		return nil, fmt.Errorf("skill registry exceeds the %d-skill limit", maxSkillsPerRegistry)
 	}
-	all := make([]Skill, 0, len(additions)+1)
-	all = append(all, kitCustomizationSkill())
+	all := make([]Skill, 0, len(additions)+len(builtins))
+	all = append(all, builtins...)
 	all = append(all, additions...)
 	byName := make(map[string]Skill, len(all))
 	for index, skill := range all {
@@ -79,10 +88,10 @@ func NewRegistry(additions ...Skill) (*Registry, error) {
 		if err != nil {
 			return nil, err
 		}
-		if index > 0 && normalized.Source == SourceBuiltin {
+		if index >= len(builtins) && normalized.Source == SourceBuiltin {
 			return nil, errors.New("callers cannot register embedded skills")
 		}
-		if index > 0 && normalized.Name == KitCustomizationName {
+		if index >= len(builtins) && IsReservedName(normalized.Name) {
 			return nil, fmt.Errorf("%w: %s", ErrReservedName, normalized.Name)
 		}
 		if _, exists := byName[normalized.Name]; exists {
@@ -178,11 +187,27 @@ func validModelText(value string) bool {
 	return true
 }
 
-func kitCustomizationSkill() Skill {
-	return Skill{
-		Name:        KitCustomizationName,
-		Description: "Use when the user asks about Kit itself, its behavior, documentation, or supported customization surfaces.",
-		Content:     kitCustomizationContent,
-		Source:      SourceBuiltin,
+// IsReservedName reports whether name belongs to a skill embedded in Kit, which
+// no user, project, or plugin skill may use.
+func IsReservedName(name string) bool {
+	return name == KitCustomizationName || name == KitFiguresName
+}
+
+// builtinSkills returns the skills embedded in Kit's executable.
+func builtinSkills() []Skill {
+	return []Skill{
+		embeddedSkill(KitCustomizationName, kitCustomizationDefinition),
+		embeddedSkill(KitFiguresName, kitFiguresDefinition),
 	}
+}
+
+// embeddedSkill reads an embedded definition as discovery reads a SKILL.md
+// file. Embedded definitions are compiled in, so one whose frontmatter is
+// malformed or names another skill is a build defect, and panics.
+func embeddedSkill(name, definition string) Skill {
+	metadata, err := parseSkillFrontmatter(definition)
+	if err != nil || metadata.Name != name || metadata.Description == "" {
+		panic(fmt.Sprintf("embedded skill %q has invalid frontmatter (name %q): %v", name, metadata.Name, err))
+	}
+	return Skill{Name: name, Description: metadata.Description, Content: definition, Source: SourceBuiltin}
 }

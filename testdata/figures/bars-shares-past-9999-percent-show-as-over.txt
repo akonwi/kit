@@ -1,0 +1,17 @@
+figure bars
+title "Funnel"
+item label="seed" value="0.001" note="" accent=false muted=false scale=0 share="" spark=
+item label="reach" value="1,000,000" note="" accent=false muted=false scale=1000 share=">9999%" spark=
+drawn 56 6
+┌─ Funnel ─────────────────────────────────────────────┐
+│                                                      │
+│  seed   ························      0.001          │
+│  reach  ████████████████████████  1,000,000  >9999%  │
+│                                                      │
+└──────────────────────────────────────────────────────┘
+ff TTTTTT ffffffffffffffffffffffffffffffffffffffffffffff
+f                                                      f
+f  xxxx   kkkkkkkkkkkkkkkkkkkkkkkk      xxxxx          f
+f  xxxxx  xxxxxxxxxxxxxxxxxxxxxxxx  xxxxxxxxx  mmmmmm  f
+f                                                      f
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffff

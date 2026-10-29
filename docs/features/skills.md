@@ -6,7 +6,7 @@ Skills are Markdown instruction bundles that Kit advertises to the model and loa
 
 For each session runtime, Kit discovers skills in this order:
 
-1. the embedded, reserved `kit-customization` skill;
+1. the embedded, reserved `kit-customization` and `kit-figures` skills;
 2. user-global skill directories under the resolved Kit home's `skills/` directory; and
 3. project skill directories under `<session-cwd>/.agents/skills/`.
 
@@ -14,7 +14,7 @@ The default global directory is `~/.kit/skills/`. `KIT_HOME` changes that
 location; set it to an explicit isolated directory for development and tests.
 Project discovery uses the session's explicit cwd and never process-global cwd.
 
-The first definition of a name wins. A project skill cannot override a global skill, and no filesystem skill can override `kit-customization`. Omitted collisions produce reload diagnostics.
+The first definition of a name wins. A project skill cannot override a global skill, and no filesystem skill can override `kit-customization` or `kit-figures`. Omitted collisions produce reload diagnostics.
 
 ## Directory and file format
 

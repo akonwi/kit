@@ -1,0 +1,1 @@
+not drawn: a stat item is a value then a label, got `12,400`

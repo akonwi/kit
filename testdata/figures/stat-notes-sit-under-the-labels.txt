@@ -1,0 +1,19 @@
+figure stat
+title ""
+item label="open" value="12" note="3 new" accent=false muted=false scale=0 share="" spark=
+item label="merged" value="4" note="" accent=false muted=false scale=0 share="" spark=
+drawn 21 7
+┌───────────────────┐
+│                   │
+│  12       4       │
+│  open     merged  │
+│  3 new            │
+│                   │
+└───────────────────┘
+fffffffffffffffffffff
+f                   f
+f  XX       X       f
+f  mmmm     mmmmmm  f
+f  m mmm            f
+f                   f
+fffffffffffffffffffff

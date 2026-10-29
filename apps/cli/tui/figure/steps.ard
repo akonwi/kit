@@ -1,0 +1,96 @@
+use ard/testing
+
+use kit/tui/figure/drawing
+use kit/tui/figure/grammar
+use kit/tui/figure/listing
+use kit/tui/figure/model
+use go:strconv
+use go:strings
+
+// `steps`: an ordered list of steps, each a title with an optional indented
+// body. The bold step is current, and the steps before it are done
+// (docs/figures.md).
+
+let max_items = 20
+
+fn parse(info: grammar::Info, body: Str) model::Figure!Str {
+  try grammar::check_attributes(info, ["title"])
+  let items = try grammar::items(body)
+  try grammar::check_one_bold(items)
+  let bold = mut List::new<Bool>()
+  mut unordered = ""
+  for each in items {
+    bold.push(each.bold)
+    if each.ordinal < 0 and unordered == "" {
+      unordered = each.text
+    }
+  }
+  let states = listing::states(bold.@)
+  let first = match items.at(0) {
+    each => each.ordinal,
+    _ => 1,
+  }
+  let made = mut List::new<model::Item>()
+  mut index = 0
+  for each in items {
+    let item = mut model::item(strconv::Itoa(first + index), each.text)
+    item.note = each.note
+    item.accent = each.bold
+    item.muted = each.italic
+    item.body = strings::Join(mut each.details, " ")
+    item.state = states.at(index).or("")
+    made.push(item.@)
+    index =+ 1
+  }
+  match {
+    unordered != "" => Result::err("steps are an ordered list, as in `1. {grammar::clip(unordered)}`"),
+    made.size() == 0 => Result::err("the figure has no steps"),
+    made.size() > max_items => Result::err("a steps figure has at most {max_items} steps"),
+    _ => Result::ok(model::figure("steps", grammar::attribute(info, "title"), made.@)),
+  }
+}
+
+// Each step as the listing lays it out: a done step is checked and recedes;
+// the current one has its number in the accent and its title in bold.
+fn entries(figure: model::Figure) [listing::Entry] {
+  let result = mut List::new<listing::Entry>()
+  for each in figure.items {
+    let marker = match each.state {
+      "done" => drawing::segment("✓", drawing::Role::muted),
+      "now" => drawing::bold(each.label, drawing::Role::accent),
+      _ => drawing::segment(each.label, drawing::Role::muted),
+    }
+    let heading = match {
+      each.accent => drawing::bold(each.value, drawing::Role::text),
+      each.muted or each.state == "done" => drawing::segment(each.value, drawing::Role::muted),
+      _ => drawing::segment(each.value, drawing::Role::text),
+    }
+    result.push(
+      listing::Entry{
+        marker: marker,
+        lane: drawing::segment("", drawing::Role::muted),
+        heading: heading,
+        note: each.note,
+        body: each.body,
+      },
+    )
+  }
+  result.@
+}
+
+test fn steps_are_numbered_from_the_first() Void!Str {
+  let info = try grammar::parse_info("steps")
+  let figure = try parse(info, "3. one\n7. **two**\n\n   waiting\n\n1. three")
+  let shown = mut List::new<Str>()
+  for each in figure.items {
+    shown.push("{each.label}:{each.value}:{each.state}")
+  }
+  try testing::assert(
+    strings::Join(mut shown.@, ",") == "3:one:done,4:two:now,5:three:next",
+    "got {strings::Join(mut shown.@, ",")}",
+  )
+  testing::assert(
+    figure.items.at(1).expect("second").body == "waiting",
+    "the body is the indented text",
+  )
+}

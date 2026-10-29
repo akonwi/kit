@@ -1,0 +1,20 @@
+figure bars
+title "Bundle"
+item label="js" value="48 kb" note="" accent=false muted=false scale=1000 share="48%" spark=
+item label="css" value="22 kb" note="" accent=false muted=false scale=458 share="22%" spark=
+item label="images" value="30 kb" note="" accent=false muted=false scale=625 share="30%" spark=
+drawn 50 7
+┌─ Bundle ───────────────────────────────────────┐
+│                                                │
+│  js      ████████████████████████  48 kb  48%  │
+│  css     ██████████▉·············  22 kb  22%  │
+│  images  ███████████████·········  30 kb  30%  │
+│                                                │
+└────────────────────────────────────────────────┘
+ff TTTTTT ffffffffffffffffffffffffffffffffffffffff
+f                                                f
+f  xx      xxxxxxxxxxxxxxxxxxxxxxxx  xx xx  mmm  f
+f  xxx     xxxxxxxxxxxkkkkkkkkkkkkk  xx xx  mmm  f
+f  xxxxxx  xxxxxxxxxxxxxxxkkkkkkkkk  xx xx  mmm  f
+f                                                f
+ffffffffffffffffffffffffffffffffffffffffffffffffff

@@ -49,10 +49,12 @@ private struct MarkdownBlocks: View {
                             .padding(.top, compactHeadings ? 2 : 4)
                     case .code(let language, let value): CodeBlock(language: language, source: value)
                     case .mermaid(let diagram): MermaidBlock(diagram: diagram)
+                    case .figure(let figure): FigureBlockView(block: figure)
                     case .quote(let children):
                         MarkdownBlocks(blocks: children, compactHeadings: compactHeadings, size: size)
                             .padding(.leading, 14)
                             .overlay(alignment: .leading) { Rectangle().fill(theme.border).frame(width: 2) }
+                    case .callout(let callout): CalloutBlock(callout: callout, compactHeadings: compactHeadings, size: size)
                     case .list(let items):
                         VStack(alignment: .leading, spacing: MarkdownDocumentRow.itemSpacing) {
                             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
@@ -77,6 +79,54 @@ private struct MarkdownBlocks: View {
         if index == 0 { return true }
         if case .heading = block { return true }
         return false
+    }
+}
+
+/// A GitHub alert as a tinted card: its kind's icon and name, its title,
+/// then its blocks. The wash and edge mix the kind's color into the surface,
+/// so a theme sets them through its accent, success, warning, and danger
+/// colors; note and important share the accent.
+private struct CalloutBlock: View {
+    @Environment(\.mica) private var theme
+    let callout: Callout
+    var compactHeadings = false
+    var size: CGFloat = 14
+
+    private var color: Color {
+        switch callout.kind {
+        case .note, .important: theme.accent
+        case .tip: theme.success
+        case .warning: theme.warning
+        case .caution: theme.danger
+        }
+    }
+
+    private var icon: Icon {
+        switch callout.kind {
+        case .note: .info
+        case .tip: .lightbulb
+        case .important: .warningCircle
+        case .warning: .warning
+        case .caution: .warningOctagon
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                IconView(icon, size: 14).foregroundStyle(color)
+                (Text(callout.kind.label).foregroundStyle(color)
+                    + Text(callout.title.isEmpty ? "" : " · \(callout.title)").foregroundStyle(theme.text))
+                    .font(.kit(size: 13, weight: .semibold))
+            }
+            if !callout.blocks.isEmpty {
+                MarkdownBlocks(blocks: callout.blocks, compactHeadings: compactHeadings, size: size)
+            }
+        }
+        .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.surface.mix(with: color, by: theme.dark ? 0.10 : 0.07), in: RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.surface.mix(with: color, by: theme.dark ? 0.35 : 0.30)))
     }
 }
 

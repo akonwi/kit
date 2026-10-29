@@ -1,0 +1,22 @@
+figure stack
+title "Bundle"
+headings "js","css","images"
+item label="marketing" value="100" note="" accent=false muted=false scale=1000 share="" spark= parts=480,220,300
+item label="docs" value="100" note="" accent=true muted=false scale=1000 share="" spark= parts=280,180,540
+drawn 46 8
+┌─ Bundle ───────────────────────────────────┐
+│                                            │
+│  marketing  ████████████▓▓▓▓▓▒▒▒▒▒▒▒  100  │
+│  docs       ███████▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒  100  │
+│                                            │
+│  █ js   ▓ css   ▒ images                   │
+│                                            │
+└────────────────────────────────────────────┘
+ff TTTTTT ffffffffffffffffffffffffffffffffffff
+f                                            f
+f  xxxxxxxxx  mmmmmmmmmmmmmmmmmmmmmmmm  mmm  f
+f  XXXX       aaaaaaaaaaaaaaaaaaaaaaaa  XXX  f
+f                                            f
+f  m mm   m mmm   m mmmmmm                   f
+f                                            f
+ffffffffffffffffffffffffffffffffffffffffffffff

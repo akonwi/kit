@@ -1,0 +1,12 @@
+figure steps
+title ""
+item label="1" value="Draft" note="" accent=false muted=false scale=0 share="" spark=
+item label="2" value="Optional: announce" note="" accent=false muted=true scale=0 share="" spark=
+laid out 48
+┌─────────────────────────┐
+│                         │
+│  1  Draft               │
+│  │                      │
+│  2  Optional: announce  │
+│                         │
+└─────────────────────────┘

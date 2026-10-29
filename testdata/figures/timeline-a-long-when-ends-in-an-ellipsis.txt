@@ -1,0 +1,12 @@
+figure timeline
+title "Plan"
+item label="From the first week of March to the end of April" value="rollout" note="" accent=false muted=false scale=0 share="" spark=
+item label="May" value="review" note="" accent=false muted=false scale=0 share="" spark=
+laid out 48
+┌─ Plan ───────────────────────────────────────┐
+│                                              │
+│  ●  From the first week of March t  rollout  │
+│  │                                           │
+│  ●  May                             review   │
+│                                              │
+└──────────────────────────────────────────────┘

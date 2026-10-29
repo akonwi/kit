@@ -1,0 +1,20 @@
+figure meter
+title "Budget"
+item label="Design" value="42" note="over" accent=false muted=false scale=840 share="" spark= target="40" over=true
+item label="Motion" value="18" note="" accent=false muted=false scale=600 share="" spark= target="24"
+item label="Docs" value="9" note="" accent=true muted=false scale=600 share="" spark= target="12"
+drawn 59 7
+┌─ Budget ────────────────────────────────────────────────┐
+│                                                         │
+│  Design  ████████████████████████│█····  42 / 40  over  │
+│  Motion  ██████████████████······│·····  18 / 24        │
+│  Docs    ██████████████████······│·····   9 / 12        │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+ff TTTTTT fffffffffffffffffffffffffffffffffffffffffffffffff
+f                                                         f
+f  xxxxxx  wwwwwwwwwwwwwwwwwwwwwwwwxwkkkk  ww w ww  mmmm  f
+f  xxxxxx  mmmmmmmmmmmmmmmmmmkkkkkkxkkkkk  mm m mm        f
+f  XXXX    aaaaaaaaaaaaaaaaaakkkkkkxkkkkk   X X XX        f
+f                                                         f
+fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff

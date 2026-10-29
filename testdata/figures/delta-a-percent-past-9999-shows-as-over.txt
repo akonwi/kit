@@ -1,0 +1,17 @@
+figure delta
+title ""
+item label="up" value="1,000" note="" accent=false muted=false scale=0 share="" spark= from="1" change="+>9999%"
+item label="down" value="-1,000,000" note="" accent=false muted=false scale=0 share="" spark= from="1,000" change="−>9999%"
+drawn 41 6
+┌───────────────────────────────────────┐
+│                                       │
+│  up        1  →       1,000  +>9999%  │
+│  down  1,000  →  -1,000,000  −>9999%  │
+│                                       │
+└───────────────────────────────────────┘
+fffffffffffffffffffffffffffffffffffffffff
+f                                       f
+f  xx        m  m       xxxxx  xxxxxxx  f
+f  xxxx  mmmmm  m  xxxxxxxxxx  xxxxxxx  f
+f                                       f
+fffffffffffffffffffffffffffffffffffffffff

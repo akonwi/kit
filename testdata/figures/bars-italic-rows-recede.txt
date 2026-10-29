@@ -1,0 +1,20 @@
+figure bars
+title ""
+item label="kept" value="40" note="" accent=false muted=false scale=1000 share="" spark=
+item label="dropped" value="25" note="" accent=false muted=true scale=625 share="" spark=
+item label="kept again" value="10" note="" accent=false muted=false scale=250 share="" spark=
+drawn 46 7
+┌────────────────────────────────────────────┐
+│                                            │
+│  kept        ████████████████████████  40  │
+│  dropped     ███████████████·········  25  │
+│  kept again  ██████··················  10  │
+│                                            │
+└────────────────────────────────────────────┘
+ffffffffffffffffffffffffffffffffffffffffffffff
+f                                            f
+f  xxxx        xxxxxxxxxxxxxxxxxxxxxxxx  xx  f
+f  mmmmmmm     mmmmmmmmmmmmmmmkkkkkkkkk  mm  f
+f  xxxx xxxxx  xxxxxxkkkkkkkkkkkkkkkkkk  xx  f
+f                                            f
+ffffffffffffffffffffffffffffffffffffffffffffff

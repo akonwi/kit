@@ -1,0 +1,946 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/code
+use kit/tui/figure/bars
+use kit/tui/figure/compare
+use kit/tui/figure/decision
+use kit/tui/figure/delta
+use kit/tui/figure/drawing
+use kit/tui/figure/grammar
+use kit/tui/figure/listing
+use kit/tui/figure/meter
+use kit/tui/figure/model
+use kit/tui/figure/score
+use kit/tui/figure/spec
+use kit/tui/figure/stack
+use kit/tui/figure/stat
+use kit/tui/figure/steps
+use kit/tui/figure/timeline
+use kit/tui/figure/tree
+use kit/tui/format
+use kit/tui/theme
+use go:strings
+
+// Data figures in Markdown (ADR 0054): fenced code blocks whose info string
+// names a figure, drawn inside a border with the title in its top edge. A
+// figure that is malformed or too large shows its source with the reason it
+// wasn't drawn. The grammar is in docs/figures.md.
+
+// The figures drawn. Any other fence is ordinary code.
+let kinds = [
+  "stat",
+  "bars",
+  "meter",
+  "timeline",
+  "steps",
+  "decision",
+  "delta",
+  "spec",
+  "tree",
+  "compare",
+  "score",
+  "stack",
+]
+
+// The widest a listing's text column is laid out, so prose keeps a
+// readable measure in a wide pane.
+let max_measure = 60
+
+// Whether a fenced code block's info string names a figure.
+fn is_figure(info: Str) Bool {
+  let name = grammar::name(info)
+  mut known = false
+  for kind in kinds {
+    if kind == name {
+      known = true
+    }
+  }
+  known
+}
+
+// The figure a fence describes, or why it can't be drawn.
+fn parse(info: Str, body: Str) model::Figure!Str {
+  let parsed = try grammar::parse_info(info)
+  match parsed.name {
+    "stat" => stat::parse(parsed, body),
+    "bars" => bars::parse(parsed, body),
+    "meter" => meter::parse(parsed, body),
+    "timeline" => timeline::parse(parsed, body),
+    "steps" => steps::parse(parsed, body),
+    "decision" => decision::parse(parsed, body),
+    "delta" => delta::parse(parsed, body),
+    "spec" => spec::parse(parsed, body),
+    "tree" => tree::parse(parsed, body),
+    "compare" => compare::parse(parsed, body),
+    "score" => score::parse(parsed, body),
+    "stack" => stack::parse(parsed, body),
+    _ => Result::err("`{parsed.name}` figures aren't drawn yet"),
+  }
+}
+
+// Whether a figure is laid out at the width it has, so its prose wraps,
+// instead of drawn at its own width.
+fn is_listing(kind: Str) Bool {
+  kind == "timeline" or kind == "steps" or kind == "decision" or kind == "spec"
+}
+
+// A drawn figure's rows; a listing is laid out by `listing_view` instead.
+fn draw(figure: model::Figure) drawing::Drawing {
+  match figure.kind {
+    "stat" => stat::draw(figure),
+    "meter" => meter::draw(figure),
+    "delta" => delta::draw(figure),
+    "tree" => tree::draw(figure),
+    "compare" => compare::draw(figure),
+    "score" => score::draw(figure),
+    "stack" => stack::draw(figure),
+    _ => bars::draw(figure),
+  }
+}
+
+// A laid out figure's entries and the rows around them.
+fn layout(figure: model::Figure) listing::Listing {
+  match figure.kind {
+    "decision" => decision::layout(figure),
+    "spec" => spec::layout(figure),
+    "steps" => spaced(steps::entries(figure)),
+    _ => spaced(timeline::entries(figure)),
+  }
+}
+
+// entries joined by a rail, a blank row between each.
+private fn spaced(entries: [listing::Entry]) listing::Listing {
+  listing::Listing{
+    entries: entries,
+    spaced: true,
+    lead: [],
+    closing: "",
+  }
+}
+
+// A fence's drawing when it is drawn rather than laid out.
+private fn picture_of(result: model::Figure!Str) drawing::Drawing? {
+  match result {
+    ok(parsed) => {
+      match is_listing(parsed.kind) {
+        true => Maybe::new<drawing::Drawing>(),
+        false => Maybe::new(draw(parsed)),
+      }
+    },
+    err(_) => Maybe::new<drawing::Drawing>(),
+  }
+}
+
+struct Props {
+  themes: theme::Context,
+  id: Str,
+  info: Str,
+  source: Str,
+  base: ui::TextStyle,
+  semantic: Bool,
+}
+
+// A figure, drawn when possible and otherwise shown as source.
+fn view(
+  themes: theme::Context,
+  id: Str,
+  info: Str,
+  source: Str,
+  base: ui::TextStyle,
+  semantic: Bool,
+) cui::View {
+  cui::child(
+    new,
+    Props{
+      themes: themes,
+      id: id,
+      info: info,
+      source: source,
+      base: base,
+      semantic: semantic,
+    },
+    key: "figure:{id}",
+  )
+}
+
+private struct Figure {
+  props: mut Props,
+  rendered_info: Str,
+  rendered_source: Str,
+  result: model::Figure!Str,
+  picture: drawing::Drawing?,
+  // The drawing's styled text, kept until the source, theme, or semantic
+  // coloring changes.
+  painted: ui::StyledText?,
+  painted_revision: Int,
+  painted_semantic: Bool,
+}
+
+private fn new(props: mut Props) mut Figure {
+  let result = parse(props.info, props.source)
+  (mut Figure{
+    rendered_info: props.info,
+    rendered_source: props.source,
+    result: result,
+    picture: picture_of(result),
+    painted: Maybe::new<ui::StyledText>(),
+    painted_revision: -1,
+    painted_semantic: props.semantic,
+    props: props,
+  })
+}
+
+impl cui::Component for Figure {
+  fn mut render() cui::View {
+    // A figure is drawn again only when its fence changes.
+    if self.props.source != self.rendered_source or self.props.info != self.rendered_info {
+      self.rendered_info = self.props.info
+      self.rendered_source = self.props.source
+      self.result = parse(self.props.info, self.props.source)
+      self.picture = picture_of(self.result)
+      self.painted = Maybe::new<ui::StyledText>()
+    }
+    let colors = self.props.themes.current()
+    match self.result {
+      ok(parsed) => {
+        match self.picture {
+          picture => self.drawn_view(colors, picture),
+          _ => listing_view(colors, self.props.id, self.props.base, self.props.semantic, parsed),
+        }
+      },
+      err(reason) => source_view(self.props.@, reason),
+    }
+  }
+}
+
+impl Figure {
+  fn mut drawn_view(colors: theme::Theme, picture: drawing::Drawing) cui::View {
+    let revision = self.props.themes.revision()
+    let stale = revision != self.painted_revision or self.props.semantic != self.painted_semantic
+    if stale or self.painted.is_none() {
+      self.painted = Maybe::new(styled(colors, self.props.semantic, picture))
+      self.painted_revision = revision
+      self.painted_semantic = self.props.semantic
+    }
+    drawn(colors, self.props.id, self.props.base, picture, self.painted.expect("painted figure"))
+  }
+}
+
+private fn source_view(props: Props, reason: Str) cui::View {
+  let colors = props.themes.current()
+  let note = mut props.base
+  note.foreground = colors.muted
+  note.italic = true
+  cui::box(
+    [
+      code::view(
+        "figure-source:{props.id}",
+        code::Props{
+          themes: props.themes,
+          language: grammar::name(props.info),
+          path: "",
+          source: props.source,
+          base: props.base,
+          semantic: props.semantic,
+          wrap: true,
+          marker: "",
+          marker_color: Maybe::new<ui::Color>(),
+          fill: colors.surface,
+          inset: 1,
+        },
+      ),
+      cui::text(
+        "Figure not drawn: {reason}",
+        text_style: note.@,
+        selectable: true,
+        selection_style: theme::selection_style(colors),
+      ),
+    ],
+    styles: ui::style(flex_direction: ui::FlexDirection::column),
+  )
+}
+
+// The color a run's role is drawn in; text keeps the base color.
+private fn role_color(colors: theme::Theme, role: drawing::Role) ui::Color? {
+  match role {
+    drawing::Role::frame => Maybe::new(colors.border),
+    drawing::Role::track => Maybe::new(colors.border),
+    drawing::Role::muted => Maybe::new(colors.muted),
+    drawing::Role::accent => Maybe::new(colors.accent_text),
+    drawing::Role::warning => Maybe::new(colors.warning_text),
+    drawing::Role::success => Maybe::new(colors.success_text),
+    drawing::Role::danger => Maybe::new(colors.danger_text),
+    drawing::Role::title => Maybe::new<ui::Color>(),
+    drawing::Role::text => Maybe::new<ui::Color>(),
+  }
+}
+
+// The drawing as styled text, one span per run.
+fn styled(colors: theme::Theme, semantic: Bool, picture: drawing::Drawing) ui::StyledText {
+  let spans = mut List::new<ui::Span>()
+  mut first = true
+  for row in picture.rows {
+    if not first {
+      spans.push(ui::span("\n"))
+    }
+    first = false
+    for each in row {
+      if each.text != "" {
+        let foreground = match semantic {
+          true => role_color(colors, each.role),
+          false => Maybe::new<ui::Color>(),
+        }
+        spans.push(
+          ui::span(
+            each.text,
+            style: ui::span_style(
+              foreground: foreground,
+              bold: match each.bold {
+                true => Maybe::new(true),
+                false => Maybe::new<Bool>(),
+              },
+            ),
+          ),
+        )
+      }
+    }
+  }
+  ui::styled_text(spans.@)
+}
+
+// A run's text style: the base, colored for its role and bold when it is.
+private fn run_style(
+  colors: theme::Theme,
+  semantic: Bool,
+  base: ui::TextStyle,
+  role: drawing::Role,
+  bold: Bool,
+) ui::TextStyle {
+  let style = mut base
+  if semantic {
+    match role_color(colors, role) {
+      color => { style.foreground = Maybe::new(color) },
+      _ => (),
+    }
+  }
+  if bold {
+    style.bold = true
+  }
+  style.@
+}
+
+// One run of a listing, unwrapped.
+private fn run(colors: theme::Theme, semantic: Bool, base: ui::TextStyle, part: drawing::Segment) cui::View {
+  cui::text(
+    part.text,
+    styles: ui::style(flex_shrink: 0.0),
+    text_style: run_style(colors, semantic, base, part.role, part.bold),
+    wrap: ui::TextWrap::none,
+    selection_style: theme::selection_style(colors),
+  )
+}
+
+// Prose in a listing's text column, wrapped at word boundaries.
+private fn prose(colors: theme::Theme, semantic: Bool, base: ui::TextStyle, part: drawing::Segment) cui::View {
+  cui::text(
+    part.text,
+    styles: ui::style(min_width: ui::cells(0)),
+    text_style: run_style(colors, semantic, base, part.role, part.bold),
+    wrap: ui::TextWrap::word,
+    selection_style: theme::selection_style(colors),
+  )
+}
+
+// A column of rules at least as tall as the box it is placed in, which
+// clips it.
+private fn rule(
+  colors: theme::Theme,
+  semantic: Bool,
+  base: ui::TextStyle,
+  rows: Int,
+  styles: ui::Style,
+) cui::View {
+  cui::box(
+    [
+      cui::text(
+        strings::Repeat("│\n", rows - 1) + "│",
+        styles: ui::style(width: ui::cells(1), flex_shrink: 0.0),
+        text_style: run_style(colors, semantic, base, drawing::Role::frame, false),
+        wrap: ui::TextWrap::none,
+        selectable: false,
+      ),
+    ],
+    styles: styles,
+  )
+}
+
+// A horizontal edge of a listing's frame, width cells at most, that
+// stretches to the frame: the left corner and any title, a run of rules,
+// then the right corner.
+private fn edge(
+  colors: theme::Theme,
+  semantic: Bool,
+  base: ui::TextStyle,
+  lead: [drawing::Segment],
+  corner: Str,
+  width: Int,
+) cui::View {
+  let children = mut List::new<cui::View>()
+  for part in lead {
+    children.push(run(colors, semantic, base, part))
+  }
+  children.push(
+    cui::text(
+      strings::Repeat("─", width),
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_shrink: 1.0,
+        flex_basis: ui::cells(0),
+        min_width: ui::cells(0),
+        height: ui::cells(1),
+      ),
+      text_style: run_style(colors, semantic, base, drawing::Role::frame, false),
+      wrap: ui::TextWrap::none,
+      selectable: false,
+    ),
+  )
+  children.push(run(colors, semantic, base, drawing::segment(corner, drawing::Role::frame)))
+  cui::box(
+    children.@,
+    styles: ui::style(flex_direction: ui::FlexDirection::row, height: ui::cells(1)),
+  )
+}
+
+private fn widest_text(texts: [Str]) Int {
+  mut width = 0
+  for text in texts {
+    let cells = ui::text_width(text)
+    if cells > width {
+      width = cells
+    }
+  }
+  width
+}
+
+// A row of runs that don't wrap.
+private fn runs(
+  colors: theme::Theme,
+  semantic: Bool,
+  base: ui::TextStyle,
+  parts: [drawing::Segment],
+) cui::View {
+  let children = mut List::new<cui::View>()
+  for part in parts {
+    children.push(run(colors, semantic, base, part))
+  }
+  cui::box(children.@, styles: ui::style(flex_direction: ui::FlexDirection::row))
+}
+
+private fn blank_row() cui::View {
+  cui::text(" ", styles: ui::style(height: ui::cells(1)), selectable: false)
+}
+
+// A listing's entries inside a frame as wide as their text, up to the
+// width the pane has, where their prose wraps.
+fn listing_view(
+  colors: theme::Theme,
+  id: Str,
+  base: ui::TextStyle,
+  semantic: Bool,
+  figure: model::Figure,
+) cui::View {
+  let laid = layout(figure)
+  let rows = laid.entries
+  let markers = mut List::new<Str>()
+  let lanes = mut List::new<Str>()
+  let texts = mut List::new<Str>()
+  for each in rows {
+    markers.push(each.marker.text)
+    lanes.push(each.lane.text)
+    texts.push(each.heading.text)
+    texts.push(each.note)
+    texts.push(each.body)
+  }
+  let marker_lane = widest_text(markers.@)
+  let marker_span = match marker_lane > 0 {
+    true => marker_lane + listing::gap,
+    false => 0,
+  }
+  let lane = widest_text(lanes.@)
+  let lane_span = match lane > 0 {
+    true => lane + listing::gap,
+    false => 0,
+  }
+  let measure = minimum(widest_text(texts.@), max_measure)
+  let heading = format::truncate_cells(figure.title, drawing::max_title)
+  let lead_width = drawing::row_width(laid.lead)
+  let closing_width = minimum(ui::text_width(laid.closing), max_measure)
+  let inner = maximum(
+    maximum(marker_span + lane_span + measure, ui::text_width(heading) + 2),
+    maximum(lead_width, closing_width),
+  )
+  let width = inner + drawing::padding * 2 + 2
+  mut tallest = 2
+  for each in rows {
+    tallest =+ listing::rows(each)
+  }
+  if lead_width > 0 {
+    tallest =+ 2
+  }
+  if laid.closing != "" {
+    tallest =+ ui::text_width(laid.closing) + 1
+  }
+  let items = mut List::new<cui::View>()
+  if lead_width > 0 {
+    items.push(runs(colors, semantic, base, laid.lead))
+    items.push(blank_row())
+  }
+  mut index = 0
+  for each in rows {
+    let last = index == rows.size() - 1
+    let text_children = mut [prose(colors, semantic, base, each.heading)]
+    if each.note != "" {
+      text_children.push(
+        prose(colors, semantic, base, drawing::segment(each.note, drawing::Role::muted)),
+      )
+    }
+    if each.body != "" {
+      text_children.push(
+        prose(colors, semantic, base, drawing::segment(each.body, drawing::Role::muted)),
+      )
+    }
+    if laid.spaced and not last {
+      text_children.push(blank_row())
+    }
+    let columns = mut List::new<cui::View>()
+    if marker_lane > 0 {
+      let marker_children = mut [run(colors, semantic, base, each.marker)]
+      if laid.spaced and not last {
+        marker_children.push(
+          rule(
+            colors,
+            semantic,
+            base,
+            listing::rows(each),
+            ui::style(
+              position: ui::Position::absolute,
+              overflow: ui::Overflow::hidden,
+              top: ui::cells(1),
+              bottom: ui::cells(0),
+              left: ui::cells(0),
+              width: ui::cells(1),
+            ),
+          ),
+        )
+      }
+      columns.push(
+        cui::box(
+          marker_children.@,
+          styles: ui::style(
+            flex_direction: ui::FlexDirection::column,
+            position: ui::Position::relative,
+            width: ui::cells(marker_span),
+            flex_shrink: 0.0,
+          ),
+        ),
+      )
+    }
+    if lane > 0 {
+      columns.push(
+        // In a narrow pane the lane is clipped before the text column
+        // narrows past its least; the gap after it stays.
+        cui::box(
+          [
+            cui::box(
+              [run(colors, semantic, base, each.lane)],
+              styles: ui::style(
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                min_width: ui::cells(0),
+                overflow: ui::Overflow::hidden,
+              ),
+            ),
+          ],
+          styles: ui::style(
+            flex_direction: ui::FlexDirection::row,
+            width: ui::cells(lane_span),
+            flex_shrink: 1.0,
+            min_width: ui::cells(0),
+            padding: ui::Edges{
+              top: ui::cells(0),
+              right: ui::cells(listing::gap),
+              bottom: ui::cells(0),
+              left: ui::cells(0),
+            },
+          ),
+        ),
+      )
+    }
+    columns.push(
+      cui::box(
+        text_children.@,
+        styles: ui::style(
+          flex_direction: ui::FlexDirection::column,
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+          min_width: ui::cells(minimum(measure, listing::min_measure)),
+        ),
+      ),
+    )
+    items.push(cui::box(columns.@, styles: ui::style(flex_direction: ui::FlexDirection::row)))
+    index =+ 1
+  }
+  if laid.closing != "" {
+    items.push(blank_row())
+    items.push(prose(colors, semantic, base, drawing::segment(laid.closing, drawing::Role::text)))
+  }
+  let top = match heading == "" {
+    true => [drawing::segment("┌", drawing::Role::frame)],
+    false => {
+      [
+        drawing::segment("┌─ ", drawing::Role::frame),
+        drawing::bold(heading, drawing::Role::title),
+        drawing::segment(" ", drawing::Role::frame),
+      ]
+    },
+  }
+  let sides = ui::style(
+    position: ui::Position::absolute,
+    overflow: ui::Overflow::hidden,
+    top: ui::cells(0),
+    bottom: ui::cells(0),
+    width: ui::cells(1),
+    left: ui::cells(0),
+  )
+  let right_side = ui::style(
+    position: ui::Position::absolute,
+    overflow: ui::Overflow::hidden,
+    top: ui::cells(0),
+    bottom: ui::cells(0),
+    width: ui::cells(1),
+    right: ui::cells(0),
+  )
+  cui::box(
+    [
+      edge(colors, semantic, base, top, "┐", width),
+      cui::box(
+        [
+          rule(colors, semantic, base, tallest, sides),
+          cui::box(
+            items.@,
+            styles: ui::style(
+              flex_direction: ui::FlexDirection::column,
+              padding: ui::Edges{
+                top: ui::cells(1),
+                right: ui::cells(drawing::padding + 1),
+                bottom: ui::cells(1),
+                left: ui::cells(drawing::padding + 1),
+              },
+            ),
+          ),
+          rule(colors, semantic, base, tallest, right_side),
+        ],
+        styles: ui::style(flex_direction: ui::FlexDirection::column, position: ui::Position::relative),
+      ),
+      edge(colors, semantic, base, [drawing::segment("└", drawing::Role::frame)], "┘", width),
+    ],
+    key: "figure-listing:{id}",
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::column,
+      width: ui::cells(width),
+      max_width: ui::percent(100.0),
+      flex_shrink: 0.0,
+    ),
+  )
+}
+
+private fn minimum(a: Int, b: Int) Int {
+  match a < b {
+    true => a,
+    false => b,
+  }
+}
+
+private fn maximum(a: Int, b: Int) Int {
+  match a > b {
+    true => a,
+    false => b,
+  }
+}
+
+private fn pointer_scroll_bindings() keymap::Bindings<ui::ScrollBoxAction> {
+  keymap::bindings([])
+}
+
+// A drawn figure keeps its shape: it scrolls sideways instead of wrapping.
+private fn drawn(
+  colors: theme::Theme,
+  id: Str,
+  base: ui::TextStyle,
+  picture: drawing::Drawing,
+  painted: ui::StyledText,
+) cui::View {
+  let height = picture.rows.size()
+  let text = cui::text(
+    painted,
+    key: "figure-drawing:{id}",
+    styles: ui::style(width: ui::cells(picture.width), height: ui::cells(height), flex_shrink: 0.0),
+    text_style: base,
+    wrap: ui::TextWrap::none,
+    selectable: true,
+    selection_style: theme::selection_style(colors),
+  )
+  cui::box(
+    [
+      cui::scroll_box(
+        [text],
+        key: "figure-scroll:{id}",
+        styles: ui::style(
+          width: ui::percent(100.0),
+          height: ui::cells(height),
+          min_width: ui::cells(0),
+          flex_shrink: 0.0,
+        ),
+        scrollbar_options: ui::scrollbar_options(visibility: ui::ScrollbarVisibility::hidden),
+        focusable: false,
+        key_bindings: pointer_scroll_bindings(),
+      ),
+    ],
+    styles: ui::style(
+      width: ui::percent(100.0),
+      height: ui::cells(height),
+      min_width: ui::cells(0),
+      flex_shrink: 0.0,
+    ),
+  )
+}
+
+test fn only_named_figures_are_figures() Void!Str {
+  try testing::assert(is_figure("bars title=\"Routes\""), "bars is a figure")
+  try testing::assert(is_figure("stat"), "stat is a figure")
+  try testing::assert(is_figure("steps title=\"Release\""), "steps is a figure")
+  try testing::assert(is_figure("decision title=\"Database\""), "decision is a figure")
+  try testing::assert(not is_figure("plot"), "plot isn't drawn yet")
+  testing::assert(not is_figure("go"), "go is code")
+}
+
+test fn drawn_figures_color_each_role() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(
+    app,
+    view(
+      themes,
+      "colors",
+      "bars title=\"Routes\"",
+      "- **/docs: 10**\n- /plot: 5",
+      ui::text_style(),
+      true,
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let colors = themes.current()
+  let frame = terminal.frame()
+  let rows = mut List::new<Str>()
+  mut y = 0
+  while y < 6 {
+    let cells = mut List::new<Str>()
+    mut x = 0
+    while x < 44 {
+      cells.push(frame.cell(x, y).expect("cell").grapheme)
+      x =+ 1
+    }
+    rows.push(strings::TrimRight(strings::Join(cells, ""), " "))
+    y =+ 1
+  }
+  let shown = strings::Join(rows, "|")
+  try testing::assert(
+    shown == "┌─ Routes ──────────────────────────────┐|│                                       │|│  /docs  ████████████████████████  10  │|│  /plot  ████████████············   5  │|│                                       │|└───────────────────────────────────────┘",
+    "got {shown}",
+  )
+  let border = frame.cell(0, 0).expect("corner").style.foreground.expect("border color")
+  let accent = frame.cell(10, 2).expect("bold bar").style.foreground.expect("accent color")
+  let muted = frame.cell(10, 3).expect("other bar").style.foreground.expect("muted color")
+  let label = frame.cell(3, 2).expect("bold label")
+  try testing::assert(label.style.bold, "the bold row's label is bold")
+  try testing::assert(
+    border.red == colors.border.red and border.green == colors.border.green and border.blue == colors.border.blue,
+    "the frame uses the border color",
+  )
+  try testing::assert(
+    accent.red == colors.accent_text.red and accent.green == colors.accent_text.green and accent.blue == colors.accent_text.blue,
+    "the bold row's bar takes the accent",
+  )
+  testing::assert(
+    muted.red == colors.muted.red and muted.green == colors.muted.green and muted.blue == colors.muted.blue,
+    "other bars are muted",
+  )
+}
+
+test fn listings_color_now_in_the_accent_and_join_markers_with_a_rule() Void!Str {
+  let terminal = headless::new(40, 9)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(
+    app,
+    view(
+      themes,
+      "listing",
+      "timeline title=\"Ship\"",
+      "- Mar 12: one\n- **Mar 18: two**",
+      ui::text_style(),
+      true,
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let colors = themes.current()
+  let frame = terminal.frame()
+  let rows = mut List::new<Str>()
+  mut y = 0
+  while y < 7 {
+    let cells = mut List::new<Str>()
+    mut x = 0
+    while x < 40 {
+      cells.push(frame.cell(x, y).expect("cell").grapheme)
+      x =+ 1
+    }
+    rows.push(strings::TrimRight(strings::Join(cells, ""), " "))
+    y =+ 1
+  }
+  let shown = strings::Join(rows, "|")
+  try testing::assert(
+    shown == "┌─ Ship ───────────┐|│                  │|│  ●  Mar 12  one  │|│  │               │|│  ●  Mar 18  two  │|│                  │|└──────────────────┘",
+    "got {shown}",
+  )
+  let rule = frame.cell(3, 3).expect("rule").style.foreground.expect("rule color")
+  let now = frame.cell(3, 4).expect("now").style.foreground.expect("now color")
+  let when = frame.cell(6, 4).expect("now's date")
+  let heading = frame.cell(14, 4).expect("now's heading")
+  try testing::assert(
+    rule.red == colors.border.red and rule.green == colors.border.green and rule.blue == colors.border.blue,
+    "the rule uses the border color",
+  )
+  try testing::assert(
+    now.red == colors.accent_text.red and now.green == colors.accent_text.green and now.blue == colors.accent_text.blue,
+    "now's marker takes the accent",
+  )
+  try testing::assert(when.style.bold, "now's date is bold")
+  testing::assert(heading.style.bold, "now's heading is bold")
+}
+
+test fn a_narrow_pane_clips_a_listings_lane_before_its_text() Void!Str {
+  let terminal = headless::new(30, 9)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(
+    app,
+    view(
+      themes,
+      "listing",
+      "timeline",
+      "- {strings::Repeat("w", 60)}: deploy the registry",
+      ui::text_style(),
+      true,
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let frame = terminal.frame()
+  let rows = mut List::new<Str>()
+  mut y = 0
+  while y < 9 {
+    let cells = mut List::new<Str>()
+    mut x = 0
+    while x < 30 {
+      cells.push(frame.cell(x, y).expect("cell").grapheme)
+      x =+ 1
+    }
+    rows.push(strings::TrimRight(strings::Join(cells, ""), " "))
+    y =+ 1
+  }
+  let shown = strings::Join(rows, "|")
+  testing::assert(
+    shown == "┌────────────────────────────┐|│                            │|│  ●  wwwwwww  deploy the    │|│              registry      │|│                            │|└────────────────────────────┘|||",
+    "got {shown}",
+  )
+}
+
+test fn decisions_color_their_status_and_choice_and_specs_their_bold_value() Void!Str {
+  let terminal = headless::new(40, 16)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(
+    app,
+    cui::box(
+      [
+        view(
+          themes,
+          "decision",
+          "decision status=\"accepted\" date=\"Mar 12\"",
+          "- **Postgres** — we run it\n- *Mongo*\n\nRevisit later.",
+          ui::text_style(),
+          true,
+        ),
+        view(themes, "spec", "spec", "- Family: Geist\n- **Size: 14**", ui::text_style(), true),
+      ],
+      styles: ui::style(flex_direction: ui::FlexDirection::column),
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let colors = themes.current()
+  let frame = terminal.frame()
+  let rows = mut List::new<Str>()
+  mut y = 0
+  while y < 16 {
+    let cells = mut List::new<Str>()
+    mut x = 0
+    while x < 40 {
+      cells.push(frame.cell(x, y).expect("cell").grapheme)
+      x =+ 1
+    }
+    rows.push(strings::TrimRight(strings::Join(cells, ""), " "))
+    y =+ 1
+  }
+  let shown = strings::Join(rows, "|")
+  try testing::assert(
+    shown == "┌──────────────────────────┐|│                          │|│  Accepted · Mar 12       │|│                          │|│  ●  Postgres  we run it  │|│  ×  Mongo                │|│                          │|│  Revisit later.          │|│                          │|└──────────────────────────┘|┌─────────────────┐|│                 │|│  Family  Geist  │|│  Size    14     │|│                 │|└─────────────────┘",
+    "got {shown}",
+  )
+  let status = frame.cell(3, 2).expect("status")
+  let success = status.style.foreground.expect("status color")
+  let chosen = frame.cell(3, 4).expect("choice").style.foreground.expect("choice color")
+  let ruled_out = frame.cell(3, 5).expect("ruled out").style.foreground.expect("ruled out color")
+  let value = frame.cell(11, 13).expect("bold value")
+  let accent = value.style.foreground.expect("value color")
+  try testing::assert(status.style.bold, "the status is bold")
+  try testing::assert(
+    success.red == colors.success_text.red and success.green == colors.success_text.green and success.blue == colors.success_text.blue,
+    "an accepted status is a success",
+  )
+  try testing::assert(
+    chosen.red == colors.accent_text.red and chosen.green == colors.accent_text.green and chosen.blue == colors.accent_text.blue,
+    "the choice's marker takes the accent",
+  )
+  try testing::assert(
+    ruled_out.red == colors.muted.red and ruled_out.green == colors.muted.green and ruled_out.blue == colors.muted.blue,
+    "a ruled out option's marker is muted",
+  )
+  try testing::assert(value.style.bold, "the bold row's value is bold")
+  testing::assert(
+    accent.red == colors.accent_text.red and accent.green == colors.accent_text.green and accent.blue == colors.accent_text.blue,
+    "the bold row's value takes the accent",
+  )
+}

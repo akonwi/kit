@@ -1080,7 +1080,10 @@ func (p *configurationProviders) smallModel() droids.Model {
 	contextWindow := p.smallContext
 	p.mu.Unlock()
 	if contextWindow == 0 {
-		contextWindow = 8_000
+		// Small enough that a few prompts force compaction, with room beyond
+		// the fixed prompt (tool definitions and the built-in skill catalog,
+		// about 4,800 tokens) for compaction to summarize into.
+		contextWindow = 10_000
 	}
 	return droids.Model{
 		ID: "small", Provider: "test", API: droids.ModelAPIOpenAIResponses,

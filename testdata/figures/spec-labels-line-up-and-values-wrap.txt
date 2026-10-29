@@ -1,0 +1,19 @@
+figure spec
+title "Type"
+item label="Family" value="Geist Mono" note="" accent=false muted=false scale=0 share="" spark=
+item label="Size" value="14 / 21" note="" accent=true muted=false scale=0 share="" spark=
+item label="Tracking" value="+0.02em" note="" accent=false muted=false scale=0 share="" spark= body="An indented paragraph is a muted note under the value."
+item label="Features" value="tabular figures, slashed zero, and the stylistic alternates for the lowercase a and g" note="" accent=false muted=false scale=0 share="" spark=
+laid out 48
+┌─ Type ───────────────────────────────────────┐
+│                                              │
+│  Family    Geist Mono                        │
+│  Size      14 / 21                           │
+│  Tracking  +0.02em                           │
+│            An indented paragraph is a        │
+│            muted note under the value.       │
+│  Features  tabular figures, slashed zero,    │
+│            and the stylistic alternates      │
+│            for the lowercase a and g         │
+│                                              │
+└──────────────────────────────────────────────┘

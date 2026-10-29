@@ -4,12 +4,16 @@ use cooper/ui
 use go:github.com/akonwi/kit/internal/hyperlink
 use go:github.com/akonwi/kit/internal/markdown as parser
 use kit/tui/code
+use kit/tui/figure
 use kit/tui/mermaid
 use kit/tui/theme
 use go:strings
 use go:unicode/utf8
 
 let max_quote_depth = 4
+
+// The rows a quote's rail spans; a taller quote block's rail stops there.
+let max_rail_rows = 400
 
 private fn maximum(left: Int, right: Int) Int {
   match left > right {
@@ -438,6 +442,9 @@ private fn render_block(
     block.Kind == parser::BlockCode and complete and mermaid::is_mermaid(block.Language) => {
       mermaid::view(themes, "{id}:{block_index}", block.Code, base, semantic)
     },
+    block.Kind == parser::BlockCode and complete and figure::is_figure(block.Info) => {
+      figure::view(themes, "{id}:{block_index}", block.Info, block.Code, base, semantic)
+    },
     block.Kind == parser::BlockHeading => {
       rich_text(
         colors,
@@ -477,8 +484,19 @@ private fn render_block(
     let container = block.Containers.at(index).expect("Markdown container")
     match {
       container.Kind == parser::ContainerQuote => {
+        if container.AlertHeader {
+          child = match block.Runs.size() == 0 {
+            true => alert_header(colors, base, semantic, container),
+            false => {
+              cui::box(
+                [alert_header(colors, base, semantic, container), child],
+                styles: ui::style(flex_direction: ui::FlexDirection::column),
+              )
+            },
+          }
+        }
         if quote_depth < max_quote_depth {
-          child = quote(colors, base, child)
+          child = quote(colors, base, semantic, container, child)
         }
         quote_depth =+ 1
       },
@@ -914,15 +932,92 @@ private fn list_item(
   )
 }
 
-private fn quote(colors: theme::Theme, base: ui::TextStyle, content: cui::View) cui::View {
+// The color of a GitHub alert's kind: note and important take the accent.
+private fn alert_color(colors: theme::Theme, kind: parser::AlertKind) ui::Color? {
+  match {
+    kind == parser::AlertNote or kind == parser::AlertImportant => Maybe::new(colors.accent_text),
+    kind == parser::AlertTip => Maybe::new(colors.success_text),
+    kind == parser::AlertWarning => Maybe::new(colors.warning_text),
+    kind == parser::AlertCaution => Maybe::new(colors.danger_text),
+    _ => Maybe::new<ui::Color>(),
+  }
+}
+
+private fn alert_label(kind: parser::AlertKind) Str {
+  match {
+    kind == parser::AlertNote => "Note",
+    kind == parser::AlertTip => "Tip",
+    kind == parser::AlertImportant => "Important",
+    kind == parser::AlertWarning => "Warning",
+    kind == parser::AlertCaution => "Caution",
+    _ => "",
+  }
+}
+
+// A GitHub alert's first row: its kind in the kind's color, then its title.
+private fn alert_header(
+  colors: theme::Theme,
+  base: ui::TextStyle,
+  semantic: Bool,
+  container: parser::Container,
+) cui::View {
+  let color = match semantic {
+    true => alert_color(colors, container.Alert),
+    false => Maybe::new<ui::Color>(),
+  }
+  let spans = mut [
+    ui::span(
+      alert_label(container.Alert),
+      style: ui::span_style(foreground: color, bold: Maybe::new(true)),
+    ),
+  ]
+  if container.AlertTitle != "" {
+    spans.push(
+      ui::span(" · {container.AlertTitle}", style: ui::span_style(bold: Maybe::new(true))),
+    )
+  }
+  cui::text(
+    ui::styled_text(spans.@),
+    text_style: base,
+    selectable: true,
+    selection_style: theme::selection_style(colors),
+  )
+}
+
+// A quote's rail, in the alert's color for an alert.
+private fn quote(
+  colors: theme::Theme,
+  base: ui::TextStyle,
+  semantic: Bool,
+  container: parser::Container,
+  content: cui::View,
+) cui::View {
   let gutter_style = mut base
-  gutter_style.foreground = colors.border
+  gutter_style.foreground = match semantic {
+    true => alert_color(colors, container.Alert).or(colors.border),
+    false => colors.border,
+  }
+  // The rail runs the quote's full height: a column of rules as tall as the
+  // tallest quote block drawn, clipped to the content beside it.
   cui::box(
     [
-      cui::text(
-        "│",
-        styles: ui::style(width: ui::cells(1), flex_shrink: 0.0),
-        text_style: gutter_style.@,
+      cui::box(
+        [
+          cui::text(
+            strings::Repeat("│\n", max_rail_rows - 1) + "│",
+            styles: ui::style(width: ui::cells(1), flex_shrink: 0.0),
+            text_style: gutter_style.@,
+            wrap: ui::TextWrap::none,
+          ),
+        ],
+        styles: ui::style(
+          position: ui::Position::absolute,
+          overflow: ui::Overflow::hidden,
+          top: ui::cells(0),
+          bottom: ui::cells(0),
+          left: ui::cells(0),
+          width: ui::cells(1),
+        ),
       ),
       cui::box(
         [content],
@@ -934,16 +1029,23 @@ private fn quote(colors: theme::Theme, base: ui::TextStyle, content: cui::View) 
             top: ui::cells(0),
             right: ui::cells(0),
             bottom: ui::cells(0),
-            left: ui::cells(1),
+            left: ui::cells(2),
           },
         ),
       ),
     ],
-    styles: ui::style(flex_direction: ui::FlexDirection::row),
+    styles: ui::style(flex_direction: ui::FlexDirection::row, position: ui::Position::relative),
   )
 }
 
 private fn blocks_need_gap(previous: parser::Block, current: parser::Block) Bool {
+  // An alert's header row needs no gap before the alert's body.
+  mut header = false
+  for container in previous.Containers {
+    if container.AlertHeader and previous.Runs.size() == 0 {
+      header = true
+    }
+  }
   mut shared = false
   mut loose = false
   for left in previous.Containers {
@@ -956,7 +1058,7 @@ private fn blocks_need_gap(previous: parser::Block, current: parser::Block) Bool
       }
     }
   }
-  (not shared) or loose
+  (not header) and ((not shared) or loose)
 }
 
 private fn same_container(left: parser::Container, right: parser::Container) Bool {
@@ -1004,7 +1106,7 @@ private fn wrap_gap(
     match {
       container.Kind == parser::ContainerQuote => {
         if quote_depth < max_quote_depth {
-          child = quote(colors, base, child)
+          child = quote(colors, base, true, container, child)
         }
         quote_depth =+ 1
       },

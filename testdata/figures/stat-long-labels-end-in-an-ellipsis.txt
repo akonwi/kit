@@ -1,0 +1,17 @@
+figure stat
+title "Week"
+item label="docs views from every route and every client this week" value="12,400" note="" accent=false muted=false scale=0 share="" spark=
+item label="shipped" value="860" note="" accent=false muted=false scale=0 share="" spark=
+drawn 49 6
+┌─ Week ────────────────────────────────────────┐
+│                                               │
+│  12,400                              860      │
+│  docs views from every route and…    shipped  │
+│                                               │
+└───────────────────────────────────────────────┘
+ff TTTT fffffffffffffffffffffffffffffffffffffffff
+f                                               f
+f  XXXXXX                              XXX      f
+f  mmmm mmmmm mmmm mmmmm mmmmm mmmm    mmmmmmm  f
+f                                               f
+fffffffffffffffffffffffffffffffffffffffffffffffff

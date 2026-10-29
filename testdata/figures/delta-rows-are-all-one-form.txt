@@ -1,0 +1,1 @@
+not drawn: a delta's rows are all `label: value` or all `label: from → to`

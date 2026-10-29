@@ -1,0 +1,20 @@
+figure score
+title "Review"
+item label="Performance" value="4/5" note="" accent=false muted=false scale=0 share="" spark= filled=8 slots=5
+item label="Accessibility" value="5/5" note="" accent=false muted=false scale=0 share="" spark= filled=10 slots=5
+item label="Docs" value="2.5/5" note="the weak spot" accent=true muted=false scale=0 share="" spark= filled=5 slots=5
+drawn 52 7
+┌─ Review ─────────────────────────────────────────┐
+│                                                  │
+│  Performance    ● ● ● ● ○  4/5                   │
+│  Accessibility  ● ● ● ● ●  5/5                   │
+│  Docs           ● ● ◐ ○ ○  2.5/5  the weak spot  │
+│                                                  │
+└──────────────────────────────────────────────────┘
+ff TTTTTT ffffffffffffffffffffffffffffffffffffffffff
+f                                                  f
+f  xxxxxxxxxxx    m m m m k  mmm                   f
+f  xxxxxxxxxxxxx  m m m m m  mmm                   f
+f  XXXX           a a a k k  XXXXX  mmm mmmm mmmm  f
+f                                                  f
+ffffffffffffffffffffffffffffffffffffffffffffffffffff

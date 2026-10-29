@@ -1,0 +1,214 @@
+use ard/testing
+
+use cooper/ui
+use kit/tui/format
+use go:strings
+
+// A figure as the terminal draws it: rows of styled runs inside a single
+// border, with the title set into the top edge (ADR 0054).
+
+// What a run depicts, which the view maps to theme colors. Success and
+// danger mark a change for the better or the worse.
+enum Role {
+  frame,
+  title,
+  text,
+  muted,
+  accent,
+  track,
+  warning,
+  success,
+  danger,
+}
+
+struct Segment {
+  text: Str,
+  role: Role,
+  bold: Bool,
+}
+
+struct Drawing {
+  width: Int,
+  rows: [[Segment]],
+}
+
+// The widest title drawn in the top edge.
+let max_title = 48
+
+// Cells between the border and the content.
+let padding = 2
+
+fn segment(text: Str, role: Role) Segment {
+  Segment{
+    text: text,
+    role: role,
+    bold: false,
+  }
+}
+
+fn bold(text: Str, role: Role) Segment {
+  Segment{
+    text: text,
+    role: role,
+    bold: true,
+  }
+}
+
+// The cells a row occupies.
+fn row_width(row: [Segment]) Int {
+  mut width = 0
+  for each in row {
+    width =+ ui::text_width(each.text)
+  }
+  width
+}
+
+// text padded with spaces to width cells, on the right or, for right, the left.
+fn pad(text: Str, width: Int, right: Bool) Str {
+  let room = width - ui::text_width(text)
+  match {
+    room <= 0 => text,
+    right => strings::Repeat(" ", room) + text,
+    _ => text + strings::Repeat(" ", room),
+  }
+}
+
+// The cells of a bar scale thousandths of width cells long, drawn in eighths
+// of a cell: the filled cells, then the track's `·`. A value above zero
+// always shows.
+fn bar(scale: Int, width: Int) [Str] {
+  mut eighths = scale * width * 8 / 1000
+  if eighths == 0 and scale > 0 {
+    eighths = 1
+  }
+  let full = eighths / 8
+  let part = eighths % 8
+  let partial = match part > 0 {
+    true => ["▏", "▎", "▍", "▌", "▋", "▊", "▉"].at(part - 1).or(""),
+    false => "",
+  }
+  let used = match part > 0 {
+    true => full + 1,
+    false => full,
+  }
+  ["{strings::Repeat("█", full)}{partial}", strings::Repeat("·", width - used)]
+}
+
+// rows inside a border, a blank row above and below, with title set into
+// the top edge when there is one.
+fn framed(title: Str, rows: [[Segment]]) Drawing {
+  let heading = format::truncate_cells(title, max_title)
+  mut inner = 0
+  for row in rows {
+    let width = row_width(row)
+    if width > inner {
+      inner = width
+    }
+  }
+  if ui::text_width(heading) > inner {
+    inner = ui::text_width(heading)
+  }
+  let span = inner + padding * 2
+  let lines = mut List::new<[Segment]>()
+  match heading == "" {
+    true => lines.push([segment("┌{strings::Repeat("─", span)}┐", Role::frame)]),
+    false => {
+      let rest = span - ui::text_width(heading) - 3
+      lines.push(
+        [
+          segment("┌─ ", Role::frame),
+          bold(heading, Role::title),
+          segment(" {strings::Repeat("─", rest)}┐", Role::frame),
+        ],
+      )
+    },
+  }
+  let blank = [segment("│{strings::Repeat(" ", span)}│", Role::frame)]
+  lines.push(blank)
+  for row in rows {
+    let line = mut [segment("│{strings::Repeat(" ", padding)}", Role::frame)]
+    for each in row {
+      line.push(each)
+    }
+    line.push(segment("{strings::Repeat(" ", inner - row_width(row) + padding)}│", Role::frame))
+    lines.push(line.@)
+  }
+  lines.push(blank)
+  lines.push([segment("└{strings::Repeat("─", span)}┘", Role::frame)])
+  Drawing{width: span + 2, rows: lines.@}
+}
+
+// A drawing's rows as text.
+fn lines(drawing: Drawing) [Str] {
+  let result = mut List::new<Str>()
+  for row in drawing.rows {
+    let parts = mut List::new<Str>()
+    for each in row {
+      parts.push(each.text)
+    }
+    result.push(strings::Join(parts, ""))
+  }
+  result.@
+}
+
+// The letter a role is recorded as; capitals are bold.
+private fn letter(role: Role) Str {
+  match role {
+    Role::frame => "f",
+    Role::title => "t",
+    Role::text => "x",
+    Role::muted => "m",
+    Role::accent => "a",
+    Role::track => "k",
+    Role::warning => "w",
+    Role::success => "s",
+    Role::danger => "d",
+  }
+}
+
+// A drawing as fixture text: its size, its rows with trailing spaces
+// removed, then a row of role letters for each, where a blank cell is a
+// space and a wide character repeats its letter in each of its cells.
+fn record(drawing: Drawing) Str {
+  let out = mut ["drawn {drawing.width} {drawing.rows.size()}"]
+  for line in lines(drawing) {
+    out.push(strings::TrimRight(line, " "))
+  }
+  for row in drawing.rows {
+    let cells = mut List::new<Str>()
+    for each in row {
+      let shown = match each.bold {
+        true => strings::ToUpper(letter(each.role)),
+        false => letter(each.role),
+      }
+      for character in ui::graphemes(each.text) {
+        cells.push(
+          match character.text == " " {
+            true => " ",
+            false => strings::Repeat(shown, character.width),
+          },
+        )
+      }
+    }
+    out.push(strings::TrimRight(strings::Join(cells, ""), " "))
+  }
+  strings::Join(out, "\n") + "\n"
+}
+
+test fn a_frame_sets_its_title_into_the_top_edge() Void!Str {
+  let drawing = framed("Routes", [[segment("a", Role::text), bold("12", Role::accent)]])
+  let got = strings::Join(mut lines(drawing), "|")
+  testing::assert(
+    got == "┌─ Routes ─┐|│          │|│  a12     │|│          │|└──────────┘",
+    "got {got}",
+  )
+}
+
+test fn a_frame_without_a_title_has_a_plain_top_edge() Void!Str {
+  let drawing = framed("", [[segment("abc", Role::text)]])
+  let got = strings::Join(mut lines(drawing), "|")
+  testing::assert(
+    got == "┌───────┐|│       │|│  abc  │|│       │|└───────┘",
+    "got {got}",
+  )
+}

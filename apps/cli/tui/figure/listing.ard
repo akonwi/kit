@@ -1,0 +1,68 @@
+use cooper/ui
+use kit/tui/figure/drawing
+
+// Figures the terminal lays out at the width it has, so their prose wraps:
+// timeline items, steps, decisions, and specs (docs/figures.md). Each entry
+// is an optional marker in a column of its own, an optional lane such as a
+// date, then a heading with its note and body under it.
+
+struct Entry {
+  marker: drawing::Segment,
+  lane: drawing::Segment,
+  heading: drawing::Segment,
+  note: Str,
+  body: Str,
+}
+
+// A figure's entries and the rows around them.
+struct Listing {
+  entries: [Entry],
+  // Whether a rule joins each marker to the next, with a blank row
+  // between entries.
+  spaced: Bool,
+  // A row above the entries, and a blank row under it, when it has runs.
+  lead: [drawing::Segment],
+  // A paragraph under the entries, after a blank row, or empty.
+  closing: Str,
+}
+
+// The cells between a listing's columns.
+let gap = 2
+
+// The narrowest a listing's text column is laid out. In a pane too narrow
+// for it, the lane is clipped instead.
+let min_measure = 12
+
+// The most rows entry's text can wrap to: at least one cell on each row,
+// plus the row between it and the next entry.
+fn rows(entry: Entry) Int {
+  ui::text_width(entry.heading.text) + ui::text_width(entry.note) + ui::text_width(entry.body) + 4
+}
+
+// Where an item stands against the bold one, for each item in order:
+// before it `done`, at it `now`, after it `next`; or empty when no item is
+// bold.
+fn states(bold: [Bool]) [Str] {
+  mut found = -1
+  mut index = 0
+  for each in bold {
+    if each and found < 0 {
+      found = index
+    }
+    index =+ 1
+  }
+  let result = mut List::new<Str>()
+  mut at = 0
+  while at < bold.size() {
+    result.push(
+      match {
+        found < 0 => "",
+        at < found => "done",
+        at == found => "now",
+        _ => "next",
+      },
+    )
+    at =+ 1
+  }
+  result.@
+}

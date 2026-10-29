@@ -1,0 +1,209 @@
+use ard/testing
+
+use cooper/ui
+use kit/tui/figure/drawing
+use kit/tui/figure/grammar
+use kit/tui/figure/model
+use kit/tui/format
+use go:regexp
+use go:strings
+
+// `tree`: nested `- ` items, two spaces per level, drawn with guides from
+// each node to its parent and the notes in one column. Any number of nodes
+// may be bold (docs/figures.md).
+
+let max_nodes = 200
+
+let max_depth = 8
+
+// The widest name drawn; longer names end in `…`.
+let max_label = 32
+
+// A node's line: its indent and its text.
+private struct Line {
+  indent: Str,
+  text: Str,
+}
+
+private fn node_line(line: Str) Line? {
+  let pattern = regexp::MustCompile("^([ \\t]*)- (.*)\\z")
+  let parts = pattern.FindStringSubmatch(line)
+  match parts.size() == 3 {
+    true => Maybe::new(Line{indent: parts.at(1).or(""), text: parts.at(2).or("")}),
+    false => Maybe::new<Line>(),
+  }
+}
+
+private fn node(text: Str, line: Line, previous: Int) model::Item!Str {
+  let level = line.indent.size() / 2 + 1
+  let each = grammar::line(line.text)
+  let made = mut model::item(each.text, "")
+  made.note = each.note
+  made.accent = each.bold
+  made.muted = each.italic
+  made.level = level
+  match {
+    strings::Contains(line.indent, "\t") or line.indent.size() % 2 == 1 => {
+      Result::err("a tree is indented with two spaces per level, got `{grammar::clip(text)}`")
+    },
+    level > previous + 1 => {
+      Result::err(
+        "a node is nested more than one level below its parent, got `{grammar::clip(text)}`",
+      )
+    },
+    level > max_depth => Result::err("a tree is at most {max_depth} levels deep"),
+    each.text == "" => Result::err("a tree node needs a name, got `{grammar::clip(text)}`"),
+    _ => Result::ok(made.@),
+  }
+}
+
+private fn nodes(body: Str) [model::Item]!Str {
+  let made = mut List::new<model::Item>()
+  mut failure = ""
+  mut previous = 0
+  for raw in strings::Split(strings::ReplaceAll(body, "\r\n", "\n"), "\n") {
+    let line = strings::TrimRight(raw, " \t\r")
+    let trimmed = strings::TrimSpace(line)
+    if trimmed != "" and failure == "" {
+      match node_line(line) {
+        found => {
+          match node(trimmed, found, previous) {
+            ok(item) => {
+              previous = item.level
+              made.push(item)
+            },
+            err(reason) => { failure = reason },
+          }
+        },
+        _ => { failure = "expected a `- ` tree node, got `{grammar::clip(trimmed)}`" },
+      }
+    }
+  }
+  match failure == "" {
+    true => Result::ok(made.@),
+    false => Result::err(failure),
+  }
+}
+
+fn parse(info: grammar::Info, body: Str) model::Figure!Str {
+  try grammar::check_attributes(info, ["title"])
+  let made = match body.size() > grammar::max_body {
+    true => Result::err("the figure is larger than {grammar::max_body / 1024} KiB"),
+    false => nodes(body),
+  }
+  let items = try made
+  match {
+    items.size() == 0 => Result::err("the figure has no nodes"),
+    items.size() > max_nodes => Result::err("a tree has at most {max_nodes} nodes"),
+    _ => Result::ok(model::figure("tree", grammar::attribute(info, "title"), items)),
+  }
+}
+
+// Whether the node at index has a later sibling: a node at its level
+// before any node above it.
+private fn continues(items: [model::Item], index: Int, level: Int) Bool {
+  mut result = false
+  mut open = true
+  mut at = index + 1
+  while open and at < items.size() {
+    let next = items.at(at).expect("node").level
+    if next < level {
+      open = false
+    } else if next == level {
+      result = true
+      open = false
+    }
+    at =+ 1
+  }
+  result
+}
+
+// The index of the nearest node before index at level.
+private fn ancestor(items: [model::Item], index: Int, level: Int) Int {
+  mut found = -1
+  mut at = index - 1
+  while found < 0 and at >= 0 {
+    if items.at(at).expect("node").level == level {
+      found = at
+    }
+    at =- 1
+  }
+  found
+}
+
+// The guides before each node: for each level above it, `│` while that
+// ancestor has a later sibling, then `├─` or `└─` to the node itself. A
+// top-level node has none.
+fn guides(items: [model::Item]) [Str] {
+  let result = mut List::new<Str>()
+  mut index = 0
+  for each in items {
+    let parts = mut List::new<Str>()
+    mut level = 2
+    while level < each.level {
+      let open = continues(items, ancestor(items, index, level), level)
+      parts.push(
+        match open {
+          true => "│  ",
+          false => "   ",
+        },
+      )
+      level =+ 1
+    }
+    if each.level > 1 {
+      parts.push(
+        match continues(items, index, each.level) {
+          true => "├─ ",
+          false => "└─ ",
+        },
+      )
+    }
+    result.push(strings::Join(parts, ""))
+    index =+ 1
+  }
+  result.@
+}
+
+fn draw(figure: model::Figure) drawing::Drawing {
+  let prefixes = guides(figure.items)
+  let names = mut List::new<Str>()
+  mut widest = 0
+  mut index = 0
+  for each in figure.items {
+    let name = format::truncate_cells(each.label, max_label)
+    names.push(name)
+    let width = ui::text_width(prefixes.at(index).or("")) + ui::text_width(name)
+    if width > widest {
+      widest = width
+    }
+    index =+ 1
+  }
+  let rows = mut List::new<[drawing::Segment]>()
+  index = 0
+  for each in figure.items {
+    let prefix = prefixes.at(index).or("")
+    let name = names.at(index).or("")
+    let line = mut [drawing::segment(prefix, drawing::Role::frame)]
+    line.push(
+      match {
+        each.accent => drawing::bold(name, drawing::Role::accent),
+        each.muted => drawing::segment(name, drawing::Role::muted),
+        _ => drawing::segment(name, drawing::Role::text),
+      },
+    )
+    if each.note != "" {
+      let room = widest - ui::text_width(prefix) - ui::text_width(name)
+      line.push(drawing::segment("{strings::Repeat(" ", room)}  {each.note}", drawing::Role::muted))
+    }
+    rows.push(line.@)
+    index =+ 1
+  }
+  drawing::framed(figure.title, rows.@)
+}
+
+test fn guides_follow_each_ancestor_with_a_later_sibling() Void!Str {
+  let info = try grammar::parse_info("tree")
+  let figure = try parse(info, "- root\n  - a\n    - a1\n    - a2\n  - b\n    - b1\n- other")
+  let got = strings::Join(mut guides(figure.items), "|")
+  testing::assert(got == "|├─ |│  ├─ |│  └─ |└─ |   └─ |", "got {got}")
+}

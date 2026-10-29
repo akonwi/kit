@@ -1,0 +1,11 @@
+figure spec
+title ""
+item label="The longest label anyone writes" value="wraps" note="" accent=false muted=false scale=0 share="" spark=
+item label="Old" value="receded" note="" accent=false muted=true scale=0 share="" spark=
+laid out 48
+┌─────────────────────────────────────┐
+│                                     │
+│  The longest label anyon…  wraps    │
+│  Old                       receded  │
+│                                     │
+└─────────────────────────────────────┘

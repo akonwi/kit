@@ -1,0 +1,74 @@
+use kit/tui/figure/drawing
+use kit/tui/figure/grammar
+use kit/tui/figure/listing
+use kit/tui/figure/model
+use kit/tui/format
+use go:strings
+
+// `spec`: labelled values in one aligned column, the values wrapping as
+// prose, each with an optional indented note under it (docs/figures.md).
+
+let max_rows = 30
+
+// The widest label drawn; a longer one ends in `…`.
+let max_label = 24
+
+private fn row(each: grammar::Item) model::Item!Str {
+  match grammar::label_value(each.text) {
+    parts => {
+      let made = mut model::item(parts.at(0).or(""), parts.at(1).or(""))
+      made.note = each.note
+      made.accent = each.bold
+      made.muted = each.italic
+      made.body = strings::Join(mut each.details, " ")
+      Result::ok(made.@)
+    },
+    _ => Result::err("a spec row is `label: value`, got `{grammar::clip(each.text)}`"),
+  }
+}
+
+fn parse(info: grammar::Info, body: Str) model::Figure!Str {
+  try grammar::check_attributes(info, ["title"])
+  let items = try grammar::items(body)
+  try grammar::check_one_bold(items)
+  let made = mut List::new<model::Item>()
+  for each in items {
+    made.push(try row(each))
+  }
+  match {
+    made.size() == 0 => Result::err("the figure has no rows"),
+    made.size() > max_rows => Result::err("a spec has at most {max_rows} rows"),
+    _ => Result::ok(model::figure("spec", grammar::attribute(info, "title"), made.@)),
+  }
+}
+
+// Each row's label in a muted lane, then its value, which wraps, with its
+// note and body under it. The bold row's value takes the accent.
+fn layout(figure: model::Figure) listing::Listing {
+  let entries = mut List::new<listing::Entry>()
+  for each in figure.items {
+    let label = format::truncate_cells(each.label, max_label)
+    entries.push(
+      listing::Entry{
+        marker: drawing::segment("", drawing::Role::text),
+        lane: match each.accent {
+          true => drawing::bold(label, drawing::Role::text),
+          false => drawing::segment(label, drawing::Role::muted),
+        },
+        heading: match {
+          each.accent => drawing::bold(each.value, drawing::Role::accent),
+          each.muted => drawing::segment(each.value, drawing::Role::muted),
+          _ => drawing::segment(each.value, drawing::Role::text),
+        },
+        note: each.note,
+        body: each.body,
+      },
+    )
+  }
+  listing::Listing{
+    entries: entries.@,
+    spaced: false,
+    lead: [],
+    closing: "",
+  }
+}

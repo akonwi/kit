@@ -1,0 +1,1 @@
+not drawn: a spec row is `label: value`, got `Family Geist Mono`

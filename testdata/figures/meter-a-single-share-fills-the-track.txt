@@ -1,0 +1,16 @@
+figure meter
+title "Coverage"
+item label="" value="67%" note="of lines covered by tests" accent=true muted=false scale=670 share="" spark=
+drawn 41 6
+┌─ Coverage ────────────────────────────┐
+│                                       │
+│  ████████████████████··········  67%  │
+│  of lines covered by tests            │
+│                                       │
+└───────────────────────────────────────┘
+ff TTTTTTTT fffffffffffffffffffffffffffff
+f                                       f
+f  aaaaaaaaaaaaaaaaaaaakkkkkkkkkk  XXX  f
+f  mm mmmmm mmmmmmm mm mmmmm            f
+f                                       f
+fffffffffffffffffffffffffffffffffffffffff

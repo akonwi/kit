@@ -1,0 +1,1 @@
+not drawn: a compare row is a table row, as in `| label | a | b |`, got `x | yes`

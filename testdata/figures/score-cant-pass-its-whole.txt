@@ -1,0 +1,1 @@
+not drawn: a score can't be more than its whole, got `6/5`

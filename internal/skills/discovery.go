@@ -86,7 +86,7 @@ func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (LoadResult, er
 	}
 
 	state := discoveryState{
-		seenNames:       map[string]string{KitCustomizationName: "built-in"},
+		seenNames:       map[string]string{KitCustomizationName: "built-in", KitFiguresName: "built-in"},
 		seenDirectories: make(map[string]struct{}),
 	}
 	state.scanRoot(ctx, l.userHome, l.userHomeInfo, "skills", SourceUser)
@@ -358,7 +358,7 @@ func (s *discoveryState) loadFile(root *os.Root, relative, path string, source S
 	}
 	if previous, exists := s.seenNames[normalized.Name]; exists {
 		code := "skills.duplicate_name"
-		if normalized.Name == KitCustomizationName {
+		if IsReservedName(normalized.Name) {
 			code = "skills.reserved_name"
 		}
 		s.warn(code, fmt.Sprintf("Skill %q was already loaded from %s and was omitted", normalized.Name, previous), path)

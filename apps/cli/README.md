@@ -99,3 +99,18 @@ Stamping a real version is what makes this a release build. A release names no
 channel and resolves `~/.kit` exactly as it always has; `--define channel=NAME`
 is the only thing that binds a build to an isolated
 `~/.local/state/kit/NAME/home` (ADR 0047).
+
+## Figure fixtures
+
+The figures in `tui/figure` are likewise the reference for the macOS app's
+port in `apps/macos/Sources/KitFigures`
+([ADR 0054](../../docs/adrs/0054-draw-data-figures-from-fenced-markdown.md),
+grammar in [`docs/figures.md`](../../docs/figures.md)).
+`test/figure_fixtures_test.ard` checks it against the shared fixtures in
+`testdata/figures`: each `.md` fence and, in the matching `.txt`, the parsed
+figure and its drawing, or the reason it isn't drawn. After changing a figure,
+or adding a fence, review what it makes and write it:
+
+```sh
+KIT_UPDATE_FIGURE_FIXTURES=1 ard test test/figure_fixtures_test.ard
+```

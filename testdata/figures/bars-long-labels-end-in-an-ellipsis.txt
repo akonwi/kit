@@ -1,0 +1,17 @@
+figure bars
+title "Files"
+item label="apps/macos/Sources/Kit/Views/MarkdownView.swift" value="608" note="" accent=false muted=false scale=760 share="" spark=
+item label="internal/markdown/markdown.go" value="800" note="" accent=false muted=false scale=1000 share="" spark=
+drawn 69 6
+┌─ Files ───────────────────────────────────────────────────────────┐
+│                                                                   │
+│  apps/macos/Sources/Kit/Views/Ma…  ██████████████████▏·····  608  │
+│  internal/markdown/markdown.go     ████████████████████████  800  │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
+ff TTTTT ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+f                                                                   f
+f  xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  xxxxxxxxxxxxxxxxxxxkkkkk  xxx  f
+f  xxxxxxxxxxxxxxxxxxxxxxxxxxxxx     xxxxxxxxxxxxxxxxxxxxxxxx  xxx  f
+f                                                                   f
+fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff

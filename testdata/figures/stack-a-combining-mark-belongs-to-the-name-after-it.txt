@@ -1,0 +1,1 @@
+not drawn: every stack row has the segments `́x, y` in order, unlike `b`

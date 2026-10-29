@@ -1,0 +1,1 @@
+not drawn: a bars row is `label: value`, got `/docs 12,400`

@@ -1,0 +1,26 @@
+figure tree
+title ""
+item label="src" value="" note="" accent=true muted=false scale=0 share="" spark= level=1
+item label="main.go" value="" note="changed" accent=true muted=false scale=0 share="" spark= level=2
+item label="old.go" value="" note="removed" accent=false muted=true scale=0 share="" spark= level=2
+item label="docs" value="" note="" accent=false muted=false scale=0 share="" spark= level=1
+item label="figures.md" value="" note="" accent=true muted=false scale=0 share="" spark= level=2
+drawn 28 9
+┌──────────────────────────┐
+│                          │
+│  src                     │
+│  ├─ main.go     changed  │
+│  └─ old.go      removed  │
+│  docs                    │
+│  └─ figures.md           │
+│                          │
+└──────────────────────────┘
+ffffffffffffffffffffffffffff
+f                          f
+f  AAA                     f
+f  ff AAAAAAA     mmmmmmm  f
+f  ff mmmmmm      mmmmmmm  f
+f  xxxx                    f
+f  ff AAAAAAAAAA           f
+f                          f
+ffffffffffffffffffffffffffff

@@ -1,0 +1,237 @@
+use ard/testing
+
+use cooper/ui
+use kit/tui/figure/drawing
+use kit/tui/figure/grammar
+use kit/tui/figure/model
+use kit/tui/format
+use go:regexp
+use go:strings
+
+// `compare`: a table of options side by side, rows of features against
+// them, `yes` and `no` drawn as glyphs, and the bold option as the pick.
+// Cells never wrap (docs/figures.md).
+
+let max_rows = 30
+
+let max_options = 6
+
+// The widest label or cell drawn; longer ones end in `…`.
+let max_label = 32
+
+// A table row's cells, without the pipes around them.
+private fn cells(line: Str) [Str] {
+  mut inner = strings::TrimPrefix(line, "|")
+  if strings::HasSuffix(inner, "|") {
+    inner = inner.slice(end: inner.size() - 1).or("")
+  }
+  let result = mut List::new<Str>()
+  for each in strings::Split(inner, "|") {
+    result.push(strings::TrimSpace(grammar::clean(each)))
+  }
+  result.@
+}
+
+private fn is_divider(row: [Str]) Bool {
+  let pattern = regexp::MustCompile("^:?-+:?\\z")
+  mut divider = row.size() > 0
+  for each in row {
+    if not pattern.MatchString(each) {
+      divider = false
+    }
+  }
+  divider
+}
+
+private struct Table {
+  heading: [Str],
+  rows: [[Str]],
+  failure: Str,
+}
+
+private fn table(body: Str) Table {
+  let lines = mut List::new<Str>()
+  for raw in strings::Split(strings::ReplaceAll(body, "\r\n", "\n"), "\n") {
+    let trimmed = strings::TrimSpace(raw)
+    if trimmed != "" {
+      lines.push(trimmed)
+    }
+  }
+  let rows = mut List::new<[Str]>()
+  mut failure = ""
+  for line in lines {
+    if failure == "" and not strings::HasPrefix(line, "|") {
+      failure = "a compare row is a table row, as in `| label | a | b |`, got `{grammar::clip(line)}`"
+    }
+    rows.push(cells(line))
+  }
+  let none: [Str] = []
+  let heading = rows.at(0).or(none)
+  let body_rows = mut List::new<[Str]>()
+  mut index = 0
+  for row in rows {
+    if index >= 2 {
+      if failure == "" and row.size() != heading.size() {
+        failure = "every compare row has {heading.size()} cells, got {row.size()} in `{grammar::clip(lines.at(index).or(""))}`"
+      }
+      body_rows.push(row)
+    }
+    index =+ 1
+  }
+  if failure == "" and not is_divider(rows.at(1).or(none)) {
+    failure = "a compare table's second row is its `| --- |` divider"
+  }
+  Table{
+    heading: heading,
+    rows: body_rows.@,
+    failure: failure,
+  }
+}
+
+fn parse(info: grammar::Info, body: Str) model::Figure!Str {
+  try grammar::check_attributes(info, ["title"])
+  let parsed = match body.size() > grammar::max_body {
+    true => {
+      Table{
+        heading: [],
+        rows: [],
+        failure: "the figure is larger than {grammar::max_body / 1024} KiB",
+      }
+    },
+    false => table(body),
+  }
+  let options = mut List::new<Str>()
+  mut pick = -1
+  mut picks = 0
+  mut unnamed = false
+  mut index = 0
+  for each in parsed.heading {
+    if index > 0 {
+      let read = grammar::emphasis(each)
+      if read.bold {
+        pick = index - 1
+        picks =+ 1
+      }
+      if read.text == "" {
+        unnamed = true
+      }
+      options.push(read.text)
+    }
+    index =+ 1
+  }
+  let made = mut List::new<model::Item>()
+  for row in parsed.rows {
+    let item = mut model::item(row.at(0).or(""), "")
+    let values = mut List::new<Str>()
+    mut column = 0
+    for each in row {
+      if column > 0 {
+        values.push(each)
+      }
+      column =+ 1
+    }
+    item.cells = values.@
+    made.push(item.@)
+  }
+  match {
+    parsed.failure != "" => Result::err(parsed.failure),
+    options.size() < 1 or options.size() > max_options => {
+      Result::err("a compare table has 1 to {max_options} options, got {options.size()}")
+    },
+    unnamed => Result::err("every compare option needs a heading"),
+    picks > 1 => Result::err("only one option can be bold"),
+    made.size() == 0 => Result::err("the figure has no rows"),
+    made.size() > max_rows => Result::err("a compare table has at most {max_rows} rows"),
+    _ => {
+      let figure = mut model::figure("compare", grammar::attribute(info, "title"), made.@)
+      figure.headings = options.@
+      figure.pick = pick
+      Result::ok(figure.@)
+    },
+  }
+}
+
+// A cell as drawn: `yes` as `✓`, `no` as `–`, anything else as written.
+fn shown(cell: Str) Str {
+  match cell {
+    "yes" => "✓",
+    "no" => "–",
+    _ => format::truncate_cells(cell, max_label),
+  }
+}
+
+fn draw(figure: model::Figure) drawing::Drawing {
+  mut label_lane = 0
+  for each in figure.items {
+    let width = ui::text_width(format::truncate_cells(each.label, max_label))
+    if width > label_lane {
+      label_lane = width
+    }
+  }
+  let lanes = mut List::new<Int>()
+  mut column = 0
+  for heading in figure.headings {
+    mut width = ui::text_width(format::truncate_cells(heading, max_label))
+    for each in figure.items {
+      let cell = ui::text_width(shown(each.cells.at(column).or("")))
+      if cell > width {
+        width = cell
+      }
+    }
+    lanes.push(width)
+    column =+ 1
+  }
+  let rows = mut List::new<[drawing::Segment]>()
+  let heading = mut [drawing::segment(strings::Repeat(" ", label_lane), drawing::Role::text)]
+  column = 0
+  for each in figure.headings {
+    let name = drawing::pad(format::truncate_cells(each, max_label), lanes.at(column).or(0), false)
+    heading.push(drawing::segment("  ", drawing::Role::text))
+    heading.push(
+      match column == figure.pick {
+        true => drawing::bold(name, drawing::Role::accent),
+        false => drawing::segment(name, drawing::Role::muted),
+      },
+    )
+    column =+ 1
+  }
+  rows.push(
+    [drawing::segment(strings::Repeat("─", drawing::row_width(heading.@)), drawing::Role::frame)],
+  )
+  for each in figure.items {
+    let line = mut [
+      drawing::segment(
+        drawing::pad(format::truncate_cells(each.label, max_label), label_lane, false),
+        drawing::Role::text,
+      ),
+    ]
+    column = 0
+    for cell in each.cells {
+      let text = drawing::pad(shown(cell), lanes.at(column).or(0), false)
+      line.push(drawing::segment("  ", drawing::Role::text))
+      line.push(
+        drawing::segment(
+          text,
+          match {
+            cell == "no" => drawing::Role::muted,
+            column == figure.pick => drawing::Role::accent,
+            _ => drawing::Role::text,
+          },
+        ),
+      )
+      column =+ 1
+    }
+    rows.push(line.@)
+  }
+  let ordered = mut [heading.@]
+  for each in rows {
+    ordered.push(each)
+  }
+  drawing::framed(figure.title, ordered.@)
+}
+
+test fn yes_and_no_are_glyphs() Void!Str {
+  try testing::assert(shown("yes") == "✓", "got {shown("yes")}")
+  try testing::assert(shown("no") == "–", "got {shown("no")}")
+  testing::assert(shown("$24") == "$24", "got {shown("$24")}")
+}

@@ -1,0 +1,20 @@
+figure delta
+title "Traffic"
+headings "2025","2026"
+item label="docs" value="12,400" note="" accent=false muted=false scale=0 share="" spark= from="8,200" change="+51%" trend=better
+item label="copy" value="4,100" note="" accent=false muted=false scale=0 share="" spark= from="5,100" change="−20%" trend=worse
+drawn 34 7
+┌─ Traffic ──────────────────────┐
+│                                │
+│         2025       2026        │
+│  docs  8,200  →  12,400  +51%  │
+│  copy  5,100  →   4,100  −20%  │
+│                                │
+└────────────────────────────────┘
+ff TTTTTTT fffffffffffffffffffffff
+f                                f
+f         mmmm       mmmm        f
+f  xxxx  mmmmm  m  xxxxxx  ssss  f
+f  xxxx  mmmmm  m   xxxxx  dddd  f
+f                                f
+ffffffffffffffffffffffffffffffffff

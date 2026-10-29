@@ -38,4 +38,6 @@ Changing the session cwd with `change_cwd` or `/cd <path>` immediately retargets
 
 Every normal session advertises the embedded `kit-customization` skill and includes the `activate_skill` tool. The skill directs the model to inspect the running Kit version's documentation and source, prefer supported user-editable surfaces, and avoid inventing settings or paths from another version. It has no user-owned filesystem location and cannot be shadowed by a user or project skill.
 
+The embedded `kit-figures` skill likewise teaches the model the grammar of the figures and callouts Kit draws ([Figures](../figures.md)); the core prompt doesn't describe them.
+
 Kit also discovers user-global and project-local skills and prompt commands. See [Skills](./skills.md) and [Prompt commands](./prompt-commands.md) for locations, precedence, file formats, limits, and reload behavior.

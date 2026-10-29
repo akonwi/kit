@@ -1,0 +1,35 @@
+figure tree
+title ""
+item label="1" value="" note="" accent=false muted=false scale=0 share="" spark= level=1
+item label="2" value="" note="" accent=false muted=false scale=0 share="" spark= level=2
+item label="3" value="" note="" accent=false muted=false scale=0 share="" spark= level=3
+item label="4" value="" note="" accent=false muted=false scale=0 share="" spark= level=4
+item label="5" value="" note="" accent=false muted=false scale=0 share="" spark= level=5
+item label="6" value="" note="" accent=false muted=false scale=0 share="" spark= level=6
+item label="7" value="" note="" accent=false muted=false scale=0 share="" spark= level=7
+item label="8" value="" note="" accent=false muted=false scale=0 share="" spark= level=8
+drawn 28 12
+┌──────────────────────────┐
+│                          │
+│  1                       │
+│  └─ 2                    │
+│     └─ 3                 │
+│        └─ 4              │
+│           └─ 5           │
+│              └─ 6        │
+│                 └─ 7     │
+│                    └─ 8  │
+│                          │
+└──────────────────────────┘
+ffffffffffffffffffffffffffff
+f                          f
+f  x                       f
+f  ff x                    f
+f     ff x                 f
+f        ff x              f
+f           ff x           f
+f              ff x        f
+f                 ff x     f
+f                    ff x  f
+f                          f
+ffffffffffffffffffffffffffff

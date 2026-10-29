@@ -1,0 +1,724 @@
+use ard/testing
+
+use go:fmt
+use go:math
+use go:regexp
+use go:strconv
+use go:strings
+
+// The grammar every figure reads (ADR 0054, docs/figures.md): the fence's
+// info string of a name and `key="value"` attributes, and a body of list
+// items that mark the item to read in bold, recede in italics, and take a
+// note after ` — `. The macOS client's port in `apps/macos/Sources/KitFigures`
+// reads the same grammar the same way.
+
+// The largest body drawn.
+let max_body = 8192
+
+// The longest info string read, in bytes.
+let max_info = 1024
+
+// The most attributes an info string has.
+let max_attributes = 8
+
+// The largest magnitude a number may have.
+let max_number = 1000000000000000.0
+
+// One `key="value"` attribute of an info string.
+struct Attribute {
+  key: Str,
+  value: Str,
+}
+
+// A fence's info string, split into its name and attributes.
+struct Info {
+  name: Str,
+  attributes: [Attribute],
+}
+
+// One list item of a body: its text without its marker, emphasis, or note.
+struct Item {
+  text: Str,
+  note: Str,
+  // `**…**` around the whole item.
+  bold: Bool,
+  // `*…*` around the whole item.
+  italic: Bool,
+  // The indented lines under the item, trimmed.
+  details: [Str],
+  // The number an ordered item is written with, or -1 for a `- ` item.
+  ordinal: Int,
+}
+
+// The first word of an info string.
+fn name(info: Str) Str {
+  let trimmed = strings::TrimSpace(info)
+  let space = strings::IndexAny(trimmed, " \t")
+  match space >= 0 {
+    true => trimmed.slice(end: space).or(trimmed),
+    false => trimmed,
+  }
+}
+
+private fn is_key_character(character: Str, first: Bool) Bool {
+  let letters = "abcdefghijklmnopqrstuvwxyz"
+  match first {
+    true => strings::Contains(letters, character),
+    false => strings::Contains(letters, character) or strings::Contains("0123456789-", character),
+  }
+}
+
+// The attribute rest starts with, and the text after it.
+private struct Next {
+  attribute: Attribute,
+  rest: Str,
+}
+
+private fn next_attribute(rest: Str) Next!Str {
+  mut length = 0
+  mut scanning = true
+  while scanning {
+    let character = rest.slice(start: length, end: length + 1).or("")
+    scanning = character != "" and is_key_character(character, length == 0)
+    if scanning {
+      length =+ 1
+    }
+  }
+  let key = rest.slice(end: length).or("")
+  let after = rest.slice(start: length).or("")
+  let quoted = after.slice(start: 2).or("")
+  let close = strings::Index(quoted, "\"")
+  let next = quoted.slice(start: close + 1).or("")
+  match {
+    key == "" or not strings::HasPrefix(after, "=\"") => {
+      Result::err("the attributes aren't `key=\"value\"` pairs near `{clip(rest)}`")
+    },
+    close < 0 => Result::err("the value of `{key}` isn't closed"),
+    next != "" and not strings::HasPrefix(next, " ") and not strings::HasPrefix(next, "\t") => {
+      Result::err("the attributes aren't `key=\"value\"` pairs near `{clip(next)}`")
+    },
+    _ => {
+      Result::ok(
+        Next{
+          attribute: Attribute{key: key, value: clean(quoted.slice(end: close).or(""))},
+          rest: strings::TrimLeft(next, " \t"),
+        },
+      )
+    },
+  }
+}
+
+// An info string's name and attributes, each key at most once.
+fn parse_info(info: Str) Info!Str {
+  let trimmed = strings::TrimSpace(info)
+  try check_info_size(trimmed)
+  let figure = name(trimmed)
+  mut rest = strings::TrimLeft(trimmed.slice(start: figure.size()).or(""), " \t")
+  let attributes = mut List::new<Attribute>()
+  mut repeated = ""
+  while rest != "" {
+    let next = try next_attribute(rest)
+    for each in attributes {
+      if each.key == next.attribute.key and repeated == "" {
+        repeated = each.key
+      }
+    }
+    attributes.push(next.attribute)
+    rest = next.rest
+  }
+  match {
+    attributes.size() > max_attributes => {
+      Result::err("a figure has at most {max_attributes} attributes")
+    },
+    repeated != "" => Result::err("`{repeated}` is set more than once"),
+    _ => Result::ok(Info{name: figure, attributes: attributes.@}),
+  }
+}
+
+// Rejects an info string too long to read.
+private fn check_info_size(info: Str) Void!Str {
+  match info.size() > max_info {
+    true => Result::err("the fence's info string is over {max_info} bytes"),
+    false => Result::ok(()),
+  }
+}
+
+// The value of attribute key, or empty.
+fn attribute(info: Info, key: Str) Str {
+  mut value = ""
+  for each in info.attributes {
+    if each.key == key {
+      value = each.value
+    }
+  }
+  value
+}
+
+// Rejects an attribute that isn't one of allowed.
+fn check_attributes(info: Info, allowed: [Str]) Void!Str {
+  mut unknown = ""
+  for each in info.attributes {
+    mut known = false
+    for key in allowed {
+      if key == each.key {
+        known = true
+      }
+    }
+    if not known and unknown == "" {
+      unknown = each.key
+    }
+  }
+  match unknown == "" {
+    true => Result::ok(()),
+    false => Result::err("`{info.name}` has no `{unknown}` attribute"),
+  }
+}
+
+// Text shown in an error: its first 24 bytes, cut at a character boundary.
+fn clip(text: Str) Str {
+  match text.size() > 24 {
+    true => "{strings::ToValidUTF8(text.slice(end: 24).or(""), "")}…",
+    false => text,
+  }
+}
+
+// text without control characters; a tab is a space.
+fn clean(text: Str) Str {
+  let controls = regexp::MustCompile("[\\x00-\\x1f\\x7f\\x{{80}}-\\x{{9f}}]")
+  controls.ReplaceAllString(strings::ReplaceAll(text, "\t", " "), "")
+}
+
+// The leading spaces of line, where a tab counts as two.
+private fn indent(line: Str) Int {
+  mut count = 0
+  mut index = 0
+  mut scanning = true
+  while scanning {
+    let character = line.slice(start: index, end: index + 1).or("")
+    if character == " " {
+      count =+ 1
+    } else if character == "\t" {
+      count =+ 2
+    } else {
+      scanning = false
+    }
+    index =+ 1
+  }
+  count
+}
+
+// item's text split into its body and the note after ` — ` or ` -- `.
+private fn split_note(text: Str) [Str] {
+  mut at = strings::Index(text, " — ")
+  mut width = 5
+  if at < 0 {
+    at = strings::Index(text, " -- ")
+    width = 4
+  }
+  match at >= 0 {
+    true => {
+      [
+        strings::TrimSpace(text.slice(end: at).or("")),
+        strings::TrimSpace(text.slice(start: at + width).or("")),
+      ]
+    },
+    false => [strings::TrimSpace(text), ""],
+  }
+}
+
+// Whether text is wrapped whole in marker, with something inside.
+private fn wrapped(text: Str, marker: Str) Bool {
+  text.size() > marker.size() * 2 and strings::HasPrefix(text, marker) and strings::HasSuffix(text, marker)
+}
+
+private fn parse_item(text: Str) Item {
+  let parts = split_note(clean(text))
+  let body = parts.at(0).or("")
+  let bold = wrapped(body, "**")
+  let italic = (not bold) and wrapped(body, "*") and (not strings::HasPrefix(body, "**"))
+  let inner = match {
+    bold => body.slice(start: 2, end: body.size() - 2).or(""),
+    italic => body.slice(start: 1, end: body.size() - 1).or(""),
+    _ => body,
+  }
+  Item{
+    text: strings::TrimSpace(inner),
+    note: parts.at(1).or(""),
+    bold: bold,
+    italic: italic,
+    details: [],
+    ordinal: -1,
+  }
+}
+
+// A list item's marker and text: `- text` or `N. text`.
+private struct Marked {
+  ordinal: Int,
+  text: Str,
+}
+
+private fn marked(trimmed: Str) Marked? {
+  let ordered = regexp::MustCompile("^([0-9]{{1,9}})\\. (.*)\\z")
+  let parts = ordered.FindStringSubmatch(trimmed)
+  match {
+    strings::HasPrefix(trimmed, "- ") => {
+      Maybe::new(Marked{ordinal: -1, text: strings::TrimPrefix(trimmed, "- ")})
+    },
+    parts.size() == 3 => {
+      Maybe::new(Marked{ordinal: strconv::Atoi(parts.at(1).or("")).or(0), text: parts.at(2).or("")})
+    },
+    _ => Maybe::new<Marked>(),
+  }
+}
+
+// One line read as an item is: its emphasis and note split off.
+fn line(text: Str) Item {
+  parse_item(text)
+}
+
+// text with its emphasis split off but no note, as a table cell is read.
+fn emphasis(text: Str) Item {
+  let body = strings::TrimSpace(clean(text))
+  let bold = wrapped(body, "**")
+  let italic = (not bold) and wrapped(body, "*") and (not strings::HasPrefix(body, "**"))
+  let inner = match {
+    bold => body.slice(start: 2, end: body.size() - 2).or(""),
+    italic => body.slice(start: 1, end: body.size() - 1).or(""),
+    _ => body,
+  }
+  Item{
+    text: strings::TrimSpace(inner),
+    note: "",
+    bold: bold,
+    italic: italic,
+    details: [],
+    ordinal: -1,
+  }
+}
+
+// Whether a trimmed line starts an ordered item, as in `1. text`.
+fn is_ordered(trimmed: Str) Bool {
+  match marked(trimmed) {
+    found => found.ordinal >= 0,
+    _ => false,
+  }
+}
+
+// A body's `- ` or `N. ` list items, each with the indented lines under it.
+// Blank lines are skipped; any other line is an error.
+fn items(body: Str) [Item]!Str {
+  let listed = try list(body, false)
+  Result::ok(listed.items)
+}
+
+// A body's list items and the one paragraph after them.
+struct Listed {
+  items: [Item],
+  // The paragraph after the list, its lines joined, or empty.
+  note: Str,
+}
+
+// A body's list items, as `items` reads them, then an optional closing
+// paragraph after them.
+fn items_and_note(body: Str) Listed!Str {
+  list(body, true)
+}
+
+private fn list(body: Str, closing: Bool) Listed!Str {
+  match body.size() > max_body {
+    true => Result::err("the figure is larger than {max_body / 1024} KiB"),
+    false => list_items(body, closing),
+  }
+}
+
+private fn list_items(body: Str, closing: Bool) Listed!Str {
+  let result = mut List::new<Item>()
+  mut details = mut List::new<Str>()
+  mut current = Maybe::new<Item>()
+  let note = mut List::new<Str>()
+  // Whether the line before was blank, once the closing paragraph started.
+  mut after_blank = false
+  mut failure = ""
+  for raw in strings::Split(strings::ReplaceAll(body, "\r\n", "\n"), "\n") {
+    let line = strings::TrimRight(raw, " \t\r")
+    let trimmed = strings::TrimSpace(line)
+    let marker = match indent(line) < 2 {
+      true => marked(trimmed),
+      false => Maybe::new<Marked>(),
+    }
+    let in_note = note.size() > 0
+    match {
+      trimmed == "" => { after_blank = in_note },
+      in_note and after_blank => {
+        if failure == "" {
+          failure = "the figure takes one paragraph after its list"
+        }
+      },
+      in_note and marker.is_some() => {
+        if failure == "" {
+          failure = "the paragraph comes after every item, got `{clip(trimmed)}`"
+        }
+      },
+      in_note => note.push(clean(trimmed)),
+      marker.is_some() => {
+        match current {
+          item => {
+            let done = mut item
+            done.details = details.@
+            result.push(done.@)
+          },
+          _ => (),
+        }
+        details = mut List::new<Str>()
+        let found = marker.expect("marker")
+        let next = mut parse_item(found.text)
+        next.ordinal = found.ordinal
+        current = Maybe::new(next.@)
+      },
+      indent(line) >= 2 and current.is_some() => details.push(clean(trimmed)),
+      closing and current.is_some() => note.push(clean(trimmed)),
+      _ => {
+        if failure == "" {
+          failure = "expected a `- ` or `1. ` list item, got `{clip(trimmed)}`"
+        }
+      },
+    }
+  }
+  match current {
+    item => {
+      let done = mut item
+      done.details = details.@
+      result.push(done.@)
+    },
+    _ => (),
+  }
+  match failure == "" {
+    true => Result::ok(Listed{items: result.@, note: strings::Join(note, " ")}),
+    false => Result::err(failure),
+  }
+}
+
+// Rejects more than one bold item.
+fn check_one_bold(items: [Item]) Void!Str {
+  mut bold = 0
+  for item in items {
+    if item.bold {
+      bold =+ 1
+    }
+  }
+  match bold > 1 {
+    true => Result::err("only one item can be bold"),
+    false => Result::ok(()),
+  }
+}
+
+// text split at its first `: ` into a label and a value, or nothing.
+fn label_value(text: Str) [Str]? {
+  let at = strings::Index(text, ": ")
+  match at > 0 {
+    true => {
+      Maybe::new(
+        [
+          strings::TrimSpace(text.slice(end: at).or("")),
+          strings::TrimSpace(text.slice(start: at + 2).or("")),
+        ],
+      )
+    },
+    false => Maybe::new<[Str]>(),
+  }
+}
+
+// A number as written: an optional sign and `$`, digits with optional `,`
+// groups and `.` fraction, and an optional unit such as `%`, `ms`, or `kb`.
+fn number(text: Str) Float64!Str {
+  let pattern = regexp::MustCompile(
+    "^([+-]?)\\$?([0-9]{{1,3}}(?:,[0-9]{{3}})+|[0-9]+)(\\.[0-9]+)? ?(?:[A-Za-z]{{1,4}}|%)?\\z",
+  )
+  let parts = pattern.FindStringSubmatch(text)
+  let digits = "{parts.at(1).or("")}{strings::ReplaceAll(parts.at(2).or(""), ",", "")}{parts.at(3).or("")}"
+  match parts.size() == 0 {
+    true => Result::err("`{clip(text)}` isn't a number"),
+    false => {
+      match strconv::ParseFloat(digits, 64) {
+        ok(value) => {
+          match math::Abs(value) > max_number {
+            true => Result::err("`{clip(text)}` is too large"),
+            false => Result::ok(value),
+          }
+        },
+        err(_) => Result::err("`{clip(text)}` isn't a number"),
+      }
+    },
+  }
+}
+
+// The most decimals a computed number is written with.
+let max_decimals = 6
+
+// How a number is written, so a number computed from it is written alike.
+struct Shape {
+  dollar: Bool,
+  // Whether its digits are grouped with `,`.
+  grouped: Bool,
+  decimals: Int,
+  // Its unit, with the space before it if there is one.
+  unit: Str,
+}
+
+// The shape of a number as written; text is one `number` reads.
+fn shape(text: Str) Shape {
+  let pattern = regexp::MustCompile(
+    "^[+-]?(\\$?)([0-9,]+)(?:\\.([0-9]+))?( ?(?:[A-Za-z]{{1,4}}|%)?)\\z",
+  )
+  let parts = pattern.FindStringSubmatch(text)
+  Shape{
+    dollar: parts.at(1).or("") == "$",
+    grouped: strings::Contains(parts.at(2).or(""), ","),
+    decimals: parts.at(3).or("").size(),
+    unit: parts.at(4).or(""),
+  }
+}
+
+// The shape numbers written in each of shapes share: the most decimals,
+// grouped if any is, and the first one's `$` and unit.
+fn common(shapes: [Shape]) Shape {
+  let first = shapes.at(
+    0,
+  ).or(
+    Shape{
+      dollar: false,
+      grouped: false,
+      decimals: 0,
+      unit: "",
+    },
+  )
+  let result = mut first
+  for each in shapes {
+    if each.decimals > result.decimals {
+      result.decimals = each.decimals
+    }
+    if each.grouped {
+      result.grouped = true
+    }
+  }
+  result.@
+}
+
+// digits with `,` between each group of three from the right.
+private fn group(digits: Str) Str {
+  let groups = mut List::new<Str>()
+  mut end = digits.size()
+  while end > 0 {
+    let start = match end > 3 {
+      true => end - 3,
+      false => 0,
+    }
+    groups.push(digits.slice(start: start, end: end).or(""))
+    end = start
+  }
+  let ordered = mut List::new<Str>()
+  mut index = groups.size() - 1
+  while index >= 0 {
+    ordered.push(groups.at(index).or(""))
+    index =- 1
+  }
+  strings::Join(ordered, ",")
+}
+
+// Whether numbers of shapes a and b are in the same unit, `$` included.
+fn same_unit(a: Shape, b: Shape) Bool {
+  a.dollar == b.dollar and strings::TrimSpace(a.unit) == strings::TrimSpace(b.unit)
+}
+
+// value written in shape, with at most max_decimals. When signed, a value
+// that isn't zero as written takes `+` or `−`.
+fn written(value: Float64, shape: Shape, signed: Bool) Str {
+  let decimals = match shape.decimals > max_decimals {
+    true => max_decimals,
+    false => shape.decimals,
+  }
+  let digits = fmt::Sprintf("%.{decimals}f", math::Abs(value))
+  let point = strings::Index(digits, ".")
+  let whole = match point >= 0 {
+    true => digits.slice(end: point).or(""),
+    false => digits,
+  }
+  let fraction = match point >= 0 {
+    true => digits.slice(start: point).or(""),
+    false => "",
+  }
+  let zero = strings::Trim(strings::ReplaceAll(digits, ".", ""), "0") == ""
+  let sign = match {
+    (not signed) or zero => "",
+    value > 0.0 => "+",
+    _ => "−",
+  }
+  let grouped = match shape.grouped {
+    true => group(whole),
+    false => whole,
+  }
+  let dollar = match shape.dollar {
+    true => "$",
+    false => "",
+  }
+  "{sign}{dollar}{grouped}{fraction}{shape.unit}"
+}
+
+// A list of numbers separated by spaces, where `x*n` repeats x n times.
+fn numbers(text: Str, limit: Int) [Float64]!Str {
+  let result = mut List::new<Float64>()
+  for token in strings::Fields(text) {
+    let value = try run(token)
+    mut index = 0
+    while index < value.count and result.size() <= limit {
+      result.push(value.value)
+      index =+ 1
+    }
+  }
+  match result.size() > limit {
+    true => Result::err("there are more than {limit} values"),
+    false => Result::ok(result.@),
+  }
+}
+
+// One value, repeated count times.
+private struct Run {
+  value: Float64,
+  count: Int,
+}
+
+// A token of a list of numbers: a number, or `x*n` for n of it.
+private fn run(token: Str) Run!Str {
+  let star = strings::LastIndex(token, "*")
+  let written = match star > 0 {
+    true => token.slice(end: star).or(""),
+    false => token,
+  }
+  let count = match star > 0 {
+    true => {
+      match strconv::Atoi(token.slice(start: star + 1).or("")) {
+        ok(parsed) => parsed,
+        err(_) => -1,
+      }
+    },
+    false => 1,
+  }
+  match count < 1 or count > 200 {
+    true => Result::err("`{clip(token)}` isn't a run of 1 to 200 values"),
+    false => Result::ok(Run{value: try number(written), count: count}),
+  }
+}
+
+// value as a share of whole, in thousandths from 0 to 1000.
+fn permille(value: Float64, whole: Float64) Int {
+  match whole <= 0.0 {
+    true => 0,
+    false => {
+      let share = math::Floor(value / whole * 1000.0)
+      match {
+        share > 1000.0 => 1000,
+        share < 0.0 => 0,
+        _ => Int::fit(share),
+      }
+    },
+  }
+}
+
+test fn info_strings_split_into_a_name_and_attributes() Void!Str {
+  let info = try parse_info("bars  title=\"Routes · live\" max=\"100\"")
+  try testing::assert(info.name == "bars", "name: {info.name}")
+  try testing::assert(attribute(info, "title") == "Routes · live", "title: {attribute(info, "title")}")
+  testing::assert(attribute(info, "max") == "100", "max: {attribute(info, "max")}")
+}
+
+test fn malformed_info_strings_explain_why() Void!Str {
+  let cases = [
+    parse_info("bars title=Routes"),
+    parse_info("bars title=\"Routes"),
+    parse_info("bars title=\"a\" title=\"b\""),
+    parse_info("bars title=\"a\"max=\"1\""),
+    parse_info("bars title=\"{strings::Repeat("x", 1020)}\""),
+    parse_info("bars a=\"1\" b=\"1\" c=\"1\" d=\"1\" e=\"1\" f=\"1\" g=\"1\" h=\"1\" i=\"1\""),
+  ]
+  let expected = [
+    "the attributes aren't `key=\"value\"` pairs near `title=Routes`",
+    "the value of `title` isn't closed",
+    "`title` is set more than once",
+    "the attributes aren't `key=\"value\"` pairs near `max=\"1\"`",
+    "the fence's info string is over 1024 bytes",
+    "a figure has at most 8 attributes",
+  ]
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    match cases.at(index).expect("case") {
+      ok(_) => try testing::assert(false, "case {index} parsed, want {want}"),
+      err(got) => try testing::assert(got == want, "case {index}: got {got}, want {want}"),
+    }
+    index =+ 1
+  }
+  testing::pass()
+}
+
+test fn computed_numbers_are_written_like_their_inputs() Void!Str {
+  let grouped = common([shape("8,200"), shape("12,400")])
+  try testing::assert(written(4200.0, grouped, true) == "+4,200", "got {written(4200.0, grouped, true)}")
+  try testing::assert(
+    written(-1000.0, grouped, true) == "−1,000",
+    "got {written(-1000.0, grouped, true)}",
+  )
+  let units = common([shape("$1.5 kb"), shape("2.25")])
+  try testing::assert(written(0.75, units, true) == "+$0.75 kb", "got {written(0.75, units, true)}")
+  try testing::assert(written(0.001, units, true) == "$0.00 kb", "got {written(0.001, units, true)}")
+  let long = shape("0.333333333333")
+  try testing::assert(
+    written(2.0 / 3.0, long, false) == "0.666667",
+    "got {written(2.0 / 3.0, long, false)}",
+  )
+  let plain = shape("48")
+  testing::assert(
+    written(1234567.0, plain, false) == "1234567",
+    "got {written(1234567.0, plain, false)}",
+  )
+}
+
+test fn bodies_can_close_with_a_paragraph() Void!Str {
+  let listed = try items_and_note("- a\n- b\n\nRevisit\nlater.")
+  try testing::assert(listed.items.size() == 2, "got {listed.items.size()} items")
+  try testing::assert(listed.note == "Revisit later.", "got {listed.note}")
+  let failures = [
+    items_and_note("- a\n\none\n\ntwo"),
+    items_and_note("- a\n\none\n- b"),
+    items_and_note("one\n- a"),
+  ]
+  let reasons = [
+    "the figure takes one paragraph after its list",
+    "the paragraph comes after every item, got `- b`",
+    "expected a `- ` or `1. ` list item, got `one`",
+  ]
+  mut index = 0
+  while index < reasons.size() {
+    let want = reasons.at(index).or("")
+    match failures.at(index).expect("case") {
+      ok(_) => try testing::assert(false, "case {index} parsed, want {want}"),
+      err(got) => try testing::assert(got == want, "case {index}: got {got}, want {want}"),
+    }
+    index =+ 1
+  }
+  testing::pass()
+}
+
+test fn numbers_are_read_as_written() Void!Str {
+  let written = ["12,400", "-3.5", "+31 kb", "$24", "67%", "0.67", "38ms"]
+  let values = [12400.0, -3.5, 31.0, 24.0, 67.0, 0.67, 38.0]
+  mut index = 0
+  while index < written.size() {
+    let got = try number(written.at(index).or(""))
+    try testing::assert(got == values.at(index).or(0.0), "{written.at(index).or("")} read as {got}")
+    index =+ 1
+  }
+  for bad in ["12,40", "1e5", "abc", "1,000,0000", "", "5 kilobytes"] {
+    try testing::assert(number(bad).is_err(), "`{bad}` read as a number")
+  }
+  testing::pass()
+}

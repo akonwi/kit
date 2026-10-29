@@ -15,7 +15,11 @@ enum MessageText {
             case .paragraph(let value), .heading(_, let value): String(value.characters)
             case .code(_, let source): source.trimmingCharacters(in: .newlines)
             case .mermaid(let diagram): diagram.source.trimmingCharacters(in: .newlines)
+            case .figure(let figure): figure.source.trimmingCharacters(in: .newlines)
             case .quote(let children): render(children)
+            case .callout(let callout):
+                ([callout.kind.label + (callout.title.isEmpty ? "" : " · " + callout.title)] + [render(callout.blocks)])
+                    .filter { !$0.isEmpty }.joined(separator: "\n\n")
             case .list(let items): items.map { $0.marker + " " + render($0.blocks) }.joined(separator: "\n")
             case .table(let table): ([table.header] + table.rows).map { $0.map { String($0.characters) }.joined(separator: "\t") }.joined(separator: "\n")
             case .rule: "—"

@@ -46,6 +46,7 @@ enum Icon: String, CaseIterable, Sendable {
     case image
     case info
     case key
+    case lightbulb
     case magnifyingGlass = "magnifying-glass"
     case moon
     case note
@@ -73,6 +74,7 @@ enum Icon: String, CaseIterable, Sendable {
     case trash
     case warning
     case warningCircle = "warning-circle"
+    case warningOctagon = "warning-octagon"
     case wrench
     case x
     case xCircle = "x-circle"

@@ -1,0 +1,17 @@
+figure delta
+title ""
+item label="new" value="40" note="" accent=false muted=false scale=0 share="" spark= from="0" change="–" trend=better
+item label="flat" value="12" note="" accent=false muted=false scale=0 share="" spark= from="12" change="0%"
+drawn 25 6
+┌───────────────────────┐
+│                       │
+│  new    0  →  40   –  │
+│  flat  12  →  12  0%  │
+│                       │
+└───────────────────────┘
+fffffffffffffffffffffffff
+f                       f
+f  xxx    m  m  xx   s  f
+f  xxxx  mm  m  xx  xx  f
+f                       f
+fffffffffffffffffffffffff

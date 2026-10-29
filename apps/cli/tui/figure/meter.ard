@@ -1,0 +1,359 @@
+use ard/testing
+
+use cooper/ui
+use kit/tui/figure/drawing
+use kit/tui/figure/grammar
+use kit/tui/figure/model
+use kit/tui/format
+use go:strings
+
+// `meter`: one share of a whole, or rows each measured against its own
+// target, with the targets lined up in one column (docs/figures.md).
+
+let max_rows = 12
+
+// The cells a meter's track spans.
+let track = 30
+
+// The cell a row's target tick takes: 80% of the track, which runs to 125%
+// of the target.
+let tick = 24
+
+// The widest label drawn; longer labels end in `…`.
+let max_label = 32
+
+// A row's value and target, split at ` / `.
+private fn fraction(text: Str) [Str]? {
+  let at = strings::Index(text, " / ")
+  match at > 0 {
+    true => {
+      Maybe::new(
+        [
+          strings::TrimSpace(text.slice(end: at).or("")),
+          strings::TrimSpace(text.slice(start: at + 3).or("")),
+        ],
+      )
+    },
+    false => Maybe::new<[Str]>(),
+  }
+}
+
+// A value and the target it is measured against, both above zero.
+private fn against(value: Str, target: Str) [Float64]!Str {
+  let amount = try grammar::number(value)
+  let whole = try grammar::number(target)
+  match {
+    amount < 0.0 => Result::err("a meter can't be negative, got `{grammar::clip(value)}`"),
+    whole <= 0.0 => Result::err("a meter's target must be above zero, got `{grammar::clip(target)}`"),
+    _ => Result::ok([amount, whole]),
+  }
+}
+
+// A single meter's share of its whole: `N%`, a fraction from 0 to 1, or
+// `a / b`.
+fn ratio(text: Str) Float64!Str {
+  match fraction(text) {
+    parts => {
+      let pair = try against(parts.at(0).or(""), parts.at(1).or(""))
+      Result::ok(pair.at(0).or(0.0) / pair.at(1).or(1.0))
+    },
+    _ => {
+      let value = try grammar::number(text)
+      let percent = strings::HasSuffix(text, "%")
+      match {
+        value < 0.0 => Result::err("a meter can't be negative, got `{grammar::clip(text)}`"),
+        percent => Result::ok(value / 100.0),
+        value > 1.0 => {
+          Result::err(
+            "a meter is `N%`, a fraction from 0 to 1, or `a / b`, got `{grammar::clip(text)}`",
+          )
+        },
+        _ => Result::ok(value),
+      }
+    },
+  }
+}
+
+private fn single(info: grammar::Info, text: Str) model::Figure!Str {
+  let each = grammar::line(text)
+  let share = try ratio(each.text)
+  let made = mut model::item("", each.text)
+  made.note = each.note
+  made.accent = true
+  made.scale = grammar::permille(share, 1.0)
+  made.over = share > 1.0
+  Result::ok(model::figure("meter", grammar::attribute(info, "title"), [made.@]))
+}
+
+private fn row(each: grammar::Item) model::Item!Str {
+  match grammar::label_value(each.text) {
+    parts => {
+      let written = parts.at(1).or("")
+      match fraction(written) {
+        pair => {
+          let numbers = try against(pair.at(0).or(""), pair.at(1).or(""))
+          let amount = numbers.at(0).or(0.0)
+          let whole = numbers.at(1).or(1.0)
+          let made = mut model::item(parts.at(0).or(""), pair.at(0).or(""))
+          made.target = pair.at(1).or("")
+          made.note = each.note
+          made.accent = each.bold
+          made.muted = each.italic
+          made.scale = grammar::permille(amount, whole * 1.25)
+          made.over = amount > whole
+          match each.details.size() > 0 {
+            true => Result::err("a meter row takes no indented lines"),
+            false => Result::ok(made.@),
+          }
+        },
+        _ => {
+          Result::err(
+            "a meter row needs a target, as in `label: 9 / 12`, got `{grammar::clip(each.text)}`",
+          )
+        },
+      }
+    },
+    _ => Result::err("a meter row is `label: value / target`, got `{grammar::clip(each.text)}`"),
+  }
+}
+
+private fn rows(info: grammar::Info, body: Str) model::Figure!Str {
+  let items = try grammar::items(body)
+  try grammar::check_one_bold(items)
+  let made = mut List::new<model::Item>()
+  for each in items {
+    made.push(try row(each))
+  }
+  match {
+    made.size() == 0 => Result::err("the figure has no rows"),
+    made.size() > max_rows => Result::err("a meter figure has at most {max_rows} rows"),
+    _ => Result::ok(model::figure("meter", grammar::attribute(info, "title"), made.@)),
+  }
+}
+
+fn parse(info: grammar::Info, body: Str) model::Figure!Str {
+  try grammar::check_attributes(info, ["title"])
+  let lines = mut List::new<Str>()
+  for each in strings::Split(body, "\n") {
+    if strings::TrimSpace(each) != "" {
+      lines.push(strings::TrimSpace(each))
+    }
+  }
+  let first = lines.at(0).or("")
+  let listed = strings::HasPrefix(first, "- ") or grammar::is_ordered(first)
+  match {
+    body.size() > grammar::max_body => {
+      Result::err("the figure is larger than {grammar::max_body / 1024} KiB")
+    },
+    lines.size() == 0 => Result::err("the figure has no rows"),
+    listed => rows(info, body),
+    lines.size() > 1 => Result::err("a single meter is one line, as in `67% — note`; rows are a list"),
+    _ => single(info, first),
+  }
+}
+
+private fn widest(texts: [Str]) Int {
+  mut width = 0
+  for text in texts {
+    let cells = ui::text_width(text)
+    if cells > width {
+      width = cells
+    }
+  }
+  width
+}
+
+// A bar of whole cells, scale thousandths of width rounded to the nearest
+// cell, so no sliver of a cell sits beside the tick in cell mark and reads
+// as a second one. A value above zero always shows, and one past the tick
+// always shows past it.
+fn whole_bar(scale: Int, width: Int, mark: Int) [Str] {
+  mut cells = (scale * width + 500) / 1000
+  if cells == 0 and scale > 0 {
+    cells = 1
+  }
+  if scale * width > mark * 1000 and cells < mark + 2 {
+    cells = mark + 2
+  }
+  if cells > width {
+    cells = width
+  }
+  [strings::Repeat("█", cells), strings::Repeat("·", width - cells)]
+}
+
+// A track of width cells with a bar scale thousandths long, split into
+// runs: the bar before the tick, the track before it, the tick, then the
+// bar and track after it. With a tick the bar is whole cells; without one
+// it is drawn in eighths, as one bar and its rest.
+fn segments(scale: Int, width: Int, mark: Int, fill: drawing::Role) [drawing::Segment] {
+  let lengths = match mark >= 0 {
+    true => whole_bar(scale, width, mark),
+    false => drawing::bar(scale, width),
+  }
+  let cells = mut List::new<Str>()
+  for each in ui::graphemes(lengths.at(0).or("")) {
+    cells.push(each.text)
+  }
+  let filled = cells.size()
+  for each in ui::graphemes(lengths.at(1).or("")) {
+    cells.push(each.text)
+  }
+  let result = mut List::new<drawing::Segment>()
+  mut index = 0
+  mut run = ""
+  mut role = fill
+  for cell in cells {
+    let wanted = match {
+      index == mark => drawing::Role::text,
+      index < filled => fill,
+      _ => drawing::Role::track,
+    }
+    let shown = match index == mark {
+      true => "│",
+      false => cell,
+    }
+    if wanted != role and run != "" {
+      result.push(drawing::segment(run, role))
+      run = ""
+    }
+    role = wanted
+    run = run + shown
+    index =+ 1
+  }
+  if run != "" {
+    result.push(drawing::segment(run, role))
+  }
+  result.@
+}
+
+private fn draw_single(figure: model::Figure) drawing::Drawing {
+  let each = figure.items.at(0).expect("a single meter")
+  let fill = match each.over {
+    true => drawing::Role::warning,
+    false => drawing::Role::accent,
+  }
+  let line = mut segments(each.scale, track, -1, fill)
+  line.push(drawing::bold("  {each.value}", fill_text(each.over)))
+  let rows = mut [line.@]
+  if each.note != "" {
+    rows.push([drawing::segment(each.note, drawing::Role::muted)])
+  }
+  drawing::framed(figure.title, rows.@)
+}
+
+// Text beside a bar over its target is warning; any other is text.
+private fn fill_text(over: Bool) drawing::Role {
+  match over {
+    true => drawing::Role::warning,
+    false => drawing::Role::text,
+  }
+}
+
+fn draw(figure: model::Figure) drawing::Drawing {
+  let first = figure.items.at(0).expect("a meter has an item")
+  match figure.items.size() == 1 and first.target == "" {
+    true => draw_single(figure),
+    false => draw_rows(figure),
+  }
+}
+
+private fn draw_rows(figure: model::Figure) drawing::Drawing {
+  let labels = mut List::new<Str>()
+  let values = mut List::new<Str>()
+  let targets = mut List::new<Str>()
+  mut emphasized = false
+  for each in figure.items {
+    labels.push(format::truncate_cells(each.label, max_label))
+    values.push(each.value)
+    targets.push(each.target)
+    if each.accent {
+      emphasized = true
+    }
+  }
+  let label_lane = widest(labels.@)
+  let value_lane = widest(values.@)
+  let target_lane = widest(targets.@)
+  let rows = mut List::new<[drawing::Segment]>()
+  mut index = 0
+  for each in figure.items {
+    let quiet = each.muted or emphasized and (not each.accent)
+    let label = drawing::pad(labels.at(index).or(""), label_lane, false)
+    let line = mut List::new<drawing::Segment>()
+    line.push(
+      match {
+        each.accent => drawing::bold(label, drawing::Role::text),
+        each.muted => drawing::segment(label, drawing::Role::muted),
+        _ => drawing::segment(label, drawing::Role::text),
+      },
+    )
+    line.push(drawing::segment("  ", drawing::Role::text))
+    let fill = match {
+      each.over => drawing::Role::warning,
+      each.accent => drawing::Role::accent,
+      quiet => drawing::Role::muted,
+      _ => drawing::Role::text,
+    }
+    for part in segments(each.scale, track, tick, fill) {
+      line.push(part)
+    }
+    let value = "  {drawing::pad(each.value, value_lane, true)} / {drawing::pad(each.target, target_lane, false)}"
+    let role = match {
+      each.over => drawing::Role::warning,
+      quiet => drawing::Role::muted,
+      _ => drawing::Role::text,
+    }
+    line.push(
+      match each.accent {
+        true => drawing::bold(value, role),
+        false => drawing::segment(value, role),
+      },
+    )
+    if each.note != "" {
+      line.push(drawing::segment("  {each.note}", drawing::Role::muted))
+    }
+    rows.push(line.@)
+    index =+ 1
+  }
+  drawing::framed(figure.title, rows.@)
+}
+
+test fn single_meters_read_percents_fractions_and_ratios() Void!Str {
+  let written = ["67%", "0.67", "2 / 3", "120%", "0%"]
+  let values = [0.67, 0.67, 2.0 / 3.0, 1.2, 0.0]
+  mut index = 0
+  while index < written.size() {
+    let got = try ratio(written.at(index).or(""))
+    try testing::assert(got == values.at(index).or(-1.0), "{written.at(index).or("")} read as {got}")
+    index =+ 1
+  }
+  for bad in ["67", "-5%", "1 / 0", "a / 2"] {
+    try testing::assert(ratio(bad).is_err(), "`{bad}` read as a meter")
+  }
+  testing::pass()
+}
+
+test fn a_target_tick_takes_its_column_inside_the_bar() Void!Str {
+  let parts = segments(1000, 10, 8, drawing::Role::accent)
+  let texts = mut List::new<Str>()
+  for each in parts {
+    texts.push(each.text)
+  }
+  let got = strings::Join(texts, "|")
+  try testing::assert(got == "████████|│|█", "got {got}")
+  let past = mut List::new<Str>()
+  for each in segments(840, 30, 24, drawing::Role::warning) {
+    past.push(each.text)
+  }
+  let over = strings::Join(past, "|")
+  try testing::assert(
+    over == "{strings::Repeat("█", 24)}|│|█|····",
+    "a bar past its tick fills whole cells: {over}",
+  )
+  let short = segments(200, 10, 8, drawing::Role::accent)
+  let shown = mut List::new<Str>()
+  for each in short {
+    shown.push(each.text)
+  }
+  let line = strings::Join(shown, "|")
+  testing::assert(line == "██|······|│|·", "got {line}")
+}

@@ -1,0 +1,1 @@
+not drawn: a meter's target must be above zero, got `0`

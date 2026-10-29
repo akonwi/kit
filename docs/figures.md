@@ -10,10 +10,12 @@ implement it; until then its fence shows as an ordinary code block.
 A figure is a fenced code block whose info string is the figure's name
 followed by attributes: ```` ```name key="value" … ````.
 
-- **Attributes:** `key="value"` only, in double quotes with no escapes, each
-  key at most once. Every figure takes `title` (plain text, at most 48 cells).
-  An unknown or repeated key means the figure isn't drawn, and the reason
-  names the key.
+- **Attributes:** `key="value"` only, in double quotes, each key at most
+  once, and at most 8 of them. Every figure takes `title` (plain text, cut
+  at 48 cells). An unknown or repeated key means the figure isn't drawn,
+  and the reason names the key. The info string is first decoded as
+  CommonMark decodes it (entities such as `&amp;`, and backslash escapes);
+  the attributes themselves have no escapes.
 - **Items:** one per list line (`- ` or `1. `). Blank lines between items are
   fine.
 - **Bold:** `**…**` around a whole item (or a stat's value) marks the item to
@@ -28,13 +30,15 @@ followed by attributes: ```` ```name key="value" … ````.
   `14:11`. Other inline Markdown in labels (code, links) is shown as plain
   text.
 - **Numbers:** an optional sign, digits with optional `,` groups, an optional
-  `.` fraction, and an optional unit (`%`, `ms`, `kb`, or a `$` prefix). They
-  must be finite with |x| <= 1e15. They are shown exactly as written; parsing
-  is only for scale.
+  `.` fraction, an optional `$` prefix, and an optional unit of 1–4 ASCII
+  letters or `%`, with or without a space before it (`38ms`, `84 kb`,
+  `1.2M`). They must be finite with |x| <= 1e15. They are shown exactly as
+  written; parsing is only for scale.
 - **Runs:** `x*n` expands into n copies of a value (n <= 200).
-- **Limits:** a body of at most 8 KB. Labels are cut at 32 cells with `…`
-  unless a figure says otherwise, control characters are stripped, and
-  widths are measured in terminal cells. Chart rows never wrap; a figure
+- **Limits:** an info string of at most 1 KB and a body of at most 8 KB.
+  Labels are cut at 32 cells with `…` unless a figure says otherwise,
+  control characters are stripped, and widths are measured in terminal
+  cells. Chart rows never wrap; a figure
   that doesn't fit scrolls sideways. Prose (step and timeline bodies,
   callouts) wraps inside the frame.
 - **Failure:** a figure that isn't drawn shows its source with a one-line
@@ -67,7 +71,7 @@ Any other kind is a plain quote. No Obsidian names, no fold markers.
 ````
 
 - 1–4 items: `VALUE LABEL [— note]`. VALUE is the first token (or the bold
-  span), shown verbatim, at most 12 cells. It is not parsed as a number.
+  span), shown verbatim, at most 12 characters. It is not parsed as a number.
 - An optional indented line of numbers under an item is its sparkline
   (2–60 points). The last point gets the accent.
 
@@ -85,7 +89,8 @@ Any other kind is a plain quote. No Obsidian names, no fold markers.
 - Row order is kept as written. The author sorts.
 - `max="N"` fixes the scale; by default the largest value fills the track.
 - `percent="first"` adds each row's share of the first row (a funnel);
-  `percent="total"` adds each row's share of the sum.
+  `percent="total"` adds each row's share of the sum. A share past 9999%
+  shows as `>9999%`.
 - With a bold row, it gets the accent and the others are muted. With no bold
   row, every bar is neutral.
 
@@ -165,10 +170,14 @@ Revisit if writes pass 2k a second.
 ````
 
 - `status`: `proposed`, `accepted`, `rejected` or `superseded`; `date` is free
-  text of at most 20 cells. Both are optional and appear on the first row.
-- 2–8 options: `option [— reason]`. Bold is the choice (accent `●`), italic
-  is ruled out (muted `×`), plain was considered (`○`). Zero or one bold.
-- One paragraph after the list is a closing note that wraps.
+  text, cut at 20 cells. Both are optional and appear on the first row. An
+  accepted status is shown as a success and a rejected one as a danger;
+  proposed is plain text and superseded is muted.
+- 2–8 options: `option [— reason]`, with no indented lines. Bold is the
+  choice (accent `●`), italic is ruled out (muted `×`), plain was considered
+  (`○`). Zero or one bold.
+- One paragraph after the list is a closing note that wraps. Nothing may
+  follow it: another paragraph or another item is an error.
 
 ### delta
 
@@ -197,10 +206,22 @@ Before and after:
   `label: from → to` (`->` works too). A mix of the two is an error.
 - Bold is allowed only on the last row, which makes it the total, drawn
   under a rule. Totals are shown as written, not computed.
-- `from`/`to` are column headings for the before-and-after form.
+- A signed value shows its sign in a lane of its own (`−` for a minus) and
+  the value without it. A signed zero changed nothing, so it shows no sign.
+- `from`/`to` are column headings for the before-and-after form, which shows
+  each value before it muted. A row's values before and after are in the
+  same unit (`$` included).
 - `change="percent"` or `change="absolute"` adds a computed change column to
-  the before-and-after form. By default there is none.
-- `better="up"` or `better="down"` colours changes success or error. Without
+  the before-and-after form. By default there is none. A percent change is
+  of the value before, rounded to a whole percent (half away from zero),
+  signed `+` or `−` unless it rounds to zero, and `–` when the value before
+  is zero; past 9999% either way it shows as `+>9999%` or `−>9999%`. An
+  absolute change is written like its values: the most decimals either has
+  (at most 6), `,` groups if either has them, and the value after's `$` and
+  unit.
+- `from`, `to` and `change` need the before-and-after form; on `label:
+  value` rows they are an error.
+- `better="up"` or `better="down"` colours changes success or danger. Without
   it, changes keep the text colour and only the sign glyphs show direction,
   because a bigger number isn't always better.
 
@@ -216,9 +237,9 @@ Before and after:
 ```
 ````
 
-- 1–30 rows of `label: value`. Labels form one aligned column, capped at 24
+- 1–30 rows of `label: value`. Labels form one aligned column, cut at 24
   cells. Values are prose: they wrap within the value column.
-- Zero or one bold row.
+- Zero or one bold row. Its value takes the accent.
 
 ### tree
 
@@ -233,9 +254,9 @@ Before and after:
 ```
 ````
 
-- Nesting is by indentation (two spaces per level; tabs or uneven indents
-  are an error). Depth at most 8, nodes at most 200, and more than one root
-  is allowed.
+- Every line is a `- ` node with a name. Nesting is by indentation (two spaces per
+  level; tabs or uneven indents are an error), one level at a time. Depth at
+  most 8, nodes at most 200, and more than one root is allowed.
 - Notes line up in one muted column.
 - Unlike other figures, any number of nodes may be bold (changed files, say).
 
@@ -252,7 +273,9 @@ Before and after:
 ````
 
 - A GFM table: the first column holds row labels, then 1–6 option columns,
-  with at most 30 rows.
+  with at most 30 rows. Every row starts with `|` and has a cell for every
+  column, and the second row is the `| --- |` divider. The heading over the
+  labels isn't shown, and a `|` can't be escaped inside a cell.
 - `yes` draws `✓` and `no` draws a muted `–`; anything else is shown as written.
 - A bold column heading is the pick: that column gets the accent. Zero or one.
 - How this differs from a plain table: glyphs, a pick column, the frame, and
@@ -269,7 +292,8 @@ Before and after:
 ````
 
 - 1–20 rows of `label: N/M`. M is the same on every row, from 1 to 10. N is a
-  multiple of 0.5 from 0 to M.
+  multiple of 0.5 from 0 to M, written as a whole number or with `.0` or
+  `.5`.
 - Drawn as `●●◐○○` with the written value. Zero or one bold row.
 
 ### stack
@@ -281,8 +305,13 @@ Before and after:
 ```
 ````
 
-- 1–12 rows of `label: value name, value name, …`. Every row has the same
-  segment names in the same order, 2–4 of them. Values must be >= 0.
+- 1–12 rows of `label: value name, value name, …`, the segments split at
+  `, ` and each at its first space, so a unit is written without one, as in
+  `48kb js`. Every row has the same segment names in the same order, 2–4 of
+  them. Values must be >= 0, all in the same unit.
+- Each row's total is computed and shown after the track, written like the
+  row's values: the most decimals any has (at most 6), `,` groups if any
+  has them, and the first value's `$` and unit.
 - Segments are shaded `█ ▓ ▒ ░` in order, with a legend under the rows.
 - Each row fills the track by default (shares). `scale="shared"` makes the
   largest total fill the track, so the rows' lengths compare.

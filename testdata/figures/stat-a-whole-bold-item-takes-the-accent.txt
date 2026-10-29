@@ -1,0 +1,17 @@
+figure stat
+title ""
+item label="copies" value="4,100" note="" accent=false muted=false scale=0 share="" spark=
+item label="shipped" value="860" note="" accent=true muted=false scale=0 share="" spark=
+drawn 23 6
+┌─────────────────────┐
+│                     │
+│  4,100     860      │
+│  copies    shipped  │
+│                     │
+└─────────────────────┘
+fffffffffffffffffffffff
+f                     f
+f  XXXXX     AAA      f
+f  mmmmmm    mmmmmmm  f
+f                     f
+fffffffffffffffffffffff

@@ -14,6 +14,7 @@ import (
 	"github.com/yuin/goldmark/extension"
 	extast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 const (
@@ -90,6 +91,19 @@ const (
 	ContainerListItem
 )
 
+// AlertKind identifies a GitHub alert: a quote whose first line is a marker
+// such as `[!WARNING]`.
+type AlertKind uint8
+
+const (
+	AlertNone AlertKind = iota
+	AlertNote
+	AlertTip
+	AlertImportant
+	AlertWarning
+	AlertCaution
+)
+
 // Container preserves the outer-to-inner order of quote and list-item layers.
 type Container struct {
 	Kind        ContainerKind
@@ -103,6 +117,12 @@ type Container struct {
 	Task        bool
 	Checked     bool
 	MarkerWidth int
+	// Alert is a quote's alert kind, and AlertTitle the text after its
+	// marker. AlertHeader is set on the quote's first block only, where the
+	// alert's kind and title are shown; the marker line itself is removed.
+	Alert       AlertKind
+	AlertTitle  string
+	AlertHeader bool
 }
 
 // Alignment is a Markdown table column's requested alignment.
@@ -179,6 +199,10 @@ type Block struct {
 	// heading's underline. ParseFile records them; they are 0 from Parse.
 	StartLine int
 	EndLine   int
+	// Info is a fenced code block's whole info string, such as
+	// `bars title="Routes"`, with entities and backslash escapes decoded
+	// as CommonMark decodes them.
+	Info string
 }
 
 // Document is a parsed Markdown document.
@@ -295,8 +319,12 @@ func (w *parserWalker) block(node ast.Node, context blockContext) {
 		}
 		w.emit(Block{Kind: kind, Containers: cloneContainers(containers), Runs: w.inlines(node), StartLine: start})
 	case *ast.FencedCodeBlock:
+		info := ""
+		if typed.Info != nil {
+			info = decodeInfo(typed.Info.Segment.Value(w.source))
+		}
 		w.emit(Block{
-			Kind: BlockCode, Language: strings.TrimSpace(string(typed.Language(w.source))),
+			Kind: BlockCode, Language: strings.TrimSpace(string(typed.Language(w.source))), Info: info,
 			Code: w.rawLines(node), Containers: cloneContainers(containers),
 			StartLine: start,
 		})
@@ -304,11 +332,29 @@ func (w *parserWalker) block(node ast.Node, context blockContext) {
 		w.emit(Block{Kind: BlockCode, Code: w.rawLines(node), Containers: cloneContainers(containers), StartLine: start})
 	case *ast.Blockquote:
 		w.nextQuoteID++
+		quote := Container{Kind: ContainerQuote, QuoteID: w.nextQuoteID}
+		marker, title, lineStop := w.alertMarker(typed)
+		quote.Alert, quote.AlertTitle = marker, title
 		next := blockContext{
-			containers: append(containers, Container{Kind: ContainerQuote, QuoteID: w.nextQuoteID}),
+			containers: append(containers, quote),
 			listGroup:  context.listGroup,
 		}
-		w.container(node, next)
+		if marker == AlertNone {
+			w.container(node, next)
+			break
+		}
+		first := node.FirstChild()
+		header := cloneContainers(next.containers)
+		header[len(header)-1].AlertHeader = true
+		runs := w.inlinesAfter(first, lineStop)
+		if w.complexityExceeded {
+			return
+		}
+		// The header block is kept even when the marker was all it held.
+		w.blocks = append(w.blocks, Block{Kind: BlockQuote, Containers: header, Runs: runs, StartLine: w.startLine(first)})
+		for child := first.NextSibling(); child != nil && !w.complexityExceeded; child = child.NextSibling() {
+			w.block(child, next)
+		}
 	case *ast.List:
 		w.list(typed, context)
 	case *ast.ThematicBreak:
@@ -460,6 +506,57 @@ func (w *parserWalker) table(table *extast.Table, context blockContext) {
 	w.emit(block)
 }
 
+// alertMarkers are the GitHub alert markers, by their lowercased kind.
+var alertMarkers = map[string]AlertKind{
+	"note": AlertNote, "tip": AlertTip, "important": AlertImportant,
+	"warning": AlertWarning, "caution": AlertCaution,
+}
+
+// alertMarker reports the alert a quote opens with: its first block is a
+// paragraph whose first line is `[!KIND]`, optionally followed by a title.
+// lineStop is where that first line's text ends.
+func (w *parserWalker) alertMarker(quote *ast.Blockquote) (kind AlertKind, title string, lineStop int) {
+	paragraph, ok := quote.FirstChild().(*ast.Paragraph)
+	if !ok || paragraph.Lines().Len() == 0 {
+		return AlertNone, "", 0
+	}
+	line := paragraph.Lines().At(0)
+	text := strings.TrimSpace(string(line.Value(w.source)))
+	if !strings.HasPrefix(text, "[!") {
+		return AlertNone, "", 0
+	}
+	end := strings.IndexByte(text, ']')
+	if end < 0 {
+		return AlertNone, "", 0
+	}
+	kind, ok = alertMarkers[strings.ToLower(text[2:end])]
+	rest := text[end+1:]
+	if !ok || (rest != "" && rest[0] != ' ' && rest[0] != '\t') {
+		return AlertNone, "", 0
+	}
+	return kind, strings.TrimSpace(rest), line.Stop
+}
+
+// inlinesAfter returns a paragraph's runs after its first line, which ends
+// at lineStop: an alert's body without its marker.
+func (w *parserWalker) inlinesAfter(paragraph ast.Node, lineStop int) []Run {
+	runs := make([]Run, 0, 8)
+	started := false
+	for child := paragraph.FirstChild(); child != nil && !w.complexityExceeded; child = child.NextSibling() {
+		if !started {
+			if text, ok := child.(*ast.Text); ok && (text.SoftLineBreak() || text.HardLineBreak()) && text.Segment.Start < lineStop {
+				started = true
+			}
+			continue
+		}
+		w.inlineNode(child, Run{}, &runs, 0)
+	}
+	if w.complexityExceeded {
+		return nil
+	}
+	return coalesceRuns(runs)
+}
+
 func (w *parserWalker) inlines(node ast.Node) []Run {
 	runs := make([]Run, 0, 8)
 	w.inline(node, Run{}, &runs, 0)
@@ -475,78 +572,83 @@ func (w *parserWalker) inline(node ast.Node, style Run, runs *[]Run, depth int) 
 		return
 	}
 	for child := node.FirstChild(); child != nil && !w.complexityExceeded; child = child.NextSibling() {
-		w.inlineNodes++
-		if w.inlineNodes > w.budget.inlineNodes {
-			w.complexityExceeded = true
-			return
+		w.inlineNode(child, style, runs, depth)
+	}
+}
+
+// inlineNode adds the runs of one inline node in node's children.
+func (w *parserWalker) inlineNode(child ast.Node, style Run, runs *[]Run, depth int) {
+	w.inlineNodes++
+	if w.inlineNodes > w.budget.inlineNodes {
+		w.complexityExceeded = true
+		return
+	}
+	switch typed := child.(type) {
+	case *ast.Text:
+		run := style
+		run.Text = string(typed.Segment.Value(w.source))
+		pushRun(runs, run)
+		if typed.HardLineBreak() || typed.SoftLineBreak() {
+			lineBreak := style
+			lineBreak.Text = "\n"
+			pushRun(runs, lineBreak)
 		}
-		switch typed := child.(type) {
-		case *ast.Text:
-			run := style
-			run.Text = string(typed.Segment.Value(w.source))
-			pushRun(runs, run)
-			if typed.HardLineBreak() || typed.SoftLineBreak() {
-				lineBreak := style
-				lineBreak.Text = "\n"
-				pushRun(runs, lineBreak)
-			}
-		case *ast.String:
-			run := style
-			run.Text = string(typed.Value)
-			pushRun(runs, run)
-		case *ast.CodeSpan:
-			run := style
-			run.Code = true
-			run.Text = w.codeSpanText(typed)
-			pushRun(runs, run)
-		case *ast.Emphasis:
-			next := style
-			if typed.Level >= 2 {
-				next.Bold = true
-			} else {
-				next.Italic = true
-			}
-			w.inline(child, next, runs, depth+1)
-		case *extast.Strikethrough:
-			next := style
-			next.Strikethrough = true
-			w.inline(child, next, runs, depth+1)
-		case *ast.Link:
-			next := style
-			next.Link = string(typed.Destination)
-			start := len(*runs)
-			w.inline(child, next, runs, depth+1)
-			if len(*runs) == start {
-				*runs = append(*runs, Run{Link: next.Link})
-			}
-		case *ast.AutoLink:
-			target := string(typed.URL(w.source))
-			if typed.AutoLinkType == ast.AutoLinkEmail && !strings.HasPrefix(strings.ToLower(target), "mailto:") {
-				target = "mailto:" + target
-			}
-			run := style
-			run.Text = string(typed.Label(w.source))
-			run.Link = target
-			pushRun(runs, run)
-		case *ast.Image:
-			next := style
-			next.Link = string(typed.Destination)
-			next.Image = true
-			start := len(*runs)
-			w.inline(child, next, runs, depth+1)
-			if len(*runs) == start {
-				*runs = append(*runs, Run{Link: next.Link, Image: true})
-			}
-		case *ast.RawHTML:
-			run := style
-			run.Text = string(typed.Segments.Value(w.source))
-			run.RawHTML = true
-			pushRun(runs, run)
-		case *extast.TaskCheckBox:
-			// The block-level list marker carries task state.
-		default:
-			w.inline(child, style, runs, depth+1)
+	case *ast.String:
+		run := style
+		run.Text = string(typed.Value)
+		pushRun(runs, run)
+	case *ast.CodeSpan:
+		run := style
+		run.Code = true
+		run.Text = w.codeSpanText(typed)
+		pushRun(runs, run)
+	case *ast.Emphasis:
+		next := style
+		if typed.Level >= 2 {
+			next.Bold = true
+		} else {
+			next.Italic = true
 		}
+		w.inline(child, next, runs, depth+1)
+	case *extast.Strikethrough:
+		next := style
+		next.Strikethrough = true
+		w.inline(child, next, runs, depth+1)
+	case *ast.Link:
+		next := style
+		next.Link = string(typed.Destination)
+		start := len(*runs)
+		w.inline(child, next, runs, depth+1)
+		if len(*runs) == start {
+			*runs = append(*runs, Run{Link: next.Link})
+		}
+	case *ast.AutoLink:
+		target := string(typed.URL(w.source))
+		if typed.AutoLinkType == ast.AutoLinkEmail && !strings.HasPrefix(strings.ToLower(target), "mailto:") {
+			target = "mailto:" + target
+		}
+		run := style
+		run.Text = string(typed.Label(w.source))
+		run.Link = target
+		pushRun(runs, run)
+	case *ast.Image:
+		next := style
+		next.Link = string(typed.Destination)
+		next.Image = true
+		start := len(*runs)
+		w.inline(child, next, runs, depth+1)
+		if len(*runs) == start {
+			*runs = append(*runs, Run{Link: next.Link, Image: true})
+		}
+	case *ast.RawHTML:
+		run := style
+		run.Text = string(typed.Segments.Value(w.source))
+		run.RawHTML = true
+		pushRun(runs, run)
+	case *extast.TaskCheckBox:
+		// The block-level list marker carries task state.
+	default:
+		w.inline(child, style, runs, depth+1)
 	}
 }
 
@@ -838,4 +940,13 @@ func (w *parserWalker) codeSpanText(span *ast.CodeSpan) string {
 		}
 	}
 	return builder.String()
+}
+
+// decodeInfo is a fence's info string as CommonMark reads it: entity and
+// numeric references resolved, then backslash escapes removed, then
+// trimmed. The macOS client's parser (cmark) reads it the same way, so both
+// clients see the same figure attributes.
+func decodeInfo(raw []byte) string {
+	decoded := util.ResolveEntityNames(util.ResolveNumericReferences(raw))
+	return strings.TrimSpace(string(util.UnescapePunctuations(decoded)))
 }

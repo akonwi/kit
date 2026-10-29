@@ -71,13 +71,17 @@ by attributes:
   digits with optional `,` groups and `.` fraction, a unit; finite and
   bounded) and used only for scale. They are shown exactly as the author
   wrote them. A figure computes nothing it shows unless an attribute asks
-  for it, such as `delta`'s `change="percent"`.
+  for it, such as `delta`'s `change="percent"`, or its grammar defines it,
+  such as `stack`'s row totals.
 - **Callouts.** `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, and
   `[!CAUTION]`, with optional title text after the marker, are drawn as
   callouts. Other kinds remain quotes.
 
-The system prompt lists the figure kinds and their grammar, so agents write
-what Kit draws.
+An embedded skill, `kit-figures`, teaches agents the figure kinds and their
+grammar, so agents write what Kit draws. Its catalog description names the
+figures and when to use them; the core prompt doesn't describe figures, so
+only sessions about to write one pay for the grammar. Every figure in the
+skill is drawn by the terminal client's tests.
 
 ### Rendering
 
@@ -142,7 +146,7 @@ theme tokens.
   in Ard and Swift together, and the shared fixtures fail whichever side
   falls behind.
 - Supported figures grow only as Kit implements and reviews each grammar.
-  The system prompt must list only what both clients draw.
+  The `kit-figures` skill must teach only what both clients draw.
 - Both clients' Markdown models keep the whole info string of a code block,
   not just its first word. This is a small change to `internal/markdown`,
   which the terminal client consumes, and to the macOS client's code-block

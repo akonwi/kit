@@ -1,0 +1,20 @@
+figure bars
+title "Disk"
+item label="logs" value="62%" note="" accent=false muted=false scale=620 share="" spark=
+item label="cache" value="18%" note="" accent=false muted=false scale=180 share="" spark=
+item label="other" value="120%" note="" accent=false muted=false scale=1000 share="" spark=
+drawn 43 7
+┌─ Disk ──────────────────────────────────┐
+│                                         │
+│  logs   ██████████████▉·········   62%  │
+│  cache  ████▎···················   18%  │
+│  other  ████████████████████████  120%  │
+│                                         │
+└─────────────────────────────────────────┘
+ff TTTT fffffffffffffffffffffffffffffffffff
+f                                         f
+f  xxxx   xxxxxxxxxxxxxxxkkkkkkkkk   xxx  f
+f  xxxxx  xxxxxkkkkkkkkkkkkkkkkkkk   xxx  f
+f  xxxxx  xxxxxxxxxxxxxxxxxxxxxxxx  xxxx  f
+f                                         f
+fffffffffffffffffffffffffffffffffffffffffff

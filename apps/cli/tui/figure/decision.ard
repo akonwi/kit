@@ -1,0 +1,133 @@
+use ard/testing
+
+use kit/tui/figure/drawing
+use kit/tui/figure/grammar
+use kit/tui/figure/listing
+use kit/tui/figure/model
+use kit/tui/format
+use go:strings
+
+// `decision`: the options weighed, the chosen one bold and those ruled out
+// in italics, each with its reason, under the decision's status and date
+// and over a closing note (docs/figures.md).
+
+let min_options = 2
+
+let max_options = 8
+
+// The widest option drawn; a longer one ends in `…`.
+let max_label = 32
+
+// The widest date drawn; a longer one ends in `…`.
+let max_date = 20
+
+let statuses = ["proposed", "accepted", "rejected", "superseded"]
+
+private fn check_status(status: Str) Void!Str {
+  mut known = status == ""
+  for each in statuses {
+    if each == status {
+      known = true
+    }
+  }
+  match known {
+    true => Result::ok(()),
+    false => Result::err("`status` is `proposed`, `accepted`, `rejected` or `superseded`"),
+  }
+}
+
+fn parse(info: grammar::Info, body: Str) model::Figure!Str {
+  try grammar::check_attributes(info, ["title", "status", "date"])
+  let status = grammar::attribute(info, "status")
+  try check_status(status)
+  let listed = try grammar::items_and_note(body)
+  try grammar::check_one_bold(listed.items)
+  let made = mut List::new<model::Item>()
+  mut detailed = false
+  for each in listed.items {
+    let item = mut model::item(each.text, "")
+    item.note = each.note
+    item.accent = each.bold
+    item.muted = each.italic
+    made.push(item.@)
+    if each.details.size() > 0 {
+      detailed = true
+    }
+  }
+  match {
+    detailed => Result::err("a decision's options take no indented lines"),
+    made.size() < min_options or made.size() > max_options => {
+      Result::err("a decision has {min_options} to {max_options} options, got {made.size()}")
+    },
+    _ => {
+      let figure = mut model::figure("decision", grammar::attribute(info, "title"), made.@)
+      figure.status = status
+      figure.date = grammar::attribute(info, "date")
+      figure.note = listed.note
+      Result::ok(figure.@)
+    },
+  }
+}
+
+// The status as shown, in its color: accepted is a success and rejected a
+// danger; proposed is plain and superseded recedes.
+private fn status_run(status: Str) drawing::Segment {
+  let shown = "{strings::ToUpper(status.slice(end: 1).or(""))}{status.slice(start: 1).or("")}"
+  match status {
+    "accepted" => drawing::bold(shown, drawing::Role::success),
+    "rejected" => drawing::bold(shown, drawing::Role::danger),
+    "superseded" => drawing::bold(shown, drawing::Role::muted),
+    _ => drawing::bold(shown, drawing::Role::text),
+  }
+}
+
+// The status and date row, the options with their reasons, and the
+// closing note.
+fn layout(figure: model::Figure) listing::Listing {
+  let lead = mut List::new<drawing::Segment>()
+  if figure.status != "" {
+    lead.push(status_run(figure.status))
+  }
+  if figure.date != "" {
+    let date = format::truncate_cells(figure.date, max_date)
+    lead.push(
+      match figure.status == "" {
+        true => drawing::segment(date, drawing::Role::muted),
+        false => drawing::segment(" · {date}", drawing::Role::muted),
+      },
+    )
+  }
+  let entries = mut List::new<listing::Entry>()
+  for each in figure.items {
+    let option = format::truncate_cells(each.label, max_label)
+    entries.push(
+      listing::Entry{
+        marker: match {
+          each.accent => drawing::segment("●", drawing::Role::accent),
+          each.muted => drawing::segment("×", drawing::Role::muted),
+          _ => drawing::segment("○", drawing::Role::muted),
+        },
+        lane: match {
+          each.accent => drawing::bold(option, drawing::Role::text),
+          each.muted => drawing::segment(option, drawing::Role::muted),
+          _ => drawing::segment(option, drawing::Role::text),
+        },
+        heading: drawing::segment(each.note, drawing::Role::muted),
+        note: "",
+        body: "",
+      },
+    )
+  }
+  listing::Listing{
+    entries: entries.@,
+    spaced: false,
+    lead: lead.@,
+    closing: figure.note,
+  }
+}
+
+test fn statuses_are_capitalized_in_their_color() Void!Str {
+  let run = status_run("accepted")
+  try testing::assert(run.text == "Accepted" and run.bold, "got {run.text}")
+  testing::assert(status_run("proposed").text == "Proposed", "got {status_run("proposed").text}")
+}

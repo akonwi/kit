@@ -1,0 +1,1 @@
+not drawn: a compare table has 1 to 6 options, got 7

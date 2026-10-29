@@ -1,0 +1,20 @@
+figure delta
+title "Latency"
+item label="p50" value="4ms" note="" accent=false muted=false scale=0 share="" spark= sign="−" trend=better
+item label="p99" value="12ms" note="" accent=false muted=false scale=0 share="" spark= sign="+" trend=worse
+item label="p999" value="140ms" note="" accent=false muted=false scale=0 share="" spark=
+drawn 20 7
+┌─ Latency ────────┐
+│                  │
+│  p50   −    4ms  │
+│  p99   +   12ms  │
+│  p999     140ms  │
+│                  │
+└──────────────────┘
+ff TTTTTTT fffffffff
+f                  f
+f  xxx   s    sss  f
+f  xxx   d   dddd  f
+f  xxxx     xxxxx  f
+f                  f
+ffffffffffffffffffff

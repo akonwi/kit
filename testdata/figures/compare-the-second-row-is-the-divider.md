@@ -1,0 +1,4 @@
+```compare
+| | a | b |
+| x | yes | no |
+```

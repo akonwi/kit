@@ -1,0 +1,14 @@
+figure meter
+title ""
+item label="" value="0.4" note="" accent=true muted=false scale=400 share="" spark=
+drawn 41 5
+┌───────────────────────────────────────┐
+│                                       │
+│  ████████████··················  0.4  │
+│                                       │
+└───────────────────────────────────────┘
+fffffffffffffffffffffffffffffffffffffffff
+f                                       f
+f  aaaaaaaaaaaakkkkkkkkkkkkkkkkkk  XXX  f
+f                                       f
+fffffffffffffffffffffffffffffffffffffffff

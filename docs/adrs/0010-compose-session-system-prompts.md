@@ -272,8 +272,8 @@ The implementation must demonstrate:
 - context contents are present in the system prompt but absent from droid
   conversation history;
 - `activate_skill` is available in every normal Kit session;
-- `kit-customization` is embedded, advertised, activatable, and protected from
-  name shadowing;
+- `kit-customization` and `kit-figures` are embedded, advertised, activatable,
+  and protected from name shadowing;
 - user-global and project `SKILL.md` definitions are discovered deterministically,
   bounded safely, surfaced in diagnostics, and refreshed atomically on reload;
 - attaching a client does not reload an existing runtime;

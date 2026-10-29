@@ -1,0 +1,13 @@
+figure timeline
+title ""
+item label="09:00" value="Standup" note="" accent=false muted=false scale=0 share="" spark=
+item label="14:11" value="rolled back" note="after the alert" accent=false muted=false scale=0 share="" spark=
+laid out 48
+┌─────────────────────────────┐
+│                             │
+│  ●  09:00  Standup          │
+│  │                          │
+│  ●  14:11  rolled back      │
+│            after the alert  │
+│                             │
+└─────────────────────────────┘

@@ -1,0 +1,25 @@
+figure delta
+title "Bundle"
+item label="vendor" value="84 kb" note="" accent=false muted=false scale=0 share="" spark=
+item label="app" value="31 kb" note="" accent=false muted=false scale=0 share="" spark= sign="+"
+item label="sourcemaps" value="12 kb" note="" accent=false muted=false scale=0 share="" spark= sign="−"
+item label="shipped" value="103 kb" note="" accent=true muted=false scale=0 share="" spark=
+drawn 27 9
+┌─ Bundle ────────────────┐
+│                         │
+│  vendor          84 kb  │
+│  app         +   31 kb  │
+│  sourcemaps  −   12 kb  │
+│  ─────────────────────  │
+│  shipped        103 kb  │
+│                         │
+└─────────────────────────┘
+ff TTTTTT fffffffffffffffff
+f                         f
+f  xxxxxx          xx xx  f
+f  xxx         x   xx xx  f
+f  xxxxxxxxxx  x   xx xx  f
+f  fffffffffffffffffffff  f
+f  XXXXXXX        AAA AA  f
+f                         f
+fffffffffffffffffffffffffff

@@ -1,0 +1,14 @@
+figure meter
+title "Disk"
+item label="" value="112%" note="" accent=true muted=false scale=1000 share="" spark= over=true
+drawn 42 5
+┌─ Disk ─────────────────────────────────┐
+│                                        │
+│  ██████████████████████████████  112%  │
+│                                        │
+└────────────────────────────────────────┘
+ff TTTT ffffffffffffffffffffffffffffffffff
+f                                        f
+f  wwwwwwwwwwwwwwwwwwwwwwwwwwwwww  WWWW  f
+f                                        f
+ffffffffffffffffffffffffffffffffffffffffff

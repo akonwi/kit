@@ -26,7 +26,8 @@ let package = Package(
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "HTTPTypesFoundation", package: "swift-http-types"),
             "GhosttyKit",
-            "KitMermaid"
+            "KitMermaid",
+            "KitFigures"
         ], exclude: ["openapi-generator-config.yaml"], resources: [.process("Resources")],
         linkerSettings: [
             .linkedFramework("Carbon"),
@@ -42,6 +43,8 @@ let package = Package(
         .binaryTarget(name: "GhosttyKit", path: "Vendor/Ghostty/GhosttyKit.xcframework"),
         // Kit's Mermaid renderer, ported from the terminal client's (ADR 0046).
         .target(name: "KitMermaid"),
-        .testTarget(name: "KitTests", dependencies: ["Kit", "KitMermaid"])
+        // Kit's data figures, ported from the terminal client's (ADR 0054).
+        .target(name: "KitFigures"),
+        .testTarget(name: "KitTests", dependencies: ["Kit", "KitMermaid", "KitFigures"])
     ]
 )

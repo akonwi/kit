@@ -1,0 +1,25 @@
+figure compare
+title "Seats"
+headings "Solo","Team","Studio","Enterprise"
+item label="Registry" value="" note="" accent=false muted=false scale=0 share="" spark= cells="yes","yes","yes","yes"
+item label="SSO" value="" note="" accent=false muted=false scale=0 share="" spark= cells="no","no","yes","yes"
+item label="Seats" value="" note="" accent=false muted=false scale=0 share="" spark= cells="1","5","20","unlimited"
+drawn 46 9
+┌─ Seats ────────────────────────────────────┐
+│                                            │
+│            Solo  Team  Studio  Enterprise  │
+│  ────────────────────────────────────────  │
+│  Registry  ✓     ✓     ✓       ✓           │
+│  SSO       –     –     ✓       ✓           │
+│  Seats     1     5     20      unlimited   │
+│                                            │
+└────────────────────────────────────────────┘
+ff TTTTT fffffffffffffffffffffffffffffffffffff
+f                                            f
+f            mmmm  mmmm  mmmmmm  mmmmmmmmmm  f
+f  ffffffffffffffffffffffffffffffffffffffff  f
+f  xxxxxxxx  x     x     x       x           f
+f  xxx       m     m     x       x           f
+f  xxxxx     x     x     xx      xxxxxxxxx   f
+f                                            f
+ffffffffffffffffffffffffffffffffffffffffffffff

@@ -1,0 +1,22 @@
+figure stack
+title ""
+headings "visits","bots"
+item label="web" value="1,500.5" note="" accent=false muted=false scale=1000 share="" spark= parts=800,199
+item label="app" value="0.25" note="" accent=false muted=false scale=1000 share="" spark= parts=1000,0
+drawn 44 8
+┌──────────────────────────────────────────┐
+│                                          │
+│  web  ███████████████████▓▓▓▓▓  1,500.5  │
+│  app  ████████████████████████     0.25  │
+│                                          │
+│  █ visits   ▓ bots                       │
+│                                          │
+└──────────────────────────────────────────┘
+ffffffffffffffffffffffffffffffffffffffffffff
+f                                          f
+f  xxx  xxxxxxxxxxxxxxxxxxxxxxxx  xxxxxxx  f
+f  xxx  xxxxxxxxxxxxxxxxxxxxxxxx     xxxx  f
+f                                          f
+f  m mmmmmm   m mmmm                       f
+f                                          f
+ffffffffffffffffffffffffffffffffffffffffffff

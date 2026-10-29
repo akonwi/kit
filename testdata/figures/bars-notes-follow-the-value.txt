@@ -1,0 +1,20 @@
+figure bars
+title "Latency"
+item label="p50" value="38 ms" note="steady" accent=false muted=false scale=92 share="" spark=
+item label="p95" value="120 ms" note="up from 90 ms" accent=false muted=false scale=292 share="" spark=
+item label="p99" value="410 ms" note="" accent=false muted=false scale=1000 share="" spark=
+drawn 58 7
+┌─ Latency ──────────────────────────────────────────────┐
+│                                                        │
+│  p50  ██▏·····················   38 ms  steady         │
+│  p95  ███████·················  120 ms  up from 90 ms  │
+│  p99  ████████████████████████  410 ms                 │
+│                                                        │
+└────────────────────────────────────────────────────────┘
+ff TTTTTTT fffffffffffffffffffffffffffffffffffffffffffffff
+f                                                        f
+f  xxx  xxxkkkkkkkkkkkkkkkkkkkkk   xx xx  mmmmmm         f
+f  xxx  xxxxxxxkkkkkkkkkkkkkkkkk  xxx xx  mm mmmm mm mm  f
+f  xxx  xxxxxxxxxxxxxxxxxxxxxxxx  xxx xx                 f
+f                                                        f
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff

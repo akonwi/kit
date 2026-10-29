@@ -1,0 +1,1 @@
+not drawn: every compare row has 3 cells, got 2 in `| x | yes |`

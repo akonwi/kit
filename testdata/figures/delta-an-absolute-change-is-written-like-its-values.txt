@@ -1,0 +1,28 @@
+figure delta
+title "Traffic"
+headings "2025","2026"
+item label="docs" value="12,400" note="" accent=false muted=false scale=0 share="" spark= from="8,200" change="+4,200"
+item label="copy" value="4,100" note="" accent=false muted=false scale=0 share="" spark= from="5,100" change="−1,000"
+item label="api" value="$1.5" note="" accent=false muted=true scale=0 share="" spark= from="$1.50" change="$0.00"
+item label="total" value="16,500" note="" accent=true muted=false scale=0 share="" spark= from="13,300" change="+3,200"
+drawn 38 10
+┌─ Traffic ──────────────────────────┐
+│                                    │
+│           2025       2026          │
+│  docs    8,200  →  12,400  +4,200  │
+│  copy    5,100  →   4,100  −1,000  │
+│  api     $1.50  →    $1.5   $0.00  │
+│  ────────────────────────────────  │
+│  total  13,300  →  16,500  +3,200  │
+│                                    │
+└────────────────────────────────────┘
+ff TTTTTTT fffffffffffffffffffffffffff
+f                                    f
+f           mmmm       mmmm          f
+f  xxxx    mmmmm  m  xxxxxx  xxxxxx  f
+f  xxxx    mmmmm  m   xxxxx  xxxxxx  f
+f  mmm     mmmmm  m    mmmm   mmmmm  f
+f  ffffffffffffffffffffffffffffffff  f
+f  XXXXX  mmmmmm  m  AAAAAA  XXXXXX  f
+f                                    f
+ffffffffffffffffffffffffffffffffffffff

@@ -1,0 +1,21 @@
+figure stat
+title "Reads"
+item label="this week" value="12,400" note="+18%" accent=true muted=false scale=0 share="" spark=0,100,100,200,400,300,500,400,600,700,800,1000
+item label="p95" value="38ms" note="" accent=false muted=false scale=0 share="" spark=
+drawn 26 8
+┌─ Reads ────────────────┐
+│                        │
+│  12,400          38ms  │
+│  this week       p95   │
+│  ▁▁▁▂▄▃▅▄▅▆▇█          │
+│  +18%                  │
+│                        │
+└────────────────────────┘
+ff TTTTT fffffffffffffffff
+f                        f
+f  AAAAAA          XXXX  f
+f  mmmm mmmm       mmm   f
+f  mmmmmmmmmmma          f
+f  mmmm                  f
+f                        f
+ffffffffffffffffffffffffff

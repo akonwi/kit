@@ -1,3 +1,10 @@
+---
+name: kit-customization
+description: >-
+  Use when the user asks about Kit itself, its behavior, documentation, or
+  supported customization surfaces.
+---
+
 # Kit customization
 
 Use these instructions when the user asks about Kit itself, its behavior, its documentation, or its supported customization surfaces.

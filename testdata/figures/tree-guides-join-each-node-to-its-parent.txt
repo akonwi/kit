@@ -1,0 +1,29 @@
+figure tree
+title "Registry"
+item label="registry/default" value="" note="" accent=false muted=false scale=0 share="" spark= level=1
+item label="graph-frame" value="" note="" accent=false muted=false scale=0 share="" spark= level=2
+item label="graph-frame.tsx" value="" note="ui" accent=false muted=false scale=0 share="" spark= level=3
+item label="graph-motion.ts" value="" note="lib" accent=false muted=false scale=0 share="" spark= level=3
+item label="graph-tree" value="" note="" accent=false muted=false scale=0 share="" spark= level=2
+item label="graph-tree.tsx" value="" note="ui" accent=true muted=false scale=0 share="" spark= level=3
+drawn 32 10
+┌─ Registry ───────────────────┐
+│                              │
+│  registry/default            │
+│  ├─ graph-frame              │
+│  │  ├─ graph-frame.tsx  ui   │
+│  │  └─ graph-motion.ts  lib  │
+│  └─ graph-tree               │
+│     └─ graph-tree.tsx   ui   │
+│                              │
+└──────────────────────────────┘
+ff TTTTTTTT ffffffffffffffffffff
+f                              f
+f  xxxxxxxxxxxxxxxx            f
+f  ff xxxxxxxxxxx              f
+f  f  ff xxxxxxxxxxxxxxx  mm   f
+f  f  ff xxxxxxxxxxxxxxx  mmm  f
+f  ff xxxxxxxxxx               f
+f     ff AAAAAAAAAAAAAA   mm   f
+f                              f
+ffffffffffffffffffffffffffffffff

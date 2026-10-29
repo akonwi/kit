@@ -1,4 +1,5 @@
 import Foundation
+import KitFigures
 import KitMermaid
 import Markdown
 
@@ -9,7 +10,9 @@ struct MarkdownContent {
         case heading(Int, AttributedString)
         case code(String, String)
         case mermaid(MermaidDiagram)
+        case figure(FigureBlock)
         case quote([Block])
+        case callout(Callout)
         case list([Item])
         case table(TableContent)
         case rule
@@ -69,6 +72,7 @@ struct MarkdownContent {
             switch block {
             case .mermaid(let diagram): [diagram]
             case .quote(let children): diagrams(in: children)
+            case .callout(let callout): diagrams(in: callout.blocks)
             case .list(let items): items.flatMap { diagrams(in: $0.blocks) }
             default: []
             }
@@ -81,7 +85,10 @@ struct MarkdownContent {
         let open: Block
         switch last {
         case .mermaid(let diagram): open = .code("mermaid", diagram.source)
+        case .figure(let figure): open = .code(figure.name, figure.source)
         case .quote(let children): open = .quote(openingTrailingDiagram(children))
+        case .callout(let callout):
+            open = .callout(Callout(kind: callout.kind, title: callout.title, blocks: openingTrailingDiagram(callout.blocks)))
         case .list(let items):
             guard let item = items.last else { return blocks }
             open = .list(Array(items.dropLast()) + [Item(marker: item.marker, blocks: openingTrailingDiagram(item.blocks), lines: item.lines)])
@@ -139,9 +146,16 @@ struct MarkdownContent {
         case let value as Paragraph: return [.paragraph(text(value))]
         case let value as Heading: return [.heading(value.level, text(value))]
         case let value as Markdown.CodeBlock:
-            if Mermaid.isMermaid(value.language ?? "") { return [.mermaid(MermaidDiagram(source: value.code))] }
-            return [.code(value.language ?? "", value.code)]
-        case let value as BlockQuote: return [.quote(blocks(in: value))]
+            // swift-markdown's language is the whole info string; the
+            // terminal client reads its first word as the language, too.
+            let info = value.language ?? ""
+            let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init) ?? ""
+            if Mermaid.isMermaid(language) { return [.mermaid(MermaidDiagram(source: value.code))] }
+            if KitFigures.Figure.isFigure(info) { return [.figure(FigureBlock(info: info, source: value.code))] }
+            return [.code(language, value.code)]
+        case let value as BlockQuote:
+            if let callout = callout(value) { return [.callout(callout)] }
+            return [.quote(blocks(in: value))]
         case let value as OrderedList:
             return [.list(value.listItems.enumerated().map { offset, item in
                 Item(marker: "\(value.startIndex + UInt(offset)).", blocks: blocks(in: item), lines: lines(item.range))
@@ -172,6 +186,24 @@ struct MarkdownContent {
         case let value as HTMLBlock: return [.code("html", value.rawHTML)]
         default: return blocks(in: node)
         }
+    }
+
+    /// A GitHub alert: a quote whose first line is `[!KIND]`, optionally
+    /// followed by a title, read as the terminal client reads it. The marker
+    /// line is removed from the alert's first paragraph.
+    private static func callout(_ quote: BlockQuote) -> Callout? {
+        guard let paragraph = quote.child(at: 0) as? Paragraph else { return nil }
+        let inlines = Array(paragraph.inlineChildren)
+        let lineEnd = inlines.firstIndex { $0 is SoftBreak || $0 is LineBreak } ?? inlines.endIndex
+        let firstLine = inlines[..<lineEnd].map { ($0 as? Markdown.Text)?.string ?? $0.format() }.joined()
+        guard let marker = Callout.marker(firstLine) else { return nil }
+        let rest = inlines.dropFirst(lineEnd + 1)
+        var body: [Block] = []
+        if !rest.isEmpty {
+            body.append(.paragraph(SessionMentions.linked(rest.reduce(into: AttributedString()) { $0 += inline($1) })))
+        }
+        for child in quote.children.dropFirst() { body += blocks(of: child) }
+        return Callout(kind: marker.kind, title: marker.title, blocks: body)
     }
 
     /// A block's inline text. Session mentions become links once the whole
@@ -221,6 +253,82 @@ struct MarkdownContent {
     }
 }
 
+/// A fenced figure (ADR 0054): its info string and body. It's parsed the
+/// first time it's shown, and the result is kept by fence, so reparsing a
+/// streaming message doesn't parse it again.
+struct FigureBlock: Equatable {
+    let info: String
+    let source: String
+
+    init(info: String, source: String) {
+        self.info = info
+        self.source = source
+    }
+
+    /// The figure both clients draw, or why it isn't drawn.
+    var figure: Result<KitFigures.Figure, KitFigures.NotDrawn> {
+        FigureParses.shared.figure(info: info, body: source)
+    }
+
+    /// The figure's kind, as its fence names it.
+    var name: String {
+        info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init) ?? ""
+    }
+
+    /// The whole fence, as it was written.
+    var fenced: String { "```\(info)\n\(source.hasSuffix("\n") ? source : source + "\n")```" }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.info == rhs.info && lhs.source == rhs.source }
+}
+
+/// A GitHub alert (`> [!WARNING]`): its kind, the title after its marker,
+/// and the blocks under it.
+struct Callout: Equatable {
+    enum Kind: String, CaseIterable {
+        case note, tip, important, warning, caution
+        /// The kind as a callout's header names it.
+        var label: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
+    }
+    let kind: Kind
+    let title: String
+    let blocks: [MarkdownContent.Block]
+
+    /// The kind and title a quote's first line marks, as `[!KIND] title`.
+    static func marker(_ line: String) -> (kind: Kind, title: String)? {
+        let text = line.trimmingCharacters(in: .whitespaces)
+        guard text.hasPrefix("[!"), let end = text.firstIndex(of: "]"),
+              let kind = Kind(rawValue: text[text.index(text.startIndex, offsetBy: 2)..<end].lowercased()) else { return nil }
+        let rest = text[text.index(after: end)...]
+        guard rest.isEmpty || rest.first == " " || rest.first == "\t" else { return nil }
+        return (kind, rest.trimmingCharacters(in: .whitespaces))
+    }
+}
+
+/// Recently shown figures by fence. A figure depends only on its info
+/// string and body, so one is shared by every message and theme that shows it.
+final class FigureParses: Sendable {
+    static let shared = FigureParses()
+    private final class Entry: NSObject, Sendable {
+        let figure: Result<KitFigures.Figure, KitFigures.NotDrawn>
+        init(_ figure: Result<KitFigures.Figure, KitFigures.NotDrawn>) { self.figure = figure }
+    }
+    // NSCache is thread-safe.
+    nonisolated(unsafe) private let entries = NSCache<NSString, Entry>()
+
+    private init() {
+        entries.countLimit = 128
+    }
+
+    func figure(info: String, body: String) -> Result<KitFigures.Figure, KitFigures.NotDrawn> {
+        // A line feed can't be part of an info string, so it separates the two.
+        let key = "\(info)\n\(body)" as NSString
+        if let entry = entries.object(forKey: key) { return entry.figure }
+        let figure = KitFigures.Figure.parse(info: info, body: body)
+        entries.setObject(Entry(figure), forKey: key)
+        return figure
+    }
+}
+
 /// A fenced Mermaid diagram (ADR 0046). It's drawn the first time it's
 /// shown, and its drawing is kept by source, so reparsing a streaming
 /// message or copying its text doesn't draw it again.
@@ -228,7 +336,7 @@ struct MermaidDiagram: Equatable {
     let source: String
 
     /// The drawing, or why the diagram isn't drawn.
-    var drawing: Result<Canvas, NotDrawn> {
+    var drawing: Result<Canvas, KitMermaid.NotDrawn> {
         MermaidDrawings.shared.drawing(for: source)
     }
 
@@ -240,8 +348,8 @@ struct MermaidDiagram: Equatable {
 final class MermaidDrawings: Sendable {
     static let shared = MermaidDrawings()
     private final class Entry: NSObject, Sendable {
-        let drawing: Result<Canvas, NotDrawn>
-        init(_ drawing: Result<Canvas, NotDrawn>) { self.drawing = drawing }
+        let drawing: Result<Canvas, KitMermaid.NotDrawn>
+        init(_ drawing: Result<Canvas, KitMermaid.NotDrawn>) { self.drawing = drawing }
     }
     // NSCache is thread-safe.
     nonisolated(unsafe) private let entries = NSCache<NSString, Entry>()
@@ -251,7 +359,7 @@ final class MermaidDrawings: Sendable {
         entries.totalCostLimit = 16 * 1024 * 1024
     }
 
-    func drawing(for source: String) -> Result<Canvas, NotDrawn> {
+    func drawing(for source: String) -> Result<Canvas, KitMermaid.NotDrawn> {
         let key = source as NSString
         if let entry = entries.object(forKey: key) { return entry.drawing }
         let drawing = Mermaid.render(source)

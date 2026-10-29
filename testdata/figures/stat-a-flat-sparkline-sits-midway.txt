@@ -1,0 +1,18 @@
+figure stat
+title ""
+item label="deploys" value="7" note="" accent=false muted=false scale=0 share="" spark=500,500,500,500
+drawn 13 7
+┌───────────┐
+│           │
+│  7        │
+│  deploys  │
+│  ▅▅▅▅     │
+│           │
+└───────────┘
+fffffffffffff
+f           f
+f  X        f
+f  mmmmmmm  f
+f  mmma     f
+f           f
+fffffffffffff

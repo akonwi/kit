@@ -496,3 +496,89 @@ func TestParseRecordsTheSourceLinesOfBlocksThatEndPastTheirText(t *testing.T) {
 		}
 	}
 }
+
+func TestParseKeepsAFencedCodeBlocksWholeInfoString(t *testing.T) {
+	t.Parallel()
+
+	document := Parse("```  bars title=\"Routes\"  max=\"100\"  \n- a: 1\n```\n\n~~~stat\n- 1 one\n~~~")
+	got := [][2]string{}
+	for _, block := range document.Blocks {
+		got = append(got, [2]string{block.Language, block.Info})
+	}
+	want := [][2]string{{"bars", `bars title="Routes"  max="100"`}, {"stat", "stat"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("languages and info strings = %q, want %q", got, want)
+	}
+}
+
+func TestParseDecodesAFencedCodeBlocksInfoStringAsCommonMarkDoes(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"```bars title=\"R&amp;D\"\n- a: 1\n```":       `bars title="R&D"`,
+		"```bars title=\"&quot;x&quot;\"\n- a: 1\n```": `bars title=""x""`,
+		"```bars title=\"&#35;1 &#x41;\"\n- a: 1\n```": `bars title="#1 A"`,
+		"```bars title=\"&amp;#35;\"\n- a: 1\n```":     `bars title="&#35;"`,
+		"```bars title=\"a\\_b \\q\"\n- a: 1\n```":     `bars title="a_b \q"`,
+		"```bars title=\"&nosuch; & x\"\n- a: 1\n```":  `bars title="&nosuch; & x"`,
+	}
+	for source, want := range cases {
+		blocks := Parse(source).Blocks
+		if len(blocks) != 1 {
+			t.Fatalf("Parse(%q) has %d blocks, want 1", source, len(blocks))
+		}
+		if blocks[0].Info != want {
+			t.Errorf("Parse(%q) info = %q, want %q", source, blocks[0].Info, want)
+		}
+	}
+}
+
+func TestParseReadsGitHubAlerts(t *testing.T) {
+	t.Parallel()
+
+	type shown struct {
+		Kind   BlockKind
+		Text   string
+		Alert  AlertKind
+		Title  string
+		Header bool
+	}
+	cases := map[string][]shown{
+		"> [!WARNING]\n> Edit the **source**.": {
+			{BlockQuote, "Edit the source.", AlertWarning, "", true},
+		},
+		"> [!tip] Bold one row\n>\n> - first\n> - second": {
+			{BlockQuote, "", AlertTip, "Bold one row", true},
+			{BlockQuote, "first", AlertTip, "Bold one row", false},
+			{BlockQuote, "second", AlertTip, "Bold one row", false},
+		},
+		"> [!NOTE]": {
+			{BlockQuote, "", AlertNote, "", true},
+		},
+		"> [!IMPORTANT]\n> one\n> two": {
+			{BlockQuote, "one\ntwo", AlertImportant, "", true},
+		},
+		"> [!CAUTION]\n> Removing a kind breaks transcripts.": {
+			{BlockQuote, "Removing a kind breaks transcripts.", AlertCaution, "", true},
+		},
+		"> [!TODO]\n> not an alert": {
+			{BlockQuote, "[!TODO]\nnot an alert", AlertNone, "", false},
+		},
+		"> [!NOTE]trailing\n> not an alert": {
+			{BlockQuote, "[!NOTE]trailing\nnot an alert", AlertNone, "", false},
+		},
+		"> body\n> [!NOTE]": {
+			{BlockQuote, "body\n[!NOTE]", AlertNone, "", false},
+		},
+	}
+	for source, want := range cases {
+		var got []shown
+		for _, block := range Parse(source).Blocks {
+			quote := block.Containers[0]
+			got = append(got, shown{block.Kind, joinedText(block.Runs), quote.Alert, quote.AlertTitle, quote.AlertHeader})
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%q:\n got %+v\nwant %+v", source, got, want)
+		}
+	}
+}

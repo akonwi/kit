@@ -1,0 +1,207 @@
+use ard/testing
+
+use cooper/ui
+use kit/tui/figure/drawing
+use kit/tui/figure/grammar
+use kit/tui/figure/model
+use kit/tui/format
+use go:strings
+use go:unicode/utf8
+
+// `stat`: two to four large numbers side by side, each a value then a label,
+// with an optional note and a sparkline from a line of numbers under it
+// (docs/figures.md).
+
+let max_items = 4
+
+// The longest value, in characters.
+let max_value = 12
+
+let max_points = 60
+
+// The widest label drawn; longer labels end in `…`.
+let max_label = 32
+
+// The gap between columns.
+let gap = 4
+
+private fn spark(details: [Str]) [Int]!Str {
+  match details.size() {
+    0 => Result::ok([]),
+    1 => {
+      let values = try grammar::numbers(details.at(0).or(""), max_points)
+      mut low = values.at(0).or(0.0)
+      mut high = low
+      for value in values {
+        if value < low {
+          low = value
+        }
+        if value > high {
+          high = value
+        }
+      }
+      let points = mut List::new<Int>()
+      for value in values {
+        points.push(
+          match high > low {
+            true => grammar::permille(value - low, high - low),
+            false => 500,
+          },
+        )
+      }
+      match values.size() < 2 {
+        true => Result::err("a sparkline needs at least 2 values"),
+        false => Result::ok(points.@),
+      }
+    },
+    _ => Result::err("a stat item takes one line of numbers under it"),
+  }
+}
+
+private fn stat(each: grammar::Item) model::Item!Str {
+  let text = each.text
+  let close = strings::Index(text.slice(start: 2).or(""), "**")
+  let leading = (not each.bold) and strings::HasPrefix(text, "**") and close > 0
+  let first = strings::Fields(text).at(0).or("")
+  let value = match leading {
+    true => text.slice(start: 2, end: close + 2).or(""),
+    false => first,
+  }
+  let label = match leading {
+    true => strings::TrimSpace(text.slice(start: close + 4).or("")),
+    false => strings::TrimSpace(text.slice(start: first.size()).or("")),
+  }
+  let made = mut model::item(label, value)
+  made.note = each.note
+  made.accent = each.bold or leading
+  made.muted = each.italic
+  made.spark = try spark(each.details)
+  match {
+    value == "" or label == "" => {
+      Result::err("a stat item is a value then a label, got `{grammar::clip(text)}`")
+    },
+    utf8::RuneCountInString(value) > max_value => {
+      Result::err("a stat value is at most {max_value} characters, got `{grammar::clip(value)}`")
+    },
+    _ => Result::ok(made.@),
+  }
+}
+
+fn parse(info: grammar::Info, body: Str) model::Figure!Str {
+  try grammar::check_attributes(info, ["title"])
+  let items = try grammar::items(body)
+  let made = mut List::new<model::Item>()
+  mut accents = 0
+  for each in items {
+    let item = try stat(each)
+    if item.accent {
+      accents =+ 1
+    }
+    made.push(item)
+  }
+  match {
+    items.size() == 0 => Result::err("the figure has no items"),
+    items.size() > max_items => Result::err("a stat figure has at most {max_items} items"),
+    accents > 1 => Result::err("only one item can be bold"),
+    _ => Result::ok(model::figure("stat", grammar::attribute(info, "title"), made.@)),
+  }
+}
+
+// A sparkline's points as block characters, from ▁ to █.
+fn sparkline(points: [Int]) Str {
+  let levels = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
+  let parts = mut List::new<Str>()
+  for point in points {
+    let level = point * 8 / 1000
+    parts.push(
+      levels.at(
+        match level > 7 {
+          true => 7,
+          false => level,
+        },
+      ).or(""),
+    )
+  }
+  strings::Join(parts, "")
+}
+
+private fn cell(text: Str, width: Int, role: drawing::Role, bold: Bool, last: Bool) drawing::Segment {
+  let padded = match last {
+    true => text,
+    false => drawing::pad(text, width + gap, false),
+  }
+  match bold {
+    true => drawing::bold(padded, role),
+    false => drawing::segment(padded, role),
+  }
+}
+
+fn draw(figure: model::Figure) drawing::Drawing {
+  let values = mut List::new<drawing::Segment>()
+  let labels = mut List::new<drawing::Segment>()
+  let notes = mut List::new<drawing::Segment>()
+  let sparks = mut List::new<drawing::Segment>()
+  mut noted = false
+  mut sparked = false
+  let count = figure.items.size()
+  mut index = 0
+  for each in figure.items {
+    let line = sparkline(each.spark)
+    let label = format::truncate_cells(each.label, max_label)
+    let width = [
+      ui::text_width(each.value),
+      ui::text_width(label),
+      ui::text_width(each.note),
+      ui::text_width(line),
+    ]
+    mut column = 0
+    for cells in width {
+      if cells > column {
+        column = cells
+      }
+    }
+    let last = index + 1 == count
+    let role = match {
+      each.accent => drawing::Role::accent,
+      each.muted => drawing::Role::muted,
+      _ => drawing::Role::text,
+    }
+    values.push(cell(each.value, column, role, not each.muted, last))
+    labels.push(cell(label, column, drawing::Role::muted, false, last))
+    notes.push(cell(each.note, column, drawing::Role::muted, false, last))
+    if each.note != "" {
+      noted = true
+    }
+    match line == "" {
+      true => sparks.push(cell("", column, drawing::Role::muted, false, last)),
+      false => {
+        sparked = true
+        let end = line.size() - "█".size()
+        sparks.push(drawing::segment(line.slice(end: end).or(""), drawing::Role::muted))
+        sparks.push(
+          cell(
+            line.slice(start: end).or(""),
+            column - ui::text_width(line) + 1,
+            drawing::Role::accent,
+            false,
+            last,
+          ),
+        )
+      },
+    }
+    index =+ 1
+  }
+  let rows = mut [values.@, labels.@]
+  if sparked {
+    rows.push(sparks.@)
+  }
+  if noted {
+    rows.push(notes.@)
+  }
+  drawing::framed(figure.title, rows.@)
+}
+
+test fn sparklines_step_through_eight_levels() Void!Str {
+  let got = sparkline([0, 125, 500, 999, 1000])
+  testing::assert(got == "▁▂▅██", "got {got}")
+}

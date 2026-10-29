@@ -1,0 +1,111 @@
+use ard/testing
+
+use kit/tui/figure/drawing
+use kit/tui/figure/grammar
+use kit/tui/figure/listing
+use kit/tui/figure/model
+use kit/tui/format
+use go:strings
+
+// `timeline`: dated events in order, each `when: event` with an optional
+// indented body. The bold item is now; items before it are done and items
+// after it are still to come (docs/figures.md).
+
+let max_items = 20
+
+// The widest `when` drawn; a longer one ends in `…`.
+let max_label = 32
+
+private fn entry(each: grammar::Item) model::Item!Str {
+  match grammar::label_value(each.text) {
+    parts => {
+      let made = mut model::item(parts.at(0).or(""), parts.at(1).or(""))
+      made.note = each.note
+      made.accent = each.bold
+      made.muted = each.italic
+      made.body = strings::Join(mut each.details, " ")
+      Result::ok(made.@)
+    },
+    _ => Result::err("a timeline item is `when: event`, got `{grammar::clip(each.text)}`"),
+  }
+}
+
+fn parse(info: grammar::Info, body: Str) model::Figure!Str {
+  try grammar::check_attributes(info, ["title"])
+  let items = try grammar::items(body)
+  try grammar::check_one_bold(items)
+  let bold = mut List::new<Bool>()
+  for each in items {
+    bold.push(each.bold)
+  }
+  let states = listing::states(bold.@)
+  let made = mut List::new<model::Item>()
+  mut index = 0
+  for each in items {
+    let parsed = try entry(each)
+    let item = mut parsed
+    item.state = states.at(index).or("")
+    made.push(item.@)
+    index =+ 1
+  }
+  match {
+    made.size() == 0 => Result::err("the figure has no items"),
+    made.size() > max_items => Result::err("a timeline has at most {max_items} items"),
+    _ => Result::ok(model::figure("timeline", grammar::attribute(info, "title"), made.@)),
+  }
+}
+
+// Each item as the listing lays it out: now in the accent, done filled,
+// and still to come hollow.
+fn entries(figure: model::Figure) [listing::Entry] {
+  let result = mut List::new<listing::Entry>()
+  for each in figure.items {
+    let marker = match each.state {
+      "now" => drawing::segment("●", drawing::Role::accent),
+      "next" => drawing::segment("○", drawing::Role::muted),
+      _ => drawing::segment("●", drawing::Role::muted),
+    }
+    let when = format::truncate_cells(each.label, max_label)
+    let lane = match each.state == "now" {
+      true => drawing::bold(when, drawing::Role::accent),
+      false => drawing::segment(when, drawing::Role::muted),
+    }
+    let heading = match {
+      each.accent => drawing::bold(each.value, drawing::Role::text),
+      each.muted => drawing::segment(each.value, drawing::Role::muted),
+      _ => drawing::segment(each.value, drawing::Role::text),
+    }
+    result.push(
+      listing::Entry{
+        marker: marker,
+        lane: lane,
+        heading: heading,
+        note: each.note,
+        body: each.body,
+      },
+    )
+  }
+  result.@
+}
+
+test fn items_before_the_bold_one_are_done() Void!Str {
+  let info = try grammar::parse_info("timeline")
+  let figure = try parse(info, "- Mar 12: one\n- **Mar 18: two**\n\n    body\n    more\n- Apr 02: three")
+  let states = mut List::new<Str>()
+  for each in figure.items {
+    states.push("{each.label}={each.state}")
+  }
+  try testing::assert(
+    strings::Join(mut states.@, ",") == "Mar 12=done,Mar 18=now,Apr 02=next",
+    "got {strings::Join(mut states.@, ",")}",
+  )
+  let second = figure.items.at(1).expect("second")
+  testing::assert(second.body == "body more", "got {second.body}")
+}
+
+test fn a_long_when_ends_in_an_ellipsis() Void!Str {
+  let info = try grammar::parse_info("timeline")
+  let figure = try parse(info, "- {strings::Repeat("w", 40)}: one")
+  let lane = entries(figure).at(0).expect("entry").lane.text
+  testing::assert(lane == "{strings::Repeat("w", 31)}…", "got {lane}")
+}

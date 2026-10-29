@@ -1,0 +1,17 @@
+figure stat
+title "This week"
+item label="docs views" value="12,400" note="" accent=false muted=false scale=0 share="" spark=
+item label="shipped" value="860" note="" accent=true muted=false scale=0 share="" spark=
+drawn 27 6
+┌─ This week ─────────────┐
+│                         │
+│  12,400        860      │
+│  docs views    shipped  │
+│                         │
+└─────────────────────────┘
+ff TTTT TTTT ffffffffffffff
+f                         f
+f  XXXXXX        AAA      f
+f  mmmm mmmmm    mmmmmmm  f
+f                         f
+fffffffffffffffffffffffffff

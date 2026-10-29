@@ -1,0 +1,19 @@
+figure stack
+title ""
+headings "x","y"
+item label="a" value="0.323457" note="" accent=false muted=false scale=1000 share="" spark= parts=381,618
+drawn 43 7
+┌─────────────────────────────────────────┐
+│                                         │
+│  a  █████████▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  0.323457  │
+│                                         │
+│  █ x   ▓ y                              │
+│                                         │
+└─────────────────────────────────────────┘
+fffffffffffffffffffffffffffffffffffffffffff
+f                                         f
+f  x  xxxxxxxxxxxxxxxxxxxxxxxx  xxxxxxxx  f
+f                                         f
+f  m m   m m                              f
+f                                         f
+fffffffffffffffffffffffffffffffffffffffffff

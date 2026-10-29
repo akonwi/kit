@@ -1,0 +1,18 @@
+figure timeline
+title "Shipped"
+item label="Mar 12" value="CLI copies the files" note="" accent=false muted=false scale=0 share="" spark= state=done
+item label="Mar 18" value="Docs, live previews" note="" accent=true muted=false scale=0 share="" spark= state=now body="The docs site renders every figure with its source beside it."
+item label="Apr 02" value="Registry listed" note="" accent=false muted=false scale=0 share="" spark= state=next
+laid out 48
+┌─ Shipped ────────────────────────────────────┐
+│                                              │
+│  ●  Mar 12  CLI copies the files             │
+│  │                                           │
+│  ●  Mar 18  Docs, live previews              │
+│  │          The docs site renders every      │
+│  │          figure with its source beside    │
+│  │          it.                              │
+│  │                                           │
+│  ○  Apr 02  Registry listed                  │
+│                                              │
+└──────────────────────────────────────────────┘

@@ -1,0 +1,17 @@
+figure meter
+title ""
+item label="Design" value="10" note="" accent=false muted=false scale=200 share="" spark= target="40"
+item label="Motion" value="18" note="" accent=false muted=true scale=600 share="" spark= target="24"
+drawn 53 6
+┌───────────────────────────────────────────────────┐
+│                                                   │
+│  Design  ██████··················│·····  10 / 40  │
+│  Motion  ██████████████████······│·····  18 / 24  │
+│                                                   │
+└───────────────────────────────────────────────────┘
+fffffffffffffffffffffffffffffffffffffffffffffffffffff
+f                                                   f
+f  xxxxxx  xxxxxxkkkkkkkkkkkkkkkkkkxkkkkk  xx x xx  f
+f  mmmmmm  mmmmmmmmmmmmmmmmmmkkkkkkxkkkkk  mm m mm  f
+f                                                   f
+fffffffffffffffffffffffffffffffffffffffffffffffffffff

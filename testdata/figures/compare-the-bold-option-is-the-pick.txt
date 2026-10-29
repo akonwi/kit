@@ -1,0 +1,26 @@
+figure compare
+title "Plans"
+headings "Solo","Studio"
+pick 1
+item label="Registry" value="" note="" accent=false muted=false scale=0 share="" spark= cells="yes","yes"
+item label="Private source" value="" note="" accent=false muted=false scale=0 share="" spark= cells="no","yes"
+item label="Price" value="" note="" accent=false muted=false scale=0 share="" spark= cells="$0","$24"
+drawn 34 9
+┌─ Plans ────────────────────────┐
+│                                │
+│                  Solo  Studio  │
+│  ────────────────────────────  │
+│  Registry        ✓     ✓       │
+│  Private source  –     ✓       │
+│  Price           $0    $24     │
+│                                │
+└────────────────────────────────┘
+ff TTTTT fffffffffffffffffffffffff
+f                                f
+f                  mmmm  AAAAAA  f
+f  ffffffffffffffffffffffffffff  f
+f  xxxxxxxx        x     a       f
+f  xxxxxxx xxxxxx  m     a       f
+f  xxxxx           xx    aaa     f
+f                                f
+ffffffffffffffffffffffffffffffffff

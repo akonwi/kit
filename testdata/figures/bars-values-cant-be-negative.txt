@@ -1,0 +1,1 @@
+not drawn: bars can't be negative, got `-6`

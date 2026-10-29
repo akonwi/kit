@@ -1,0 +1,17 @@
+figure tree
+title ""
+item label="ab" value="" note="" accent=false muted=false scale=0 share="" spark= level=1
+item label="c" value="" note="" accent=false muted=false scale=0 share="" spark= level=2
+drawn 10 6
+┌────────┐
+│        │
+│  ab    │
+│  └─ c  │
+│        │
+└────────┘
+ffffffffff
+f        f
+f  xx    f
+f  ff x  f
+f        f
+ffffffffff

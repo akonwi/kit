@@ -1,0 +1,12 @@
+figure steps
+title ""
+item label="1" value="ab" note="" accent=false muted=false scale=0 share="" spark=
+item label="2" value="c" note="" accent=false muted=false scale=0 share="" spark=
+laid out 48
+┌─────────┐
+│         │
+│  1  ab  │
+│  │      │
+│  2  c   │
+│         │
+└─────────┘

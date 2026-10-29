@@ -1,0 +1,20 @@
+figure bars
+title "Install"
+item label="docs" value="12,400" note="" accent=false muted=false scale=1000 share="" spark=
+item label="copy" value="4,100" note="" accent=false muted=false scale=330 share="33%" spark=
+item label="ship" value="860" note="" accent=false muted=false scale=69 share="7%" spark=
+drawn 49 7
+┌─ Install ─────────────────────────────────────┐
+│                                               │
+│  docs  ████████████████████████  12,400       │
+│  copy  ███████▉················   4,100  33%  │
+│  ship  █▋······················     860   7%  │
+│                                               │
+└───────────────────────────────────────────────┘
+ff TTTTTTT ffffffffffffffffffffffffffffffffffffff
+f                                               f
+f  xxxx  xxxxxxxxxxxxxxxxxxxxxxxx  xxxxxx       f
+f  xxxx  xxxxxxxxkkkkkkkkkkkkkkkk   xxxxx  mmm  f
+f  xxxx  xxkkkkkkkkkkkkkkkkkkkkkk     xxx   mm  f
+f                                               f
+fffffffffffffffffffffffffffffffffffffffffffffffff

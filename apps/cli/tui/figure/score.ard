@@ -1,0 +1,192 @@
+use ard/testing
+
+use cooper/ui
+use kit/tui/figure/drawing
+use kit/tui/figure/grammar
+use kit/tui/figure/model
+use kit/tui/format
+use go:regexp
+use go:strconv
+use go:strings
+
+// `score`: rows rated out of the same whole, each drawn as dots with the
+// value as written (docs/figures.md).
+
+let max_rows = 20
+
+// The most dots a score has.
+let max_slots = 10
+
+// The widest label drawn; longer labels end in `…`.
+let max_label = 32
+
+// A score's halves and its whole, from `N/M`.
+private struct Rating {
+  halves: Int,
+  slots: Int,
+}
+
+private fn rating(text: Str) Rating!Str {
+  let pattern = regexp::MustCompile("^([0-9]{{1,2}})(\\.[05])? ?/ ?([0-9]{{1,2}})\\z")
+  let parts = pattern.FindStringSubmatch(text)
+  let whole = strconv::Atoi(parts.at(1).or("")).or(0)
+  let half = match parts.at(2).or("") == ".5" {
+    true => 1,
+    false => 0,
+  }
+  let slots = strconv::Atoi(parts.at(3).or("")).or(0)
+  let halves = whole * 2 + half
+  match {
+    parts.size() == 0 => Result::err("a score is `N/M`, got `{grammar::clip(text)}`"),
+    slots < 1 or slots > max_slots => {
+      Result::err("a score is out of 1 to {max_slots}, got `{grammar::clip(text)}`")
+    },
+    halves > slots * 2 => {
+      Result::err("a score can't be more than its whole, got `{grammar::clip(text)}`")
+    },
+    _ => Result::ok(Rating{halves: halves, slots: slots}),
+  }
+}
+
+private fn row(each: grammar::Item) model::Item!Str {
+  match grammar::label_value(each.text) {
+    parts => {
+      let written = parts.at(1).or("")
+      let rated = try rating(written)
+      let made = mut model::item(parts.at(0).or(""), written)
+      made.note = each.note
+      made.accent = each.bold
+      made.muted = each.italic
+      made.filled = rated.halves
+      made.slots = rated.slots
+      match each.details.size() > 0 {
+        true => Result::err("a score row takes no indented lines"),
+        false => Result::ok(made.@),
+      }
+    },
+    _ => Result::err("a score row is `label: N/M`, got `{grammar::clip(each.text)}`"),
+  }
+}
+
+fn parse(info: grammar::Info, body: Str) model::Figure!Str {
+  try grammar::check_attributes(info, ["title"])
+  let items = try grammar::items(body)
+  try grammar::check_one_bold(items)
+  let made = mut List::new<model::Item>()
+  mut slots = 0
+  mut mixed = false
+  for each in items {
+    let parsed = try row(each)
+    if slots > 0 and parsed.slots != slots {
+      mixed = true
+    }
+    slots = parsed.slots
+    made.push(parsed)
+  }
+  match {
+    made.size() == 0 => Result::err("the figure has no rows"),
+    made.size() > max_rows => Result::err("a score figure has at most {max_rows} rows"),
+    mixed => Result::err("every score is out of the same whole"),
+    _ => Result::ok(model::figure("score", grammar::attribute(info, "title"), made.@)),
+  }
+}
+
+// A score's dots, `●` filled, `◐` half, and `○` empty, a space between each:
+// the filled and half dots, then the empty ones.
+fn dots(filled: Int, slots: Int) [Str] {
+  let full = mut List::new<Str>()
+  let empty = mut List::new<Str>()
+  mut index = 0
+  while index < slots {
+    match {
+      filled >= index * 2 + 2 => full.push("●"),
+      filled == index * 2 + 1 => full.push("◐"),
+      _ => empty.push("○"),
+    }
+    index =+ 1
+  }
+  [strings::Join(full, " "), strings::Join(empty, " ")]
+}
+
+private fn widest(texts: [Str]) Int {
+  mut width = 0
+  for text in texts {
+    let cells = ui::text_width(text)
+    if cells > width {
+      width = cells
+    }
+  }
+  width
+}
+
+fn draw(figure: model::Figure) drawing::Drawing {
+  let labels = mut List::new<Str>()
+  let values = mut List::new<Str>()
+  mut emphasized = false
+  for each in figure.items {
+    labels.push(format::truncate_cells(each.label, max_label))
+    values.push(each.value)
+    if each.accent {
+      emphasized = true
+    }
+  }
+  let label_lane = widest(labels.@)
+  let value_lane = widest(values.@)
+  let rows = mut List::new<[drawing::Segment]>()
+  mut index = 0
+  for each in figure.items {
+    let quiet = each.muted or emphasized and (not each.accent)
+    let label = drawing::pad(labels.at(index).or(""), label_lane, false)
+    let shown = dots(each.filled, each.slots)
+    let full = shown.at(0).or("")
+    let empty = shown.at(1).or("")
+    let line = mut List::new<drawing::Segment>()
+    line.push(
+      match {
+        each.accent => drawing::bold(label, drawing::Role::text),
+        each.muted => drawing::segment(label, drawing::Role::muted),
+        _ => drawing::segment(label, drawing::Role::text),
+      },
+    )
+    line.push(drawing::segment("  ", drawing::Role::text))
+    line.push(
+      drawing::segment(
+        full,
+        match {
+          each.accent => drawing::Role::accent,
+          quiet => drawing::Role::muted,
+          _ => drawing::Role::text,
+        },
+      ),
+    )
+    if full != "" and empty != "" {
+      line.push(drawing::segment(" ", drawing::Role::text))
+    }
+    line.push(drawing::segment(empty, drawing::Role::track))
+    let value = "  {drawing::pad(each.value, value_lane, false)}"
+    line.push(
+      match {
+        each.accent => drawing::bold(value, drawing::Role::text),
+        quiet => drawing::segment(value, drawing::Role::muted),
+        _ => drawing::segment(value, drawing::Role::text),
+      },
+    )
+    if each.note != "" {
+      line.push(drawing::segment("  {each.note}", drawing::Role::muted))
+    }
+    rows.push(line.@)
+    index =+ 1
+  }
+  drawing::framed(figure.title, rows.@)
+}
+
+test fn half_dots_fill_after_the_whole_ones() Void!Str {
+  let got = dots(5, 5)
+  try testing::assert(got.at(0).or("") == "● ● ◐", "got {got.at(0).or("")}")
+  try testing::assert(got.at(1).or("") == "○ ○", "got {got.at(1).or("")}")
+  let none = dots(0, 3)
+  testing::assert(
+    none.at(0).or("") == "" and none.at(1).or("") == "○ ○ ○",
+    "got {none.at(1).or("")}",
+  )
+}
