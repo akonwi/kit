@@ -5,7 +5,9 @@ iOS app. It holds no AppKit or UIKit code.
 
 - `KitClient` is the session client: the generated OpenAPI transport and types
   in `GeneratedSources`, and the projections, validation, pairing, and device
-  tokens both apps build on. Regenerate the transport after changing
+  tokens both apps build on. `SessionOperations` holds a session's sends,
+  follow-up queue changes, and aborts, so both apps settle uncertain sends
+  and queue edits the same way. Regenerate the transport after changing
   `api/kit-session.openapi.json`:
 
   ```sh

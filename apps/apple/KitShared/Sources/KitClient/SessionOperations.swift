@@ -1,9 +1,13 @@
 import Foundation
 import Observation
 
+/// A session's sends, follow-up queue changes, and aborts, as one client sees
+/// them. The server stays authoritative: the queue comes from the session's
+/// stream, and a send whose acknowledgement was lost is uncertain until a
+/// fresh snapshot settles it.
 @MainActor @Observable
-final class SessionOperations {
-    enum Submission: Equatable {
+public final class SessionOperations {
+    public enum Submission: Equatable {
         case idle, pending, acknowledged(String), uncertain
         /// The server, or a fork's first turn, didn't start the turn. Shown
         /// in the activity card with Retry.
@@ -12,27 +16,33 @@ final class SessionOperations {
         /// composer, where it can be fixed.
         case rejected(String)
     }
-    enum Recovery: Equatable { case idle, refreshing, ready, failed(String) }
-    private(set) var recovery: Recovery = .idle
+    public enum Recovery: Equatable { case idle, refreshing, ready, failed(String) }
+    public private(set) var recovery: Recovery = .idle
     @ObservationIgnored private var recoveryTask: Task<Void, Never>?
 
-    struct Draft {
-        let text: String
-        let notes: [String: String]
-        let attachmentIDs: [String]
+    public struct Draft {
+        public let text: String
+        public let notes: [String: String]
+        public let attachmentIDs: [String]
+
+        public init(text: String, notes: [String: String], attachmentIDs: [String]) {
+            self.text = text
+            self.notes = notes
+            self.attachmentIDs = attachmentIDs
+        }
     }
-    private(set) var submission: Submission = .idle
-    private(set) var acknowledgedDraft: Draft?
-    private(set) var receiptTurn: String?
-    private(set) var queue: FollowUpState? {
+    public private(set) var submission: Submission = .idle
+    public private(set) var acknowledgedDraft: Draft?
+    public private(set) var receiptTurn: String?
+    public private(set) var queue: FollowUpState? {
         didSet {
             if queue?.count == 0, submission == .acknowledged("Queued") { submission = .idle }
         }
     }
-    private(set) var queuePending = false
-    private(set) var queueError: String?
-    private(set) var abortingRun: String?
-    private(set) var abortError: String?
+    public private(set) var queuePending = false
+    public private(set) var queueError: String?
+    public private(set) var abortingRun: String?
+    public private(set) var abortError: String?
     private var abortGeneration = UUID()
     /// Turns observed while a submission's receipt is outstanding. The server
     /// reserves the receipt turn at submission, so earlier turns never match.
@@ -43,20 +53,22 @@ final class SessionOperations {
     @ObservationIgnored private var queueTask: Task<Void, Never>?
     @ObservationIgnored private var abortTask: Task<Void, Never>?
 
+    public init() {}
+
     deinit { submitTask?.cancel(); queueTask?.cancel(); abortTask?.cancel(); recoveryTask?.cancel() }
-    var sending: Bool { submission == .pending }
+    public var sending: Bool { submission == .pending }
     /// Why the last send didn't start a turn, if it failed.
-    var startFailure: String? { if case .failed(let message) = submission { message } else { nil } }
-    var uncertain: Bool { if case .uncertain = submission { true } else { false } }
+    public var startFailure: String? { if case .failed(let message) = submission { message } else { nil } }
+    public var uncertain: Bool { if case .uncertain = submission { true } else { false } }
 
     /// Refuses the composer's input before it is sent.
-    func reject(_ message: String) { submission = .rejected(message) }
+    public func reject(_ message: String) { submission = .rejected(message) }
     /// Reports a turn that didn't start, such as a fork's first message.
-    func fail(_ message: String) { submission = .failed(message) }
-    func clearAcknowledgement() {
+    public func fail(_ message: String) { submission = .failed(message) }
+    public func clearAcknowledgement() {
         if case .acknowledged = submission { submission = .idle; receiptTurn = nil }
     }
-    func recover(using refresh: @escaping @MainActor () async throws -> SessionExcerpt) {
+    public func recover(using refresh: @escaping @MainActor () async throws -> SessionExcerpt) {
         guard uncertain, recovery != .refreshing else { return }
         recovery = .refreshing
         recoveryTask = Task { [weak self] in
@@ -76,9 +88,9 @@ final class SessionOperations {
             }
         }
     }
-    func consumeAcknowledgedDraft() { acknowledgedDraft = nil }
+    public func consumeAcknowledgedDraft() { acknowledgedDraft = nil }
 
-    func reconcile(_ session: SessionExcerpt) {
+    public func reconcile(_ session: SessionExcerpt) {
         currentRun = session.activeRunID
         if awaitingReceipt { observedTurns.formUnion(session.observedTurns ?? []) }
         if let receiptTurn, observedTurns.contains(receiptTurn) {
@@ -93,7 +105,7 @@ final class SessionOperations {
         if let abortingRun, abortingRun != currentRun { self.abortingRun = nil }
     }
 
-    func submit(client: any SessionMutationClient, session: String, input: WirePromptInput,
+    public func submit(client: any SessionMutationClient, session: String, input: WirePromptInput,
                 draft: Draft, uncertain: @escaping @MainActor () -> Void,
                 acknowledged: @escaping @MainActor () -> Void) {
         performSubmission(draft: draft, uncertain: uncertain, acknowledged: acknowledged) {
@@ -102,7 +114,7 @@ final class SessionOperations {
         }
     }
 
-    func submitCommand(client: any PromptCommandClient, session: String, input: WirePromptCommandInput,
+    public func submitCommand(client: any PromptCommandClient, session: String, input: WirePromptCommandInput,
                        draft: Draft, uncertain: @escaping @MainActor () -> Void,
                        acknowledged: @escaping @MainActor () -> Void) {
         performSubmission(draft: draft, uncertain: uncertain, acknowledged: acknowledged) {
@@ -144,7 +156,7 @@ final class SessionOperations {
         }
     }
 
-    func abort(client: any SessionMutationClient, session: String, turn: String) {
+    public func abort(client: any SessionMutationClient, session: String, turn: String) {
         guard abortingRun == nil else { return }
         let generation = UUID()
         abortGeneration = generation
@@ -166,8 +178,8 @@ final class SessionOperations {
         }
     }
 
-    enum QueueAction { case edit, remove, promote }
-    func changeQueue(_ action: QueueAction, client: any SessionMutationClient, session: String,
+    public enum QueueAction { case edit, remove, promote }
+    public func changeQueue(_ action: QueueAction, client: any SessionMutationClient, session: String,
                      restored: @escaping @MainActor ([WirePromptInput]) -> Void) {
         guard !queuePending, !sending, !uncertain else { return }
         queuePending = true; queueError = nil
