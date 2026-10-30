@@ -1,25 +1,26 @@
 import Foundation
+import KitClient
 
 /// The create_session tool returns the same bounded JSON envelope in its text and details.
-struct CreatedSessionPresentation {
+public struct CreatedSessionPresentation: Sendable {
     private struct Response: Decodable {
-        struct Session: Decodable {
-            let id: String
-            let cwd: String
-            let name: String?
-            let runId: String?
+        public struct Session: Decodable {
+            public let id: String
+            public let cwd: String
+            public let name: String?
+            public let runId: String?
         }
-        let session: Session?
-        let error: String?
+        public let session: Session?
+        public let error: String?
     }
-    let name: String
-    let directory: String
-    let prompt: String?
-    let sessionID: String?
-    let result: String
-    let failed: Bool
+    public let name: String
+    public let directory: String
+    public let prompt: String?
+    public let sessionID: String?
+    public let result: String
+    public let failed: Bool
 
-    init(_ tool: ToolActivity) {
+    public init(_ tool: ToolActivity) {
         let args = tool.arguments.flatMap { $0.data(using: .utf8) }
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         let response = tool.output.data(using: .utf8).flatMap { try? JSONDecoder().decode(Response.self, from: $0) }
@@ -49,5 +50,5 @@ struct CreatedSessionPresentation {
         }
     }
 
-    var summary: String { directory.isEmpty ? name : name + " · " + directory }
+    public var summary: String { directory.isEmpty ? name : name + " · " + directory }
 }

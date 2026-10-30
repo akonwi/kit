@@ -1,5 +1,6 @@
 import AppKit
 import KitMermaid
+import KitTranscript
 import SwiftUI
 
 /// A Mermaid diagram drawn natively from Kit's layout (ADR 0046). The layout

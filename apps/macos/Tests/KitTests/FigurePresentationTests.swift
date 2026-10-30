@@ -1,5 +1,6 @@
 import Foundation
 import KitFigures
+import KitTranscript
 import Testing
 @testable import Kit
 

@@ -1,4 +1,5 @@
 import Foundation
+import KitTranscript
 import Observation
 
 /// The open inline mention in the composer: `@` for a workspace file or `#`

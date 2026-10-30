@@ -1,11 +1,12 @@
 import Foundation
+import KitClient
 
 /// Native counterpart of the terminal client's `BashCommand` summary
 /// (apps/cli/ffi/toolpresentation).
-struct BashCommandPresentation {
-    let text: String
+public struct BashCommandPresentation: Sendable {
+    public let text: String
 
-    init(_ command: String) {
+    public init(_ command: String) {
         let chars = Array(command)
         var parts: [(command: String, pipe: Bool)] = []
         var start = 0
@@ -90,7 +91,7 @@ struct BashCommandPresentation {
 }
 
 extension ToolActivity {
-    var bashCommand: String? {
+    public var bashCommand: String? {
         guard ["bash", "shell", "exec", "exec_command"].contains(name.lowercased()) else { return nil }
         if let arguments, let data = arguments.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

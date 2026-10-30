@@ -1,3 +1,4 @@
+import KitTranscript
 import SwiftUI
 
 struct TranscriptSessionLink: Sendable {

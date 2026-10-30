@@ -1,11 +1,12 @@
 import Foundation
+import KitClient
 import KitFigures
 import KitMermaid
 import Markdown
 
 /// Native presentation data projected from Swift Markdown's document tree.
-struct MarkdownContent {
-    indirect enum Block: Equatable {
+public struct MarkdownContent: Sendable {
+    public indirect enum Block: Equatable, Sendable {
         case paragraph(AttributedString)
         case heading(Int, AttributedString)
         case code(String, String)
@@ -18,29 +19,41 @@ struct MarkdownContent {
         case rule
     }
 
-    struct Item: Equatable {
-        let marker: String
-        let blocks: [Block]
+    public struct Item: Equatable, Sendable {
+        public let marker: String
+        public let blocks: [Block]
         /// The 1-based source lines the item spans, with its marker. Where
         /// the item came from, not what it shows, so not compared.
-        var lines: ClosedRange<Int>? = nil
+        public var lines: ClosedRange<Int>? = nil
 
-        static func == (a: Item, b: Item) -> Bool { a.marker == b.marker && a.blocks == b.blocks }
+        public init(marker: String, blocks: [Block], lines: ClosedRange<Int>? = nil) {
+            self.marker = marker
+            self.blocks = blocks
+            self.lines = lines
+        }
+
+        public static func == (a: Item, b: Item) -> Bool { a.marker == b.marker && a.blocks == b.blocks }
     }
 
-    struct TableContent: Equatable {
-        enum Alignment: Equatable { case leading, center, trailing }
-        let alignments: [Alignment]
-        let header: [AttributedString]
-        let rows: [[AttributedString]]
+    public struct TableContent: Equatable, Sendable {
+        public enum Alignment: Equatable, Sendable { case leading, center, trailing }
+        public let alignments: [Alignment]
+        public let header: [AttributedString]
+        public let rows: [[AttributedString]]
+
+        public init(alignments: [Alignment], header: [AttributedString], rows: [[AttributedString]]) {
+            self.alignments = alignments
+            self.header = header
+            self.rows = rows
+        }
     }
 
-    let blocks: [Block]
+    public let blocks: [Block]
     /// The 1-based source lines each of `blocks` spans, including a code
     /// block's fences; nil where unknown.
-    let lines: [ClosedRange<Int>?]
+    public let lines: [ClosedRange<Int>?]
 
-    init(source: String) {
+    public init(source: String) {
         var parsed: [Block] = [], lines: [ClosedRange<Int>?] = []
         for child in Document(parsing: source).children {
             let made = Self.blocks(of: child)
@@ -54,7 +67,7 @@ struct MarkdownContent {
 
     /// The 1-based lines a source range spans. A range ending at the start
     /// of a line ends on the line before.
-    static func lines(_ range: SourceRange?) -> ClosedRange<Int>? {
+    public static func lines(_ range: SourceRange?) -> ClosedRange<Int>? {
         guard let range, range.lowerBound.line > 0 else { return nil }
         let start = range.lowerBound.line
         var end = range.upperBound.line
@@ -63,7 +76,7 @@ struct MarkdownContent {
     }
 
     /// The Mermaid diagrams drawn in these blocks, in order.
-    var diagrams: [MermaidDiagram] {
+    public var diagrams: [MermaidDiagram] {
         Self.diagrams(in: blocks)
     }
 
@@ -101,7 +114,7 @@ struct MarkdownContent {
     /// does before the fence closes. A fence closes on a line of at least as
     /// many of its own characters and nothing else. The terminal client
     /// decides the same way.
-    static func endsInsideFence(_ source: String) -> Bool {
+    public static func endsInsideFence(_ source: String) -> Bool {
         var open: Substring = ""
         // Split on line feeds alone: Swift reads `\r\n` as one character.
         for text in source.components(separatedBy: "\n") {
@@ -256,45 +269,51 @@ struct MarkdownContent {
 /// A fenced figure (ADR 0054): its info string and body. It's parsed the
 /// first time it's shown, and the result is kept by fence, so reparsing a
 /// streaming message doesn't parse it again.
-struct FigureBlock: Equatable {
-    let info: String
-    let source: String
+public struct FigureBlock: Equatable, Sendable {
+    public let info: String
+    public let source: String
 
-    init(info: String, source: String) {
+    public init(info: String, source: String) {
         self.info = info
         self.source = source
     }
 
     /// The figure both clients draw, or why it isn't drawn.
-    var figure: Result<KitFigures.Figure, KitFigures.NotDrawn> {
+    public var figure: Result<KitFigures.Figure, KitFigures.NotDrawn> {
         FigureParses.shared.figure(info: info, body: source)
     }
 
     /// The figure's kind, as its fence names it.
-    var name: String {
+    public var name: String {
         info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init) ?? ""
     }
 
     /// The whole fence, as it was written.
-    var fenced: String { "```\(info)\n\(source.hasSuffix("\n") ? source : source + "\n")```" }
+    public var fenced: String { "```\(info)\n\(source.hasSuffix("\n") ? source : source + "\n")```" }
 
-    static func == (lhs: Self, rhs: Self) -> Bool { lhs.info == rhs.info && lhs.source == rhs.source }
+    public static func == (lhs: Self, rhs: Self) -> Bool { lhs.info == rhs.info && lhs.source == rhs.source }
 }
 
 /// A GitHub alert (`> [!WARNING]`): its kind, the title after its marker,
 /// and the blocks under it.
-struct Callout: Equatable {
-    enum Kind: String, CaseIterable {
+public struct Callout: Equatable, Sendable {
+    public enum Kind: String, CaseIterable, Sendable {
         case note, tip, important, warning, caution
         /// The kind as a callout's header names it.
-        var label: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
+        public var label: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
     }
-    let kind: Kind
-    let title: String
-    let blocks: [MarkdownContent.Block]
+    public let kind: Kind
+    public let title: String
+    public let blocks: [MarkdownContent.Block]
+
+    public init(kind: Kind, title: String, blocks: [MarkdownContent.Block]) {
+        self.kind = kind
+        self.title = title
+        self.blocks = blocks
+    }
 
     /// The kind and title a quote's first line marks, as `[!KIND] title`.
-    static func marker(_ line: String) -> (kind: Kind, title: String)? {
+    public static func marker(_ line: String) -> (kind: Kind, title: String)? {
         let text = line.trimmingCharacters(in: .whitespaces)
         guard text.hasPrefix("[!"), let end = text.firstIndex(of: "]"),
               let kind = Kind(rawValue: text[text.index(text.startIndex, offsetBy: 2)..<end].lowercased()) else { return nil }
@@ -306,11 +325,11 @@ struct Callout: Equatable {
 
 /// Recently shown figures by fence. A figure depends only on its info
 /// string and body, so one is shared by every message and theme that shows it.
-final class FigureParses: Sendable {
-    static let shared = FigureParses()
+public final class FigureParses: Sendable {
+    public static let shared = FigureParses()
     private final class Entry: NSObject, Sendable {
-        let figure: Result<KitFigures.Figure, KitFigures.NotDrawn>
-        init(_ figure: Result<KitFigures.Figure, KitFigures.NotDrawn>) { self.figure = figure }
+        public let figure: Result<KitFigures.Figure, KitFigures.NotDrawn>
+        public init(_ figure: Result<KitFigures.Figure, KitFigures.NotDrawn>) { self.figure = figure }
     }
     // NSCache is thread-safe.
     nonisolated(unsafe) private let entries = NSCache<NSString, Entry>()
@@ -319,7 +338,7 @@ final class FigureParses: Sendable {
         entries.countLimit = 128
     }
 
-    func figure(info: String, body: String) -> Result<KitFigures.Figure, KitFigures.NotDrawn> {
+    public func figure(info: String, body: String) -> Result<KitFigures.Figure, KitFigures.NotDrawn> {
         // A line feed can't be part of an info string, so it separates the two.
         let key = "\(info)\n\(body)" as NSString
         if let entry = entries.object(forKey: key) { return entry.figure }
@@ -332,24 +351,28 @@ final class FigureParses: Sendable {
 /// A fenced Mermaid diagram (ADR 0046). It's drawn the first time it's
 /// shown, and its drawing is kept by source, so reparsing a streaming
 /// message or copying its text doesn't draw it again.
-struct MermaidDiagram: Equatable {
-    let source: String
+public struct MermaidDiagram: Equatable, Sendable {
+    public let source: String
+
+    public init(source: String) {
+        self.source = source
+    }
 
     /// The drawing, or why the diagram isn't drawn.
-    var drawing: Result<Canvas, KitMermaid.NotDrawn> {
+    public var drawing: Result<Canvas, KitMermaid.NotDrawn> {
         MermaidDrawings.shared.drawing(for: source)
     }
 
-    static func == (lhs: Self, rhs: Self) -> Bool { lhs.source == rhs.source }
+    public static func == (lhs: Self, rhs: Self) -> Bool { lhs.source == rhs.source }
 }
 
 /// Drawings of recently shown diagrams by source. A drawing depends only on
 /// its source, so one is shared by every message and theme that shows it.
-final class MermaidDrawings: Sendable {
-    static let shared = MermaidDrawings()
+public final class MermaidDrawings: Sendable {
+    public static let shared = MermaidDrawings()
     private final class Entry: NSObject, Sendable {
-        let drawing: Result<Canvas, KitMermaid.NotDrawn>
-        init(_ drawing: Result<Canvas, KitMermaid.NotDrawn>) { self.drawing = drawing }
+        public let drawing: Result<Canvas, KitMermaid.NotDrawn>
+        public init(_ drawing: Result<Canvas, KitMermaid.NotDrawn>) { self.drawing = drawing }
     }
     // NSCache is thread-safe.
     nonisolated(unsafe) private let entries = NSCache<NSString, Entry>()
@@ -359,7 +382,7 @@ final class MermaidDrawings: Sendable {
         entries.totalCostLimit = 16 * 1024 * 1024
     }
 
-    func drawing(for source: String) -> Result<Canvas, KitMermaid.NotDrawn> {
+    public func drawing(for source: String) -> Result<Canvas, KitMermaid.NotDrawn> {
         let key = source as NSString
         if let entry = entries.object(forKey: key) { return entry.drawing }
         let drawing = Mermaid.render(source)
@@ -372,11 +395,11 @@ final class MermaidDrawings: Sendable {
 
 /// Avoid reparsing unchanged transcripts during scroll geometry and theme updates.
 @MainActor
-final class MarkdownContentCache {
-    static let shared = MarkdownContentCache()
+public final class MarkdownContentCache {
+    public static let shared = MarkdownContentCache()
     private final class Entry: NSObject {
-        let content: MarkdownContent
-        init(_ content: MarkdownContent) { self.content = content }
+        public let content: MarkdownContent
+        public init(_ content: MarkdownContent) { self.content = content }
     }
     private let entries = NSCache<NSString, Entry>()
 
@@ -385,7 +408,7 @@ final class MarkdownContentCache {
         entries.totalCostLimit = 8 * 1024 * 1024
     }
 
-    func content(for source: String) -> MarkdownContent {
+    public func content(for source: String) -> MarkdownContent {
         let key = source as NSString
         if let entry = entries.object(forKey: key) { return entry.content }
         let content = MarkdownContent(source: source)

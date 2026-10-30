@@ -20,8 +20,11 @@ iOS app. It holds no AppKit or UIKit code.
   renderer ([ADR 0046](../../../docs/adrs/0046-draw-mermaid-diagrams-with-kits-own-renderer.md)).
 - `KitFigures` reads and lays out Kit's data figures, a port of the terminal
   client's ([ADR 0054](../../../docs/adrs/0054-draw-data-figures-from-fenced-markdown.md)).
+- `KitTranscript` is what a transcript shows, apart from how each app draws
+  it: the Markdown projection (`MarkdownContent`), tool call presentation
+  (`ToolPresentation`), and session mention links (`SessionMentions`).
 
-The macOS app's tests cover these modules (client, Mermaid, and figure tests);
+The macOS app's tests cover these modules (client, Mermaid, figure, Markdown, and tool presentation tests);
 run them as the macOS README describes. Check that the package still builds
 for iOS with:
 

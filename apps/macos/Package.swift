@@ -28,7 +28,8 @@ let package = Package(
             "GhosttyKit",
             .product(name: "KitClient", package: "KitShared"),
             .product(name: "KitMermaid", package: "KitShared"),
-            .product(name: "KitFigures", package: "KitShared")
+            .product(name: "KitFigures", package: "KitShared"),
+            .product(name: "KitTranscript", package: "KitShared")
         ], resources: [.process("Resources")],
         linkerSettings: [
             .linkedFramework("Carbon"),
@@ -46,7 +47,8 @@ let package = Package(
             "Kit",
             .product(name: "KitClient", package: "KitShared"),
             .product(name: "KitMermaid", package: "KitShared"),
-            .product(name: "KitFigures", package: "KitShared")
+            .product(name: "KitFigures", package: "KitShared"),
+            .product(name: "KitTranscript", package: "KitShared")
         ])
     ]
 )

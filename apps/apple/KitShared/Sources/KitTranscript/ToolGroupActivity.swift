@@ -1,8 +1,9 @@
 import Foundation
+import KitClient
 
 /// Only the latest group in the current conversation turn stays active between calls.
-enum ToolGroupActivity {
-    static func liveGroups(in messages: [TranscriptMessage], active: Bool) -> Set<String> {
+public enum ToolGroupActivity {
+    public static func liveGroups(in messages: [TranscriptMessage], active: Bool) -> Set<String> {
         guard active else { return [] }
         let currentTurn = messages.reversed().prefix { $0.role != "user" }
         let groups = currentTurn.filter { $0.role == "tools" && !$0.tools.isEmpty }

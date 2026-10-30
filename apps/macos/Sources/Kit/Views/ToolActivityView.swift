@@ -1,4 +1,5 @@
 import AppKit
+import KitTranscript
 import SwiftUI
 
 /// What tool rows need from the session around them: the working directory

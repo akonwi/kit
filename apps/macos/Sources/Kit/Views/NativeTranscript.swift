@@ -1,4 +1,5 @@
 import AppKit
+import KitTranscript
 import SwiftUI
 
 /// Native row reuse owns geometry; SwiftUI continues to own message presentation.

@@ -1,3 +1,4 @@
+import KitTranscript
 import SwiftUI
 
 /// The detail well of an open tool row. Content is laid out per tool; every

@@ -1,5 +1,6 @@
 import Foundation
 import KitMermaid
+import KitTranscript
 import SwiftUI
 import Testing
 @testable import Kit

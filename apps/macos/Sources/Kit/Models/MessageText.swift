@@ -1,4 +1,5 @@
 import Foundation
+import KitTranscript
 
 enum MessageText {
     static func quote(_ selection: String, draft: String) -> String {

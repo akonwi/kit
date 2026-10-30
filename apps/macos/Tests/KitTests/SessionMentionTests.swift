@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import KitTranscript
 import Synchronization
 import SwiftUI
 import Testing

@@ -1,4 +1,5 @@
 import KitFigures
+import KitTranscript
 import SwiftUI
 
 /// A fenced figure (ADR 0054): a fence card titled by the figure's title,

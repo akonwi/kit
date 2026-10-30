@@ -1,4 +1,5 @@
 import AppKit
+import KitTranscript
 import OSLog
 import SwiftUI
 

@@ -9,12 +9,14 @@ let package = Package(
     products: [
         .library(name: "KitClient", targets: ["KitClient"]),
         .library(name: "KitMermaid", targets: ["KitMermaid"]),
-        .library(name: "KitFigures", targets: ["KitFigures"])
+        .library(name: "KitFigures", targets: ["KitFigures"]),
+        .library(name: "KitTranscript", targets: ["KitTranscript"])
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-openapi-generator.git", exact: "1.13.1"),
         .package(url: "https://github.com/apple/swift-openapi-runtime.git", exact: "1.12.1"),
-        .package(url: "https://github.com/apple/swift-http-types.git", exact: "1.8.0")
+        .package(url: "https://github.com/apple/swift-http-types.git", exact: "1.8.0"),
+        .package(url: "https://github.com/swiftlang/swift-markdown.git", exact: "0.8.0")
     ],
     targets: [
         // The session client: the generated OpenAPI transport and the
@@ -27,6 +29,12 @@ let package = Package(
         // Kit's Mermaid renderer, ported from the terminal client's (ADR 0046).
         .target(name: "KitMermaid"),
         // Kit's data figures, ported from the terminal client's (ADR 0054).
-        .target(name: "KitFigures")
+        .target(name: "KitFigures"),
+        // What a transcript shows, apart from how a platform draws it: the
+        // Markdown projection, tool call presentation, and session mention links.
+        .target(name: "KitTranscript", dependencies: [
+            "KitClient", "KitMermaid", "KitFigures",
+            .product(name: "Markdown", package: "swift-markdown")
+        ])
     ]
 )

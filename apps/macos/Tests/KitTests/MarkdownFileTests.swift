@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import KitTranscript
 import SwiftUI
 import Testing
 @testable import Kit

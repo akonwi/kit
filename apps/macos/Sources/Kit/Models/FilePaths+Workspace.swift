@@ -1,4 +1,5 @@
 import Foundation
+import KitTranscript
 
 extension FilePaths {
     /// The pane that shows `path` from the session's server: its workspace

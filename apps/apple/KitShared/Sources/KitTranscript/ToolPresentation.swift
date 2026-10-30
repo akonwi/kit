@@ -1,7 +1,8 @@
 import Foundation
+import KitClient
 
 /// What a tool row's chip opens.
-enum ToolLink: Equatable {
+public enum ToolLink: Equatable, Sendable {
     /// A file the call names, as recorded; see `ToolPresentation.workspacePath`.
     case file(String)
     case agent(String)
@@ -10,26 +11,46 @@ enum ToolLink: Equatable {
 }
 
 /// A short result shown on the right of a tool row, such as `exit 1` or `4 matches`.
-struct ToolFact: Equatable {
-    enum Tone: Equatable { case muted, text, success, danger }
-    let text: String
-    var tone: Tone = .muted
+public struct ToolFact: Equatable, Sendable {
+    public enum Tone: Equatable, Sendable { case muted, text, success, danger }
+    public let text: String
+    public var tone: Tone = .muted
     /// Facts drawn in the monospaced face: counts, codes, and durations.
-    var monospaced = true
+    public var monospaced = true
+
+    public init(text: String, tone: Tone = .muted, monospaced: Bool = true) {
+        self.text = text
+        self.tone = tone
+        self.monospaced = monospaced
+    }
 }
 
 /// Presentation of recorded tool data; never reads the current workspace file.
 /// Titles and chips follow the terminal client's `toolpresentation` package.
-struct ToolPresentation {
-    struct Edit: Equatable { let old: String; let new: String }
-    struct Match: Equatable { let path: String; let line: Int; let text: String }
-    let tool: ToolActivity
+public struct ToolPresentation {
+    public struct Edit: Equatable, Sendable {
+        public let old: String
+        public let new: String
+        public init(old: String, new: String) { self.old = old; self.new = new }
+    }
+    public struct Match: Equatable, Sendable {
+        public let path: String
+        public let line: Int
+        public let text: String
+
+        public init(path: String, line: Int, text: String) {
+            self.path = path
+            self.line = line
+            self.text = text
+        }
+    }
+    public let tool: ToolActivity
     private let args: [String: Any]
     private let detailValues: [String: Any]
     /// The MCP server whose tool this call is, if any.
-    let server: String?
+    public let server: String?
 
-    init(_ tool: ToolActivity, servers: [String] = []) {
+    public init(_ tool: ToolActivity, servers: [String] = []) {
         self.tool = tool
         args = Self.object(tool.arguments)
         detailValues = Self.object(tool.details)
@@ -39,7 +60,7 @@ struct ToolPresentation {
         text.flatMap { $0.data(using: .utf8) }
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
     }
-    func string(_ key: String) -> String? { args[key] as? String }
+    public func string(_ key: String) -> String? { args[key] as? String }
     private func text(_ key: String) -> String? {
         guard let value = string(key)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
         return value
@@ -47,17 +68,17 @@ struct ToolPresentation {
     private func integer(_ key: String) -> Int? {
         (detailValues[key] as? NSNumber).map(\.intValue)
     }
-    var path: String { string("path") ?? tool.summary }
-    var startLine: Int { max(1, args["offset"] as? Int ?? 1) }
-    var limit: Int? { args["limit"] as? Int }
-    var edits: [Edit] {
+    public var path: String { string("path") ?? tool.summary }
+    public var startLine: Int { max(1, args["offset"] as? Int ?? 1) }
+    public var limit: Int? { args["limit"] as? Int }
+    public var edits: [Edit] {
         let values = args["edits"] as? [[String: Any]] ?? [args]
         return values.compactMap { value in
             guard let old = value["oldText"] as? String, let new = value["newText"] as? String else { return nil }
             return Edit(old: old, new: new)
         }
     }
-    var language: String {
+    public var language: String {
         switch (path as NSString).pathExtension.lowercased() {
         case "go": return "go"
         case "swift": return "swift"
@@ -72,14 +93,14 @@ struct ToolPresentation {
     }
     private var kind: String { tool.name.lowercased() }
     /// A plugin tool's plugin and local name, from `<plugin>__<tool>`.
-    var pluginTool: (plugin: String, tool: String)? {
+    public var pluginTool: (plugin: String, tool: String)? {
         guard server == nil, let match = tool.name.range(of: #"^[a-z][a-z0-9-]{0,31}__.+$"#, options: .regularExpression),
               match == tool.name.startIndex..<tool.name.endIndex, let split = tool.name.range(of: "__") else { return nil }
         return (String(tool.name[..<split.lowerBound]), String(tool.name[split.upperBound...]))
     }
-    static let interactionTools: Set<String> = ["confirm_from_user", "input_from_user", "select_from_user", "guided_questions"]
+    public static let interactionTools: Set<String> = ["confirm_from_user", "input_from_user", "select_from_user", "guided_questions"]
 
-    var title: String {
+    public var title: String {
         if let server {
             switch string("action") {
             case "list": return "List \(server)"
@@ -143,7 +164,7 @@ struct ToolPresentation {
     }
 
     /// The chip's text; nil when the call has nothing to show there.
-    var chip: String? {
+    public var chip: String? {
         if server != nil {
             switch string("action") {
             case "search": return text("query")
@@ -182,9 +203,9 @@ struct ToolPresentation {
         }
     }
     /// The chip's text, or empty.
-    var summary: String { chip ?? "" }
+    public var summary: String { chip ?? "" }
     /// Whether the chip leads with a path, whose end is kept when it is cut.
-    var chipIsPath: Bool { ["read", "write", "edit", "ls", "change_cwd", "show_image", "inspect_image"].contains(kind) }
+    public var chipIsPath: Bool { ["read", "write", "edit", "ls", "change_cwd", "show_image", "inspect_image"].contains(kind) }
 
     private var fallbackArguments: String? {
         for key in ["command", "path", "agent", "url", "query", "name"] {
@@ -195,7 +216,7 @@ struct ToolPresentation {
     }
 
     /// What the chip opens, if anything.
-    var link: ToolLink? {
+    public var link: ToolLink? {
         guard tool.notRun != true else { return nil }
         switch kind {
         case "read", "write", "edit", "show_image", "inspect_image":
@@ -210,7 +231,7 @@ struct ToolPresentation {
     }
 
     /// Results shown on the right, without the duration.
-    var facts: [ToolFact] {
+    public var facts: [ToolFact] {
         guard !tool.running, tool.notRun != true else { return [] }
         if tool.bashCommand != nil {
             if detailValues["timedOut"] as? Bool == true { return [ToolFact(text: "timed out", tone: .danger)] }
@@ -245,13 +266,13 @@ struct ToolPresentation {
     }
 
     /// Whether the row shows how long the call ran: slow, external work.
-    var showsDuration: Bool {
+    public var showsDuration: Bool {
         tool.bashCommand != nil || server != nil || pluginTool != nil || kind == "subagent"
             || (kind == "peer_session" && string("action") == "wait")
     }
 
     /// Whether the row opens a detail well.
-    var expandable: Bool {
+    public var expandable: Bool {
         if tool.notRun == true { return false }
         switch kind {
         case "change_cwd", "read_scratchpad", "activate_skill", "subagent_inbox": return false
@@ -262,23 +283,23 @@ struct ToolPresentation {
         }
     }
 
-    var header: String {
+    public var header: String {
         if let command = tool.bashCommand { return command }
         if tool.name == "subagent" { return string("message") ?? "" }
         if tool.name == "activate_skill" { return skill.description ?? "" }
         return ""
     }
-    var readTruncated: Bool {
+    public var readTruncated: Bool {
         tool.output.hasSuffix("\n[truncated]") || tool.output.hasSuffix("\n[truncated]\n")
     }
-    var readContent: String {
+    public var readContent: String {
         guard readTruncated, let marker = tool.output.range(of: "\n[truncated]", options: .backwards) else { return tool.output }
         return String(tool.output[..<marker.lowerBound])
     }
-    var skill: SkillContent { SkillContent(tool.output) }
-    var ask: AskPresentation { AskPresentation(kind: kind, arguments: args, output: tool.output, details: detailValues) }
+    public var skill: SkillContent { SkillContent(tool.output) }
+    public var ask: AskPresentation { AskPresentation(kind: kind, arguments: args, output: tool.output, details: detailValues) }
 
-    var matches: [Match]? {
+    public var matches: [Match]? {
         guard tool.name == "grep", !tool.output.isEmpty else { return nil }
         let regex = try! NSRegularExpression(pattern: #"^(.+?):([0-9]+):(.*)$"#)
         var result: [Match] = []
@@ -291,22 +312,22 @@ struct ToolPresentation {
         }
         return result
     }
-    static func lines(_ text: String) -> [String] {
+    public static func lines(_ text: String) -> [String] {
         guard !text.isEmpty else { return [] }
         var lines = text.components(separatedBy: "\n")
         if lines.last == "" { lines.removeLast() }
         return lines
     }
-    static func recordedLineCount(_ value: String) -> Int {
+    public static func recordedLineCount(_ value: String) -> Int {
         guard !value.isEmpty else { return 0 }
         return value.filter { $0 == "\n" }.count + (value.hasSuffix("\n") ? 0 : 1)
     }
-    static func lineLabel(_ count: Int) -> String { count == 1 ? "1 line" : "\(count) lines" }
-    static func oneLine(_ value: String) -> String {
+    public static func lineLabel(_ count: Int) -> String { count == 1 ? "1 line" : "\(count) lines" }
+    public static func oneLine(_ value: String) -> String {
         value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
     /// A tool name in sentence case: `fetch_url` reads "Fetch url".
-    static func humanize(_ name: String) -> String {
+    public static func humanize(_ name: String) -> String {
         let words = name.replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ")
             .split(separator: " ").map { $0.lowercased() }
         guard let first = words.first else { return "Tool call" }
@@ -315,7 +336,7 @@ struct ToolPresentation {
     /// The name a model calls an MCP server's tool by, as Kit's MCP manager
     /// derives it: lowercase ASCII letters, digits, `_` and `-`, with each run
     /// of other characters as one `_`, trimmed of `_` and `-`.
-    static func mcpToolName(_ server: String) -> String {
+    public static func mcpToolName(_ server: String) -> String {
         var name = "", underscore = false
         for character in server.lowercased() {
             if character.isASCII, character.isLetter || character.isNumber || character == "_" || character == "-" {
@@ -328,7 +349,7 @@ struct ToolPresentation {
     }
     /// A recorded path relative to the working directory `cwd`, as workspace
     /// files are named, or nil when it lies outside it.
-    static func workspacePath(_ path: String, cwd: String?) -> String? {
+    public static func workspacePath(_ path: String, cwd: String?) -> String? {
         guard let cwd, cwd.hasPrefix("/"), !path.isEmpty, !path.contains("\0") else { return nil }
         let base = URL(fileURLWithPath: cwd).standardizedFileURL.path
         let absolute = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : URL(fileURLWithPath: base).appendingPathComponent(path))
@@ -340,22 +361,27 @@ struct ToolPresentation {
 }
 
 /// The question a user-interaction tool asked and the answer it recorded.
-struct AskPresentation {
-    struct Answer: Equatable {
-        let question: String
+public struct AskPresentation: Sendable {
+    public struct Answer: Equatable, Sendable {
+        public let question: String
         /// Nil when the question was skipped.
-        let answer: String?
-    }
-    let title: String?
-    let detail: String?
-    /// The answer as a short fact: Yes, No, the choice, the text, or Cancelled.
-    let outcome: String?
-    /// The full free-text answer of an input request.
-    let answer: String?
-    /// The guided questions in order, each with its answer.
-    let answers: [Answer]
+        public let answer: String?
 
-    init(kind: String, arguments: [String: Any], output: String, details: [String: Any]) {
+        public init(question: String, answer: String?) {
+            self.question = question
+            self.answer = answer
+        }
+    }
+    public let title: String?
+    public let detail: String?
+    /// The answer as a short fact: Yes, No, the choice, the text, or Cancelled.
+    public let outcome: String?
+    /// The full free-text answer of an input request.
+    public let answer: String?
+    /// The guided questions in order, each with its answer.
+    public let answers: [Answer]
+
+    public init(kind: String, arguments: [String: Any], output: String, details: [String: Any]) {
         func nonEmpty(_ value: Any?) -> String? {
             guard let value = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
             return value
@@ -403,13 +429,18 @@ struct AskPresentation {
     }
 }
 
-struct ToolDiffLine: Equatable {
-    enum Kind { case context, removed, added }
-    let kind: Kind
-    let text: String
+public struct ToolDiffLine: Equatable, Sendable {
+    public enum Kind: Sendable { case context, removed, added }
+    public let kind: Kind
+    public let text: String
+
+    public init(kind: Kind, text: String) {
+        self.kind = kind
+        self.text = text
+    }
 
     /// Bound the LCS work; large replacements still retain every old/new line.
-    static func build(_ edit: ToolPresentation.Edit) -> [Self] {
+    public static func build(_ edit: ToolPresentation.Edit) -> [Self] {
         let old = ToolPresentation.lines(edit.old), new = ToolPresentation.lines(edit.new)
         guard old.count <= 400, new.count <= 400 else {
             return old.map { Self(kind: .removed, text: $0) } + new.map { Self(kind: .added, text: $0) }
@@ -439,13 +470,19 @@ struct ToolDiffLine: Equatable {
 
 
 extension ToolDiffLine {
-    struct Numbered: Equatable {
-        let line: ToolDiffLine
-        let oldNumber: Int?
-        let newNumber: Int?
+    public struct Numbered: Equatable, Sendable {
+        public let line: ToolDiffLine
+        public let oldNumber: Int?
+        public let newNumber: Int?
+
+        public init(line: ToolDiffLine, oldNumber: Int?, newNumber: Int?) {
+            self.line = line
+            self.oldNumber = oldNumber
+            self.newNumber = newNumber
+        }
     }
 
-    static func numbered(_ edit: ToolPresentation.Edit) -> [Numbered] {
+    public static func numbered(_ edit: ToolPresentation.Edit) -> [Numbered] {
         var old = 1, new = 1
         return build(edit).map { line in
             let row = Numbered(line: line, oldNumber: line.kind == .added ? nil : old,
@@ -458,11 +495,11 @@ extension ToolDiffLine {
 }
 
 
-struct SkillContent {
-    let description: String?
-    let body: String
+public struct SkillContent: Sendable {
+    public let description: String?
+    public let body: String
 
-    init(_ source: String) {
+    public init(_ source: String) {
         let lines = source.components(separatedBy: "\n")
         guard lines.first?.trimmingCharacters(in: .whitespacesAndNewlines) == "---",
               let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == "---" }) else {
@@ -488,7 +525,7 @@ struct SkillContent {
 }
 
 extension ToolPresentation.Edit {
-    var newlineNotice: String? {
+    public var newlineNotice: String? {
         let oldNewline = old.hasSuffix("\n"), newNewline = new.hasSuffix("\n")
         guard oldNewline != newNewline else { return nil }
         return newNewline ? "Final newline added" : "Final newline removed"
