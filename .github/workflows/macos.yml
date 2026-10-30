@@ -1,7 +1,7 @@
 name: macOS
 on:
   pull_request:
-    paths: ['apps/macos/**', 'api/kit-session.openapi.json', 'api/contract/**', 'internal/version/**', 'assets/kit/**', 'testdata/mermaid/**', '.github/workflows/macos.yml', '.github/actions/setup-ghostty/**']
+    paths: ['apps/macos/**', 'apps/apple/**', 'api/kit-session.openapi.json', 'api/contract/**', 'internal/version/**', 'assets/kit/**', 'testdata/mermaid/**', '.github/workflows/macos.yml', '.github/actions/setup-ghostty/**']
 # The checks are independent, so they run as parallel jobs. Each restores
 # libghostty itself; after a pin change, each builds it until one saves it.
 jobs:

@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [.executable(name: "Kit", targets: ["Kit"])],
     dependencies: [
+        .package(path: "../apple/KitShared"),
         .package(path: "Vendor/CodeEditTextView"),
         .package(url: "https://github.com/swiftlang/swift-markdown.git", exact: "0.8.0"),
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter.git", exact: "0.25.0"),
@@ -26,8 +27,8 @@ let package = Package(
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "HTTPTypesFoundation", package: "swift-http-types"),
             "GhosttyKit",
-            "KitMermaid",
-            "KitFigures"
+            .product(name: "KitMermaid", package: "KitShared"),
+            .product(name: "KitFigures", package: "KitShared")
         ], exclude: ["openapi-generator-config.yaml"], resources: [.process("Resources")],
         linkerSettings: [
             .linkedFramework("Carbon"),
@@ -41,10 +42,10 @@ let package = Package(
         ]),
         // libghostty, built by script/build_ghosttykit.sh at a pinned commit.
         .binaryTarget(name: "GhosttyKit", path: "Vendor/Ghostty/GhosttyKit.xcframework"),
-        // Kit's Mermaid renderer, ported from the terminal client's (ADR 0046).
-        .target(name: "KitMermaid"),
-        // Kit's data figures, ported from the terminal client's (ADR 0054).
-        .target(name: "KitFigures"),
-        .testTarget(name: "KitTests", dependencies: ["Kit", "KitMermaid", "KitFigures"])
+        .testTarget(name: "KitTests", dependencies: [
+            "Kit",
+            .product(name: "KitMermaid", package: "KitShared"),
+            .product(name: "KitFigures", package: "KitShared")
+        ])
     ]
 )

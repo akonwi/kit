@@ -53,8 +53,8 @@ added as separately reviewed subsets, to the reference and the port together.
 ### The macOS client
 
 The macOS client draws diagrams with `KitMermaid`, a Swift module in
-`apps/macos/Sources/KitMermaid` that ports the reference renderer. It depends
-on nothing beyond Foundation.
+`apps/apple/KitShared/Sources/KitMermaid` that ports the reference renderer.
+It depends on nothing beyond Foundation.
 
 - **Same drawing.** The port accepts exactly the reference's syntax, rejects
   everything else with the same reason, applies the same limits, and lays out

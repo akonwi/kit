@@ -9,7 +9,7 @@ use go:strings
 // The grammar every figure reads (ADR 0054, docs/figures.md): the fence's
 // info string of a name and `key="value"` attributes, and a body of list
 // items that mark the item to read in bold, recede in italics, and take a
-// note after ` — `. The macOS client's port in `apps/macos/Sources/KitFigures`
+// note after ` — `. The Apple clients' port in `apps/apple/KitShared/Sources/KitFigures`
 // reads the same grammar the same way.
 
 // The largest body drawn.

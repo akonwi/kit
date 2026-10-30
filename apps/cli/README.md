@@ -66,8 +66,8 @@ that home is not the default one.
 
 ## Mermaid fixtures
 
-The Mermaid renderer in `tui/mermaid` is the reference the macOS app's Swift
-port in `apps/macos/Sources/KitMermaid` follows
+The Mermaid renderer in `tui/mermaid` is the reference the Apple clients' Swift
+port in `apps/apple/KitShared/Sources/KitMermaid` follows
 ([ADR 0046](../../docs/adrs/0046-draw-mermaid-diagrams-with-kits-own-renderer.md)).
 `test/mermaid_fixtures_test.ard` checks it against the shared fixtures in
 `testdata/mermaid`: each `.mmd` source and its drawing in the matching `.txt`.
@@ -117,8 +117,8 @@ is the only thing that binds a build to an isolated
 
 ## Figure fixtures
 
-The figures in `tui/figure` are likewise the reference for the macOS app's
-port in `apps/macos/Sources/KitFigures`
+The figures in `tui/figure` are likewise the reference for the Apple clients'
+port in `apps/apple/KitShared/Sources/KitFigures`
 ([ADR 0054](../../docs/adrs/0054-draw-data-figures-from-fenced-markdown.md),
 grammar in [`docs/figures.md`](../../docs/figures.md)).
 `test/figure_fixtures_test.ard` checks it against the shared fixtures in
