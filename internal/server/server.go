@@ -33,6 +33,7 @@ import (
 	"github.com/akonwi/kit/internal/pairing"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
+	"github.com/akonwi/kit/internal/saveattachment"
 	"github.com/akonwi/kit/internal/serveraccess"
 	"github.com/akonwi/kit/internal/serveridentity"
 	"github.com/akonwi/kit/internal/serverlisten"
@@ -269,6 +270,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		AttachmentStore:     attachmentStore,
 		PresentImageEnabled: func(kitsession.SessionRecord) bool { return true },
 		InspectImageEnabled: inspectImageEnabled(providers),
+		AttachmentProtected: []string{paths.Home},
 		Context:             &systemprompt.ContextBuilderOptions{Paths: paths},
 		MCPLoader:           mcpLoader,
 		MCPLauncher:         mcpLauncher,
@@ -303,6 +305,11 @@ func Run(ctx context.Context, options RunOptions) error {
 	childFactory.PluginInterceptors = sessionManager.PluginInterceptors
 	childFactory.MCPTools = sessionManager.MCPTools
 	childFactory.ClientTools = sessionManager.ClientToolFeed
+	childFactory.SaveAttachment = func(ownerSessionID string, cwd func() string) (droids.AnyTool, error) {
+		return saveattachment.New(saveattachment.Options{
+			SessionID: ownerSessionID, CWD: cwd, Store: attachmentStore, Protected: []string{paths.Home},
+		})
+	}
 	childFactory.InboxRequests = store
 	childFactory.SiblingTools = &subagent.SiblingToolService{
 		Repository: store, Supervisor: subagents,

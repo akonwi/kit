@@ -31,8 +31,12 @@ type ChildRuntimeFactory struct {
 	// ClientTools must be set before the supervisor starts. A child receives
 	// its owning session's client-hosted plugin tools and follows changes to
 	// them while it is open (ADR 0051).
-	ClientTools  func(context.Context, string) (ClientToolFeed, error)
-	SiblingTools *subagent.SiblingToolService
+	ClientTools func(context.Context, string) (ClientToolFeed, error)
+	// SaveAttachment must be set before the supervisor starts. It builds a
+	// child's save_attachment tool over its owning session's attachments,
+	// where the images client-hosted tools return to the child are kept.
+	SaveAttachment func(ownerSessionID string, cwd func() string) (droids.AnyTool, error)
+	SiblingTools   *subagent.SiblingToolService
 	// InboxRequests reads the request behind a delivered request or reply so
 	// its boundary details can name the other agent. It is optional.
 	InboxRequests      InboxRequestReader
@@ -142,6 +146,13 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 			return nil, fmt.Errorf("build child sibling tools: %w", err)
 		}
 		tools = append(append([]droids.AnyTool(nil), tools...), siblings...)
+	}
+	if f.SaveAttachment != nil {
+		tool, err := f.SaveAttachment(conversation.OwnerSessionID, func() string { return cwd })
+		if err != nil {
+			return nil, fmt.Errorf("build child save_attachment tool: %w", err)
+		}
+		tools = append(append([]droids.AnyTool(nil), tools...), tool)
 	}
 	if f.MCPTools != nil {
 		borrowed, err := f.MCPTools(ctx, conversation.OwnerSessionID)

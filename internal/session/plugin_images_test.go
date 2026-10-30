@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"image/png"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/akonwi/kit/droids"
@@ -32,9 +33,13 @@ func TestPluginToolImagesAreStoredAsSessionAttachments(t *testing.T) {
 	}
 	data := pluginTestPNG(t)
 	images := pluginImageStore{sessionID: "session_1", store: store}
-	file := images.content(context.Background(), "browser__screenshot", "image/png", data)
-	if file.AttachmentID == "" || file.Filename != "browser__screenshot.png" || file.MediaType != "image/png" || file.URL != droids.NewImageData("image/png", data).URL {
-		t.Fatalf("file = %#v, want the image stored and kept inline for the model", file)
+	content := images.content(context.Background(), "browser__screenshot", "image/png", data)
+	if len(content) != 2 {
+		t.Fatalf("content = %#v, want the image and its reference", content)
+	}
+	file, ok := content[0].(droids.FileContent)
+	if !ok || file.AttachmentID == "" || file.Filename != "browser__screenshot.png" || file.MediaType != "image/png" || file.URL != droids.NewImageData("image/png", data).URL {
+		t.Fatalf("file = %#v, want the image stored and kept inline for the model", content[0])
 	}
 	record, reader, err := store.Open(context.Background(), "session_1", file.AttachmentID)
 	if err != nil {
@@ -44,6 +49,10 @@ func TestPluginToolImagesAreStoredAsSessionAttachments(t *testing.T) {
 	if record.Width != 4 || record.Height != 3 {
 		t.Fatalf("record = %#v", record)
 	}
+	want := "Attachment " + file.AttachmentID + ": image/png, 4×3, " + strconv.FormatInt(record.Size, 10) + " bytes. save_attachment copies it to a file."
+	if reference, ok := content[1].(droids.TextContent); !ok || reference.Text != want {
+		t.Fatalf("reference = %#v, want %q", content[1], want)
+	}
 	if _, _, err := store.Open(context.Background(), "session_2", file.AttachmentID); err == nil {
 		t.Fatal("another session opened the plugin image")
 	}
@@ -52,17 +61,25 @@ func TestPluginToolImagesAreStoredAsSessionAttachments(t *testing.T) {
 func TestPluginToolImagesStayInlineWhenTheyCannotBeStored(t *testing.T) {
 	t.Parallel()
 	data := pluginTestPNG(t)
-	if file := (pluginImageStore{}).content(context.Background(), "browser__screenshot", "image/png", data); file.AttachmentID != "" || file.URL == "" {
-		t.Fatalf("without a store: %#v", file)
+	inline := droids.NewImageData("image/png", data)
+	// Without a store there is nothing to save, so the image stands alone.
+	if content := (pluginImageStore{}).content(context.Background(), "browser__screenshot", "image/png", data); len(content) != 1 || content[0] != droids.ResultContent(inline) {
+		t.Fatalf("without a store: %#v", content)
 	}
 	store, err := attachment.NewFilesystem(filepath.Join(t.TempDir(), "attachments"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	images := pluginImageStore{sessionID: "session_1", store: store}
-	// Bytes that don't match the declared type stay with the model only.
-	if file := images.content(context.Background(), "browser__screenshot", "image/jpeg", data); file.AttachmentID != "" || file.MediaType != "image/jpeg" {
-		t.Fatalf("mismatched type: %#v", file)
+	// Bytes that don't match the declared type stay with the model only, and
+	// the model is told the image cannot be saved.
+	content := images.content(context.Background(), "browser__screenshot", "image/jpeg", data)
+	want := []droids.ResultContent{
+		droids.NewImageData("image/jpeg", data),
+		droids.TextContent{Text: "This image was not kept as an attachment, so save_attachment cannot copy it."},
+	}
+	if len(content) != 2 || content[0] != want[0] || content[1] != want[1] {
+		t.Fatalf("mismatched type: %#v, want %#v", content, want)
 	}
 }
 

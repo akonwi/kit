@@ -109,6 +109,17 @@ attachment ID, filename, media type, dimensions, and caption. Only this explicit
 presentation marker creates a promoted tool image in the transcript; presenting
 an image does not add its bytes to model context.
 
+## `save_attachment`
+
+`save_attachment` copies one of the session's attachments to a file on the
+server, so the model can reuse an image a tool returned: commit it, hand it to
+another program or session, or inspect it again. A plugin tool's result names
+each image it kept with a line such as `Attachment attachment_…: image/png,
+1600×1000, 312 KiB.` Relative paths resolve against session cwd. The tool
+refuses paths within the Kit home, symbolic links, and existing files unless
+`overwrite` is set, and publishes the copy atomically. See
+[ADR 0055](../adrs/0055-let-the-model-save-session-attachments-to-files.md).
+
 ## `inspect_image`
 
 `inspect_image` accepts a local image path when the agent needs to reason about

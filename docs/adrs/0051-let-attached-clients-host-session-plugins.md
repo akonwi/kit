@@ -153,8 +153,11 @@ The model's view of the call is the ordinary tool call in the transcript.
 Images in a plugin tool's result, from a client or a process instance, are
 kept as session attachments, as `inspect_image`'s are, and the result's image
 blocks in the transcript keep their attachment ID so every client can show the
-image with the call. The model still receives the image inline. An image the
-attachment store refuses stays inline for the model alone.
+image with the call. The model still receives the image inline, followed by a
+line naming its attachment so it can copy the image to a file with
+`save_attachment` ([ADR 0055](0055-let-the-model-save-session-attachments-to-files.md)).
+An image the attachment store refuses stays inline for the model alone, and
+the line says it was not kept.
 
 ### Trust
 

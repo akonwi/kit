@@ -16,6 +16,7 @@ import (
 	"github.com/akonwi/kit/internal/mcpconfig"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
+	"github.com/akonwi/kit/internal/saveattachment"
 	"github.com/akonwi/kit/internal/sessiontool"
 	"github.com/akonwi/kit/internal/showimage"
 	"github.com/akonwi/kit/internal/skills"
@@ -84,6 +85,9 @@ type RuntimeBundleOptions struct {
 	AttachmentStore     attachment.Store
 	PresentImageEnabled func(SessionRecord) bool
 	InspectImageEnabled func(SessionRecord) bool
+	// AttachmentProtected lists the directories save_attachment refuses to
+	// write within, such as the Kit home. It applies with AttachmentStore.
+	AttachmentProtected []string
 	// MCPLoader and MCPLauncher must be configured together and only for
 	// session-owning builders. A child builder omits them and borrows its owner's
 	// namespaces instead of starting duplicate server processes.
@@ -115,6 +119,7 @@ type defaultRuntimeBundleBuilder struct {
 	attachmentStore     attachment.Store
 	presentImageEnabled func(SessionRecord) bool
 	inspectImageEnabled func(SessionRecord) bool
+	attachmentProtected []string
 	mcpLoader           MCPConfigLoader
 	mcpLauncher         MCPLauncher
 }
@@ -149,6 +154,7 @@ func NewRuntimeBundleBuilder(options RuntimeBundleOptions) (RuntimeBundleBuilder
 		attachmentStore:     options.AttachmentStore,
 		presentImageEnabled: options.PresentImageEnabled,
 		inspectImageEnabled: options.InspectImageEnabled,
+		attachmentProtected: append([]string(nil), options.AttachmentProtected...),
 		mcpLoader:           options.MCPLoader,
 		mcpLauncher:         options.MCPLauncher,
 	}
@@ -231,6 +237,16 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 	}
 	if b.attachmentStore != nil && b.inspectImageEnabled(record) {
 		tool, toolErr := inspectimage.New(inspectimage.Options{SessionID: record.ID, CWD: inspectimage.CWDProvider(currentCWD), Store: b.attachmentStore})
+		if toolErr != nil {
+			return RuntimeBundle{}, toolErr
+		}
+		tools = append(tools, tool)
+	}
+	if b.attachmentStore != nil {
+		tool, toolErr := saveattachment.New(saveattachment.Options{
+			SessionID: record.ID, CWD: saveattachment.CWDProvider(currentCWD),
+			Store: b.attachmentStore, Protected: b.attachmentProtected,
+		})
 		if toolErr != nil {
 			return RuntimeBundle{}, toolErr
 		}

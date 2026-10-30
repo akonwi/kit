@@ -10,6 +10,7 @@ import (
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/inspectimage"
+	"github.com/akonwi/kit/internal/saveattachment"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/showimage"
 	"github.com/akonwi/kit/internal/skills"
@@ -75,8 +76,8 @@ func TestRuntimeBundleBuilderAddsImageToolsWithIndependentCapabilityGates(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bundle.Tools) != 10 {
-		t.Fatalf("bundle tools = %d, want 10 including show_image and inspect_image", len(bundle.Tools))
+	if len(bundle.Tools) != 11 {
+		t.Fatalf("bundle tools = %d, want 11 including show_image, inspect_image, and save_attachment", len(bundle.Tools))
 	}
 	assertImageTools(t, bundle, true, true)
 
@@ -92,7 +93,7 @@ func TestRuntimeBundleBuilderAddsImageToolsWithIndependentCapabilityGates(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bundle.Tools) != 9 {
+	if len(bundle.Tools) != 10 {
 		t.Fatalf("bundle tools = %d, want presentation tool only", len(bundle.Tools))
 	}
 	assertImageTools(t, bundle, true, false)
@@ -109,7 +110,7 @@ func TestRuntimeBundleBuilderAddsImageToolsWithIndependentCapabilityGates(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bundle.Tools) != 9 {
+	if len(bundle.Tools) != 10 {
 		t.Fatalf("bundle tools = %d, want inspection tool only", len(bundle.Tools))
 	}
 	assertImageTools(t, bundle, false, true)
@@ -126,7 +127,7 @@ func TestRuntimeBundleBuilderAddsImageToolsWithIndependentCapabilityGates(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bundle.Tools) != 8 {
+	if len(bundle.Tools) != 9 {
 		t.Fatalf("bundle tools = %d, want neither image tool", len(bundle.Tools))
 	}
 	assertImageTools(t, bundle, false, false)
@@ -138,8 +139,8 @@ func assertImageTools(t *testing.T, bundle session.RuntimeBundle, wantShow, want
 	for _, tool := range bundle.Tools {
 		names[tool.Name()] = true
 	}
-	if names[showimage.ToolName] != wantShow || names[inspectimage.ToolName] != wantInspect {
-		t.Fatalf("image tools = show:%v inspect:%v, want show:%v inspect:%v", names[showimage.ToolName], names[inspectimage.ToolName], wantShow, wantInspect)
+	if names[showimage.ToolName] != wantShow || names[inspectimage.ToolName] != wantInspect || !names[saveattachment.ToolName] {
+		t.Fatalf("image tools = show:%v inspect:%v save:%v, want show:%v inspect:%v save:true", names[showimage.ToolName], names[inspectimage.ToolName], names[saveattachment.ToolName], wantShow, wantInspect)
 	}
 }
 

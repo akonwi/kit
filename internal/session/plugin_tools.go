@@ -12,38 +12,43 @@ import (
 	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/modelimage"
+	"github.com/akonwi/kit/internal/saveattachment"
 	"github.com/akonwi/kit/internal/subagent"
 )
 
 // pluginImageStore keeps the images plugin tools return as session
-// attachments, so clients can show them with the call. Without a store, or
-// for an image the store refuses, the image stays inline for the model only.
+// attachments, so clients can show them with the call and the model can copy
+// them with save_attachment. Without a store, or for an image the store
+// refuses, the image stays inline for the model only.
 type pluginImageStore struct {
 	sessionID string
 	store     attachment.Store
 }
 
-func (images pluginImageStore) content(ctx context.Context, toolName, mediaType string, data []byte) droids.FileContent {
+// content returns the image block followed, when a store is configured, by
+// the model-visible line naming its attachment or saying it was not kept.
+func (images pluginImageStore) content(ctx context.Context, toolName, mediaType string, data []byte) []droids.ResultContent {
 	inline := droids.NewImageData(mediaType, data)
 	if images.store == nil || images.sessionID == "" {
-		return inline
+		return []droids.ResultContent{inline}
 	}
+	unavailable := []droids.ResultContent{inline, droids.TextContent{Text: saveattachment.Unavailable}}
 	extension := strings.TrimPrefix(mediaType, "image/")
 	if extension == "jpeg" {
 		extension = "jpg"
 	}
 	input, err := attachment.InspectImage(toolName+"."+extension, bytes.NewReader(data), modelimage.Limits())
 	if err != nil || input.MediaType != mediaType {
-		return inline
+		return unavailable
 	}
 	input.SessionID = images.sessionID
 	record, err := images.store.Put(ctx, input)
 	if err != nil {
-		return inline
+		return unavailable
 	}
 	file := droids.NewFileData(record.Filename, record.MediaType, data)
 	file.AttachmentID = record.ID
-	return file
+	return []droids.ResultContent{file, droids.TextContent{Text: saveattachment.Reference(record)}}
 }
 
 // PluginTool is the session-facing declaration of one executable registration.
@@ -191,7 +196,7 @@ func projectPluginTools(host PluginToolHost, catalog []PluginTool, caller func(d
 					if err != nil {
 						return droids.ToolResult{}, err
 					}
-					projected.Content = append(projected.Content, images.content(ctx, tool.ModelName, content.MIMEType, data))
+					projected.Content = append(projected.Content, images.content(ctx, tool.ModelName, content.MIMEType, data)...)
 				default:
 					return droids.ToolResult{}, fmt.Errorf("invalid plugin tool content")
 				}
