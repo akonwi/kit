@@ -3,15 +3,15 @@ import Foundation
 /// The loopback address an authorization page sends the browser back to when
 /// the user approves access. A browser tab watching for it receives the
 /// redirect instead of loading it, so the user never pastes it.
-struct AuthorizationRedirect: Equatable {
+public struct AuthorizationRedirect: Equatable, Sendable {
     /// The redirect address, without a query.
-    let callback: URL
+    public let callback: URL
     /// The authorization's state, which its redirect carries back.
-    let state: String
+    public let state: String
 
     /// The redirect of the authorization page at `authorization`, which must
     /// carry a state, back to the loopback HTTP address `redirectURI`.
-    init?(authorization: URL, redirectURI: String?) {
+    public init?(authorization: URL, redirectURI: String?) {
         guard let redirectURI, var callback = URLComponents(string: redirectURI),
               callback.scheme?.lowercased() == "http", let host = callback.host, Self.isLoopback(host),
               let state = URLComponents(url: authorization, resolvingAgainstBaseURL: false)?
@@ -25,7 +25,7 @@ struct AuthorizationRedirect: Equatable {
 
     /// Whether `url` is the redirect for this authorization: its address and
     /// state, so another page can't answer it.
-    func matches(_ url: URL) -> Bool {
+    public func matches(_ url: URL) -> Bool {
         guard let candidate = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let expected = URLComponents(url: callback, resolvingAgainstBaseURL: false) else { return false }
         let path = { (components: URLComponents) in components.path.isEmpty ? "/" : components.path }

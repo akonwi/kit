@@ -6,44 +6,61 @@ import Observation
 /// at once, a multiple choice toggles, y and n answer a confirmation, and a
 /// guided request is sent only after its last question.
 @MainActor @Observable
-final class InteractionFlow: Identifiable {
-    enum Kind { case text, select, multiselect, boolean }
+public final class InteractionFlow: Identifiable {
+    public enum Kind: Sendable { case text, select, multiselect, boolean }
     /// How the current question is answered.
-    enum Mode: Equatable { case confirm, text, choice, multiple, unsupported }
-    struct Question {
-        let prompt: String
-        var detail = ""
-        var kind: Kind = .text
-        var required = true
-        var options: [String] = []
-        var optionLabels: [String: String] = [:]
-        var optionDetails: [String: String] = [:]
-    }
-    struct Answer {
-        var text = ""
-        var choices: Set<String> = []
-        var skipped = false
-    }
-    var request: WireInteractionRequest?
-    var submitting = false
-    var error: String?
-    let id = UUID()
-    let title: String
-    let confirmation: Bool
-    /// Questions answered one at a time and sent together.
-    let guided: Bool
-    /// Why this client can't answer the request; it can only be cancelled.
-    let unsupported: String?
-    let questions: [Question]
-    var answers: [Answer]
-    private(set) var step = 0
-    /// The highlighted option of the current question.
-    var cursor = 0
-    /// The highlighted answer of a confirmation that offers a choice.
-    var confirming = false
-    var question: Question { questions[step] }
+    public enum Mode: Equatable, Sendable { case confirm, text, choice, multiple, unsupported }
+    public struct Question {
+        public let prompt: String
+        public var detail = ""
+        public var kind: Kind = .text
+        public var required = true
+        public var options: [String] = []
+        public var optionLabels: [String: String] = [:]
+        public var optionDetails: [String: String] = [:]
 
-    var mode: Mode {
+        public init(prompt: String, detail: String = "", kind: Kind = .text, required: Bool = true, options: [String] = [],
+                    optionLabels: [String: String] = [:], optionDetails: [String: String] = [:]) {
+            self.prompt = prompt
+            self.detail = detail
+            self.kind = kind
+            self.required = required
+            self.options = options
+            self.optionLabels = optionLabels
+            self.optionDetails = optionDetails
+        }
+    }
+    public struct Answer {
+        public var text = ""
+        public var choices: Set<String> = []
+        public var skipped = false
+
+        public init(text: String = "", choices: Set<String> = [], skipped: Bool = false) {
+            self.text = text
+            self.choices = choices
+            self.skipped = skipped
+        }
+    }
+    public var request: WireInteractionRequest?
+    public var submitting = false
+    public var error: String?
+    public let id = UUID()
+    public let title: String
+    public let confirmation: Bool
+    /// Questions answered one at a time and sent together.
+    public let guided: Bool
+    /// Why this client can't answer the request; it can only be cancelled.
+    public let unsupported: String?
+    public let questions: [Question]
+    public var answers: [Answer]
+    public private(set) var step = 0
+    /// The highlighted option of the current question.
+    public var cursor = 0
+    /// The highlighted answer of a confirmation that offers a choice.
+    public var confirming = false
+    public var question: Question { questions[step] }
+
+    public var mode: Mode {
         if unsupported != nil { return .unsupported }
         switch question.kind {
         case .text: return .text
@@ -52,37 +69,37 @@ final class InteractionFlow: Identifiable {
         case .boolean: return .confirm
         }
     }
-    var plugin: String? { request?.plugin?.pluginId }
+    public var plugin: String? { request?.plugin?.pluginId }
     /// The https page an authorize request asks the user to open. The user
     /// approves access there and pastes the address the browser ends up at.
-    var authorizationURL: URL? {
+    public var authorizationURL: URL? {
         guard request?.kind.rawValue == "authorize", let raw = request?.url,
               let url = URL(string: raw), url.scheme?.lowercased() == "https", url.host() != nil else { return nil }
         return url
     }
     /// Where the authorization page sends the browser once access is approved.
-    var authorizationRedirect: AuthorizationRedirect? {
+    public var authorizationRedirect: AuthorizationRedirect? {
         authorizationURL.flatMap { AuthorizationRedirect(authorization: $0, redirectURI: request?.redirectUri) }
     }
     /// Answers an authorization with the redirect the browser received.
-    func receiveRedirect(_ url: URL) -> Bool {
+    public func receiveRedirect(_ url: URL) -> Bool {
         guard !submitting, authorizationRedirect?.matches(url) == true else { return false }
         answers[step].text = url.absoluteString
         return submitText()
     }
     /// The request's own detail, shown above a guided question.
-    var detail: String { request?.detail ?? (guided ? "" : question.detail) }
+    public var detail: String { request?.detail ?? (guided ? "" : question.detail) }
     /// Plugin confirmations, and any with a default, highlight one answer
     /// that Return chooses and Tab switches.
-    var offersChoice: Bool { !guided && (request?.plugin != nil || request?.defaultValue != nil) }
-    var isLastStep: Bool { step == questions.count - 1 }
+    public var offersChoice: Bool { !guided && (request?.plugin != nil || request?.defaultValue != nil) }
+    public var isLastStep: Bool { step == questions.count - 1 }
     /// Whether a question has a recorded answer, for the step trail.
-    func answered(_ index: Int) -> Bool {
+    public func answered(_ index: Int) -> Bool {
         let answer = answers[index]
         return !answer.skipped && (!answer.text.isEmpty || !answer.choices.isEmpty)
     }
 
-    init(title: String, confirmation: Bool = false, guided: Bool? = nil, unsupported: String? = nil, questions: [Question]) {
+    public init(title: String, confirmation: Bool = false, guided: Bool? = nil, unsupported: String? = nil, questions: [Question]) {
         precondition(!questions.isEmpty)
         self.title = title
         self.confirmation = confirmation
@@ -96,7 +113,7 @@ final class InteractionFlow: Identifiable {
 
     /// Clicks or Return on an option: a single choice answers with it; a
     /// multiple choice toggles it.
-    func choose(_ index: Int) -> Bool {
+    public func choose(_ index: Int) -> Bool {
         guard !submitting, question.options.indices.contains(index) else { return false }
         cursor = index
         let option = question.options[index]
@@ -111,14 +128,14 @@ final class InteractionFlow: Identifiable {
 
     /// Answers a multiple choice with what is checked; nothing checked skips
     /// an optional question.
-    func continueMultiple() -> Bool {
+    public func continueMultiple() -> Bool {
         guard !submitting else { return false }
         if answers[step].choices.isEmpty { return skip() }
         answers[step].skipped = false
         return advance()
     }
 
-    func confirm(_ value: Bool) -> Bool {
+    public func confirm(_ value: Bool) -> Bool {
         guard !submitting, mode == .confirm else { return false }
         answers[step] = Answer(choices: [value ? "true" : "false"])
         return advance()
@@ -126,7 +143,7 @@ final class InteractionFlow: Identifiable {
 
     /// Sends a text answer. Plugins may accept an empty answer; otherwise an
     /// empty answer skips an optional question and is ignored.
-    func submitText() -> Bool {
+    public func submitText() -> Bool {
         guard !submitting else { return false }
         let trimmed = answers[step].text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty && authorizationURL != nil { return false }
@@ -137,7 +154,7 @@ final class InteractionFlow: Identifiable {
         return advance()
     }
 
-    func skip() -> Bool {
+    public func skip() -> Bool {
         guard !submitting, guided, !question.required else { return false }
         answers[step] = Answer(skipped: true)
         return advance()
@@ -145,7 +162,7 @@ final class InteractionFlow: Identifiable {
 
     /// Tab and Next: answers the current question from its current state. A
     /// yes/no question has no state until it has been answered.
-    func next() -> Bool {
+    public func next() -> Bool {
         switch mode {
         case .text: return submitText()
         case .choice: return choose(cursor)
@@ -155,12 +172,12 @@ final class InteractionFlow: Identifiable {
         }
     }
 
-    func back() {
+    public func back() {
         guard !submitting, step > 0 else { return }
         show(step - 1)
     }
 
-    func move(_ delta: Int) {
+    public func move(_ delta: Int) {
         guard !question.options.isEmpty else { return }
         cursor = min(max(0, cursor + delta), question.options.count - 1)
     }
@@ -172,38 +189,24 @@ final class InteractionFlow: Identifiable {
     }
 
     /// Shows a question with its earlier answer, if any, highlighted.
-    func show(_ index: Int) {
+    public func show(_ index: Int) {
         guard questions.indices.contains(index) else { return }
         step = index
         cursor = question.options.firstIndex { answers[index].choices.contains($0) } ?? 0
     }
 
-    var summary: String {
+    public var summary: String {
         zip(questions, answers).map { question, answer in
             let value = answer.skipped ? "Skipped" : question.kind == .text ? answer.text : question.options.filter(answer.choices.contains).map { question.optionLabels[$0] ?? $0 }.joined(separator: ", ")
             return "\(question.prompt)\n\(value)"
         }.joined(separator: "\n\n")
-    }
-    static func approval() -> InteractionFlow {
-        .init(title: "Run workspace tests?", confirmation: true, questions: [
-            .init(prompt: "Run workspace tests?", detail: "```\ngo test ./internal/subagent/...\n```", kind: .boolean,
-                  options: ["true", "false"], optionLabels: ["true": "Allow once", "false": "Deny"])
-        ])
-    }
-    static func planning() -> InteractionFlow {
-        .init(title: "Shape the next change", questions: [
-            .init(prompt: "Where should the implementation start?", detail: "Choose one area to tackle first.", kind: .select, options: ["Session navigation", "File workspace", "Composer interactions"]),
-            .init(prompt: "Which checks should be included?", detail: "Select all that apply.", kind: .multiselect, options: ["Unit tests", "Keyboard navigation", "Light and dark appearances"]),
-            .init(prompt: "Anything else to keep in mind?", detail: "Add constraints or context for the implementation.", required: false),
-            .init(prompt: "Keep the change isolated in this worktree?", kind: .boolean, options: ["true", "false"], optionLabels: ["true": "Yes", "false": "No"])
-        ])
     }
 }
 
 extension InteractionFlow {
     /// Builds the flow for a request. A request this client can't present
     /// still gets a flow, so it can be cancelled rather than left waiting.
-    convenience init(request: WireInteractionRequest) throws {
+    public convenience init(request: WireInteractionRequest) throws {
         guard request.id.hasPrefix("interaction_") else { throw ClientError.invalidPayload }
         do {
             try self.init(supported: request)
@@ -270,7 +273,7 @@ extension InteractionFlow {
         confirming = request.defaultValue == true
     }
 
-    func response(cancelled: Bool) -> WireInteractionResponse? {
+    public func response(cancelled: Bool) -> WireInteractionResponse? {
         guard let request, cancelled || unsupported == nil else { return nil }
         var confirmed: Bool?, value: String?, selected: String?, guided: [String: WireInteractionAnswer]?
         if !cancelled {

@@ -8,7 +8,10 @@ iOS app. It holds no AppKit or UIKit code.
   tokens both apps build on. `SessionOperations` holds a session's sends,
   follow-up queue changes, and aborts, so both apps settle uncertain sends
   and queue edits the same way. `ComposerConfiguration` loads the model
-  catalog and changes a session's model and thinking level. Regenerate the transport after changing
+  catalog and changes a session's model and thinking level.
+  `InteractionFlow` turns a pending interaction request into questions and
+  their answers into a response; `InteractionHold` keeps an answered request
+  docked while a plugin's next one arrives. Regenerate the transport after changing
   `api/kit-session.openapi.json`:
 
   ```sh
