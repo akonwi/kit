@@ -220,6 +220,13 @@ final class WorkspaceState {
         }
     }
 
+    /// Opens a file the diff shows, by its workspace path, in its tab beside
+    /// the Diff pane, keeping the diff in view; an open tab is selected
+    /// where it is.
+    func openChangedFile(_ path: String) {
+        open(.file(path), beside: .review)
+    }
+
     /// Closes a pane. A tile left without tabs is removed, and its sibling
     /// takes its place.
     func close(_ pane: WorkspacePane) {

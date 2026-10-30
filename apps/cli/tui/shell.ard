@@ -634,6 +634,11 @@ impl Shell {
                   })
                 },
                 reveal: self.diff_reveal,
+                open_file: Maybe::new(fn(path: Str, line: Int) {
+                  self.dispatch(fn() {
+                    self.open_file(path, line)
+                  })
+                }),
               },
             ),
           ],

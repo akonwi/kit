@@ -26,7 +26,10 @@ use go:time
 // changed file. The target is the working tree unless a commit or branch is
 // picked from the header; a new workspace returns to its working tree. A
 // file's header shows its path, stays pinned while its lines scroll by, and
-// collapses or expands the file when clicked. A section loads its changes
+// collapses or expands the file when clicked. Its path is a link to the
+// file's File tab, which shows the file as it is in the working tree: at
+// its first change while the working tree is the target, and otherwise at
+// its top. A deleted file, or one that isn't a regular file, has no link. A section loads its changes
 // when it scrolls into view. Lines are unified, or split side by side where
 // wide enough, and either wrap or scroll sideways with Shift+wheel or a
 // horizontal swipe. While the working tree is shown, the pane checks it
@@ -80,6 +83,9 @@ struct Props {
   release_focus: fn(),
   // Lines to show, as an annotation's chip asks.
   reveal: Reveal,
+  // Opens a workspace file's File tab at a line, or at its top for 0;
+  // without it, a file's path is not a link.
+  open_file: fn(Str, Int)?,
 }
 
 // A request to show `line` on `side` of `path` in target `target_id`. Each
@@ -247,6 +253,187 @@ fn changed_files(count: Int) Str {
     0 => "No changed files",
     1 => "1 changed file",
     _ => "{count} changed files",
+  }
+}
+
+// Whether a changed file can open in a File tab: it is a regular file on
+// the diff's new side. A deleted file is absent there, and a symlink,
+// submodule, or nested repository isn't a file to show.
+fn opens(file: protocol::DiffFileSummary) Bool {
+  file.New.Kind == "regular"
+}
+
+// The line on the new side where the first change in `hunks` is: an added
+// line, or the line that now follows removed ones. 0 without a change.
+fn first_change(hunks: [protocol::DiffHunk]) Int {
+  mut found = 0
+  for hunk in hunks {
+    if found == 0 {
+      // The new side's last line before the change, which a removal
+      // follows.
+      mut before = hunk.NewStart - 1
+      for line, index in hunk.Lines {
+        if found == 0 {
+          match line.Kind {
+            "context" => { before = side_number(hunk, index, false) },
+            "addition" => { found = side_number(hunk, index, false) },
+            _ => {
+              found = match before < 1 {
+                true => 1,
+                false => before + 1,
+              }
+            },
+          }
+        }
+      }
+    }
+  }
+  found
+}
+
+// A file's header: a caret and the file's path in a row that collapses or
+// expands the file when clicked, filled while hovered or pressed. With
+// `open`, the path is a link instead, underlined while hovered.
+private struct HeaderProps {
+  themes: theme::Context,
+  path: Str,
+  collapsed: Bool,
+  toggle: fn(),
+  open: fn()?,
+}
+
+private struct Header {
+  props: mut HeaderProps,
+  hovered: Bool,
+  pressed: Bool,
+  link_hovered: Bool,
+  link_pressed: Bool,
+}
+
+private fn file_header(props: HeaderProps, key: Str) cui::View {
+  cui::child(new_header, props, key: key)
+}
+
+private fn new_header(props: mut HeaderProps) mut Header {
+  (mut Header{
+    props: props,
+    hovered: false,
+    pressed: false,
+    link_hovered: false,
+    link_pressed: false,
+  })
+}
+
+impl cui::Lifecycle for Header {
+  fn mut mounted(context: cui::Context) {}
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl Header {
+  private fn mut mouse(received: mut event::MouseEvent) {
+    if received.event_type == event::MouseEventType::over or received.event_type == event::MouseEventType::move {
+      self.hovered = true
+    } else if received.event_type == event::MouseEventType::out {
+      self.hovered = false
+      self.pressed = false
+    } else if received.event_type == event::MouseEventType::down {
+      if received.button == event::MouseButton::left {
+        self.pressed = true
+        received.prevent_default()
+      }
+    } else if received.event_type == event::MouseEventType::up {
+      if received.button == event::MouseButton::left and self.pressed {
+        self.pressed = false
+        self.props.toggle()
+        received.prevent_default()
+      }
+    } else if received.event_type == event::MouseEventType::drag_end {
+      self.pressed = false
+    }
+  }
+
+  // The link handles its own presses, so they don't fold the file.
+  private fn mut link_mouse(open: fn(), received: mut event::MouseEvent) {
+    if received.event_type == event::MouseEventType::over or received.event_type == event::MouseEventType::move {
+      self.link_hovered = true
+    } else if received.event_type == event::MouseEventType::out {
+      self.link_hovered = false
+      self.link_pressed = false
+    } else if received.event_type == event::MouseEventType::down {
+      if received.button == event::MouseButton::left {
+        self.link_pressed = true
+        received.prevent_default()
+        received.stop_propagation()
+      }
+    } else if received.event_type == event::MouseEventType::up {
+      if received.button == event::MouseButton::left {
+        if self.link_pressed {
+          // The pane is hidden once its file opens, so nothing moves the
+          // pointer off the link.
+          self.link_pressed = false
+          self.link_hovered = false
+          self.hovered = false
+          open()
+        }
+        received.prevent_default()
+        received.stop_propagation()
+      }
+    } else if received.event_type == event::MouseEventType::drag_end {
+      self.link_pressed = false
+    }
+  }
+}
+
+impl cui::Component for Header {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let mark = match self.props.collapsed {
+      true => "▸",
+      false => "▾",
+    }
+    // A path that stopped opening while hovered is no longer a link.
+    let on_link = self.link_hovered and self.props.open.is_some()
+    let fill = match {
+      self.pressed => Maybe::new(colors.surface_pressed),
+      self.hovered and not on_link => Maybe::new(colors.surface_hovered),
+      _ => Maybe::new<ui::Color>(),
+    }
+    let text = cui::text(
+      self.props.path,
+      text_style: ui::text_style(foreground: colors.foreground, underline: on_link),
+      wrap: ui::TextWrap::none,
+      overflow: ui::TextOverflow::ellipsis,
+    )
+    let path = match self.props.open {
+      open => {
+        cui::box(
+          [text],
+          styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
+          on_mouse: fn(received: mut event::MouseEvent, context: cui::Context) {
+            self.link_mouse(open, received)
+          },
+        )
+      },
+      _ => cui::box([text], styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0))),
+    }
+    cui::box(
+      [cui::text(" {mark} ", text_style: ui::text_style(foreground: colors.foreground)), path],
+      styles: ui::style(
+        height: ui::cells(1),
+        flex_direction: ui::FlexDirection::row,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(0),
+        },
+        background: fill,
+      ),
+      on_mouse: fn(received: mut event::MouseEvent, context: cui::Context) {
+        self.mouse(received)
+      },
+    )
   }
 }
 
@@ -1209,31 +1396,53 @@ impl Pane {
     }
   }
 
-  // A file's header: a ghost button that collapses or expands the file.
-  private fn mut header(file: protocol::DiffFileSummary) cui::View {
+  // A file's header, in the document or pinned over it: it collapses or
+  // expands the file, and its path opens the file where it can.
+  private fn mut header(file: protocol::DiffFileSummary, pinned: Bool) cui::View {
     let path = file.Path
-    let mark = match self.collapsed.get(path).or(false) {
-      true => "▸",
-      false => "▾",
+    let open = match self.props.open_file {
+      open_file => {
+        match opens(file) {
+          true => {
+            Maybe::new(fn() {
+              open_file(path, self.first_change(path))
+            })
+          },
+          false => Maybe::new<fn()>(),
+        }
+      },
+      _ => Maybe::new<fn()>(),
     }
-    let toggle = keymap::simple_command(
-      "diff.toggle:{path}",
-      "Collapse or expand {path}",
-      fn() Bool {
-        self.toggle(path)
-        true
+    file_header(
+      HeaderProps{
+        themes: self.props.themes,
+        path: path,
+        collapsed: self.collapsed.get(path).or(false),
+        toggle: fn() {
+          self.toggle(path)
+        },
+        open: open,
+      },
+      match pinned {
+        true => "pinned-header:{path}",
+        false => "header:{path}",
       },
     )
-    controls::button(
-      self.props.themes,
-      "{mark} {path}",
-      toggle,
-      variant: controls::ButtonVariant::ghost,
-      compact: true,
-      focusable: false,
-      stretch: true,
-      styles: ui::style(height: ui::cells(1), flex_direction: ui::FlexDirection::row),
-    )
+  }
+
+  // The line of a file's first loaded change on its new side, or 0 before
+  // its changes load. A commit or branch's lines needn't match the working
+  // tree's file the tab shows, so its file opens at the top.
+  private fn first_change(path: Str) Int {
+    match self.target.is_some() {
+      true => 0,
+      false => {
+        match self.sections.get(path) {
+          current => first_change(current.hunks),
+          _ => 0,
+        }
+      },
+    }
   }
 
   // A line's text, highlighted: clipped to its room and scrolled sideways,
@@ -1764,7 +1973,7 @@ impl Pane {
     let colors = self.props.themes.current()
     let file = self.files.at(item.file).expect("a changed file")
     match item.kind {
-      RowKind::header => self.header(file),
+      RowKind::header => self.header(file, false),
       RowKind::line => {
         let current = self.sections.get(file.Path).expect("a loaded section")
         let line = current.hunks.at(item.hunk).expect("a hunk").Lines.at(item.line).expect("a line")
@@ -1846,7 +2055,7 @@ impl Pane {
             }
             let rows = mut List::new<cui::View>()
             if not arriving {
-              rows.push(self.header(file))
+              rows.push(self.header(file, true))
             }
             rows.push(layout::divider(colors.border))
             Maybe::new(

@@ -744,3 +744,85 @@ extension DiffTests {
         }
     }
 }
+
+/// A changed file's path in its Diff header opens the file's tab.
+@MainActor
+struct DiffFileOpeningTests {
+    static func file(_ path: String, change: String, new kind: String) throws -> WireDiffFileSummary {
+        let mode = kind == "regular" ? 33188 : 0
+        return try JSONDecoder().decode(WireDiffFileSummary.self, from: Data(#"""
+            {"path":"\#(path)","change":"\#(change)","old":{"kind":"regular","mode":33188},"new":{"kind":"\#(kind)","mode":\#(mode)},"contentState":"text"}
+            """#.utf8))
+    }
+
+    @Test func aRegularFileOpensAndItsPathSaysWhatItShows() throws {
+        let modified = try Self.file("Sources/main.swift", change: "modified", new: "regular")
+        let catalog = try #require(try DiffTestData.catalog().targets?.first)
+        let commit = try JSONDecoder().decode(WireDiffTargetEntry.self, from: Data(#"{"reference":"difftargetref_commit.opaque","targetId":"difftarget_commit","kind":"commit","base":{"kind":"commit","oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"head":{"kind":"commit","oid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"metadata":{"label":"Change"}}"#.utf8))
+        #expect(ReviewPane.openHelp(modified, target: nil) == "Open Sources/main.swift")
+        #expect(ReviewPane.openHelp(modified, target: catalog) == "Open Sources/main.swift")
+        #expect(ReviewPane.openHelp(modified, target: commit) == "Open Sources/main.swift as it is in the working tree")
+        // A deleted file is absent on the new side; a submodule isn't a file.
+        #expect(ReviewPane.openHelp(try Self.file("old.swift", change: "deleted", new: "absent"), target: nil) == nil)
+        #expect(ReviewPane.openHelp(try Self.file("Vendor/lib", change: "modified", new: "submodule"), target: nil) == nil)
+    }
+
+    @Test func aChangedFileOpensBesideTheDiffAndIsSelectedWhereItIs() {
+        let workspace = WorkspaceState(demo: false)
+        workspace.open(.review)
+        let diffTile = workspace.tile(containing: .review)
+        workspace.openChangedFile("main.swift")
+        // The Diff's tile is alone, so the file gets a tile on its right.
+        let fileTile = workspace.tile(containing: .file("main.swift"))
+        #expect(workspace.root.tiles == [diffTile, fileTile].compactMap { $0 })
+        #expect(workspace.isVisible(.review))
+        #expect(workspace.isVisible(.file("main.swift")))
+        #expect(workspace.focusedTile == fileTile)
+        // Another file joins that tile; an open one is selected where it is.
+        workspace.openChangedFile("greeting.swift")
+        #expect(workspace.tile(containing: .file("greeting.swift")) == fileTile)
+        #expect(workspace.tiles[fileTile!]?.panes == [.file("main.swift"), .file("greeting.swift")])
+        workspace.focus(tile: diffTile!)
+        workspace.openChangedFile("main.swift")
+        #expect(workspace.tiles[fileTile!]?.selected == .file("main.swift"))
+        #expect(workspace.panes.filter { $0 == .file("main.swift") }.count == 1)
+        #expect(workspace.isVisible(.review))
+    }
+
+    @Test func clickingAPathOpensItsFileAndClickingTheRestFolds() async throws {
+        _ = NSApplication.shared
+        let client = DiffTestClient()
+        let state = SessionStore(fixture: Fixture(sessions: []), client: client, sessionID: "session_test")
+        state.ui.workspace.open(.review)
+        let model = state.ui.workspace.diff
+        await model.refresh(client: client, session: "session_test")
+        let theme = MicaTheme(dark: true)
+        let host = NSHostingView(rootView: ReviewPane(state: state).background(theme.surface)
+            .environment(\.mica, theme).environment(\.colorScheme, .dark))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 400), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        try await eventually { model.files.map(\.path) == ["main.swift"] }
+        host.layoutSubtreeIfNeeded()
+        /// Clicks a point in the pane, from its top left, through the window.
+        func click(x: CGFloat, y: CGFloat) throws {
+            let point = host.convert(NSPoint(x: x, y: y), to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                window.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
+            }
+        }
+        // Under the 30 pt pane header and its rule, the file's 34 pt header
+        // starts its path after a 16 pt inset, the caret, and an 8 pt gap.
+        try click(x: 50, y: 48)
+        try await eventually { state.ui.workspace.panes.contains(.file("main.swift")) }
+        #expect(state.ui.workspace.isVisible(.file("main.swift")))
+        #expect(state.ui.workspace.isVisible(.review))
+        #expect(model.collapsed.isEmpty)
+        // The rest of the header folds the file.
+        try click(x: 600, y: 48)
+        try await eventually { model.collapsed == ["main.swift"] }
+        #expect(state.ui.workspace.panes.filter { $0 == .file("main.swift") }.count == 1)
+    }
+}

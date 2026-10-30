@@ -4,9 +4,10 @@ import SwiftUI
 /// The Diff pane: a 30 pt header row naming what is compared, with its
 /// counts and a ⋯ view menu, over one continuous document of files. Each
 /// file's header pins while its lines scroll and folds the file away when
-/// clicked. Lines load as files come into view, and a shown pane checks the
-/// target every few seconds, keeping the reader's place. Targets and evidence
-/// are supplied by the session server.
+/// clicked; its path opens the file in a tab beside the diff. Lines load as
+/// files come into view, and a shown pane checks the target every few
+/// seconds, keeping the reader's place. Targets and evidence are supplied by
+/// the session server.
 struct ReviewPane: View {
     @Environment(\.mica) private var theme
     let state: SessionStore
@@ -210,11 +211,14 @@ struct ReviewPane: View {
                                 DiffFileBody(file: file, model: model, state: state, active: active, sideBySide: sideBySide)
                             }
                         } header: {
-                            DiffFileHeader(file: file, collapsed: collapsed, scrolled: scrolled) { pinned in
+                            DiffFileHeader(file: file, collapsed: collapsed, scrolled: scrolled,
+                                           openHelp: Self.openHelp(file, target: model.target)) { pinned in
                                 if collapsed { model.collapsed.remove(file.path) } else { model.collapsed.insert(file.path) }
                                 // Folding from a pinned header brings the file's
                                 // header back down so the reader keeps their place.
                                 if pinned { proxy.scrollTo(file.path, anchor: .top) }
+                            } open: {
+                                state.ui.workspace.openChangedFile(file.path)
                             }.id(file.path)
                         }
                     }
@@ -235,6 +239,20 @@ struct ReviewPane: View {
         guard active, !model.loading, !editing, let client, let target = model.target else { return }
         let model = model, session = state.selectedID
         Task { await model.select(target, client: client, session: session, more: true) }
+    }
+
+    /// Whether a changed file opens in a file tab: a regular file on the
+    /// diff's new side. A deleted file is absent there, and a symlink,
+    /// submodule, or nested repository isn't a file to show.
+    static func opens(_ file: WireDiffFileSummary) -> Bool { file.new.kind == "regular" }
+
+    /// What a file's path says it opens when hovered, or nil when it opens
+    /// nothing. The tab shows the working tree's file, which a commit or
+    /// branch target's lines may no longer match.
+    static func openHelp(_ file: WireDiffFileSummary, target: WireDiffTargetEntry?) -> String? {
+        guard opens(file) else { return nil }
+        return target.map { $0.kind == "working_tree" } ?? true
+            ? "Open \(file.path)" : "Open \(file.path) as it is in the working tree"
     }
 
     /// What a file with no text diff says under its header, as in the TUI.
@@ -307,40 +325,69 @@ struct DiffTargetName: View {
 }
 
 /// A file's 34 pt header: a caret, the path, and its counts. It pins to the
-/// top while the file's lines scroll under it.
+/// top while the file's lines scroll under it. Clicking it folds the file,
+/// except on the path of a file that opens: that is a link to the file's tab,
+/// underlined under the pointer. Its context menu does either.
 private struct DiffFileHeader: View {
     @Environment(\.mica) private var theme
     let file: WireDiffFileSummary
     let collapsed: Bool
     let scrolled: Bool
+    /// The path's tooltip, or nil when the file doesn't open.
+    let openHelp: String?
     /// Folds or unfolds the file; told whether the header was pinned.
     let toggle: (_ pinned: Bool) -> Void
+    /// Opens the file in its tab beside the diff.
+    let open: () -> Void
     @State private var atTop = false
+    @State private var hoveringPath = false
 
     var body: some View {
-        Button { toggle(scrolled && atTop) } label: {
-            HStack(spacing: 8) {
-                IconView(collapsed ? .caretRight : .caretDown, size: 10).foregroundStyle(theme.muted)
-                Text(file.path).font(.kit(size: 12, design: .monospaced)).foregroundStyle(theme.text)
-                    .lineLimit(1).truncationMode(.middle)
-                Spacer(minLength: 8)
-                if file.additions != nil || file.deletions != nil {
-                    HStack(spacing: 8) {
-                        Text("+\(file.additions ?? 0)").foregroundStyle(theme.success)
-                        Text("−\(file.deletions ?? 0)").foregroundStyle(theme.danger)
-                    }.font(.kit(size: 12, design: .monospaced)).fixedSize()
-                }
+        HStack(spacing: 8) {
+            IconView(collapsed ? .caretRight : .caretDown, size: 10).foregroundStyle(theme.muted)
+                .allowsHitTesting(false)
+            path
+            Spacer(minLength: 8)
+            if file.additions != nil || file.deletions != nil {
+                HStack(spacing: 8) {
+                    Text("+\(file.additions ?? 0)").foregroundStyle(theme.success)
+                    Text("−\(file.deletions ?? 0)").foregroundStyle(theme.danger)
+                }.font(.kit(size: 12, design: .monospaced)).fixedSize().allowsHitTesting(false)
             }
-            .padding(.horizontal, 16)
-            .frame(height: 34)
-            .background(theme.raised)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .frame(height: 34)
+        // The fold button lies under the row, so only the path's link
+        // takes a click above it.
+        .background {
+            Button { toggle(scrolled && atTop) } label: {
+                Rectangle().fill(theme.raised)
+            }
+            .buttonStyle(.plain)
+            .help(collapsed ? "Expand" : "Collapse")
+            .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") \(file.path)")
+        }
         .overlay(alignment: .bottom) { Rule() }
         .onGeometryChange(for: Bool.self) { $0.frame(in: .scrollView).minY < 0.5 } action: { atTop = $0 }
-        .help(collapsed ? "Expand" : "Collapse")
-        .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") \(file.path)")
+        .contextMenu {
+            Button("Open File", action: open).disabled(openHelp == nil)
+            Button(collapsed ? "Expand" : "Collapse") { toggle(scrolled && atTop) }
+        }
+    }
+
+    @ViewBuilder private var path: some View {
+        let name = Text(file.path).font(.kit(size: 12, design: .monospaced)).foregroundStyle(theme.text)
+            .lineLimit(1).truncationMode(.middle)
+        if let openHelp {
+            Button(action: open) { name.underline(hoveringPath) }
+                .buttonStyle(.plain)
+                .onHover { hoveringPath = $0 }
+                .pointerStyle(.link)
+                .help(openHelp)
+                .accessibilityLabel("Open \(file.path)")
+        } else {
+            name.allowsHitTesting(false)
+        }
     }
 }
 

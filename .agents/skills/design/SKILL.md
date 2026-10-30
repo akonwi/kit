@@ -495,6 +495,11 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
   File/hunk shortcuts jump within that document, not between isolated file views.
   Keep loading, continuation, retry, and non-text states local to their section;
   preserve loaded evidence and viewport position as other sections load.
+- A file section's header folds the file. Its path is a link, underlined
+  under the pointer, that opens or selects the file's File tab without
+  closing the Diff: beside the Diff's tile in the macOS app, and at the first
+  change in the terminal. The tab shows the working-tree file whatever the
+  target; a deleted file, or one that isn't a regular file, has no link.
 - Use the `diffAdded*`, `diffRemoved*`, and `diffCursor*` token families rather than custom tints.
 - Keep line-number gutters visually distinct from content while preserving one cursor state across the row.
 - File and Diff viewers share the same code-facing `+` gutter action on the

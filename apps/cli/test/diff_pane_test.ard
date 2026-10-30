@@ -819,3 +819,227 @@ test fn split_halves_annotate_their_own_side() Void!Str {
     "the right half is the new side: {recorded.saved.at(0).or("")}",
   )
 }
+
+fn observed_kinds(input: protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error {
+  let regular = protocol::DiffSide{Kind: "regular", Mode: Uint32::from(33188)}
+  Result::ok(
+    protocol::WorkingTreePage{
+      Observation: protocol::DiffObservation{Revision: "revision_1", Target: protocol::DiffTarget{ID: "difftarget_1"}},
+      Files: [
+        protocol::DiffFileSummary{
+          Path: "main.go",
+          Change: "modified",
+          Old: regular,
+          New: regular,
+          ContentState: "text",
+          FileRevision: "file_1",
+        },
+        protocol::DiffFileSummary{
+          Path: "logo.png",
+          Change: "modified",
+          Old: regular,
+          New: regular,
+          ContentState: "binary",
+        },
+        protocol::DiffFileSummary{
+          Path: "gone.go",
+          Change: "deleted",
+          Old: regular,
+          New: protocol::DiffSide{Kind: "absent"},
+          ContentState: "binary",
+        },
+      ],
+    },
+  )
+}
+
+struct Opened {
+  files: [Str],
+}
+
+test fn a_files_path_opens_it_at_its_first_change() Void!Str {
+  let opened = mut Opened{files: []}
+  let made = mut props(Maybe::new(observed_kinds), Maybe::new(read))
+  made.open_file = Maybe::new(fn(path: Str, line: Int) {
+    opened.files.push("{path}:{line}")
+  })
+  let terminal = headless::new(44, 16)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(made.@),
+  )
+  defer renderer.destroy()
+  wait_for(terminal, "var y")
+  let shown = [
+    " Working tree ▾  3 changed files   Wrap off",
+    "────────────────────────────────────────────",
+    " ▾ main.go",
+    "───────────────────────────────────────────",
+    " 1 1   package main",
+    " 2   − var x = 1",
+    "   2 + var x = 2",
+    "   3 + var y = 3",
+    "───────────────────────────────────────────",
+    " ▾ logo.png",
+    "───────────────────────────────────────────",
+    "  Binary file changed",
+    "───────────────────────────────────────────",
+    " ▾ gone.go",
+    "───────────────────────────────────────────",
+    "  Binary file changed",
+  ]
+  try expect_rows(rows(terminal), shown)
+  let colors = theme::system()
+  // Over the path, the path is underlined and the row isn't filled.
+  terminal.mouse_move(5, 2)
+  terminal.flush()
+  let link = terminal.frame().cell(5, 2).expect("the path")
+  try testing::assert(link.style.underline, "a hovered path is underlined")
+  try testing::assert(link.style.background.is_none(), "the row isn't filled under a hovered path")
+  try testing::assert(
+    terminal.frame().cell(20, 2).expect("the row").style.background.is_none(),
+    "nor beside it",
+  )
+  // Beside it, the row is filled and the path isn't underlined.
+  terminal.mouse_move(20, 2)
+  terminal.flush()
+  try testing::assert(
+    not terminal.frame().cell(5, 2).expect("the path").style.underline,
+    "the path is plain",
+  )
+  try testing::assert(
+    same_color(
+      terminal.frame().cell(20, 2).expect("the row").style.background,
+      colors.surface_hovered,
+    ),
+    "the hovered row is filled",
+  )
+  // Clicking the path opens the file at its first change and leaves the
+  // file expanded; a binary file opens at its top.
+  terminal.click(5, 2)
+  terminal.flush()
+  terminal.click(5, 9)
+  terminal.flush()
+  try testing::assert(
+    strings::Join(mut opened.files, ",") == "main.go:2,logo.png:0",
+    "opened {strings::Join(mut opened.files, ",")}",
+  )
+  try expect_rows(rows(terminal), shown)
+  // A deleted file's path isn't a link: hovering fills the row, and
+  // clicking it collapses the file.
+  terminal.mouse_move(5, 13)
+  terminal.flush()
+  let deleted = terminal.frame().cell(5, 13).expect("the deleted path")
+  try testing::assert(not deleted.style.underline, "a deleted file's path is plain")
+  try testing::assert(same_color(deleted.style.background, colors.surface_hovered), "its row is filled")
+  terminal.click(5, 13)
+  terminal.flush()
+  try testing::assert(rows(terminal).at(13).or("") == " ▸ gone.go", "the deleted file collapses")
+  // The caret still collapses a file whose path opens it.
+  terminal.click(1, 2)
+  terminal.flush()
+  try testing::assert(rows(terminal).at(2).or("") == " ▸ main.go", "the caret collapses the file")
+  testing::assert(opened.files.size() == 2, "collapsing opens nothing")
+}
+
+test fn the_first_change_is_an_added_line_or_where_lines_were_removed() Void!Str {
+  try testing::assert(diff_pane::first_change([]) == 0, "no changes: the top")
+  try testing::assert(
+    diff_pane::first_change(
+      [
+        protocol::DiffHunk{NewStart: 10, Lines: [line("context", 10, 10, "a"), line("addition", 0, 11, "b")]},
+      ],
+    ) == 11,
+    "an added line",
+  )
+  try testing::assert(
+    diff_pane::first_change(
+      [
+        protocol::DiffHunk{
+          NewStart: 4,
+          Lines: [line("context", 4, 4, "a"), line("deletion", 5, 0, "b"), line("context", 6, 5, "c")],
+        },
+      ],
+    ) == 5,
+    "the line after a removed one",
+  )
+  testing::assert(
+    diff_pane::first_change([protocol::DiffHunk{NewStart: 0, Lines: [line("deletion", 1, 0, "a")]}]) == 1,
+    "a removal at the top",
+  )
+}
+
+fn commit_text_observed(input: protocol::ObserveDiffInput) protocol::WorkingTreePage!Error {
+  Result::ok(
+    protocol::WorkingTreePage{
+      Observation: protocol::DiffObservation{
+        Revision: "revision_c",
+        Target: protocol::DiffTarget{ID: "difftarget_c", Kind: "commit"},
+      },
+      Files: [
+        protocol::DiffFileSummary{
+          Path: "chrome.ard",
+          Change: "modified",
+          New: protocol::DiffSide{Kind: "regular", Mode: Uint32::from(33188)},
+          ContentState: "text",
+          FileRevision: "file_c",
+        },
+      ],
+    },
+  )
+}
+
+test fn a_commits_file_opens_at_its_top() Void!Str {
+  let opened = mut Opened{files: []}
+  let requests = mut List::new<diff_pane::TargetRequest>()
+  let made = mut props(Maybe::new(observed_kinds), Maybe::new(read))
+  made.observe_target = Maybe::new(commit_text_observed)
+  made.pick_target = fn(request: diff_pane::TargetRequest) {
+    requests.push(request)
+  }
+  made.open_file = Maybe::new(fn(path: Str, line: Int) {
+    opened.files.push("{path}:{line}")
+  })
+  let terminal = headless::new(64, 8)
+  defer terminal.destroy()
+  let renderer = cui::mount(
+    cooper::App{context: terminal.context, root: terminal.root},
+    diff_pane::view(made.@),
+  )
+  defer renderer.destroy()
+  wait_for(terminal, "var y")
+  terminal.click(4, 0)
+  terminal.flush()
+  (requests.at(0).expect("a target request").choose)(
+    protocol::DiffTargetEntry{
+      Reference: "difftargetref_commit",
+      TargetID: "difftarget_c",
+      Kind: "commit",
+      Metadata: protocol::DiffTargetMetadata{Label: "db99f1d  feat(cli): ghost buttons"},
+    },
+  )
+  wait_for(terminal, "chrome.ard")
+  wait_for(terminal, "var y")
+  try expect_rows(
+    rows(terminal),
+    [
+      " db99f1d  feat(cli): ghost buttons ▾  1 changed file   Wrap off",
+      "────────────────────────────────────────────────────────────────",
+      " ▾ chrome.ard",
+      "───────────────────────────────────────────────────────────────",
+      " 1 1   package main",
+      " 2   − var x = 1",
+      "   2 + var x = 2",
+      "   3 + var y = 3",
+    ],
+  )
+  // Its lines are the commit's, so the working tree's file opens at its
+  // top rather than at a line it may not have.
+  terminal.click(5, 2)
+  terminal.flush()
+  testing::assert(
+    strings::Join(mut opened.files, ",") == "chrome.ard:0",
+    "opened {strings::Join(mut opened.files, ",")}",
+  )
+}
