@@ -1,0 +1,103 @@
+import Foundation
+
+public protocol PluginCommandClient: SessionClient {
+    func executePluginCommand(_ session: String, input: WirePluginCommandInput) async throws
+}
+
+extension ServerClient: PluginCommandClient {
+    public func executePluginCommand(_ session: String, input: WirePluginCommandInput) async throws {
+        let transport: HTTPClient
+        do { transport = try await resolve() }
+        catch { throw MutationNotSent(reason: error.localizedDescription) }
+        try await transport.executePluginCommand(session, input: input)
+    }
+}
+
+/// Executable contributions are not prompt templates. Retain the generation
+/// with every selection; never retarget an invocation after a catalog refresh.
+public struct PluginCommand: Decodable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let instance: String
+    public let description: String
+    public let argName: String?
+    public var name: String { id }
+    /// The contributing plugin; `id` is validated as `pluginID.localID`.
+    public var pluginID: String { String(id.prefix { $0 != "." }) }
+    /// The command's name within its plugin.
+    public var localID: String { id.firstIndex(of: ".").map { String(id[id.index(after: $0)...]) } ?? id }
+    public var selectionID: String { "plugin:" + id + ":" + instance }
+
+    public static func safeText(_ value: String, limit: Int) -> Bool {
+        value.utf8.count <= limit && !value.unicodeScalars.contains {
+            CharacterSet.controlCharacters.contains($0) || $0.properties.generalCategory == .format
+        }
+    }
+    public static func matches(_ value: String, _ pattern: String) -> Bool {
+        guard let range = value.range(of: pattern, options: .regularExpression) else { return false }
+        return range == value.startIndex..<value.endIndex
+    }
+    public static func validSelection(id: String, instance: String) -> Bool {
+        let parts = id.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+        return parts.count == 2 && matches(String(parts[0]), "^[a-z][a-z0-9-]{0,31}$") && parts[1].utf8.count <= 128
+            && matches(String(parts[1]), "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$")
+            && matches(instance, "^[a-zA-Z0-9_.:-]{1,128}$")
+            && !id.contains("\n") && !instance.contains("\n")
+    }
+    public static func project(_ values: [WirePluginCommand]) throws -> [Self] {
+        guard values.count <= 256 else { throw ClientError.invalidPayload }
+        var seen = Set<String>()
+        return try values.map {
+            guard validSelection(id: $0.id, instance: $0.instance),
+                  matches($0.pluginId, "^[a-z][a-z0-9-]{0,31}$"), !$0.pluginId.contains("\n"),
+                  $0.id == $0.pluginId + "." + $0.localId,
+                  seen.insert($0.id).inserted, safeText($0.description, limit: 1024),
+                  !$0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  safeText($0.argName ?? "", limit: 128), safeText($0.category ?? "", limit: 128)
+            else { throw ClientError.invalidPayload }
+            return Self(id: $0.id, instance: $0.instance, description: $0.description, argName: $0.argName)
+        }
+    }
+
+    public init(id: String, instance: String, description: String, argName: String?) {
+        self.id = id
+        self.instance = instance
+        self.description = description
+        self.argName = argName
+    }
+}
+
+public struct PluginCommandFailure: Error, LocalizedError, Sendable {
+    public let unavailable: Bool
+    public var errorDescription: String? {
+        unavailable ? "Plugin command is no longer available. Reselect it from the refreshed catalog."
+            : "Plugin command failed; effects may have partially completed. It was not retried."
+    }
+
+    /// Why a run failed, in words for the user. A run the server refused or
+    /// never received didn't happen; any other failure may have had effects.
+    public static func detail(for error: any Error) -> String {
+        let partial = "Its effects may have partially completed. It was not retried."
+        if let notSent = error as? MutationNotSent { return "It didn't run: " + notSent.reason }
+        if error is PluginCommandFailure { return partial }
+        let reason = error.localizedDescription
+        if let error = error as? ClientError {
+            switch error {
+            case .http(let code) where [400, 401, 403, 404, 409, 421, 426, 429].contains(code):
+                return "It didn't run: " + reason
+            case .noDaemon, .invalidEndpoint, .incompatible, .incompatibleDaemon, .daemonNotReady,
+                 .missingSession, .needsPairing, .sshSignInRequired, .sshHostKeyChanged, .sshServerStopped, .ssh, .discovery:
+                return "It didn't run: " + reason
+            default: break
+            }
+        }
+        if let error = error as? URLError,
+           [.cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .notConnectedToInternet].contains(error.code) {
+            return "It didn't run: " + reason
+        }
+        return reason + " " + partial
+    }
+
+    public init(unavailable: Bool) {
+        self.unavailable = unavailable
+    }
+}

@@ -1,0 +1,21 @@
+generate:
+  - types
+  - client
+accessModifier: public
+namingStrategy: idiomatic
+filter:
+  tags:
+    - sessions
+    - diff
+    - annotations
+    - bash
+    - attachments
+    - subagents
+    - server
+    - workspace
+    - scratchpad
+    - vcs
+    - plugin
+    - turns
+    - transcript
+    - events

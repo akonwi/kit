@@ -1,0 +1,509 @@
+import Foundation
+
+/// Ordered live presentation layered on the last authoritative snapshot.
+/// Pending prose is buffered by message and content index, never shown piecemeal.
+public struct SessionEventProjection {
+    public private(set) var session: SessionExcerpt
+    private var text: [String: [Int: String]] = [:]
+    private var thinking: [String: [Int: String]] = [:]
+    private var userTurns: Set<String>
+    private var pluginTurns: Set<String>
+    private var candidateAnnotationTurn: String?
+    private var lastTurn: String?
+    private let persistedMessages: Set<String>
+    private let persistedTools: Set<String>
+    /// Bytes of live tool output held in `session.messages`.
+    private var toolOutputBytes = 0
+    /// Upper bound on live content held between authoritative snapshots.
+    private let retainedLiveLimit: Int
+    /// Set once held live content exceeds `retainedLiveLimit`. Live prose and
+    /// tool output then stop accumulating until the next turn starts; the
+    /// turn-completion snapshot supplies the persisted transcript.
+    public private(set) var liveContentSuspended = false
+    public static let defaultRetainedLiveLimit = 32 * 1024 * 1024
+    private var activeAssistant: String?
+    private var activeRunID: String?
+    private var pendingInteractions: Set<String> = []
+    private var thinkingTools: [String: String] = [:]
+    /// Row position of every tool call in `session.messages`. Positions are
+    /// verified on use because rare row removals can shift them.
+    private var toolRows: [String: Int] = [:]
+
+    /// `turnEnd` is the row the previous projection showed for its last turn
+    /// ending early. It keeps its label and reason across the refresh, and
+    /// survives a snapshot that stored no reason, as for a turn that failed
+    /// before the model replied.
+    ///
+    /// `liveCompletions` are the tool calls the previous projection saw
+    /// complete live. Their rows in the refreshed snapshot stay marked, so a
+    /// refresh that supersedes an undelivered live update keeps them.
+    /// `requestedPages`, the live page requests the previous projection
+    /// received, carry over for the same reason; snapshots never hold them.
+    public init(_ snapshot: WireSessionSnapshot, turnEnd: TranscriptMessage? = nil, liveCompletions: [String] = [],
+         requestedPages: [RequestedPage]? = nil) throws {
+        try self.init(session: SessionProjection.snapshot(snapshot, carried: turnEnd.map { [$0] } ?? []),
+            source: snapshot.messages ?? [],
+            activeRunID: snapshot.activeTurnId, replayAvailable: snapshot.eventReplayAvailable == true,
+            pendingInteractions: Set((snapshot.pendingInteractions ?? []).filter { $0.plugin != nil || $0.turnId == snapshot.activeTurnId }.map(\.id)))
+        if let turnEnd, session.messages.contains(where: { $0.id == turnEnd.id }) { self.turnEnd = turnEnd }
+        session.requestedPages = requestedPages
+        if !liveCompletions.isEmpty {
+            self.liveCompletions = Array(liveCompletions.suffix(Self.liveCompletionLimit))
+            let carried = Set(self.liveCompletions)
+            for row in session.messages.indices where session.messages[row].role == "tools" {
+                for index in session.messages[row].tools.indices where carried.contains(session.messages[row].tools[index].id) {
+                    session.messages[row].tools[index].completedLive = true
+                }
+            }
+        }
+    }
+
+    /// Tool calls this projection saw complete live, oldest first and bounded.
+    public private(set) var liveCompletions: [String] = []
+    public static let liveCompletionLimit = 64
+
+    /// The row closing the last turn this stream saw end early; nil once
+    /// another turn starts.
+    public private(set) var turnEnd: TranscriptMessage?
+
+    public init(session: SessionExcerpt, source: [WireTranscriptMessage], activeRunID: String? = nil,
+         replayAvailable: Bool = true, pendingInteractions: Set<String> = [],
+         retainedLiveLimit: Int = SessionEventProjection.defaultRetainedLiveLimit) throws {
+        self.session = session
+        self.retainedLiveLimit = retainedLiveLimit
+        self.activeRunID = activeRunID
+        self.pendingInteractions = pendingInteractions
+        self.session.tabStatus = Self.status(runID: activeRunID, pending: pendingInteractions)
+        self.session.activity = session.activeCompactionID != nil ? LiveActivity.compacting : (activeRunID == nil ? nil : LiveActivity.working)
+        userTurns = Set(source.filter { $0.role == "user" }.map(\.turnId))
+        pluginTurns = Set(source.filter { $0.role == "context" && $0.boundaryKind == "plugin_message" }.map(\.turnId))
+        let pending = source.filter {
+            $0.role == "assistant" && $0.turnId == activeRunID && ($0.stopReason ?? "").isEmpty
+        }
+        activeAssistant = pending.last?.id
+        let pendingIDs = Set(pending.map(\.id))
+        persistedMessages = Set(source.map(\.id)).subtracting(pendingIDs)
+        self.session.messages.removeAll { pendingIDs.contains($0.id) && $0.role == "assistant" }
+        if !replayAvailable {
+            for message in pending {
+                for (index, block) in (message.content ?? []).enumerated() {
+                    if block.kind.rawValue == "text" { text[message.id, default: [:]][index] = block.text ?? "" }
+                    if block.kind.rawValue == "thinking" { thinking[message.id, default: [:]][index] = block.text ?? "" }
+                }
+            }
+        }
+        persistedTools = Set(source.filter { $0.role == "tool" }.compactMap(\.toolCallId))
+        lastTurn = source.last?.turnId
+        for (index, row) in self.session.messages.enumerated() {
+            for tool in row.tools { toolRows[tool.id] = index }
+        }
+    }
+
+    public mutating func updateSubagents(_ snapshot: WireSessionSnapshot) throws {
+        guard snapshot.session.id == session.id else { throw ClientError.invalidPayload }
+        session.subagents = try SubagentRoster(snapshot)
+        session.subagentDiagnostics = snapshot.subagentDiagnostics ?? []
+    }
+
+    /// Applies one event. `receivedAt` is when a new event arrived, which
+    /// times tool calls; replayed events pass nil.
+    public mutating func apply(_ event: WireSessionEvent, receivedAt: Date? = nil) throws {
+        guard event.sessionId == session.id else { throw ClientError.invalidPayload }
+        switch event.kind {
+        case .value30: return try requestPage(event, live: receivedAt != nil)
+        case .value19: return try changeDirectory(event)
+        case .value33: return try configure(event)
+        case .value34: return try changeQueue(event)
+        default: break
+        }
+        var value = TranscriptEvent(event)
+        value.receivedAt = receivedAt
+        try apply(value)
+    }
+
+    public mutating func apply(_ event: TranscriptEvent) throws {
+        defer { if !liveContentSuspended, retainedLiveBytes > retainedLiveLimit { suspendLiveContent() } }
+        switch event.kind {
+        case "scratchpad.changed":
+            guard let record = event.scratchpad else { throw ClientError.invalidPayload }
+            let projected = try ScratchpadRecord(record)
+            if let previous = session.scratchpad, previous.owner != projected.owner { throw ClientError.invalidPayload }
+            if projected.revision >= (session.scratchpad?.revision ?? 0) { session.scratchpad = projected }
+        case "annotation.created", "annotation.updated":
+            guard let value = event.annotation else { throw ClientError.invalidPayload }
+            let annotation = try FileAnnotation(value, session: session.id)
+            var records = session.annotations ?? []
+            records.removeAll { $0.id == annotation.id }
+            records.append(annotation)
+            guard records.count <= 128 else { throw ClientError.invalidPayload }
+            session.annotations = records.sorted { $0.id < $1.id }
+        case "annotation.deleted":
+            guard let id = event.annotationId, id > 0 else { throw ClientError.invalidPayload }
+            session.annotations?.removeAll { $0.id == id }
+        case "annotation.submitted":
+            guard let ids = event.annotationIds, ids.count <= 64, Set(ids).count == ids.count else { throw ClientError.invalidPayload }
+            session.annotations?.removeAll { ids.contains($0.id) }
+        case "turn.started":
+            liveContentSuspended = false
+            candidateAnnotationTurn = nil
+            session.activeCompactionID = nil
+            if activeRunID != event.turnId { retainPluginInteractions() }
+            activeRunID = event.turnId
+            turnEnd = nil
+            session.activity = LiveActivity.working
+        case "interaction.requested":
+            guard let interaction = event.interaction else { throw ClientError.invalidPayload }
+            if interaction.plugin != nil || interaction.turnId == activeRunID {
+                pendingInteractions.insert(interaction.id)
+                var requests = session.pendingInteractions ?? []
+                requests.removeAll { $0.id == interaction.id }
+                requests.append(interaction)
+                session.pendingInteractions = requests
+            }
+        case "interaction.resolved":
+            guard let id = event.interactionId else { throw ClientError.invalidPayload }
+            pendingInteractions.remove(id)
+            session.pendingInteractions?.removeAll { $0.id == id }
+        case "user.message.added":
+            let annotations = try (event.content ?? []).flatMap { $0.annotations ?? [] }.map(FileAnnotation.init)
+            let value = event.text ?? SessionProjection.visibleText(event.content ?? [])
+            if userTurns.insert(event.turnId).inserted {
+                session.messages.append(TranscriptMessage(id: "live-user-" + event.turnId, role: "user", text: value, tools: [], attachments: SessionProjection.attachments(event.content ?? []), annotations: annotations))
+                candidateAnnotationTurn = value == "Annotations" && (event.content?.isEmpty ?? true) ? event.turnId : nil
+            }
+            // Sorted so an unchanged set never reads as changed session metadata.
+            session.observedTurns = Set((session.observedTurns ?? []) + [event.turnId]).sorted()
+            lastTurn = event.turnId
+        case "boundary.created":
+            guard let record = event.boundaryRecord else { throw ClientError.invalidPayload }
+            // A boundary is a record from creation. Its snapshot form, before
+            // or after it joins a turn, shares the row's identity.
+            let row: TranscriptMessage?
+            switch record.boundaryKind {
+            case "bash": row = try BashExecution.boundary(record)?.message
+            case "plugin_message": row = nil
+            default: row = SessionProjection.contextRow(record)
+            }
+            guard let row else { return }
+            if let index = session.messages.firstIndex(where: { $0.id == row.id }) {
+                session.messages[index] = row
+            } else {
+                session.messages.append(row)
+            }
+        case "plugin.message.added":
+            guard let plugin = event.pluginId, !plugin.isEmpty, let value = event.text, !value.isEmpty,
+                  !event.turnId.isEmpty else { throw ClientError.invalidPayload }
+            // The persisted row replaces this one when the next snapshot arrives.
+            if pluginTurns.insert(event.turnId).inserted {
+                session.messages.append(TranscriptMessage(id: "live-plugin-" + event.turnId, role: "plugin", text: value, tools: [],
+                    plugin: PluginMessageOrigin(pluginID: plugin, turnID: event.turnId)))
+            }
+            lastTurn = event.turnId
+        case "assistant.started", "assistant.text.delta", "assistant.thinking.delta":
+            guard let id = event.messageId, !id.isEmpty else { throw ClientError.invalidPayload }
+            activeAssistant = id
+            guard !persistedMessages.contains(id) else { return }
+            if event.kind == "assistant.started" {
+                guard !liveContentSuspended else { return }
+                text[id] = event.text.map { [-1: $0] } ?? [:]
+                thinking[id] = event.thinking.map { [-1: $0] } ?? [:]
+            } else {
+                guard let delta = event.delta, (event.contentIndex ?? 0) >= 0 else { throw ClientError.invalidPayload }
+                guard !liveContentSuspended else { return }
+                if event.kind == "assistant.text.delta" {
+                    text[id, default: [:]][event.contentIndex ?? 0, default: ""] += delta
+                } else {
+                    thinking[id, default: [:]][event.contentIndex ?? 0, default: ""] += delta
+                }
+            }
+            if event.kind == "assistant.text.delta" { session.activity = LiveActivity.working }
+            else {
+                let value = joined(thinking[id])
+                session.activity = LiveActivity.latestLine(value) ?? LiveActivity.thinking
+                if let toolID = thinkingTools[id],
+                   let row = toolRow(toolID),
+                   let tool = session.messages[row].tools.firstIndex(where: { $0.id == toolID }) {
+                    session.messages[row].tools[tool].thinking = value
+                }
+            }
+        case "assistant.completed":
+            guard let id = event.messageId, !id.isEmpty else { throw ClientError.invalidPayload }
+            let value = event.text.flatMap { $0.isEmpty ? nil : $0 } ?? joined(text[id])
+            if !persistedMessages.contains(id), !value.isEmpty {
+                let message = TranscriptMessage(id: id, role: "assistant", text: value, tools: [])
+                // Completion can be delivered again without a new snapshot.
+                // Update the existing response without moving it past later rows.
+                if let index = session.messages.lastIndex(where: { $0.id == id }) {
+                    session.messages[index] = message
+                } else {
+                    session.messages.append(message)
+                }
+            }
+            if let finalThinking = event.thinking, !liveContentSuspended {
+                thinking[id] = [-1: finalThinking]
+                if let toolID = thinkingTools[id],
+                   let row = toolRow(toolID),
+                   let tool = session.messages[row].tools.firstIndex(where: { $0.id == toolID }) {
+                    session.messages[row].tools[tool].thinking = finalThinking
+                }
+            }
+            text[id] = nil
+            session.activity = LiveActivity.working
+            lastTurn = event.turnId
+        case "tool.planned", "tool.started", "tool.output.delta", "tool.completed":
+            guard let id = event.toolCallId, !id.isEmpty, let name = event.toolName, !name.isEmpty else { throw ClientError.invalidPayload }
+            guard !persistedTools.contains(id) else { return }
+            session.activity = LiveActivity.working
+            var row = toolRow(id)
+            if row == nil {
+                if lastTurn == event.turnId, session.messages.last?.role == "tools" { row = session.messages.count - 1 }
+                else {
+                    session.messages.append(TranscriptMessage(id: "tools-" + id, role: "tools", text: "", tools: []))
+                    row = session.messages.count - 1
+                }
+            }
+            let index = row!
+            toolRows[id] = index
+            let old = session.messages[index].tools.first { $0.id == id }
+            let output = SessionProjection.visibleText(event.content ?? [])
+            let completed = event.kind == "tool.completed"
+            let assistant = event.messageId ?? activeAssistant
+            var evidence = old?.thinking
+            if let assistant, thinkingTools[assistant] == nil {
+                let value = joined(thinking[assistant])
+                if !value.isEmpty { evidence = value; thinkingTools[assistant] = id }
+            }
+            let previousOutput = old?.output ?? ""
+            // While suspended, deltas do not accumulate; completion still
+            // carries the tool's final, server-bounded result.
+            let nextOutput = completed ? output : liveContentSuspended ? previousOutput : previousOutput + output
+            toolOutputBytes += nextOutput.utf8.count - previousOutput.utf8.count
+            // Time only calls seen starting live; a call first seen finished
+            // has no meaningful start.
+            let startedAt = old?.startedAt ?? (event.kind == "tool.planned" || completed ? nil : event.receivedAt)
+            let value = ToolActivity(id: id, name: name, summary: name,
+                output: nextOutput,
+                arguments: event.arguments ?? old?.arguments, failed: event.isError ?? old?.failed ?? false,
+                status: completed ? "Completed" : event.kind == "tool.planned" ? "Planned" : "Running…",
+                thinking: evidence,
+                attachments: event.content == nil ? old?.attachments : SessionProjection.attachments(event.content ?? []),
+                contentTruncated: event.contentTruncated ?? old?.contentTruncated,
+                details: event.details ?? old?.details,
+                startedAt: startedAt,
+                finishedAt: completed && startedAt != nil ? event.receivedAt : nil,
+                completedLive: completed && event.receivedAt != nil ? true : old?.completedLive)
+            if let toolIndex = session.messages[index].tools.firstIndex(where: { $0.id == id }) {
+                session.messages[index].tools[toolIndex] = value
+            } else { session.messages[index].tools.append(value) }
+            if completed, event.receivedAt != nil, !liveCompletions.contains(id) {
+                liveCompletions.append(id)
+                if liveCompletions.count > Self.liveCompletionLimit { liveCompletions.removeFirst() }
+            }
+            lastTurn = event.turnId
+        case "provider.retry.scheduled":
+            session.providerRetryAt = event.providerRetry?.retryAt
+            session.providerRetryCount = event.providerRetry?.count
+        case "provider.retry.started":
+            session.providerRetryAt = nil
+        case "turn.completed":
+            settleTools(at: event.receivedAt)
+            session.activeCompactionID = nil
+            if let error = event.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty,
+               !event.turnId.isEmpty {
+                let end: TranscriptMarker.TurnEnd = switch event.status {
+                case "aborted": .stopped
+                case "interrupted": .interrupted
+                default: .failed
+                }
+                // A turn that compaction failed says why.
+                let message = event.compactionFailureReason.map(CompactionFailed.turnText) ?? error
+                let row = SessionProjection.turnEndRow(turn: event.turnId, end: end, message: message)
+                if !session.messages.contains(where: { $0.id == row.id }) { session.messages.append(row) }
+                turnEnd = row
+            }
+            session.providerRetryAt = nil
+            session.providerRetryCount = nil
+            activeRunID = nil
+            retainPluginInteractions()
+            session.activity = nil
+            text.removeAll(); thinking.removeAll(); thinkingTools.removeAll(); activeAssistant = nil
+        case "compaction.started":
+            session.activeCompactionID = event.compactionID
+            session.activity = LiveActivity.compacting
+        case "compaction.completed":
+            if let id = event.compactionID, session.activeCompactionID == id {
+                // The server reports a failed compaction by its reason.
+                let reason = event.compactionFailureReason
+                session.compactionOutcome = CompactionOutcome(id: id, failed: reason != nil,
+                                                              detail: reason?.explanation ?? "",
+                                                              automatic: !event.turnId.isEmpty)
+                session.activeCompactionID = nil
+                session.activity = activeRunID == nil ? nil : LiveActivity.working
+            }
+        case "usage.changed":
+            guard let usage = event.usage else { throw ClientError.invalidPayload }
+            session.usage = SessionUsage(usage)
+        case "context.changed":
+            session.contextTokens = event.contextTokens
+            session.contextWindow = event.contextWindow
+        case "session.name.changed": session.title = event.sessionName ?? "Untitled session"
+        default: break
+        }
+        session.activeRunID = activeRunID
+        session.tabStatus = Self.status(runID: activeRunID, pending: pendingInteractions)
+    }
+
+    /// Adopts the working directory another client or the agent moved the
+    /// session to.
+    private mutating func changeDirectory(_ event: WireSessionEvent) throws {
+        guard (event.turnId ?? "").isEmpty, let workspace = event.workspace, workspace.cwd.hasPrefix("/"),
+              workspace.sessionId == session.id else { throw ClientError.invalidPayload }
+        session.cwd = workspace.cwd
+        session.workspace = URL(fileURLWithPath: workspace.cwd).lastPathComponent
+    }
+
+    /// Adopts the model configuration another client applied. One older than
+    /// the configuration shown changes nothing.
+    private mutating func configure(_ event: WireSessionEvent) throws {
+        guard (event.turnId ?? "").isEmpty, let configuration = event.configuration, !configuration.model.isEmpty,
+              ["off", "minimal", "low", "medium", "high", "xhigh", "max"].contains(configuration.thinkingLevel),
+              configuration.configurationRevision > 0 else { throw ClientError.invalidPayload }
+        guard configuration.configurationRevision >= session.configurationRevision ?? 0 else { return }
+        session.model = configuration.model
+        session.thinking = configuration.thinkingLevel
+        session.inputs = configuration.inputs?.map(\.rawValue)
+        session.configurationRevision = configuration.configurationRevision
+    }
+
+    /// Adopts the follow-up queue after any client, or the server, changed it.
+    private mutating func changeQueue(_ event: WireSessionEvent) throws {
+        guard (event.turnId ?? "").isEmpty, let queue = event.followUps else { throw ClientError.invalidPayload }
+        session.followUps = try FollowUpState(queue)
+    }
+
+    /// Pages kept for the app to open, beyond which the oldest are dropped.
+    public static let requestedPageLimit = 16
+
+    /// Records a page request the app received live. The server sends the
+    /// address only on a stream that was open when the request was made, and
+    /// a replayed event carries none, so a request seen before this app
+    /// attached, or again after a reconnect, records nothing.
+    private mutating func requestPage(_ event: WireSessionEvent, live: Bool) throws {
+        guard (event.turnId ?? "").isEmpty else { throw ClientError.invalidPayload }
+        // An address this app does not accept as a web page opens nothing.
+        guard live, let raw = event.url, let url = OpenURLRequest.url(raw) else { return }
+        var pages = session.requestedPages ?? []
+        pages.append(RequestedPage(id: "\(event.streamId):\(event.sequence)", url: url))
+        session.requestedPages = Array(pages.suffix(Self.requestedPageLimit))
+    }
+
+    public mutating func acceptAnnotationMessage(_ message: WireTranscriptMessage, ids: [UInt64]) throws {
+        let rows = try SessionProjection.transcript([message])
+        guard message.role == "user", rows.count == 1, let row = rows.first,
+              let notes = row.annotations, notes.count == ids.count,
+              Set(notes.map(\.id)) == Set(ids) else { throw ClientError.invalidPayload }
+        if let turn = candidateAnnotationTurn, message.turnId != turn { throw ClientError.invalidPayload }
+        if let index = session.messages.firstIndex(where: { $0.id == "live-user-" + message.turnId && $0.role == "user" }) {
+            session.messages[index] = row
+        } else if !session.messages.contains(where: { $0.id == row.id }) {
+            session.messages.append(row)
+        }
+        userTurns.insert(message.turnId)
+        candidateAnnotationTurn = nil
+    }
+
+    public mutating func clearAnnotationPreviewCandidate() {
+        candidateAnnotationTurn = nil
+    }
+
+    public mutating func discardAnnotationPreview() {
+        guard let turn = candidateAnnotationTurn else { return }
+        session.messages.removeAll { $0.id == "live-user-" + turn && $0.role == "user" && $0.text == "Annotations" }
+        userTurns.remove(turn)
+        candidateAnnotationTurn = nil
+    }
+
+    /// Planned calls never ran once their turn ends. Executing calls whose
+    /// completion was missed are shown as done, as the TUI does.
+    private mutating func settleTools(at date: Date?) {
+        for row in session.messages.indices where session.messages[row].role == "tools" {
+            for index in session.messages[row].tools.indices {
+                switch session.messages[row].tools[index].status {
+                case "Planned":
+                    session.messages[row].tools[index].status = nil
+                    session.messages[row].tools[index].notRun = true
+                case "Running…":
+                    session.messages[row].tools[index].status = "Completed"
+                    if session.messages[row].tools[index].startedAt != nil {
+                        session.messages[row].tools[index].finishedAt = date
+                    }
+                default: break
+                }
+            }
+        }
+    }
+
+    private mutating func retainPluginInteractions() {
+        session.pendingInteractions = (session.pendingInteractions ?? []).filter { $0.plugin != nil }
+        pendingInteractions = Set((session.pendingInteractions ?? []).map(\.id))
+    }
+
+    /// The row containing a tool call, without scanning the transcript when
+    /// the recorded position is still accurate.
+    private mutating func toolRow(_ id: String) -> Int? {
+        if let index = toolRows[id], session.messages.indices.contains(index),
+           session.messages[index].tools.contains(where: { $0.id == id }) {
+            return index
+        }
+        guard toolRows[id] != nil,
+              let index = session.messages.lastIndex(where: { $0.tools.contains { $0.id == id } }) else {
+            toolRows[id] = nil
+            return nil
+        }
+        toolRows[id] = index
+        return index
+    }
+
+    /// Live content currently held: buffered prose and thinking, and live tool output.
+    private var retainedLiveBytes: Int {
+        func size(_ buffers: [String: [Int: String]]) -> Int {
+            buffers.values.reduce(0) { total, blocks in blocks.values.reduce(total) { $0 + $1.utf8.count } }
+        }
+        return toolOutputBytes + size(text) + size(thinking)
+    }
+
+    /// Releases buffered live prose and stops further accumulation for this turn.
+    private mutating func suspendLiveContent() {
+        liveContentSuspended = true
+        text.removeAll()
+        thinking.removeAll()
+        if activeRunID != nil { session.activity = LiveActivity.working }
+    }
+
+    private static func status(runID: String?, pending: Set<String>) -> SessionTabStatus {
+        if !pending.isEmpty { return .awaitingResponse }
+        guard runID != nil else { return .idle }
+        return pending.isEmpty ? .running : .awaitingResponse
+    }
+
+    private func joined(_ blocks: [Int: String]?) -> String {
+        (blocks ?? [:]).sorted { $0.key < $1.key }.map(\.value).joined()
+    }
+}
+
+/// The activity card's fixed labels, and how a streamed thought becomes its line.
+public enum LiveActivity {
+    public static let working = "Working…"
+    public static let thinking = "Thinking…"
+    public static let compacting = "Compacting session…"
+
+    /// Whether an activity line is a fixed label rather than a streamed thought.
+    public static func isLabel(_ line: String) -> Bool { [working, thinking, compacting].contains(line) }
+
+    /// The last non-blank line of streamed thinking, as in the TUI.
+    public static func latestLine(_ thinking: String) -> String? {
+        thinking.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last { !$0.isEmpty }
+    }
+}

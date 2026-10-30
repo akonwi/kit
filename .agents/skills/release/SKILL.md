@@ -179,7 +179,7 @@ does not sign, notarize, tag, or publish an app.
    notes, do so **before** selecting the release commit—do not change or retag
    the source merely to put its own SHA in a tracked file. Confirm the intended
    tag and release commit before building.
-3. Verify generated OpenAPI code (`apps/macos/script/generate_openapi.sh --check`), shell syntax (`bash -n apps/macos/script/build_and_run.sh
+3. Verify generated OpenAPI code (`apps/apple/KitShared/script/generate_openapi.sh --check`), shell syntax (`bash -n apps/macos/script/build_and_run.sh
    apps/macos/script/package_app.sh`), `git diff --check`, and the full macOS
    suite from `apps/macos`:
    ```sh

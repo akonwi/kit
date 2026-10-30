@@ -22,8 +22,8 @@ This guide is procedural. The architectural decisions remain authoritative:
 | Server behavior | `internal/server` and the owning domain package |
 | Go transport mechanics | `internal/clienttransport` |
 | Public Go behavior and state | `api.Client`, `api.Session`, and public handles |
-| Swift generated transport/types | `apps/macos/Sources/Kit/GeneratedSources` |
-| Swift semantic behavior and projections | `apps/macos/Sources/Kit/Client` |
+| Swift generated transport/types | `apps/apple/KitShared/Sources/KitClient/GeneratedSources` |
+| Swift semantic behavior and projections | `apps/apple/KitShared/Sources/KitClient` |
 
 There must be one canonical wire record and one production Go client behavior.
 Do not add parallel request records, raw HTTP calls in maintained clients, or a
@@ -106,11 +106,11 @@ requires a protocol bump for breaking changes.
 Regenerate the committed, tag-filtered Swift transport and types:
 
 ```sh
-apps/macos/script/generate_openapi.sh
-apps/macos/script/generate_openapi.sh --check
+apps/apple/KitShared/script/generate_openapi.sh
+apps/apple/KitShared/script/generate_openapi.sh --check
 ```
 
-Generated code is only the wire layer. Update `apps/macos/Sources/Kit/Client`
+Generated code is only the wire layer. Update `apps/apple/KitShared/Sources/KitClient`
 when the capability needs semantic projection, validation not expressible in
 OpenAPI, state caching, retries, replay, or UI-facing behavior. Use the generated
 operation and schema types rather than introducing a raw URLSession route.

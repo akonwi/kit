@@ -1,0 +1,142 @@
+import Foundation
+
+public protocol BashClient: SessionClient {
+    func startBash(_ session: String, input: WireBashExecutionInput) async throws -> BashExecution
+    func bash(_ session: String, id: String) async throws -> BashExecution
+    func abortBash(_ session: String, id: String) async throws
+}
+
+extension ServerClient: BashClient {
+    public func startBash(_ session: String, input: WireBashExecutionInput) async throws -> BashExecution {
+        let transport: HTTPClient
+        do { transport = try await resolve() }
+        catch { throw MutationNotSent(reason: error.localizedDescription) }
+        return try await transport.startBash(session, input: input)
+    }
+    public func bash(_ session: String, id: String) async throws -> BashExecution { try await resolve().bash(session, id: id) }
+    public func abortBash(_ session: String, id: String) async throws { try await resolve().abortBash(session, id: id) }
+}
+
+public struct BashExecution: Decodable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let command: String
+    public let status: String
+    public let output: String
+    public let exitCode: Int?
+    public let excluded: Bool
+    public let truncated: Bool
+    public let timedOut: Bool
+    public let error: String?
+    public var running: Bool { status == "running" }
+    public var statusLabel: String {
+        if running { return "Running" }
+        if timedOut { return "Timed out" }
+        if status == "completed", let exitCode { return exitCode == 0 ? "Completed" : "Exit \(exitCode)" }
+        return status.capitalized
+    }
+    public init(_ wire: WireBashExecution, session: String) throws {
+        guard wire.sessionId == session, wire.id.hasPrefix("bash_"), wire.sequence >= 0,
+              !wire.command.isEmpty, wire.command.utf8.count <= 64 * 1024,
+              !wire.command.contains("\0"), (wire.output?.utf8.count ?? 0) <= 64 * 1024,
+              Self.validDate(wire.startedAt) else { throw ClientError.invalidPayload }
+        if wire.status.rawValue == "running" {
+            guard wire.exitCode == nil, wire.completedAt == nil, (wire.output ?? "").isEmpty,
+                  wire.truncated != true, wire.timedOut != true, (wire.errorMessage ?? "").isEmpty else { throw ClientError.invalidPayload }
+        } else {
+            guard let date = wire.completedAt, Self.validDate(date) else { throw ClientError.invalidPayload }
+            if wire.status.rawValue == "completed" {
+                guard (wire.errorMessage ?? "").isEmpty else { throw ClientError.invalidPayload }
+            } else {
+                guard !(wire.errorMessage ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ClientError.invalidPayload }
+            }
+        }
+        id = wire.id; command = wire.command; status = wire.status.rawValue; output = wire.output ?? ""
+        exitCode = wire.exitCode; excluded = wire.excludeFromContext == true
+        truncated = wire.truncated == true; timedOut = wire.timedOut == true; error = wire.errorMessage
+    }
+    private static func validDate(_ value: String) -> Bool {
+        let parser = ISO8601DateFormatter()
+        if parser.date(from: value) != nil { return true }
+        parser.formatOptions.insert(.withFractionalSeconds)
+        return parser.date(from: value) != nil
+    }
+    public var message: TranscriptMessage { .init(id: id, role: "bash", text: "", tools: [], bash: self) }
+
+    /// Places tracked executions into transcript rows. A row with an execution's
+    /// identity is replaced when `replace` allows. A missing execution is
+    /// inserted at the start (empty anchor) or after its anchor row, unless
+    /// `recorded` names it: the transcript has shown its record, so its absence
+    /// means its place lies outside the rows shown. A running execution whose
+    /// anchor is gone follows the transcript; a settled one is left out, because
+    /// its place is no longer shown.
+    public static func merge(_ executions: [BashExecution], anchors: [String: String], recorded: Set<String> = [],
+                      into messages: [TranscriptMessage],
+                      replace: (_ row: TranscriptMessage, _ execution: BashExecution) -> Bool = { _, _ in true }) -> [TranscriptMessage] {
+        guard !executions.isEmpty else { return messages }
+        var rows = messages
+        // Replacements never shift rows, so one position lookup serves them all.
+        let positions = Dictionary(rows.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var missing: [BashExecution] = []
+        for execution in executions {
+            if let index = positions[execution.id] {
+                if replace(rows[index], execution) { rows[index] = execution.message }
+            } else {
+                missing.append(execution)
+            }
+        }
+        for execution in missing where !recorded.contains(execution.id) {
+            if anchors[execution.id] == "" {
+                rows.insert(execution.message, at: 0)
+            } else if let anchor = anchors[execution.id], let index = rows.firstIndex(where: { $0.id == anchor }) {
+                rows.insert(execution.message, at: index + 1)
+            } else if execution.running { rows.append(execution.message) }
+        }
+        return rows
+    }
+}
+
+public struct BashDraft: Equatable {
+    public let command: String
+    public let excluded: Bool
+    public init?(_ text: String) {
+        guard text.hasPrefix("!") else { return nil }
+        excluded = text.hasPrefix("!!")
+        command = String(text.dropFirst(excluded ? 2 : 1)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+extension BashExecution {
+    public static func boundary(_ message: WireTranscriptMessage) throws -> BashExecution? {
+        guard message.boundaryKind == "bash", let details = message.details, let id = message.boundaryId else { return nil }
+        let content = SessionProjection.boundaryContent(message.content ?? [], kind: "bash", source: message.boundarySource)
+        return try boundary(id: id, details: details, content: content, sequence: message.sequence)
+    }
+    public static func boundary(id: String, details: WireJSON, content: [WireTranscriptContent], sequence: Int64 = 0) throws -> BashExecution {
+        struct Details: Decodable {
+            let version: Int
+            let command: String
+            let status: WireBashExecutionStatus
+            let exitCode: Int?
+            let truncated: Bool?
+            let timedOut: Bool?
+            let errorMessage: String?
+            let startedAt: String
+            let completedAt: String
+        }
+        let value = try JSONDecoder().decode(Details.self, from: JSONEncoder().encode(details))
+        guard value.version == 1 else { throw ClientError.invalidPayload }
+        var output = SessionProjection.visibleText(content)
+        let prefix = "[bash command: " + value.command + "]" + (value.exitCode.map { $0 == 0 ? "" : " (exit code: \($0))" } ?? "")
+        if output.hasPrefix(prefix) { output = String(output.dropFirst(prefix.count)).trimmingCharacters(in: .newlines) }
+        let notices = [value.timedOut == true ? "[timed out]" : nil,
+                       value.truncated == true ? "[output truncated]" : nil,
+                       value.errorMessage.map { "[" + value.status.rawValue + ": " + $0 + "]" }].compactMap { $0 }
+        for notice in notices.reversed() where output.hasSuffix(notice) {
+            output = String(output.dropLast(notice.count)).trimmingCharacters(in: .newlines)
+        }
+        return try BashExecution(.init(id: id, sessionId: "boundary", sequence: sequence, command: value.command,
+            status: value.status, output: output, exitCode: value.exitCode, excludeFromContext: false,
+            truncated: value.truncated, timedOut: value.timedOut, errorMessage: value.errorMessage,
+            startedAt: value.startedAt, completedAt: value.completedAt), session: "boundary")
+    }
+}

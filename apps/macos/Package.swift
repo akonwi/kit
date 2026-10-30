@@ -12,7 +12,6 @@ let package = Package(
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter.git", exact: "0.25.0"),
         .package(path: "Vendor/CodeEditSourceEditor"),
         .package(url: "https://github.com/CodeEditApp/CodeEditLanguages.git", exact: "0.1.20"),
-        .package(url: "https://github.com/apple/swift-openapi-generator.git", exact: "1.13.1"),
         .package(url: "https://github.com/apple/swift-openapi-runtime.git", exact: "1.12.1"),
         .package(url: "https://github.com/apple/swift-http-types.git", exact: "1.8.0")
     ],
@@ -27,9 +26,10 @@ let package = Package(
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "HTTPTypesFoundation", package: "swift-http-types"),
             "GhosttyKit",
+            .product(name: "KitClient", package: "KitShared"),
             .product(name: "KitMermaid", package: "KitShared"),
             .product(name: "KitFigures", package: "KitShared")
-        ], exclude: ["openapi-generator-config.yaml"], resources: [.process("Resources")],
+        ], resources: [.process("Resources")],
         linkerSettings: [
             .linkedFramework("Carbon"),
             .linkedFramework("CoreText"),
@@ -44,6 +44,7 @@ let package = Package(
         .binaryTarget(name: "GhosttyKit", path: "Vendor/Ghostty/GhosttyKit.xcframework"),
         .testTarget(name: "KitTests", dependencies: [
             "Kit",
+            .product(name: "KitClient", package: "KitShared"),
             .product(name: "KitMermaid", package: "KitShared"),
             .product(name: "KitFigures", package: "KitShared")
         ])

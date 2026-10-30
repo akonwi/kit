@@ -25,10 +25,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
-      # Generating builds the package, which needs libghostty.
-      - uses: ./.github/actions/setup-ghostty
       - name: Verify generated protocol
-        run: apps/macos/script/generate_openapi.sh --check
+        run: apps/apple/KitShared/script/generate_openapi.sh --check
 
   release-staging:
     runs-on: macos-latest

@@ -7,10 +7,23 @@ let package = Package(
     name: "KitShared",
     platforms: [.macOS(.v15), .iOS(.v18)],
     products: [
+        .library(name: "KitClient", targets: ["KitClient"]),
         .library(name: "KitMermaid", targets: ["KitMermaid"]),
         .library(name: "KitFigures", targets: ["KitFigures"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-openapi-generator.git", exact: "1.13.1"),
+        .package(url: "https://github.com/apple/swift-openapi-runtime.git", exact: "1.12.1"),
+        .package(url: "https://github.com/apple/swift-http-types.git", exact: "1.8.0")
+    ],
     targets: [
+        // The session client: the generated OpenAPI transport and the
+        // projections both apps build on. The server stays authoritative.
+        .target(name: "KitClient", dependencies: [
+            .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
+            .product(name: "HTTPTypes", package: "swift-http-types"),
+            .product(name: "HTTPTypesFoundation", package: "swift-http-types")
+        ], exclude: ["openapi-generator-config.yaml"]),
         // Kit's Mermaid renderer, ported from the terminal client's (ADR 0046).
         .target(name: "KitMermaid"),
         // Kit's data figures, ported from the terminal client's (ADR 0054).
