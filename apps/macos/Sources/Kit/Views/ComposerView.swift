@@ -31,7 +31,7 @@ struct ComposerView: View {
 
     /// The thinking levels the model offers, or none when it has none or is unknown.
     static func thinkingLevels(model: String, models: [WireModelCapability]) -> [String] {
-        models.first(where: { $0.id == model })?.thinkingLevels?.map(\.rawValue) ?? []
+        ComposerConfiguration.thinkingLevels(model: model, models: models)
     }
 
     var body: some View {

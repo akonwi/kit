@@ -320,8 +320,7 @@ final class SessionStore {
     func configure(model: String? = nil, thinking: String? = nil) async {
         guard !unavailable, let client = composerClient, let selected else { return }
         let target = model ?? self.model
-        let levels = configuration.models.first(where: { $0.id == target })?.thinkingLevels?.map(\.rawValue) ?? []
-        let level = thinking ?? (levels.contains(self.thinking) ? self.thinking : levels.first ?? "off")
+        let level = thinking ?? ComposerConfiguration.thinkingLevel(switchingTo: target, from: self.thinking, models: configuration.models)
         await configuration.change(client: client, session: selected, model: target, thinking: level) { [weak self] in
             guard let self, self.selectedID == selected.id else { throw CancellationError() }
             _ = try await self.replica.resynchronize()
