@@ -104,3 +104,38 @@ struct SessionCreationTests {
         #expect(app.sessions.first?.title == "New workspace")
     }
 }
+
+struct SessionCreationHelperTests {
+    @Test func aTypedFolderStartsFromTheServersHome() {
+        #expect(SessionCreation.folder("~", home: "/home/me") == "/home/me")
+        #expect(SessionCreation.folder("~", home: "") == "/")
+        #expect(SessionCreation.folder(" ~/src/kit ", home: "/home/me") == "/home/me/src/kit")
+        #expect(SessionCreation.folder("src/kit", home: "/home/me/") == "/home/me/src/kit")
+        #expect(SessionCreation.folder("/srv/app", home: "/home/me") == "/srv/app")
+        #expect(SessionCreation.folder("  ", home: "/home/me") == nil)
+    }
+
+    @Test func aNewSessionThinksAtMediumWhenItCan() {
+        #expect(SessionCreation.defaultThinking(["low", "medium", "high"]) == "medium")
+        #expect(SessionCreation.defaultThinking(["low", "high"]) == "low")
+        #expect(SessionCreation.defaultThinking([]) == "")
+    }
+
+    @Test func onlyAnUnsentOrRefusedCreateIsCertainlyNotMade() {
+        #expect(SessionCreation.definitelyRejected(MutationNotSent(reason: "offline")))
+        for code in [400, 401, 403, 404, 409, 422] {
+            #expect(SessionCreation.definitelyRejected(ClientError.http(code)))
+        }
+        #expect(!SessionCreation.definitelyRejected(ClientError.http(500)))
+        #expect(!SessionCreation.definitelyRejected(ClientError.http(502)))
+        #expect(!SessionCreation.definitelyRejected(URLError(.timedOut)))
+    }
+
+    @Test func newIDsAreDistinctSessionIDs() {
+        let first = SessionCreation.newID(), second = SessionCreation.newID()
+        #expect(first != second)
+        #expect(first.hasPrefix("session_"))
+        #expect(first.dropFirst("session_".count).allSatisfy { $0.isHexDigit && !$0.isUppercase })
+        #expect(first.count == "session_".count + 32)
+    }
+}

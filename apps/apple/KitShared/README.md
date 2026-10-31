@@ -14,7 +14,9 @@ iOS app. It holds no AppKit or UIKit code.
   docked while a plugin's next one arrives. `TranscriptAttachmentStore`
   downloads a transcript's attachments, previews images and text, and caches
   them for one session. `ComposerAttachments` validates, converts, and
-  uploads the files a draft attaches. Regenerate the transport after changing
+  uploads the files a draft attaches. `SessionCreation` resolves a new
+  session's typed folder and default thinking level, and tells a refused
+  create from one whose answer was lost. Regenerate the transport after changing
   `api/kit-session.openapi.json`:
 
   ```sh

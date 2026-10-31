@@ -49,13 +49,7 @@ enum NewSessionPlace: Equatable {
     /// the home folder there, and a relative path starts from it. Nil for
     /// an empty path.
     static func folder(_ typed: String, home: String) -> String? {
-        let path = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty else { return nil }
-        if path.hasPrefix("/") { return path }
-        let base = home.hasSuffix("/") ? String(home.dropLast()) : home
-        if path == "~" { return base.isEmpty ? "/" : base }
-        let relative = path.hasPrefix("~/") ? String(path.dropFirst(2)) : path
-        return base + "/" + relative
+        SessionCreation.folder(typed, home: home)
     }
 }
 
@@ -85,7 +79,7 @@ struct NewSessionView: View {
     @Environment(\.mica) private var theme
     @Environment(\.openSettings) private var openSettings
     @State private var temporary = false
-    @State private var creationID = "session_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    @State private var creationID = SessionCreation.newID()
     @State private var name = ""
     @State private var directory = FileManager.default.homeDirectoryForCurrentUser.path
     /// The folder typed for a server on another machine.
@@ -360,7 +354,7 @@ struct NewSessionView: View {
     }
 
     static func defaultThinking(_ levels: [String]) -> String {
-        levels.contains("medium") ? "medium" : levels.first ?? ""
+        SessionCreation.defaultThinking(levels)
     }
 
     private func chooseDirectory() {
@@ -425,11 +419,8 @@ struct NewSessionView: View {
             }
             close(); open(session)
         } catch {
+            let definitelyRejected = SessionCreation.definitelyRejected(error)
             if temporary {
-                let definitelyRejected: Bool
-                if error is MutationNotSent { definitelyRejected = true }
-                else if case ClientError.http(let code) = error { definitelyRejected = [400, 401, 403, 404, 409, 422].contains(code) }
-                else { definitelyRejected = false }
                 if definitelyRejected {
                     TemporarySessions.shared.forget(SessionIdentity(server: client.serverID, session: creationID))
                     self.error = error.localizedDescription
@@ -443,8 +434,7 @@ struct NewSessionView: View {
                 }
                 return
             }
-            if error is MutationNotSent { self.error = error.localizedDescription }
-            else if case ClientError.http(let code) = error, [400, 401, 403, 404, 409, 422].contains(code) {
+            if definitelyRejected {
                 self.error = error.localizedDescription
             } else {
                 uncertain = true
