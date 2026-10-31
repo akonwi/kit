@@ -13,7 +13,8 @@ iOS app. It holds no AppKit or UIKit code.
   their answers into a response; `InteractionHold` keeps an answered request
   docked while a plugin's next one arrives. `TranscriptAttachmentStore`
   downloads a transcript's attachments, previews images and text, and caches
-  them for one session. Regenerate the transport after changing
+  them for one session. `ComposerAttachments` validates, converts, and
+  uploads the files a draft attaches. Regenerate the transport after changing
   `api/kit-session.openapi.json`:
 
   ```sh

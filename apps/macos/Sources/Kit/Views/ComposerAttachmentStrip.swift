@@ -24,7 +24,7 @@ struct ComposerAttachmentStrip: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             if let preview = item.preview {
-                                Image(nsImage: preview).resizable().scaledToFit().frame(width: 120, height: 76)
+                                Image(decorative: preview, scale: 1).resizable().scaledToFit().frame(width: 120, height: 76)
                                     .accessibilityLabel("Preview of \(item.filename)")
                             }
                             if let error = item.error {

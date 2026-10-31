@@ -1,52 +1,61 @@
-import AppKit
+import CoreGraphics
+import Foundation
 import ImageIO
 import Observation
 
 /// A draft owns upload tasks and bytes independently of composer view lifetime.
 @MainActor @Observable
-final class ComposerAttachments {
-    struct Item: Identifiable {
-        let id: UUID
-        var filename: String
-        var data: Data?
-        var preview: NSImage?
-        var uploaded: WireAttachmentInfo?
-        var error: String?
-        var busy = true
+public final class ComposerAttachments {
+    public struct Item: Identifiable {
+        public let id: UUID
+        public var filename: String
+        public var data: Data?
+        /// An image's thumbnail, at most 320 pixels on its longer side.
+        public var preview: CGImage?
+        public var uploaded: WireAttachmentInfo?
+        public var error: String?
+        public var busy = true
         /// Whether the prepared file is an image; false until preparation finishes.
-        var isImage = false
+        public var isImage = false
+
+        public init(id: UUID, filename: String, data: Data? = nil, preview: CGImage? = nil,
+                    uploaded: WireAttachmentInfo? = nil, error: String? = nil, busy: Bool = true, isImage: Bool = false) {
+            self.id = id; self.filename = filename; self.data = data; self.preview = preview
+            self.uploaded = uploaded; self.error = error; self.busy = busy; self.isImage = isImage
+        }
     }
-    var items: [Item] = []
-    var error: String?
+    public var items: [Item] = []
+    public var error: String?
     @ObservationIgnored private var tasks: [UUID: Task<Void, Never>] = [:]
-    static func uniqueIDs(_ values: [String]) -> [String] {
+    public init() {}
+    public static func uniqueIDs(_ values: [String]) -> [String] {
         var seen = Set<String>()
         return values.filter { seen.insert($0).inserted }
     }
-    var readyIDs: [String] { items.compactMap { $0.uploaded?.id } }
-    var ready: Bool { items.allSatisfy { $0.uploaded != nil } }
+    public var readyIDs: [String] { items.compactMap { $0.uploaded?.id } }
+    public var ready: Bool { items.allSatisfy { $0.uploaded != nil } }
     deinit { for task in tasks.values { task.cancel() } }
 
-    func remove(_ id: UUID) {
+    public func remove(_ id: UUID) {
         tasks.removeValue(forKey: id)?.cancel()
         items.removeAll { $0.id == id }
     }
-    func acknowledge(_ ids: [String]) {
+    public func acknowledge(_ ids: [String]) {
         for item in items where item.uploaded.map({ ids.contains($0.id) }) == true { remove(item.id) }
     }
     /// Reserve a visible, non-sendable slot before an asynchronous pasteboard provider resolves.
-    func reserve(filename: String) -> UUID? {
+    public func reserve(filename: String) -> UUID? {
         guard items.count < 8 else { error = "A message can contain up to eight attachments."; return nil }
         error = nil
         let id = UUID()
         items.append(Item(id: id, filename: filename))
         return id
     }
-    func failReserved(_ id: UUID, error: Error) { fail(id, error: error) }
+    public func failReserved(_ id: UUID, error: Error) { fail(id, error: error) }
 
     /// Adds a file. `imageRejectingModel` names the session's model when it accepts no
     /// images; a prepared image is then removed with a notice instead of uploaded.
-    func add(url: URL, client: any ComposerClient, session: String, reserved id: UUID? = nil,
+    public func add(url: URL, client: any ComposerClient, session: String, reserved id: UUID? = nil,
              imageRejectingModel: @escaping @MainActor () -> String? = { nil }) {
         add(filename: url.lastPathComponent, client: client, session: session, reserved: id, imageRejectingModel: imageRejectingModel) {
             let access = url.startAccessingSecurityScopedResource()
@@ -59,7 +68,7 @@ final class ComposerAttachments {
             return try file.read(upToCount: 10 * 1024 * 1024 + 1) ?? Data()
         }
     }
-    func add(filename: String, data: Data, client: any ComposerClient, session: String, reserved id: UUID? = nil,
+    public func add(filename: String, data: Data, client: any ComposerClient, session: String, reserved id: UUID? = nil,
              imageRejectingModel: @escaping @MainActor () -> String? = { nil }) {
         add(filename: filename, client: client, session: session, reserved: id, imageRejectingModel: imageRejectingModel) { data }
     }
@@ -88,7 +97,7 @@ final class ComposerAttachments {
                 }
                 self.items[index].filename = prepared.filename
                 self.items[index].data = prepared.data
-                self.items[index].preview = prepared.preview.map { NSImage(cgImage: $0, size: .zero) }
+                self.items[index].preview = prepared.preview
                 self.items[index].isImage = prepared.isImage
                 await self.upload(id, client: client, session: session)
             } catch is CancellationError {} catch { self?.fail(id, error: error) }
@@ -134,7 +143,7 @@ final class ComposerAttachments {
             kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 320] as CFDictionary)
         return Prepared(filename: name, data: data, preview: preview, isImage: true)
     }
-    func retry(_ id: UUID, client: any ComposerClient, session: String) {
+    public func retry(_ id: UUID, client: any ComposerClient, session: String) {
         guard items.first(where: { $0.id == id })?.data != nil else { return }
         tasks[id]?.cancel()
         tasks[id] = Task { [weak self] in await self?.upload(id, client: client, session: session) }
