@@ -8,6 +8,10 @@ private final class CreationResponse: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let url = request.url!
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test")
+        if url.port == 19206 { // The answer is lost on the way back.
+            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            return
+        }
         let body: String
         let status: Int
         if url.path == "/v1/sessions/resync" {
@@ -79,8 +83,23 @@ struct SessionCreationTests {
         #expect(created.id == "session_test")
     }
 
-    @Test func failedCreationDoesNotReturnAnInventedSession() async throws {
-        await #expect(throws: ClientError.self) { try await client(19202).createSession(input) }
+    @Test func aRefusedCreateReportsTheServersStatus() async throws {
+        do {
+            _ = try await client(19202).createSession(input)
+            Issue.record("A refused create must throw")
+        } catch {
+            guard case ClientError.http(let status) = error else { Issue.record("Expected the server's status, got \(error)"); return }
+            #expect(status == 400)
+            #expect(SessionCreation.definitelyRejected(error), "A refused create is known not to exist")
+        }
+    }
+    @Test func aLostAnswerMayHaveCreatedTheSession() async throws {
+        do {
+            _ = try await client(19206).createSession(input)
+            Issue.record("A create without an answer must throw")
+        } catch {
+            #expect(!SessionCreation.definitelyRejected(error), "Without an answer the session may exist")
+        }
     }
     @Test(arguments: [19201, 19203, 19204]) func serverResyncReattachesImmediatelyWithABoundedRetryCount(port: Int) async throws {
         actor Received {

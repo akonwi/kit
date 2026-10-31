@@ -1255,8 +1255,22 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     public func createSession(_ input: WireCreateSessionInput) async throws -> SessionExcerpt {
         guard let version = Operations.CreateSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.incompatible }
         let body: Components.Schemas.CreateSessionInput = try generated(input, as: Components.Schemas.CreateSessionInput.self)
-        let output = try await api.createSession(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
-        guard case let .created(response) = output else { throw ClientError.invalidPayload }
+        let output = try await generatedOperation { try await api.createSession(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body)) }
+        let response: Operations.CreateSession.Output.Created
+        switch output {
+        case .created(let created): response = created
+        case .badRequest: throw ClientError.http(400)
+        case .unauthorized: throw ClientError.http(401)
+        case .forbidden: throw ClientError.http(403)
+        case .conflict: throw ClientError.http(409)
+        case .contentTooLarge: throw ClientError.http(413)
+        case .misdirectedRequest: throw ClientError.http(421)
+        case .upgradeRequired: throw ClientError.http(426)
+        case .tooManyRequests: throw ClientError.http(429)
+        case .internalServerError: throw ClientError.http(500)
+        case .serviceUnavailable: throw ClientError.http(503)
+        case .undocumented(let status, _): throw ClientError.http(status)
+        }
         let record: WireSessionInfo = try generated(try response.body.json, as: WireSessionInfo.self)
         guard input.id == nil || input.id == record.id else { throw ClientError.invalidPayload }
         return try SessionProjection.summary(record)
