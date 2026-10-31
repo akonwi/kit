@@ -29,7 +29,8 @@ let package = Package(
             .product(name: "KitClient", package: "KitShared"),
             .product(name: "KitMermaid", package: "KitShared"),
             .product(name: "KitFigures", package: "KitShared"),
-            .product(name: "KitTranscript", package: "KitShared")
+            .product(name: "KitTranscript", package: "KitShared"),
+            .product(name: "KitHighlighting", package: "KitShared")
         ], resources: [.process("Resources")],
         linkerSettings: [
             .linkedFramework("Carbon"),
@@ -48,7 +49,8 @@ let package = Package(
             .product(name: "KitClient", package: "KitShared"),
             .product(name: "KitMermaid", package: "KitShared"),
             .product(name: "KitFigures", package: "KitShared"),
-            .product(name: "KitTranscript", package: "KitShared")
+            .product(name: "KitTranscript", package: "KitShared"),
+            .product(name: "KitHighlighting", package: "KitShared")
         ])
     ]
 )

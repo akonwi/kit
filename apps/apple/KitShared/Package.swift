@@ -10,13 +10,15 @@ let package = Package(
         .library(name: "KitClient", targets: ["KitClient"]),
         .library(name: "KitMermaid", targets: ["KitMermaid"]),
         .library(name: "KitFigures", targets: ["KitFigures"]),
-        .library(name: "KitTranscript", targets: ["KitTranscript"])
+        .library(name: "KitTranscript", targets: ["KitTranscript"]),
+        .library(name: "KitHighlighting", targets: ["KitHighlighting"])
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-openapi-generator.git", exact: "1.13.1"),
         .package(url: "https://github.com/apple/swift-openapi-runtime.git", exact: "1.12.1"),
         .package(url: "https://github.com/apple/swift-http-types.git", exact: "1.8.0"),
-        .package(url: "https://github.com/swiftlang/swift-markdown.git", exact: "0.8.0")
+        .package(url: "https://github.com/swiftlang/swift-markdown.git", exact: "0.8.0"),
+        .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter.git", exact: "0.25.0")
     ],
     targets: [
         // The session client: the generated OpenAPI transport and the
@@ -35,6 +37,11 @@ let package = Package(
         .target(name: "KitTranscript", dependencies: [
             "KitClient", "KitMermaid", "KitFigures",
             .product(name: "Markdown", package: "swift-markdown")
+        ]),
+        // Code highlighting with tree-sitter. Each app supplies the grammars
+        // it bundles through `SyntaxGrammars`.
+        .target(name: "KitHighlighting", dependencies: [
+            .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter")
         ])
     ]
 )

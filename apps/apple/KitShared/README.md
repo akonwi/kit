@@ -29,8 +29,12 @@ iOS app. It holds no AppKit or UIKit code.
 - `KitTranscript` is what a transcript shows, apart from how each app draws
   it: the Markdown projection (`MarkdownContent`), tool call presentation
   (`ToolPresentation`), and session mention links (`SessionMentions`).
+- `KitHighlighting` highlights code with tree-sitter: fence language aliases,
+  capture-to-role mapping, and a bounded span cache. Each app supplies the
+  grammars it bundles through `SyntaxGrammars`; the macOS app uses the ones in
+  CodeEditLanguages, which its editors also use.
 
-The macOS app's tests cover these modules (client, Mermaid, figure, Markdown, and tool presentation tests);
+The macOS app's tests cover these modules (client, Mermaid, figure, Markdown, tool presentation, and highlighting tests);
 run them as the macOS README describes. Check that the package still builds
 for iOS with:
 

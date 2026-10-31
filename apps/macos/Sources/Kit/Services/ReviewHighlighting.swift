@@ -1,4 +1,5 @@
 import Foundation
+import KitHighlighting
 
 /// Projects whole-document captures into unified-diff rows, retaining the prefix column.
 enum ReviewHighlighting {

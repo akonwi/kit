@@ -1,26 +1,60 @@
 import Foundation
 import SwiftTreeSitter
-import CodeEditLanguages
 
-struct SyntaxSpan: Equatable, Sendable {
-    let range: NSRange
-    let role: String
+/// A run of highlighted code and the syntax role that colors it.
+public struct SyntaxSpan: Equatable, Sendable {
+    public let range: NSRange
+    public let role: String
+
+    public init(range: NSRange, role: String) {
+        self.range = range
+        self.role = role
+    }
 }
 
-struct CodeHighlightRequest: Hashable, Sendable {
-    let source: String
-    let language: String
+/// Code to highlight and the language its fence or file names.
+public struct CodeHighlightRequest: Hashable, Sendable {
+    public let source: String
+    public let language: String
+
+    public init(source: String, language: String) {
+        self.source = source
+        self.language = language
+    }
+}
+
+/// A language's parser and the highlight query that captures its syntax.
+public struct SyntaxGrammar: Sendable {
+    public let language: Language
+    public let query: Query
+
+    public init(language: Language, query: Query) {
+        self.language = language
+        self.query = query
+    }
+}
+
+/// Supplies the grammars a highlighter parses with. Each app bundles its own.
+public protocol SyntaxGrammars: Sendable {
+    /// The grammar for a canonical language name from
+    /// `CodeSyntaxHighlighter.canonicalLanguage(_:)`.
+    func grammar(named name: String) throws -> SyntaxGrammar
 }
 
 /// Parse off the main actor; cache captures independently of the active theme.
-actor CodeSyntaxHighlighter {
-    static let shared = CodeSyntaxHighlighter()
-    private var configurations: [String: (Language, Query)] = [:]
+public actor CodeSyntaxHighlighter {
+    private let grammars: any SyntaxGrammars
+    private var configurations: [String: SyntaxGrammar] = [:]
     private var cache: [CodeHighlightRequest: [SyntaxSpan]] = [:]
     private var order: [CodeHighlightRequest] = []
     private var cacheBytes = 0
 
-    static func canonicalLanguage(_ label: String) -> String? {
+    public init(grammars: any SyntaxGrammars) {
+        self.grammars = grammars
+    }
+
+    /// The canonical name of a fence's language, or nil when no grammar covers it.
+    public static func canonicalLanguage(_ label: String) -> String? {
         let first = label.trimmingCharacters(in: .whitespacesAndNewlines)
             .split(whereSeparator: { $0.isWhitespace }).first.map(String.init)?.lowercased() ?? ""
         switch first {
@@ -36,18 +70,19 @@ actor CodeSyntaxHighlighter {
         }
     }
 
-    func spans(for request: CodeHighlightRequest) throws -> [SyntaxSpan] {
+    /// The highlighted spans of a request's source, empty when its language has no grammar.
+    public func spans(for request: CodeHighlightRequest) throws -> [SyntaxSpan] {
         guard let name = Self.canonicalLanguage(request.language), !request.source.isEmpty else { return [] }
         // Oversized blocks still render in full, but without blocking on highlighting.
         guard request.source.utf8.count <= 256 * 1024 else { return [] }
         let key = CodeHighlightRequest(source: request.source, language: name)
         if let cached = cache[key] { return cached }
-        let (language, query) = try configuration(for: name)
+        let grammar = try configuration(for: name)
         let parser = Parser()
         parser.timeout = 0.1
-        try parser.setLanguage(language)
+        try parser.setLanguage(grammar.language)
         guard let tree = parser.parse(request.source) else { return [] }
-        let captures = query.execute(in: tree).resolve(with: .init(string: request.source)).highlights()
+        let captures = grammar.query.execute(in: tree).resolve(with: .init(string: request.source)).highlights()
         let length = request.source.utf16.count
         let candidates = captures.compactMap { capture -> SyntaxSpan? in
             guard capture.range.location >= 0, capture.range.length > 0,
@@ -88,7 +123,8 @@ actor CodeSyntaxHighlighter {
         }
     }
 
-    static func role(for capture: String) -> String? {
+    /// The syntax role a highlight query's capture name colors as.
+    public static func role(for capture: String) -> String? {
         if capture == "keyword.type" || capture == "type.builtin" { return "keywordType" }
         if capture.hasPrefix("function.builtin") || capture.hasPrefix("variable.builtin") ||
             capture.hasPrefix("constant.builtin") { return "builtin" }
@@ -114,34 +150,10 @@ actor CodeSyntaxHighlighter {
         }
     }
 
-    private func configuration(for name: String) throws -> (Language, Query) {
+    private func configuration(for name: String) throws -> SyntaxGrammar {
         if let configuration = configurations[name] { return configuration }
-        let grammar: CodeLanguage
-        switch name {
-        case "bash": grammar = .bash
-        case "go": grammar = .go
-        case "json": grammar = .json
-        case "swift": grammar = .swift
-        case "python": grammar = .python
-        case "javascript": grammar = .jsx
-        case "typescript": grammar = .typescript
-        default: grammar = .tsx
-        }
-        guard let language = grammar.language, let queryURL = grammar.queryURL else {
-            throw CocoaError(.fileReadNoSuchFile)
-        }
-        var urls: [URL] = []
-        if let parent = grammar.parentQueryURL { urls.append(parent) }
-        if name == "tsx", let javascriptURL = CodeLanguage.jsx.queryURL {
-            urls.append(javascriptURL.deletingLastPathComponent().appendingPathComponent("highlights-jsx.scm"))
-        }
-        urls.append(queryURL)
-        for name in (grammar.additionalHighlights ?? []).sorted() where name != "injections" {
-            urls.append(queryURL.deletingLastPathComponent().appendingPathComponent(name + ".scm"))
-        }
-        let source = try urls.map { try String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
-        let query = try Query(language: language, data: Data(source.utf8))
-        configurations[name] = (language, query)
-        return (language, query)
+        let grammar = try grammars.grammar(named: name)
+        configurations[name] = grammar
+        return grammar
     }
 }

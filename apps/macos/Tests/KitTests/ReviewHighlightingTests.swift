@@ -1,4 +1,5 @@
 import Foundation
+import KitHighlighting
 import Testing
 @testable import Kit
 
