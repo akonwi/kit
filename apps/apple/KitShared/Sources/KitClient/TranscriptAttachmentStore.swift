@@ -1,35 +1,40 @@
-import AppKit
+import CoreGraphics
+import Foundation
 import ImageIO
 
 /// A bounded cache owned by one transcript, never shared between session hosts.
-@MainActor final class TranscriptAttachmentStore {
-    final class Content {
-        let info: WireAttachmentInfo
-        let data: Data
-        let image: NSImage?
-        let text: String?
-        let truncated: Bool
-        init(info: WireAttachmentInfo, data: Data, image: NSImage?, text: String?, truncated: Bool) {
+@MainActor public final class TranscriptAttachmentStore {
+    /// A downloaded attachment: its bytes, and a preview of an image or text.
+    public final class Content {
+        public let info: WireAttachmentInfo
+        public let data: Data
+        /// An image's preview, at most 1200 pixels on its longer side.
+        public let image: CGImage?
+        /// The start of a text file.
+        public let text: String?
+        /// Whether `text` stops before the file's end.
+        public let truncated: Bool
+        public init(info: WireAttachmentInfo, data: Data, image: CGImage?, text: String?, truncated: Bool) {
             self.info = info; self.data = data; self.image = image; self.text = text; self.truncated = truncated
         }
     }
-    enum Failure: LocalizedError {
+    public enum Failure: LocalizedError {
         case unavailable, invalidImage
-        var errorDescription: String? {
+        public var errorDescription: String? {
             switch self {
             case .unavailable: return "Attachment unavailable"
             case .invalidImage: return "Image preview unavailable"
             }
         }
     }
-    let session: String
-    let client: any AttachmentClient
+    public let session: String
+    public let client: any AttachmentClient
     private let cache = NSCache<NSString, Content>()
-    init(client: any AttachmentClient, session: String) {
+    public init(client: any AttachmentClient, session: String) {
         self.client = client; self.session = session
         cache.totalCostLimit = 64 * 1024 * 1024
     }
-    func load(_ reference: TranscriptAttachment) async throws -> Content {
+    public func load(_ reference: TranscriptAttachment) async throws -> Content {
         guard let id = reference.id, !id.isEmpty else { throw Failure.unavailable }
         if let content = cache.object(forKey: id as NSString) { return content }
         let resolved = try await client.resolveAttachments(session, ids: [id])
@@ -52,8 +57,7 @@ import ImageIO
         }.value
         try Task.checkCancellation()
         if info.mediaType.hasPrefix("image/"), decoded.0 == nil { throw Failure.invalidImage }
-        let image = decoded.0.map { NSImage(cgImage: $0, size: .zero) }
-        let result = Content(info: info, data: data, image: image, text: decoded.1, truncated: decoded.2)
+        let result = Content(info: info, data: data, image: decoded.0, text: decoded.1, truncated: decoded.2)
         let cost = data.count + (decoded.0.map { $0.bytesPerRow * $0.height } ?? 0)
         cache.setObject(result, forKey: id as NSString, cost: cost)
         return result

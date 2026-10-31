@@ -46,7 +46,7 @@ private struct TranscriptAttachmentCard: View {
                 }
             }.font(.kit(size: 12))
             if let image = content?.image {
-                let preview = Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 240)
+                let preview = Image(decorative: image, scale: 1).resizable().scaledToFit().frame(maxHeight: 240)
                     .accessibilityLabel("Image preview: " + (content?.info.filename ?? reference.filename))
                 Group {
                     if let openImage {

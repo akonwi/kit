@@ -11,7 +11,9 @@ iOS app. It holds no AppKit or UIKit code.
   catalog and changes a session's model and thinking level.
   `InteractionFlow` turns a pending interaction request into questions and
   their answers into a response; `InteractionHold` keeps an answered request
-  docked while a plugin's next one arrives. Regenerate the transport after changing
+  docked while a plugin's next one arrives. `TranscriptAttachmentStore`
+  downloads a transcript's attachments, previews images and text, and caches
+  them for one session. Regenerate the transport after changing
   `api/kit-session.openapi.json`:
 
   ```sh
