@@ -71,9 +71,7 @@ private struct RestartedServerClient: SessionClient, @unchecked Sendable {
     }
 
     @Test func rememberedIdentitySurvivesAppRelaunchAndExpiresWithDaemonSession() async throws {
-        let suite = "TemporarySessionTests-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make()
         let references = TemporarySessions(defaults: defaults)
         references.remember(server: "test", session: "temporary")
         references.remember(server: "other", session: "elsewhere")
@@ -90,9 +88,7 @@ private struct RestartedServerClient: SessionClient, @unchecked Sendable {
     }
 
     @Test func temporarySessionsFollowTheirServersNewName() throws {
-        let suite = "TemporarySessionTests-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make()
         let references = TemporarySessions(defaults: defaults)
         references.remember(server: "vps", session: "scratch")
         references.remember(server: "other", session: "elsewhere")
@@ -107,9 +103,7 @@ private struct RestartedServerClient: SessionClient, @unchecked Sendable {
     // catalog load with "The server identity or response does not match local
     // discovery" instead of being forgotten.
     @Test func temporarySessionLostInAServerRestartIsForgotten() async throws {
-        let suite = "TemporarySessionTests-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RestartedServerResponse.self]
         let http = try HTTPClient(endpoint: URL(string: "http://127.0.0.1:19311")!, token: "test",

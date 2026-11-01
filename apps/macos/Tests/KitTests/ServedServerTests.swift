@@ -555,7 +555,7 @@ struct LauncherServerOptionTests {
     }
 
     @Test func theLauncherServerFollowsRenamesAndRemovals() throws {
-        let defaults = try #require(UserDefaults(suiteName: "launcher-\(UUID().uuidString)"))
+        let defaults = TestDefaults.make()
         let servers = try directory([SavedServer(name: "devbox", kind: .ssh, address: "me@devbox")], defaults: defaults)
         servers.launcherServer = "devbox"
         try servers.rename("devbox", to: "gpu")

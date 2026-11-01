@@ -5,9 +5,7 @@ import Testing
 @MainActor
 struct TypographyTests {
     @Test func preferencesPersistAndReset() throws {
-        let suite = "TypographyTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make()
         let typography = Typography(defaults: defaults)
         #expect(typography.interfaceFamily == "System")
         #expect(typography.monoFamily == "JetBrains Mono")
@@ -28,9 +26,7 @@ struct TypographyTests {
     }
 
     @Test func unavailableFontsFallBackToSystem() throws {
-        let suite = "TypographyTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make()
         let typography = Typography(defaults: defaults)
         typography.monoFamily = "Unavailable Font Family"
         #expect(typography.font(size: 12, mono: true).fontName == NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).fontName)

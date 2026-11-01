@@ -151,7 +151,7 @@ struct AppUpdateInstallerTests {
 @MainActor struct AppUpdaterTests {
     @Test func checkOffersANewerAppAndRemembersTheNewestCLI() async throws {
         let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
-                                 effects: .fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1"), .init(tag: "v0.49.0")])), defaults: AppUpdateFixture.defaults())
+                                 effects: .fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1"), .init(tag: "v0.49.0")])), defaults: TestDefaults.make())
 
         #expect(await updater.check() == true)
         #expect(updater.state == .available(try #require(try KitReleases.newest(.app, in: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")])))))
@@ -160,7 +160,7 @@ struct AppUpdateInstallerTests {
 
     @Test func checkLeavesAnUpToDateAppIdle() async {
         let updater = AppUpdater(current: ReleaseVersion("0.5.1"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
-                                 effects: .fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")])), defaults: AppUpdateFixture.defaults())
+                                 effects: .fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")])), defaults: TestDefaults.make())
 
         #expect(await updater.check() == false)
         #expect(updater.state == .idle)
@@ -170,7 +170,7 @@ struct AppUpdateInstallerTests {
         var fetched = false
         var effects = AppUpdater.Effects.fixture(list: Data())
         effects.fetchList = { fetched = true; return Data() }
-        let updater = AppUpdater(current: nil, installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects, defaults: AppUpdateFixture.defaults())
+        let updater = AppUpdater(current: nil, installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects, defaults: TestDefaults.make())
 
         #expect(await updater.check() == false)
         #expect(!fetched)
@@ -179,7 +179,7 @@ struct AppUpdateInstallerTests {
 
     @Test func releaseNotesOpenTheRunningAppsRelease() {
         let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
-                                 effects: .fixture(list: Data()), defaults: AppUpdateFixture.defaults())
+                                 effects: .fixture(list: Data()), defaults: TestDefaults.make())
         #expect(updater.releaseNotesURL == URL(string: "https://github.com/akonwi/kit/releases/tag/macos-v0.5.0"))
     }
 
@@ -191,7 +191,7 @@ struct AppUpdateInstallerTests {
         effects.install = { staged, installed, _ in installs.append((staged, installed)) }
         effects.discard = { discarded.append($0) }
         let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
-                                 effects: effects, defaults: AppUpdateFixture.defaults())
+                                 effects: effects, defaults: TestDefaults.make())
         await updater.check()
         let release = try #require(updater.state.release)
 
@@ -206,7 +206,7 @@ struct AppUpdateInstallerTests {
     }
 
     @Test func aFailedInstallAtQuitReopensTheOldAppAndShowsTheFailureNextTime() async throws {
-        let defaults = AppUpdateFixture.defaults()
+        let defaults = TestDefaults.make()
         var relaunched: [URL] = []
         var effects = AppUpdater.Effects.fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")]))
         effects.prepare = { _, _, _ in URL(fileURLWithPath: "/tmp/staged/Kit.app") }
@@ -237,7 +237,7 @@ struct AppUpdateInstallerTests {
         effects.relaunch = { _ in relaunched += 1 }
         effects.terminate = {}
         let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
-                                 effects: effects, defaults: AppUpdateFixture.defaults())
+                                 effects: effects, defaults: TestDefaults.make())
         await updater.check()
         await updater.update()?.value
 
@@ -253,7 +253,7 @@ struct AppUpdateInstallerTests {
         effects.canReplace = { _ in false }
         effects.download = { _, _ in downloads += 1; return URL(fileURLWithPath: "/tmp/none.zip") }
         let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"),
-                                 effects: effects, defaults: AppUpdateFixture.defaults())
+                                 effects: effects, defaults: TestDefaults.make())
         await updater.check()
         let release = try #require(updater.state.release)
 
@@ -267,7 +267,7 @@ struct AppUpdateInstallerTests {
         var effects = AppUpdater.Effects.fixture(list: AppUpdateFixture.list([.init(tag: "macos-v0.5.1")]))
         effects.prepare = { _, _, _ throws(AppUpdateInstaller.Failure) in throw .digestMismatch }
         effects.install = { _, _, _ in installed = true }
-        let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects, defaults: AppUpdateFixture.defaults())
+        let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects, defaults: TestDefaults.make())
         await updater.check()
         let release = try #require(updater.state.release)
 
@@ -283,7 +283,7 @@ struct AppUpdateInstallerTests {
         var effects = AppUpdater.Effects.fixture(list: Data())
         effects.fetchList = { list }
         effects.prepare = { _, _, _ in URL(fileURLWithPath: "/tmp/staged/Kit.app") }
-        let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects, defaults: AppUpdateFixture.defaults())
+        let updater = AppUpdater(current: ReleaseVersion("0.5.0"), installed: URL(fileURLWithPath: "/Applications/Kit.app"), effects: effects, defaults: TestDefaults.make())
         await updater.check()
         await updater.update()?.value
         let ready = updater.state
@@ -304,14 +304,6 @@ struct ServersSettingsTests {
 }
 
 enum AppUpdateFixture {
-    /// Defaults no other test shares.
-    static func defaults() -> UserDefaults {
-        let suite = "kit-update-tests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        return defaults
-    }
-
     struct Listed {
         var tag: String
         var draft = false

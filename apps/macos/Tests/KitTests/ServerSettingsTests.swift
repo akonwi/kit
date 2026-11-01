@@ -154,9 +154,7 @@ struct ServerSettingsDefaultsTests {
 @MainActor
 struct DiffPreferencesTests {
     @Test func preferencesPersistAndDiffsFollowThem() throws {
-        let suite = "DiffPreferencesTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make()
         let preferences = DiffPreferences(defaults: defaults)
         #expect(preferences.layout == .unified)
         #expect(!preferences.wrapLines)

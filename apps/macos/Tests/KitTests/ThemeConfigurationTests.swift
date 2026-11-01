@@ -71,9 +71,7 @@ struct ThemeConfigurationTests {
     }
 
     @Test func migrationDeletesEmbeddedThemeDefinitionsAndLegacyKeys() throws {
-        let suite = "ThemeConfigurationTests.\(UUID())"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make()
         defaults.set(##"{"light":"legacy-light-id","dark":"mica","imported":[{"id":"legacy-light-id","name":"Flexoki light","definition":{"tokens":{"bg":"#FFFCF0"}}}]}"##,
                      forKey: "themeConfiguration")
         defaults.set("custom", forKey: "themePalette")
