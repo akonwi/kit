@@ -148,9 +148,8 @@ private actor ScratchpadServer: ScratchpadClient {
         let theme = MicaTheme(dark: false)
         let host = NSHostingView(rootView: ScratchpadPane(state: store)
             .environment(\.mica, theme).environment(\.colorScheme, .light).background(theme.surface))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 500),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 760, height: 500),
+                              styleMask: [.titled])
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }

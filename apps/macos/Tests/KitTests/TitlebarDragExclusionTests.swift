@@ -33,8 +33,7 @@ import Testing
         let host = NSHostingView(rootView: SessionTopTabs(model: model, placement: .constant(.top))
             .frame(width: size.width, height: size.height, alignment: .topLeading))
         host.sizingOptions = []
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(origin: .zero, size: size))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }

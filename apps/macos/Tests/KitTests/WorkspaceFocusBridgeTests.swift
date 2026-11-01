@@ -85,8 +85,8 @@ private struct FocusHarness: View {
         workspace.open(.file("a.swift"))
         workspace.split(.file("a.swift"), .right)
         host = NSHostingView(rootView: FocusHarness(workspace: workspace, overlay: overlay))
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
-                          styleMask: [.titled], backing: .buffered, defer: false)
+        window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
+                          styleMask: [.titled])
         window.contentView = host
         try await settle()
     }

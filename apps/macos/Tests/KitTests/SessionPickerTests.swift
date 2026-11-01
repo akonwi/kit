@@ -198,9 +198,7 @@ struct SessionPickerTests {
         let view = SessionPickerContent(sessions: Self.sessions, activity: [:], connecting: false, connected: true,
                                         error: nil, currentID: "missing", open: { opened.append($0.id) }, refresh: {})
             .environment(\.mica, theme).frame(width: PaletteMetrics.width, height: PaletteMetrics.height)
-        let window = FocusIsolatedWindow(contentRect: NSRect(x: 0, y: 0, width: PaletteMetrics.width, height: PaletteMetrics.height),
-                                         styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = FocusIsolatedWindow(testContentRect: NSRect(x: 0, y: 0, width: PaletteMetrics.width, height: PaletteMetrics.height))
         window.contentView = NSHostingView(rootView: view)
         window.orderFront(nil)
         defer { window.close() }
@@ -228,9 +226,7 @@ struct SessionPickerTests {
                 .foregroundStyle(theme.text).background(theme.surface)
                 .frame(width: PaletteMetrics.width, height: PaletteMetrics.height)
             let host = NSHostingView(rootView: view)
-            let window = FocusIsolatedWindow(contentRect: NSRect(x: 0, y: 0, width: PaletteMetrics.width, height: PaletteMetrics.height),
-                                             styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
+            let window = FocusIsolatedWindow(testContentRect: NSRect(x: 0, y: 0, width: PaletteMetrics.width, height: PaletteMetrics.height))
             window.contentView = host
             window.orderFront(nil)
             defer { window.close() }
@@ -287,9 +283,7 @@ struct SessionPickerTests {
                                         rename: { renamed.append($0.id) }, delete: { deleted.append($0.id) })
             .environment(\.mica, theme).frame(width: PaletteMetrics.width, height: PaletteMetrics.height)
         let host = NSHostingView(rootView: view)
-        let window = FocusIsolatedWindow(contentRect: NSRect(x: 0, y: 0, width: PaletteMetrics.width, height: PaletteMetrics.height),
-                                         styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = FocusIsolatedWindow(testContentRect: NSRect(x: 0, y: 0, width: PaletteMetrics.width, height: PaletteMetrics.height))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }

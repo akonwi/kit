@@ -21,3 +21,19 @@ class FocusIsolatedWindow: NSWindow {
         return own
     }
 }
+
+extension NSWindow {
+    /// A window for a test, kept when it closes and shown and closed
+    /// without animation.
+    ///
+    /// AppKit animates a window in and out on a thread of its own, which
+    /// waits for the display to refresh. When the display sleeps during a
+    /// run, each animation started meanwhile holds its thread for good.
+    /// Dozens of test windows would then take every thread Swift
+    /// concurrency has, and the run would stall.
+    convenience init(testContentRect contentRect: NSRect, styleMask: NSWindow.StyleMask = [.borderless]) {
+        self.init(contentRect: contentRect, styleMask: styleMask, backing: .buffered, defer: false)
+        isReleasedWhenClosed = false
+        animationBehavior = .none
+    }
+}

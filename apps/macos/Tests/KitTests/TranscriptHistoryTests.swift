@@ -149,9 +149,7 @@ private final class TranscriptPageResponse: URLProtocol, @unchecked Sendable {
         let (state, client) = try await setup()
         defer { state.detach() }
         let host = NSHostingView(rootView: SessionView(state: state))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 700))
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.close() }
@@ -194,9 +192,7 @@ private final class TranscriptPageResponse: URLProtocol, @unchecked Sendable {
 
     private func render(_ state: SessionStore) async throws -> (NSWindow, NSScrollView)? {
         let host = NSHostingView(rootView: SessionView(state: state))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 700))
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         func scrollViews(_ view: NSView) -> [NSScrollView] {

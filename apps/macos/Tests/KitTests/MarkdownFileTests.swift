@@ -175,9 +175,7 @@ import Testing
         let theme = ThemeConfiguration.decode("").theme(dark: true)
         let host = NSHostingView(rootView: view
             .environment(\.mica, theme).environment(\.colorScheme, .dark).background(theme.surface))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 520), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 720, height: 520))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }
@@ -231,9 +229,7 @@ import Testing
         let theme = ThemeConfiguration.decode("").theme(dark: true)
         let host = NSHostingView(rootView: MarkdownDocumentView(source: source)
             .environment(\.mica, theme).environment(\.colorScheme, .dark).background(theme.surface))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 400), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 1200, height: 400))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }

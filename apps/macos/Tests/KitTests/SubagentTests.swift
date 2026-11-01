@@ -118,9 +118,7 @@ struct SubagentTests {
             }.environment(\.mica, theme).environment(\.colorScheme, dark ? .dark : .light)
                 .foregroundStyle(theme.text).background(theme.surface).frame(width: 1151, height: 600)
             let host = NSHostingView(rootView: view)
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1151, height: 600),
-                                  styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
+            let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 1151, height: 600))
             window.contentView = host
             window.orderFront(nil)
             defer { window.close() }
@@ -188,9 +186,7 @@ struct SubagentTests {
             .environment(\.mica, theme).environment(\.colorScheme, .dark)
             .foregroundStyle(theme.text).background(theme.surface).frame(width: 630, height: 500)
         let host = NSHostingView(rootView: view)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 630, height: 500),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 630, height: 500))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }

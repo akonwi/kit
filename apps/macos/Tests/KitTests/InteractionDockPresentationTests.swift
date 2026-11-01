@@ -54,8 +54,7 @@ import Testing
         let theme = ThemeConfiguration.decode("").theme(dark: true)
         let host = NSHostingView(rootView: content.frame(width: width).environment(\.mica, theme)
             .environment(\.colorScheme, .dark).background(theme.surface))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: width, height: 800))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }

@@ -115,9 +115,7 @@ struct TabStripRevealTests {
 
     @Test func aPanelOverTheStripKeepsItsWheel() async throws {
         let host = NSHostingView(rootView: CoveredStrip())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 100), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 400, height: 100))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }
@@ -166,9 +164,7 @@ struct TabStripRevealTests {
         self.panes = panes
         let theme = ThemeConfiguration.decode("").theme(dark: true)
         host = NSHostingView(rootView: WorkspaceLayout(state: store).environment(\.mica, theme).environment(\.colorScheme, .dark))
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 300), styleMask: [.borderless],
-                          backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 1200, height: 300))
         window.contentView = host
         window.orderFront(nil)
         try await settle()

@@ -24,12 +24,10 @@ import Testing
         """
 
     /// Keeps the page in a window, so it can show dialogs.
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled],
-                          backing: .buffered, defer: false)
+    let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled])
 
     private func loadedEngine() async throws -> any BrowserEngine {
         let engine = WebKitBrowserEngine.make()
-        window.isReleasedWhenClosed = false
         window.contentView = engine.view
         let data = Data(Self.page.utf8).base64EncodedString()
         engine.load(URL(string: "data:text/html;base64," + data)!)
@@ -106,7 +104,6 @@ import Testing
         workspace.makeBrowserEngine = WebKitBrowserEngine.make
         let data = Data(Self.page.utf8).base64EncodedString()
         let tab = workspace.openBrowser(URL(string: "data:text/html;base64," + data)!)
-        window.isReleasedWhenClosed = false
         window.contentView = tab.view
         try await eventually { !tab.loading && tab.page.title == "Sign in" }
         let plugin = BrowserAgentPlugin { workspace }

@@ -193,8 +193,7 @@ import Testing
         let registry = SessionWindowRegistry(restoration: WindowRestorationStore(url: url))
         let model = registry.model(for: SessionWindowRequest(windowID: UUID()))
         model.open(id("a"))
-        let window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: .zero, styleMask: [.titled, .closable])
         registry.attach(model, to: window)
         model.servers.local.catalog.recordCreated(SessionExcerpt(id: "a", title: "Release notes", sourceTitle: "", model: "m",
                                                                   thinking: "high", workspace: "/work", date: "", messages: []))
@@ -215,8 +214,7 @@ import Testing
         model.open(id("b"))
         #expect(registry.restoration.windows == [.init(id: request.windowID, sessions: [id("a"), id("b")], selected: id("b"))])
 
-        let window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: .zero, styleMask: [.titled, .closable])
         registry.attach(model, to: window)
         window.close()
         #expect(registry.restoration.windows == [])
@@ -229,8 +227,7 @@ import Testing
         let request = SessionWindowRequest(windowID: UUID())
         let model = registry.model(for: request)
         model.open(id("a"))
-        let window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: .zero, styleMask: [.titled, .closable])
         registry.attach(model, to: window)
         registry.terminating = true
         window.close()

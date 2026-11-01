@@ -18,9 +18,7 @@ import Testing
         let host = NSHostingView(rootView: ToolActivityView(tools: tools, workspace: WorkspaceState(demo: false),
                                                             state: state, inProgress: inProgress)
             .frame(width: 600).environment(\.mica, MicaTheme(dark: false)))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 600, height: 400))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }

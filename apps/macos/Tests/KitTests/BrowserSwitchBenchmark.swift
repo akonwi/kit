@@ -88,9 +88,7 @@ private final class HTMLServer: @unchecked Sendable {
         let theme = ThemeConfiguration.decode("").theme(dark: true)
         let session = { AnyView(WorkspaceLayout(state: store).environment(\.mica, theme).environment(\.colorScheme, .dark)) }
         let host = NSHostingView(rootView: session())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 1400, height: 900), styleMask: [.titled])
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.close() }

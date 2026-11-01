@@ -73,9 +73,7 @@ struct SessionLauncherTests {
                 .environment(\.mica, theme).environment(\.colorScheme, dark ? .dark : .light)
                 .foregroundStyle(theme.text).background(theme.surface).frame(width: 900, height: 700)
             let host = NSHostingView(rootView: view)
-            let window = FocusIsolatedWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-                                             styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
+            let window = FocusIsolatedWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 700))
             window.contentView = host
             window.orderFront(nil)
             defer { window.close() }
@@ -127,9 +125,7 @@ struct SessionLauncherTests {
                 .environment(\.mica, theme).frame(width: 900, height: 700)
         }
         let host = NSHostingView(rootView: launcher(older))
-        let window = FocusIsolatedWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-                                         styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = FocusIsolatedWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 700))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }

@@ -33,8 +33,7 @@ import Testing
             PluginFooterView(session: session)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { measurement.width = $0 }
         }.frame(width: 620, height: 38))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 38), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 620, height: 38))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }

@@ -325,8 +325,8 @@ extension InlineAnnotationEditorTests {
             annotations.observe([note])
             let host = NSHostingView(rootView: DiffHarness(document: document, annotations: annotations)
                 .environment(\.mica, MicaTheme(dark: dark)).environment(\.colorScheme, dark ? .dark : .light))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 460), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+            let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 860, height: 460), styleMask: [.titled, .closable])
+            window.contentView = host; window.makeKeyAndOrderFront(nil)
             defer { window.close() }
             // The diff lays out with its rows and the note's block.
             try await eventually {
@@ -377,8 +377,8 @@ extension InlineAnnotationEditorTests {
         let theme = MicaTheme(dark: true, palette: "custom", customJSON: json)
         let host = NSHostingView(rootView: DiffHarness(document: try DiffTestData.document(), annotations: AnnotationState())
             .environment(\.mica, theme).environment(\.colorScheme, .dark))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 460), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 860, height: 460), styleMask: [.titled, .closable])
+        window.contentView = host; window.makeKeyAndOrderFront(nil)
         defer { window.close() }
         try await eventually {
             InlineAnnotationEditorTests.controller(in: host)?.view.subviews
@@ -421,8 +421,8 @@ extension InlineAnnotationEditorTests {
             let host = NSHostingView(rootView: ReviewPane(state: state)
                 .background(MicaTheme(dark: dark).surface)
                 .environment(\.mica, MicaTheme(dark: dark)).environment(\.colorScheme, dark ? .dark : .light))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 560), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+            let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 560), styleMask: [.titled, .closable])
+            window.contentView = host; window.makeKeyAndOrderFront(nil)
             defer { window.close() }
             /// Editors from the top of the pane down; view order isn't screen order.
             func editors(in view: NSView) -> [TextViewController] {
@@ -534,8 +534,8 @@ extension InlineAnnotationEditorTests {
         let theme = MicaTheme(dark: true)
         let host = NSHostingView(rootView: ReviewPane(state: state).background(theme.surface)
             .environment(\.mica, theme).environment(\.colorScheme, .dark))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .closable])
+        window.contentView = host; window.makeKeyAndOrderFront(nil)
         defer { window.close() }
         func scrollViews(_ view: NSView) -> [NSScrollView] {
             (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews($0) }
@@ -580,8 +580,8 @@ extension InlineAnnotationEditorTests {
             await model.refresh(client: client, session: "session_test")
             let host = NSHostingView(rootView: ReviewPane(state: state).background(MicaTheme(dark: dark).surface)
                 .environment(\.mica, MicaTheme(dark: dark)).environment(\.colorScheme, dark ? .dark : .light))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 650), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+            let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 1000, height: 650), styleMask: [.titled, .closable])
+            window.contentView = host; window.makeKeyAndOrderFront(nil)
             defer { window.close() }
             func editors(in view: NSView) -> [TextViewController] {
                 if let editor = view.nextResponder as? TextViewController { return [editor] }
@@ -797,8 +797,8 @@ struct DiffFileOpeningTests {
         let theme = MicaTheme(dark: true)
         let host = NSHostingView(rootView: ReviewPane(state: state).background(theme.surface)
             .environment(\.mica, theme).environment(\.colorScheme, .dark))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 400), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 400), styleMask: [.titled, .closable])
+        window.contentView = host; window.makeKeyAndOrderFront(nil)
         defer { window.close() }
         try await eventually { model.files.map(\.path) == ["main.swift"] }
         host.layoutSubtreeIfNeeded()

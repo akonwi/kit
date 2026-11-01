@@ -36,9 +36,7 @@ struct NewSessionViewTests {
                                      loadDefaults: { ServerSettings() }, open: open)
             .environment(\.mica, theme).environment(\.colorScheme, .dark)
             .frame(width: 900, height: 700)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 700))
         window.contentView = NSHostingView(rootView: view)
         window.orderFront(nil)
         return window

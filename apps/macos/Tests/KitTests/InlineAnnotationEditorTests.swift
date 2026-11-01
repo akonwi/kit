@@ -60,8 +60,8 @@ private struct InlineAnnotationClient: AnnotationClient {
             let annotations = AnnotationState(); annotations.observe([note])
             let host = NSHostingView(rootView: Harness(file: file, annotations: annotations)
                 .environment(\.mica, MicaTheme(dark: dark)).environment(\.colorScheme, dark ? .dark : .light))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 460), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+            let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 760, height: 460), styleMask: [.titled, .closable, .resizable])
+            window.contentView = host; window.makeKeyAndOrderFront(nil)
             defer { window.close() }
             // The note's block opens beside its anchor once the editor lays out.
             try await eventually {
@@ -133,8 +133,8 @@ private struct InlineAnnotationClient: AnnotationClient {
             let annotations = AnnotationState()
             let host = NSHostingView(rootView: Harness(file: file, annotations: annotations)
                 .environment(\.mica, MicaTheme(dark: dark)).environment(\.colorScheme, dark ? .dark : .light))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 460), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+            let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 760, height: 460), styleMask: [.titled, .closable])
+            window.contentView = host; window.makeKeyAndOrderFront(nil)
             defer { window.close() }
             try await eventually {
                 guard let controller = Self.controller(in: host) else { return false }
@@ -223,8 +223,8 @@ private struct InlineAnnotationClient: AnnotationClient {
         let file = try Self.file(String(repeating: "let value = 1\n", count: 260))
         let annotations = AnnotationState()
         let host = NSHostingView(rootView: Harness(file: file, annotations: annotations))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 460), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 760, height: 460), styleMask: [.titled])
+        window.contentView = host; window.makeKeyAndOrderFront(nil)
         defer { window.close() }
         try await eventually {
             Self.controller(in: host)?.view.subviews.contains { $0 is AnnotationGutterOverlay } == true

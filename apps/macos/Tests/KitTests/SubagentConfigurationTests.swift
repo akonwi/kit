@@ -188,9 +188,7 @@ private actor ConfigurationStub: SubagentConfigurationClient {
                 .environment(\.mica, theme).environment(\.colorScheme, dark ? .dark : .light)
                 .foregroundStyle(theme.text).background(theme.surface).frame(width: 630, height: 240)
             let host = NSHostingView(rootView: view)
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 630, height: 240),
-                                  styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
+            let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 630, height: 240))
             window.contentView = host
             window.orderFront(nil)
             defer { window.close() }

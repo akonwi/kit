@@ -55,8 +55,7 @@ struct CreatedSessionPresentationTests {
                 .environment(\.transcriptSessionLink, TranscriptSessionLink(serverID: "test", open: { _ in }))
                 .environment(\.colorScheme, dark ? .dark : .light).foregroundStyle(theme.text).background(theme.surface)
             let host = NSHostingView(rootView: content)
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
+            let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 700, height: 400))
             window.contentView = host
             window.orderFront(nil)
             defer { window.close() }

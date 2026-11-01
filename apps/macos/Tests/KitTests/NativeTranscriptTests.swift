@@ -105,9 +105,7 @@ import Testing
            presentation: TranscriptPresentationState(), workspace: WorkspaceState(demo: false),
            resumeRequest: 0, latestOutOfView: .constant(false), loadHistory: {}, theme: MicaTheme(dark: false))
         let adapter = NativeTranscriptCoordinator(input)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 700))
         window.contentView = adapter.scroll
         window.orderFront(nil)
         defer { adapter.stop(); window.close() }
@@ -139,9 +137,7 @@ import Testing
                 latestOutOfView: .constant(false), loadHistory: {}, theme: MicaTheme(dark: false))
         }
         let adapter = NativeTranscriptCoordinator(input())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 700))
         window.contentView = adapter.scroll
         window.orderFront(nil)
         defer { adapter.stop(); window.close() }
@@ -211,9 +207,7 @@ import Testing
                 latestOutOfView: .constant(false), loadHistory: {}, theme: MicaTheme(dark: false))
         }
         let adapter = NativeTranscriptCoordinator(input("live-plugin-turn_plugin"))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 700))
         window.contentView = adapter.scroll
         window.orderFront(nil)
         defer { adapter.stop(); window.close() }
@@ -254,9 +248,7 @@ import Testing
                 theme: MicaTheme(dark: false), reading: reading)
         }
         let adapter = NativeTranscriptCoordinator(input())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 400),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 400))
         window.contentView = adapter.scroll
         window.orderFront(nil)
         defer { adapter.stop(); window.close() }
@@ -353,9 +345,7 @@ import Testing
                 loadHistory: { historyRequests += 1 }, theme: MicaTheme(dark: false))
         }
         let adapter = NativeTranscriptCoordinator(input())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 900, height: 700))
         window.contentView = adapter.scroll
         window.orderFront(nil)
         defer { adapter.stop(); window.close() }

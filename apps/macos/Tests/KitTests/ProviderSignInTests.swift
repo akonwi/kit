@@ -341,8 +341,7 @@ struct ProviderSignInTests {
         await signIn.load()
         var continued = 0
         let theme = ThemeConfiguration.decode("").theme(dark: true)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 620), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 760, height: 620))
         window.contentView = NSHostingView(rootView: FirstRunView(signIn: signIn) { continued += 1 }
             .environment(\.mica, theme).frame(width: 760, height: 620))
         window.makeKeyAndOrderFront(nil)

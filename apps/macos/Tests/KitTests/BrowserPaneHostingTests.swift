@@ -16,9 +16,7 @@ import Testing
         store = SessionStore(fixture: try Fixture.load())
         store.ui.workspace.makeBrowserEngine = engines.make
         host = NSHostingView(rootView: AnyView(Color.clear))
-        window = FocusIsolatedWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600), styleMask: [.borderless],
-                          backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        window = FocusIsolatedWindow(testContentRect: NSRect(x: 0, y: 0, width: 1200, height: 600))
         window.contentView = host
         window.orderFront(nil)
     }

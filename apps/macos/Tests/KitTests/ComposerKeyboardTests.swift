@@ -18,8 +18,7 @@ struct ComposerKeyboardTests {
 
     @Test func slashOpensPaletteOnlyFromAnEmptyMessageDraft() throws {
         let editor = ComposerTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
-        let window = NSWindow(contentRect: editor.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: editor.frame)
         window.contentView = editor
         window.orderFront(nil)
         defer { window.close() }

@@ -48,9 +48,7 @@ private struct QuoteComposerHost: View {
         _ = NSApplication.shared
         let state = QuoteComposerState()
         let host = NSHostingView(rootView: QuoteComposerHost(state: state))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 600, height: 300))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }
@@ -85,9 +83,7 @@ private struct QuoteComposerHost: View {
         _ = NSApplication.shared
         let state = RemountComposerState()
         let host = NSHostingView(rootView: RemountComposerHost(state: state))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 600, height: 300))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }
@@ -128,9 +124,7 @@ private struct QuoteComposerHost: View {
                 attachmentDropTargeted: { _ in }, submit: {})
             Text("Composer controls remain visible")
         }.padding(20))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 600, height: 500))
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }
@@ -158,9 +152,7 @@ private struct QuoteComposerHost: View {
         editor.textContainer?.lineFragmentPadding = 0
         editor.textContainer?.widthTracksTextView = false
         editor.isVerticallyResizable = false
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 240),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 600, height: 240))
         window.contentView = scroll
         defer { window.close() }
         window.orderFront(nil)

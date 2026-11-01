@@ -51,8 +51,8 @@ struct FileEditorTests {
     @Test func changedContentPreservesRenderedSelectionAndScroll() async throws {
         let document = RefreshDocument()
         let host = NSHostingController(rootView: RefreshHarness(document: document))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 250), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; window.contentViewController = host; window.orderFront(nil)
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 500, height: 250))
+        window.contentViewController = host; window.orderFront(nil)
         defer { window.close() }
         func editor(_ controller: NSViewController) -> TextViewController? {
             func find(_ view: NSView) -> TextViewController? {
@@ -88,9 +88,8 @@ struct FileEditorTests {
         workspace.scratchpadState.observe(ScratchpadRecord(owner: "root", content: source,
             revision: 1, updatedAt: "2026-09-20T12:00:00Z"))
         let host = NSHostingController(rootView: ScratchpadHarness(workspace: workspace))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 250),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; window.contentViewController = host; window.orderFront(nil)
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 500, height: 250))
+        window.contentViewController = host; window.orderFront(nil)
         defer { window.close() }
         func editor(_ view: NSView) -> TextViewController? {
             if let value = view.nextResponder as? TextViewController { return value }

@@ -4,10 +4,8 @@ import Testing
 
 @MainActor struct TrafficLightPlacementTests {
     @Test func lightsCenterInTheChromeRowAndFollowResize() throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         defer { window.close() }
@@ -33,10 +31,8 @@ import Testing
     }
 
     @Test func lightsReturnWhenTitlebarLayoutMovesThemAfterAChange() async throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         defer { window.close() }

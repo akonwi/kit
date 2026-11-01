@@ -213,9 +213,7 @@ private actor PickerSessionStub: SubagentDismissalClient {
         let theme = ThemeConfiguration.decode("").theme(dark: true)
         let host = NSHostingView(rootView: SubagentsPanel(state: store).environment(\.mica, theme)
             .environment(\.colorScheme, .dark))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 800, height: 600))
         window.contentView = host
         window.orderFront(nil)
         for _ in 0..<10 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }

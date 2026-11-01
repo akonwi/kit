@@ -13,9 +13,8 @@ import Testing
             let theme = MicaTheme(dark: dark)
             let host = NSHostingView(rootView: AnnotationDesignPreview(note: note)
                 .environment(\.mica, theme).environment(\.colorScheme, dark ? .dark : .light))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 800),
-                styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+            let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 720, height: 800))
+            window.contentView = host; window.orderFront(nil)
             defer { window.close() }
             try await Task.sleep(for: .milliseconds(250))
             host.layoutSubtreeIfNeeded()

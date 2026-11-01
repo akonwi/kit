@@ -361,9 +361,7 @@ private actor MutationStub: SessionMutationClient {
             }.environment(\.mica, theme).environment(\.colorScheme, dark ? .dark : .light)
                 .foregroundStyle(theme.text).background(theme.surface).frame(width: 840, height: 320)
             let host = NSHostingView(rootView: view)
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 840, height: 320),
-                                  styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
+            let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 840, height: 320))
             window.contentView = host
             window.orderFront(nil)
             defer { window.close() }

@@ -274,8 +274,7 @@ import Testing
             .environment(\.mica, theme).environment(\.colorScheme, theme.dark ? .dark : .light)
             .foregroundStyle(theme.text).background(theme.frame))
         host.sizingOptions = []
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = NSWindow(testContentRect: NSRect(origin: .zero, size: size))
         // Render in sRGB, whatever the display, so theme colors compare exactly.
         window.colorSpace = .sRGB
         window.contentView = host

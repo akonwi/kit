@@ -8,7 +8,7 @@ import Testing
         _ = NSApplication.shared
         let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
         textView.string = "alpha alpha"
-        let window = NSWindow(contentRect: textView.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = NSWindow(testContentRect: textView.frame)
         window.contentView = textView
         #expect(window.makeFirstResponder(textView))
         let coordinator = SelectionActions.Coordinator(theme: MicaTheme(dark: true), quote: { _ in })
@@ -47,7 +47,7 @@ import Testing
         let textView = NSTextView(frame: content.bounds)
         textView.string = "alpha beta"
         content.addSubview(textView)
-        let window = NSWindow(contentRect: content.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = NSWindow(testContentRect: content.bounds)
         window.contentView = content
         let coordinator = SelectionActions.Coordinator(theme: MicaTheme(dark: true), quote: { _ in })
 
@@ -75,8 +75,7 @@ import Testing
         let composer = ComposerTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 50))
         content.addSubview(transcript)
         content.addSubview(composer)
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 150),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = NSWindow(testContentRect: NSRect(x: -10000, y: -10000, width: 300, height: 150))
         window.contentView = content
         #expect(window.makeFirstResponder(composer))
         let coordinator = SelectionActions.Coordinator(theme: MicaTheme(dark: true), quote: { _ in })

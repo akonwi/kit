@@ -65,8 +65,7 @@ struct PeerSessionPresentationTests {
                 .environment(\.colorScheme, dark ? .dark : .light).foregroundStyle(theme.text).background(theme.surface))
             // Keep the snapshot viewport fixed while SwiftUI resolves child sizes.
             host.sizingOptions = []
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 430), styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
+            let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 700, height: 430))
             window.contentView = host
             window.orderFront(nil)
             defer { window.close() }
