@@ -108,6 +108,7 @@ func messageToWire(message Message) (wireMessage, error) {
 		providerError := cloneProviderError(value.Error)
 		if providerError != nil {
 			providerError.Message = boundedDiagnostic(providerError.Message)
+			sanitizeProviderResponse(providerError)
 		}
 		return wireMessage{
 			Role: RoleAssistant, Content: content, Provider: value.Provider, Model: value.Model,

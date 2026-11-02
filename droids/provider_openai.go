@@ -160,7 +160,7 @@ func (p *openAIProvider) run(ctx context.Context, model Model, req Request, s *p
 			return response.Header.Get("x-request-id")
 		}
 		return ""
-	}})
+	}, response: func() *http.Response { return response }})
 }
 
 func (p *openAIProvider) clientForRequest(ctx context.Context) (*openai.Client, error) {
@@ -264,9 +264,11 @@ type openAIResponseStream interface {
 }
 
 type openAIResponsesProfile struct {
-	name          string
-	reportError   ProviderErrorReporter
-	requestID     func() string
+	name        string
+	reportError ProviderErrorReporter
+	requestID   func() string
+	// response returns the HTTP response of the request, when known.
+	response      func() *http.Response
 	providerScope string
 	classify      func(status int, code, message string) ErrorKind
 }
@@ -290,6 +292,9 @@ func (p openAIResponsesProfile) classifyResponse(final *AssistantMessage, respon
 		final.ErrorKind = p.classify(0, string(response.Error.Code), final.ErrorMessage)
 	}
 	p.applyPolicyStop(final, string(response.Error.Code))
+	if response.Status == responses.ResponseStatusFailed {
+		attachProviderResponse(final, 0, string(response.Error.Code), response.Error.Message)
+	}
 }
 
 func (p openAIResponsesProfile) applyPolicyStop(final *AssistantMessage, code string) {
@@ -418,6 +423,7 @@ func consumeOpenAIResponseStream(ctx context.Context, model Model, stream openAI
 		case responses.ResponseErrorEvent:
 			final := profile.errorMessage(model, ctx, 0, e.Code, e.Message)
 			retainPolicyOutput(&final)
+			attachProviderResponse(&final, 0, e.Code, e.Message)
 			emitOpenAITerminal(s, final, true)
 			return
 		}
@@ -427,11 +433,18 @@ func consumeOpenAIResponseStream(ctx context.Context, model Model, stream openAI
 		if profile.reportError != nil {
 			profile.reportError(ctx, model, err)
 		}
-		status, code, message, fallbackKind := openAIStreamError(err)
-		final := profile.errorMessage(model, ctx, status, code, message)
+		var response *http.Response
+		if profile.response != nil {
+			response = profile.response()
+		}
+		failure := openAIStreamError(err, response)
+		final := profile.errorMessage(model, ctx, failure.status, failure.code, failure.message)
 		retainPolicyOutput(&final)
-		if fallbackKind != "" && ctx.Err() == nil {
-			final.ErrorKind = fallbackKind
+		if failure.fallbackKind != "" && ctx.Err() == nil {
+			final.ErrorKind = failure.fallbackKind
+		}
+		if failure.detail != "" || validProviderStatus(failure.status) != 0 {
+			attachProviderResponse(&final, failure.status, failure.code, failure.detail)
 		}
 		emitOpenAITerminal(s, final, true)
 		return
@@ -501,16 +514,40 @@ func classifyOpenAIError(status int, code, message string) ErrorKind {
 	}
 }
 
-func openAIStreamError(err error) (status int, code, message string, fallbackKind ErrorKind) {
-	message = err.Error()
+// openAIFailure is what a failed Responses request reported.
+type openAIFailure struct {
+	status int
+	code   string
+	// message is the text used to classify the failure.
+	message string
+	// detail is the provider's explanation, set only from its error response.
+	detail       string
+	fallbackKind ErrorKind
+}
+
+// openAIStreamError reads a Responses request failure. response is the HTTP
+// response the request received, when known; it supplies the status and body
+// of an error response the SDK could not decode.
+func openAIStreamError(err error, response *http.Response) openAIFailure {
+	failure := openAIFailure{message: err.Error()}
 	var apiErr *openai.Error
 	if errors.As(err, &apiErr) {
-		status = apiErr.StatusCode
-		code = apiErr.Code
-		if apiErr.Message != "" {
-			message = apiErr.Message
+		failure.status = apiErr.StatusCode
+		failure.code, failure.detail = apiErr.Code, apiErr.Message
+		if failure.code == "" {
+			failure.code = apiErr.Type
 		}
-		return status, code, message, ""
+		if failure.detail == "" {
+			code, detail := providerErrorFromBody(providerHTTPErrorBody(apiErr.Response))
+			failure.detail = detail
+			if failure.code == "" {
+				failure.code = code
+			}
+		}
+		if failure.detail != "" {
+			failure.message = failure.detail
+		}
+		return failure
 	}
 	var streamErr *ssestream.StreamError
 	if errors.As(err, &streamErr) {
@@ -522,25 +559,36 @@ func openAIStreamError(err error) (status int, code, message string, fallbackKin
 			} `json:"error"`
 		}
 		if json.Unmarshal(streamErr.Event.Data, &envelope) == nil {
-			code = envelope.Error.Code
-			if code == "" {
-				code = envelope.Error.Type
+			failure.code = envelope.Error.Code
+			if failure.code == "" {
+				failure.code = envelope.Error.Type
 			}
 			if envelope.Error.Message != "" {
-				message = envelope.Error.Message
+				failure.message = envelope.Error.Message
+				failure.detail = envelope.Error.Message
 			}
 		}
-		if code != "" {
-			return 0, code, message, ""
+		if failure.code == "" {
+			failure.fallbackKind = ErrorProtocol
 		}
-		return 0, "", message, ErrorProtocol
+		return failure
+	}
+	if response != nil && validProviderStatus(response.StatusCode) != 0 {
+		failure.status = response.StatusCode
+		failure.code, failure.detail = providerErrorFromBody(providerHTTPErrorBody(response))
+		if failure.detail != "" {
+			failure.message = failure.detail
+		}
+		return failure
 	}
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
-		return 0, "", message, ErrorProtocol
+		failure.fallbackKind = ErrorProtocol
+		return failure
 	}
-	return 0, "", message, ErrorTransport
+	failure.fallbackKind = ErrorTransport
+	return failure
 }
 
 func emitOpenAITextDelta(s *pipeStream, started map[int64]bool, outputIndex int64, delta string) {

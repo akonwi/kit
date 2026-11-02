@@ -285,12 +285,47 @@ func (m AssistantMessage) IsPolicyStop() bool {
 
 // ProviderError is stable provider failure metadata.
 type ProviderError struct {
-	Kind       ProviderErrorKind
-	Code       string `json:",omitempty"`
-	RequestID  string `json:",omitempty"`
-	Message    string
+	Kind ProviderErrorKind
+	// Code is the provider's error code or type, such as "model_not_found",
+	// when it reported a short identifier.
+	Code      string `json:",omitempty"`
+	RequestID string `json:",omitempty"`
+	// Message is the runtime's fixed description of Kind. It never contains
+	// provider text.
+	Message string
+	// Status is the HTTP status of the provider's error response, or zero
+	// when the failure did not come from one.
+	Status int `json:",omitempty"`
+	// Detail is the provider's own explanation of the failure, as it appeared
+	// in the provider's error response. It is sanitized before it is stored
+	// or published to single-line, renderer-safe text of at most 300 bytes;
+	// its content is not otherwise changed. It is empty when the failure did
+	// not come from the provider or the provider gave no explanation.
+	Detail     string `json:",omitempty"`
 	Retryable  bool
 	RetryAfter time.Duration
+}
+
+// Explanation describes the failure for a person: the fixed Message,
+// followed by the provider's Detail and HTTP Status when they are known, as
+// in "Provider rejected the request: Model is unavailable. (HTTP 400)".
+func (e ProviderError) Explanation() string {
+	explanation := e.Message
+	if e.Detail != "" {
+		if explanation == "" {
+			explanation = e.Detail
+		} else {
+			explanation += ": " + e.Detail
+		}
+	}
+	if e.Status != 0 {
+		if explanation == "" {
+			explanation = fmt.Sprintf("HTTP %d", e.Status)
+		} else {
+			explanation += fmt.Sprintf(" (HTTP %d)", e.Status)
+		}
+	}
+	return explanation
 }
 
 // AssistantMessage is a full model response for one turn.
@@ -317,6 +352,17 @@ type AssistantMessage struct {
 
 func (AssistantMessage) isMessage() {}
 func (AssistantMessage) Role() Role { return RoleAssistant }
+
+// ErrorExplanation describes a failed response for a person. It is the
+// typed error's Explanation when there is one, and ErrorMessage otherwise.
+func (m AssistantMessage) ErrorExplanation() string {
+	if m.Error != nil {
+		if explanation := m.Error.Explanation(); explanation != "" {
+			return explanation
+		}
+	}
+	return m.ErrorMessage
+}
 
 // Text returns the concatenated text content of the message (thinking and tool
 // calls excluded), with blocks joined by newlines.

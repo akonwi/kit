@@ -26,20 +26,10 @@ func TestAnthropicExtraUsageIsUsageLimit(t *testing.T) {
 	if got := classifyAnthropicError(apiErr); got != ProviderUsageLimit {
 		t.Fatalf("classify = %q, want usage limit", got)
 	}
-	detail := anthropicProviderMessage(apiErr)
-	if got := sanitizedUsageDetail(detail); got != detail {
-		t.Fatalf("sanitized detail = %q, want %q", got, detail)
-	}
-	if got := safeProviderMessage(ProviderUsageLimit, detail); got != detail {
-		t.Fatalf("safe message = %q, want %q", got, detail)
-	}
-	for _, unsafe := range []string{
-		"POST \"https://api.anthropic.com\" request-id secret",
-		"Usage quota exhausted; x-api-key: reflected-secret",
-	} {
-		if got := safeProviderMessage(ProviderUsageLimit, unsafe); got != "Provider usage limit reached" {
-			t.Fatalf("provider error leaked: %q", got)
-		}
+	status, code, detail := anthropicErrorResponse(apiErr)
+	if status != http.StatusBadRequest || code != "invalid_request_error" ||
+		detail != "You're out of extra usage. Add more at claude.ai/settings/usage and keep going." {
+		t.Fatalf("response = %d %q %q", status, code, detail)
 	}
 }
 

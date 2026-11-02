@@ -562,7 +562,7 @@ func (r *childRuntime) Run(ctx context.Context, task subagent.Task, admitted fun
 	if outcome.FinalMessage != nil {
 		if assistant, ok := outcome.FinalMessage.Message.(droids.AssistantMessage); ok {
 			result.Text = assistant.Text()
-			result.Error = assistant.ErrorMessage
+			result.Error = assistant.ErrorExplanation()
 		}
 	}
 	if outcome.Error != nil && result.Error == "" {
@@ -833,7 +833,7 @@ func projectChildTranscriptMessage(envelope droids.MessageEnvelope, sequence int
 		message.Role, content = "user", typed.Content
 	case droids.AssistantMessage:
 		message.Role, content = "assistant", typed.Content
-		message.StopReason, message.ErrorMessage = string(typed.StopReason), typed.ErrorMessage
+		message.StopReason, message.ErrorMessage = string(typed.StopReason), typed.ErrorExplanation()
 		message.IsError = typed.StopReason == droids.StopReasonError || typed.StopReason == droids.StopReasonAborted
 	case droids.ToolResultMessage:
 		message.Role, content = "tool", typed.Content

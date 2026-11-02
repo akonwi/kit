@@ -461,19 +461,18 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 		if reason == StopReasonAborted {
 			kind = ""
 		}
-		message := err.Error()
-		if kind == ProviderUsageLimit {
-			if detail := anthropicProviderMessage(err); detail != "" {
-				message = detail
-			}
-		}
 		final := AssistantMessage{
 			Provider:     model.Provider,
 			Model:        model.ID,
 			StopReason:   reason,
 			ErrorKind:    kind,
-			ErrorMessage: message,
+			ErrorMessage: err.Error(),
 			Timestamp:    time.Now().UnixMilli(),
+		}
+		var apiErr *anthropic.Error
+		if errors.As(err, &apiErr) && apiErr != nil {
+			status, code, detail := anthropicErrorResponse(apiErr)
+			attachProviderResponse(&final, status, code, detail)
 		}
 		s.final = final
 		s.emit(StreamError{Message: final})
@@ -537,6 +536,24 @@ func applyAnthropicPromptCaching(params *anthropic.MessageNewParams, retention P
 func anthropicUsageLimit(err *anthropic.Error) bool {
 	message := strings.ToLower(anthropicProviderMessage(err))
 	return strings.Contains(message, "extra usage") || strings.Contains(message, "usage limit")
+}
+
+// anthropicErrorResponse reads what Anthropic said about a failure: the
+// HTTP status of a rejected request, and the error type and message from the
+// error envelope of the response body or of a streamed error event.
+func anthropicErrorResponse(apiErr *anthropic.Error) (status int, code, detail string) {
+	status = validProviderStatus(apiErr.StatusCode)
+	body := []byte(apiErr.RawJSON())
+	if status != 0 {
+		if raw := providerHTTPErrorBody(apiErr.Response); len(raw) > 0 {
+			body = raw
+		}
+	}
+	code, detail = providerErrorFromBody(body)
+	if typed := string(apiErr.Type()); typed != "" {
+		code = typed
+	}
+	return status, code, detail
 }
 
 func anthropicProviderMessage(err error) string {

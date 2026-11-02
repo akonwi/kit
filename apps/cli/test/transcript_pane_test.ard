@@ -2713,3 +2713,68 @@ fn shown_rows(terminal: headless::TestApp) [Str] {
   }
   kept.@
 }
+
+test fn a_provider_rejection_shows_kits_description_and_the_providers_reason() Void!Str {
+  let terminal = headless::new(46, 4)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: transcript::project(
+      [
+        protocol::TranscriptMessage{
+          ID: "failed",
+          TurnID: "turn-1",
+          Role: "assistant",
+          StopReason: "error",
+          IsError: true,
+          ErrorMessage: "Provider rejected the request: Upstream request failed: Model is unavailable. (HTTP 400)",
+        },
+      ],
+    ),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+    expanded_plugins: [:],
+    open_work: [:],
+    selected_tool: "",
+    open_output: [:],
+    requested: [],
+    turn_active: false,
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      " Provider rejected the request: Upstream     │",
+      " request failed: Model is unavailable.       ┃",
+      " (HTTP 400)                                  ┃",
+      "                                             ┃",
+    ],
+  )
+  let colors = theme::context(theme::store(theme::system())).current()
+  let reason = terminal.frame().cell(1, 1).expect("reason")
+  let danger = match reason.style.foreground {
+    color => {
+      color.red == colors.danger_text.red and color.green == colors.danger_text.green and color.blue == colors.danger_text.blue
+    },
+    _ => false,
+  }
+  testing::assert(
+    reason.grapheme == "r" and danger,
+    "the provider's reason reads as part of the error",
+  )
+}

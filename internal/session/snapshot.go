@@ -815,7 +815,7 @@ func projectTranscriptMessage(envelope droids.MessageEnvelope, sequence int64) (
 	case droids.AssistantMessage:
 		projected.Role = "assistant"
 		projected.StopReason = string(typed.StopReason)
-		projected.ErrorMessage = typed.ErrorMessage
+		projected.ErrorMessage = typed.ErrorExplanation()
 		projected.IsError = typed.StopReason == droids.StopReasonError || typed.StopReason == droids.StopReasonAborted
 	case droids.ToolResultMessage:
 		projected.Role = "tool"

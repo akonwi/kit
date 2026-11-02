@@ -217,8 +217,9 @@ A policy describes documented limits; it cannot guarantee acceptance. Some
 upstreams publish no limits, and OpenCode Go may route a model to a different
 upstream. When a provider rejects a prepared request, Kit does not retry it or
 alter its images. The turn fails through the normal provider error path, and the
-provider's rejection reason, safely redacted, is preserved on the failed turn
-and shown to the user instead of a generic failure message.
+provider's rejection reason, bounded and made safe to render, is preserved on
+the failed turn and shown to the user alongside Kit's description of the
+failure.
 
 The failed turn leaves the session usable. Because preparation is
 deterministic, repeating the same request on the same model is rejected the same
@@ -360,8 +361,8 @@ or served over another format, receive the envelope with user-only placement.
 - Preparation output is deterministic and cached by content.
 - Image capability outside providers is derived only from policies.
 - Preparation never fetches remote content.
-- Provider rejections are never retried automatically; their redacted reason
-  reaches the user, and the session remains usable after the failed turn.
+- Provider rejections are never retried automatically; their reason reaches
+  the user, and the session remains usable after the failed turn.
 - Context measurement is unaffected by preparation.
 - The release build remains CGO-free.
 

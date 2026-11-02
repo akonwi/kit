@@ -272,17 +272,8 @@ func (p *openCodeGoProvider) runChat(ctx context.Context, model Model, request R
 		data, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 		message := strings.TrimSpace(string(data))
 		p.reportError(ctx, model, fmt.Errorf("%s returned HTTP %d: %s", p.name, response.StatusCode, boundedDiagnostic(message)))
-		kind := ProviderInvalidRequest
-		if response.StatusCode == 401 {
-			kind = ErrorAuthentication
-		} else if response.StatusCode == 403 {
-			kind = ErrorEntitlement
-		} else if response.StatusCode == 429 {
-			kind = ErrorRateLimit
-		} else if response.StatusCode >= 500 {
-			kind = ProviderInternal
-		}
-		p.chatError(ctx, model, s, kind, message)
+		code, detail := providerErrorFromBody(data)
+		p.chatRejection(ctx, model, s, response.StatusCode, code, detail)
 		return
 	}
 	p.consumeChat(ctx, model, response.Body, s)
@@ -435,6 +426,44 @@ func (p *openCodeGoProvider) chatError(ctx context.Context, model Model, s *pipe
 	}
 	s.final = final
 	s.emit(StreamError{Message: final})
+}
+
+// chatRejection reports an HTTP error response with the status, code, and
+// explanation the provider gave.
+func (p *openCodeGoProvider) chatRejection(ctx context.Context, model Model, s *pipeStream, status int, code, detail string) {
+	message := detail
+	if message == "" {
+		message = fmt.Sprintf("%s returned HTTP %d", p.name, status)
+	}
+	final := responseErrorMessageWithCode(model, ctx, code, message)
+	if final.StopReason != StopReasonAborted {
+		final.ErrorKind = classifyOpenCodeChatStatus(status, code, message)
+	}
+	attachProviderResponse(&final, status, code, detail)
+	s.final = final
+	s.emit(StreamError{Message: final})
+}
+
+// classifyOpenCodeChatStatus classifies an HTTP error response by its
+// status. The untrusted body is consulted only to tell a context-window
+// rejection from another invalid request.
+func classifyOpenCodeChatStatus(status int, code, message string) ProviderErrorKind {
+	switch {
+	case status == http.StatusUnauthorized:
+		return ProviderAuthentication
+	case status == http.StatusForbidden:
+		return ProviderEntitlement
+	case status == http.StatusTooManyRequests:
+		return ProviderRateLimit
+	case status >= 500:
+		return ProviderInternal
+	case status >= 400 && isContextWindowError(code, message):
+		return ProviderContextWindow
+	case status >= 400:
+		return ProviderInvalidRequest
+	default:
+		return ProviderInternal
+	}
 }
 
 func openCodeChatMessages(system string, messages []Message) ([]any, error) {

@@ -170,7 +170,7 @@ func (rt *sdkRuntime) run(ctx context.Context, turnID TurnID, generation uint64)
 				rt.finishCanceledRun(turnID, context.Canceled)
 				return
 			}
-			rt.finishRunFailure(turnID, DroidErrorProvider, errors.New(errText(message)))
+			rt.finishRunFailure(turnID, DroidErrorProvider, providerResponseFailure(message))
 			return
 		case StopReasonAborted:
 			if err := rt.persistObservedAssistant(ctx, envelope, false); err != nil {
@@ -672,6 +672,7 @@ func normalizeProviderError(message *AssistantMessage) {
 	message.ErrorMessage = boundedDiagnostic(message.ErrorMessage)
 	if message.IsPolicyStop() {
 		message.Error.RequestID = boundedDiagnostic(message.Error.RequestID)
+		sanitizeProviderResponse(message.Error)
 		message.Error.Kind = ProviderInvalidRequest
 		message.Error.Retryable = false
 		message.Error.Message = "Provider stopped this request (misalignment_policy_violation)"
@@ -689,30 +690,30 @@ func normalizeProviderError(message *AssistantMessage) {
 		if message.ErrorKind == "" {
 			message.ErrorKind = message.Error.Kind
 		}
-		if message.ErrorMessage == "" {
-			message.ErrorMessage = boundedDiagnostic(message.Error.Message)
-		}
 		message.Error.Message = safeProviderMessage(message.Error.Kind, message.Error.Message)
 		message.ErrorMessage = message.Error.Message
+		sanitizeProviderResponse(message.Error)
 		return
 	}
-	kind := message.ErrorKind
-	if message.StopReason == StopReasonContextWindow && kind == "" {
-		kind = ProviderContextWindow
-	}
-	if kind == "" && message.StopReason == StopReasonError {
-		kind = ProviderInternal
-	}
+	kind := failedProviderKind(*message)
 	if kind == "" {
 		return
 	}
-	message.ErrorMessage = safeProviderMessage(kind, message.ErrorMessage)
-	message.Error = &ProviderError{
-		Kind: kind, Message: message.ErrorMessage,
-		Retryable: kind == ProviderRateLimit || kind == ProviderTransport || kind == ProviderInternal || kind == ProviderProtocol,
-	}
+	message.Error = newProviderError(kind)
+	message.Error.Message = safeProviderMessage(kind, message.ErrorMessage)
+	message.ErrorMessage = message.Error.Message
 }
 
+// sanitizeProviderResponse applies the provider-text safety rule to the
+// values an adapter took from a provider's error response.
+func sanitizeProviderResponse(err *ProviderError) {
+	err.Status = validProviderStatus(err.Status)
+	err.Code = sanitizeProviderCode(err.Code)
+	err.Detail = sanitizeProviderDetail(err.Detail)
+}
+
+// safeProviderMessage is the runtime's fixed description of a provider error
+// kind. Provider text is kept apart, in ProviderError.Detail.
 func safeProviderMessage(kind ProviderErrorKind, fallback string) string {
 	switch kind {
 	case ProviderAuthentication:
@@ -720,9 +721,6 @@ func safeProviderMessage(kind ProviderErrorKind, fallback string) string {
 	case ProviderEntitlement:
 		return "Provider access is not entitled for this model"
 	case ProviderUsageLimit:
-		if detail := sanitizedUsageDetail(fallback); detail != "" {
-			return detail
-		}
 		return "Provider usage limit reached"
 	case ProviderRateLimit:
 		return "Provider request was rate limited"

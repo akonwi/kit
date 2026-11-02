@@ -1332,9 +1332,29 @@ const (
 )
 ```
 
-A provider error may carry a bounded retry delay and safe diagnostic text.
-Provider-specific response bodies and secrets are never placed in general
-metadata.
+A provider error may carry a bounded retry delay. Its `Message` is the
+runtime's fixed description of the kind, such as "Provider rejected the
+request", and never contains provider text. What the provider said about a
+failure is kept apart: `Status` is the HTTP status of its error response,
+`Code` its short error code or type, and `Detail` its own explanation.
+Adapters fill these only from a provider's error response (an HTTP error body,
+a streamed error event, or a failed response object), never from transport or
+local validation errors, and read only the explanation fields of an error
+envelope, not the whole body; malformed JSON and HTML pages contribute no
+explanation.
+
+Provider text is untrusted. Built-in adapters sanitize what they attach, and
+the runtime sanitizes it again before a message is stored or published,
+whichever provider produced it. `Detail` becomes valid,
+single-line UTF-8 without control, format, or bidirectional characters, with
+whitespace collapsed and its length bounded to 300 bytes. Its content is not
+redacted: reading only explanation fields and the length bound limit what a
+failed response can carry, and providers mask credentials they echo. `Code`
+is kept only when it is a short identifier, and `Status` only when it is an
+HTTP failure status. `ProviderError.Explanation` and `AssistantMessage.ErrorExplanation`
+join the description with the reason and status for people, as in "Provider
+rejected the request: Model is unavailable. (HTTP 400)", and a turn that fails
+on a provider response reports that explanation as its error.
 
 `ValidateReplay` enforces provider/model/account constraints, including opaque
 response and credential scopes.

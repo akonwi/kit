@@ -2550,7 +2550,7 @@ func promptResultFromOutcome(sessionID, turnID string, outcome droids.Outcome, w
 			result.Text = assistant.Text()
 			result.StopReason = string(assistant.StopReason)
 			result.ErrorKind = projectDroidErrorKind(assistant.ErrorKind)
-			result.ErrorMessage = assistant.ErrorMessage
+			result.ErrorMessage = assistant.ErrorExplanation()
 		}
 	}
 	if outcome.Error != nil && result.ErrorMessage == "" {

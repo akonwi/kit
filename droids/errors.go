@@ -37,9 +37,24 @@ func (e *ForkAlreadyInitializedError) Unwrap() error {
 	return ErrForkAlreadyInitialized
 }
 
+// failedResponseError reports a turn that ended with a failed provider
+// response. Its explanation was built from runtime-normalized values, so the
+// turn's error may repeat it.
+type failedResponseError struct{ explanation string }
+
+func (e *failedResponseError) Error() string { return e.explanation }
+
+func providerResponseFailure(message AssistantMessage) error {
+	return &failedResponseError{explanation: message.ErrorExplanation()}
+}
+
 func safeRuntimeError(kind DroidErrorKind, err error) string {
 	switch kind {
 	case DroidErrorProvider:
+		var failed *failedResponseError
+		if errors.As(err, &failed) && failed.explanation != "" {
+			return failed.explanation
+		}
 		return "Provider request failed"
 	case DroidErrorPersistence:
 		return "Droid persistence failed"
@@ -61,18 +76,6 @@ func boundedErrorText(err error) string {
 		return ""
 	}
 	return boundedDiagnostic(err.Error())
-}
-
-// sanitizedUsageDetail keeps only reviewed provider usage sentences. Arbitrary
-// provider text can reflect request data, so broad keyword filtering is unsafe.
-func sanitizedUsageDetail(message string) string {
-	message = strings.TrimSpace(message)
-	switch strings.ToLower(message) {
-	case "you're out of extra usage. add more at claude.ai/settings/usage and keep going.":
-		return message
-	default:
-		return ""
-	}
 }
 
 func boundedDiagnostic(message string) string {

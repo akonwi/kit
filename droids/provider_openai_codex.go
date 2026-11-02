@@ -523,12 +523,14 @@ func (p *openAICodexProvider) run(ctx context.Context, model Model, req Request,
 		clientOptions = append(clientOptions, option.WithHeader("X-OpenAI-Fedramp", "true"))
 	}
 	client := openai.NewClient(clientOptions...)
-	stream := client.Responses.NewStreaming(ctx, params)
+	var response *http.Response
+	stream := client.Responses.NewStreaming(ctx, params, option.WithResponseInto(&response))
 	defer stream.Close()
 	consumeOpenAIResponseStream(ctx, model, stream, s, openAIResponsesProfile{
 		name:          "OpenAI Codex",
 		providerScope: providerScope,
 		classify:      classifyOpenAICodexError,
+		response:      func() *http.Response { return response },
 	})
 }
 
@@ -700,6 +702,8 @@ func classifyOpenAICodexError(status int, code, message string) ErrorKind {
 		return ErrorRateLimit
 	case status >= 500:
 		return ErrorTransport
+	case status >= 400:
+		return ProviderInvalidRequest
 	default:
 		return ErrorProtocol
 	}

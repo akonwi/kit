@@ -148,12 +148,14 @@ func TestExecutePrintKeepsFailuresOffStdout(t *testing.T) {
 
 	client := &fakeSessionClient{
 		sessions: []protocol.SessionInfo{{ID: "session-1", Model: "test/echo"}},
-		outcome:  protocol.PromptOutcome{SessionID: "session-1", Status: protocol.TurnStatusFailed, ErrorMessage: "provider failed"},
+		outcome: protocol.PromptOutcome{SessionID: "session-1", Status: protocol.TurnStatusFailed,
+			ErrorMessage: "Provider rejected the request: Upstream request failed: Model is unavailable. (HTTP 400)"},
 	}
 	var stdout, stderr bytes.Buffer
 	code := executePrintWith(context.Background(), client.operations(), printOptions{CWD: "/workspace", Prompt: "go"}, &stdout, &stderr)
-	if code != 1 || stdout.Len() != 0 || !bytes.Contains(stderr.Bytes(), []byte("provider failed")) {
-		t.Fatalf("exit = %d stdout = %q stderr = %q", code, stdout.String(), stderr.String())
+	want := "kit: Provider rejected the request: Upstream request failed: Model is unavailable. (HTTP 400)\n"
+	if code != 1 || stdout.Len() != 0 || stderr.String() != want {
+		t.Fatalf("exit = %d stdout = %q stderr = %q, want %q", code, stdout.String(), stderr.String(), want)
 	}
 }
 
