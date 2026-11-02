@@ -14,6 +14,8 @@ import WebKit
     private var restartedSinceCommit = false
     /// The person chose to stop this page's alerts, confirms, and prompts.
     private var dialogsSuppressed = false
+    /// Where downloads are saved.
+    private let downloadFolder: URL
     /// Whether the main frame's navigation in progress came from the person,
     /// so a download it turns into may start. Redirects keep it; a committed
     /// page or a failure ends it.
@@ -47,11 +49,17 @@ import WebKit
     }
 
     /// Kit's engine with its persistent store.
-    static func make() -> any BrowserEngine { WebKitBrowserEngine(configuration: nil) }
+    static func make() -> any BrowserEngine { make(downloadingTo: BrowserDownloads.folder) }
+
+    /// Kit's engine, saving downloads in `folder`.
+    static func make(downloadingTo folder: URL) -> any BrowserEngine {
+        WebKitBrowserEngine(configuration: nil, downloadFolder: folder)
+    }
 
     /// An engine for a new page, or for a window a page opened when
     /// `configuration` is WebKit's.
-    private init(configuration: WKWebViewConfiguration?) {
+    private init(configuration: WKWebViewConfiguration?, downloadFolder: URL) {
+        self.downloadFolder = downloadFolder
         let configuration = configuration ?? {
             let configuration = WKWebViewConfiguration()
             configuration.websiteDataStore = .default()
@@ -298,7 +306,10 @@ extension WebKitBrowserEngine: WKNavigationDelegate {
 extension WebKitBrowserEngine: WKUIDelegate {
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        let child = WebKitBrowserEngine(configuration: configuration)
+        let child = WebKitBrowserEngine(configuration: configuration, downloadFolder: downloadFolder)
+        // A window the person's click opened carries the click, so the
+        // download it may turn into is theirs.
+        child.webView.carryActivation(from: self.webView)
         emit(.openedWindow(child))
         // A window no tab took must not be given to the page.
         return child.onEvent == nil ? nil : child.webView
@@ -476,7 +487,7 @@ extension WebKitBrowserEngine: WKDownloadDelegate {
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
                   suggestedFilename: String) async -> URL? {
         let reserved = Set(Self.activeDownloads)
-        let file = BrowserDownloads.destination(for: suggestedFilename) {
+        let file = BrowserDownloads.destination(for: suggestedFilename, in: downloadFolder) {
             reserved.contains($0) || FileManager.default.fileExists(atPath: $0.path)
         }
         downloadFiles[ObjectIdentifier(download)] = file
@@ -549,6 +560,12 @@ private final class KitWebView: WKWebView {
     }
 
     func interacted() { if !agentInput { lastInteraction = Date() } }
+
+    /// Gives a window the page opened the person's recent click or key
+    /// press that opened it.
+    func carryActivation(from opener: KitWebView) {
+        if opener.recentlyInteracted { lastInteraction = opener.lastInteraction }
+    }
 
     /// Whether the agent's input is being delivered. The agent's input
     /// isn't the person's: it gives the page no activation for downloads or
