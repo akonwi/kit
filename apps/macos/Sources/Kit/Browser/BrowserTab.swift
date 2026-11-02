@@ -59,9 +59,6 @@ final class BrowserTab: Identifiable {
     private(set) var page = BrowserPageState()
     private(set) var favicon: NSImage?
     private(set) var failure: BrowserFailure?
-    /// The site that tried to download a file without a click, shown in the
-    /// pane until dismissed or the next page commits. Empty when unknown.
-    private(set) var blockedDownload: String?
     /// Increments when the address field should take the keyboard.
     private(set) var addressFocusRequest = 0
     /// The latest request a shown address field has answered.
@@ -77,6 +74,8 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored private var closed = false
     /// The page's dialog or file chooser waiting for an answer, if any.
     private(set) var pageDialog: BrowserPageDialog?
+    /// The download waiting for the person to allow it, if any.
+    private(set) var waitingDownload: BrowserDownloadRequest?
     /// The agent pointer, while the agent is acting on the page.
     private(set) var agentPointer: AgentPointer?
     @ObservationIgnored private var pointerFade: Task<Void, Never>?
@@ -107,7 +106,6 @@ final class BrowserTab: Identifiable {
     }
 
     var loading: Bool { page.loading && failure == nil }
-    func dismissBlockedDownload() { blockedDownload = nil }
 
     /// The page's view, creating the engine. A waiting load starts after
     /// the view update that asked for it.
@@ -276,7 +274,6 @@ final class BrowserTab: Identifiable {
             if let next = state.url, next != url, failure == nil || state.loading { url = next }
         case .committed:
             failure = nil
-            blockedDownload = nil
             if let next = engine?.state.url, next.host() != url?.host() { favicon = nil }
         case .failed(let failed, let message):
             let target = failed ?? url
@@ -299,8 +296,8 @@ final class BrowserTab: Identifiable {
             onRequest?(.downloadFailed(filename: filename, message: message))
         case .dialogChanged(let dialog):
             pageDialog = dialog
-        case .downloadBlocked(let source):
-            blockedDownload = source.map(BrowserAddress.hostLabel) ?? ""
+        case .downloadWaiting(let request):
+            waitingDownload = request
         }
     }
 }

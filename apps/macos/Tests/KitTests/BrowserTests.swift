@@ -364,33 +364,33 @@ struct BrowserDownloadsTests {
         #expect(failed.tone == .error && failed.persistent)
     }
 
-    @Test func blockedDownloadsShowInTheirTabUntilDismissedOrTheNextPage() throws {
+    @Test func aWaitingDownloadShowsInItsTabUntilAnswered() throws {
         let engines = FakeBrowserEngines()
         let workspace = workspace(engines)
         let feedback = SessionFeedback()
         workspace.feedback = feedback
         let tab = workspace.openBrowser(URL(string: "http://localhost:5173/reports")!)
-        for _ in 0..<3 { engines.made[0].send(.downloadBlocked(source: URL(string: "http://localhost:5173/auto.zip"))) }
-        // The tab that tried owns the notice; the session's toasts stay quiet.
+        let request = BrowserDownloadRequest(site: "localhost:5173", filename: "report.zip")
+        engines.made[0].send(.downloadWaiting(request))
+        // The tab that asks owns the question; the session's toasts stay quiet.
+        #expect(tab.waitingDownload == request)
         #expect(feedback.items.isEmpty)
-        #expect(tab.blockedDownload == "localhost:5173")
-        tab.dismissBlockedDownload()
-        #expect(tab.blockedDownload == nil)
-        engines.made[0].send(.downloadBlocked(source: nil))
-        #expect(tab.blockedDownload == "")
-        engines.made[0].send(.committed)
-        #expect(tab.blockedDownload == nil)
+        engines.made[0].send(.downloadWaiting(nil))
+        #expect(tab.waitingDownload == nil)
     }
 
-    @MainActor @Test func blockedDownloadBarIsAOneLineStripNamingTheSite() throws {
-        _ = NSApplication.shared
-        let bar = BrowserBlockedDownloadBar(site: "localhost:5173", dismiss: {})
-        #expect(bar.message == "localhost:5173 tried to download a file without a click.")
-        #expect(BrowserBlockedDownloadBar(site: "", dismiss: {}).message == "This page tried to download a file without a click.")
-        let host = NSHostingView(rootView: bar.environment(\.mica, MicaTheme(dark: true)).frame(width: 640))
-        host.frame = NSRect(origin: .zero, size: host.fittingSize)
-        host.layoutSubtreeIfNeeded()
-        #expect(host.bounds.size == CGSize(width: 640, height: BrowserBlockedDownloadBar.height))
+    @MainActor @Test func theDownloadSheetNamesTheFileAndTheSite() throws {
+        let alert = BrowserDialogs.downloadAlert(BrowserDownloadRequest(site: "localhost:5173", filename: "report.zip"))
+        #expect(alert.messageText == "Download “report.zip”?")
+        #expect(alert.informativeText == "localhost:5173 wants to save this file to your Downloads folder.")
+        #expect(alert.buttons.map(\.title) == ["Allow", "Don’t Allow"])
+        #expect(alert.buttons.map(\.keyEquivalent) == ["\r", "\u{1b}"])
+        #expect(alert.showsSuppressionButton)
+        #expect(alert.suppressionButton?.title == "Don’t allow more downloads from this page")
+
+        let unnamed = BrowserDialogs.downloadAlert(BrowserDownloadRequest(site: ""))
+        #expect(unnamed.messageText == "Download a file?")
+        #expect(unnamed.informativeText == "This page wants to save a file to your Downloads folder.")
     }
 
     @Test func browserTabsRestoreAtTheirLastAddressWithoutLoading() throws {

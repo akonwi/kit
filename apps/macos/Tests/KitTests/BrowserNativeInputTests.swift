@@ -141,7 +141,10 @@ import WebKit
         _ = await plugin.perform(ClientPluginCallRequest(pluginID: "browser", toolID: "snapshot", input: .object(["tab": .string(id)])))
         let input = try JSONDecoder().decode(WireJSON.self, from: Data(#"{"tab":"\#(id)","action":"press","ref":"e1","key":"Enter"}"#.utf8))
         #expect(await plugin.perform(ClientPluginCallRequest(pluginID: "browser", toolID: "act", input: input)).error == nil)
-        // The tab offers the blocked download to the person instead.
-        try await eventually { tab.blockedDownload != nil }
+        // The download waits for the person instead, and the agent can't
+        // answer for them.
+        try await eventually { tab.waitingDownload == BrowserDownloadRequest(site: "") }
+        #expect(try !tab.agentEngine().answerPageDialog(accept: true, text: nil))
+        #expect(tab.waitingDownload != nil)
     }
 }

@@ -64,6 +64,20 @@ private extension WireCompleteClientPluginCallInput {
             """)
     }
 
+    @Test func listsADownloadWaitingForThePerson() async throws {
+        let (tab, engine) = agentTab()
+        engine.send(.downloadWaiting(BrowserDownloadRequest(site: "example.com", filename: "report.zip")))
+        let result = await plugin.perform(try call("tabs"))
+        #expect(result.onlyText == """
+            1 browser tab:
+            - tab \(id(tab)) · origin https://example.com · opened by agent · in background · a download is waiting for the person to allow it
+            [UNTRUSTED_PAGE_CONTENT nonce=n0nce]
+            title: Sign in
+            address: https://example.com/login
+            [/UNTRUSTED_PAGE_CONTENT nonce=n0nce]
+            """)
+    }
+
     @Test func tabsWaitingForAnAuthorizationRedirectAreNotListed() async throws {
         let page = URL(string: "https://auth.example.com/authorize?state=abc")!
         let redirect = try #require(AuthorizationRedirect(authorization: page, redirectURI: "http://localhost:1455/auth/callback"))

@@ -31,8 +31,9 @@ enum BrowserEngineEvent {
     /// A download finished, saved at `file`.
     case downloadFinished(file: URL, source: URL?)
     case downloadFailed(filename: String, message: String)
-    /// The page tried to start a download the person didn't ask for.
-    case downloadBlocked(source: URL?)
+    /// A download the person didn't ask for is waiting for them to allow
+    /// it; nil once none is.
+    case downloadWaiting(BrowserDownloadRequest?)
 }
 
 /// A web page engine behind a browser tab. Kit's views and models use only
@@ -91,6 +92,16 @@ struct BrowserPageDialog: Equatable {
     /// Whether a file chooser takes several files, or folders.
     var multiple = false
     var directories = false
+}
+
+/// A download a page started without the person asking for it, waiting
+/// for them to allow it. Like a page dialog, it waits while the page isn't
+/// shown and its sheet appears once it is. Only the person answers it.
+struct BrowserDownloadRequest: Equatable {
+    /// The site sending the file, or empty when unknown.
+    let site: String
+    /// The file's name, when the server gave one.
+    var filename: String?
 }
 
 /// Native input for a page, at points in its view from the top-left corner.

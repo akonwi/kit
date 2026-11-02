@@ -395,7 +395,7 @@ private struct WorkspaceTab: View {
                         Circle().fill(theme.accent).frame(width: 6, height: 6)
                             .accessibilityLabel("Bell")
                     }
-                    if workspace.browser(pane)?.pageDialog != nil {
+                    if let tab = workspace.browser(pane), tab.pageDialog != nil || tab.waitingDownload != nil {
                         Circle().fill(theme.warning).frame(width: 6, height: 6)
                             .help("This page is waiting for an answer")
                             .accessibilityLabel("Page is waiting for an answer")

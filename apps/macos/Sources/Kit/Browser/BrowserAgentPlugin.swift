@@ -126,6 +126,7 @@ import UniformTypeIdentifiers
             if tab.loading { facts.append("loading") }
             if tab.failure != nil { facts.append("failed to load") }
             if let dialog = tab.pageDialog { facts.append("a page \(dialog.kind.noun) is waiting for an answer") }
+            if tab.waitingDownload != nil { facts.append("a download is waiting for the person to allow it") }
             lines.append("- tab \(Self.tabID(tab)) · origin \(Self.origin(tab.url)) · " + facts.joined(separator: " · "))
             lines.append(fence.wrap("title: \(tab.title)\naddress: \(tab.url?.absoluteString ?? "(blank)")"))
         }

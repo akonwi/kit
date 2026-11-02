@@ -1,11 +1,13 @@
 import AppKit
 
 /// Standard macOS sheets for what a page asks of the person using it: page
-/// alerts, confirms and prompts, file choices, logins, and links to other
-/// apps. Each attaches to the window showing the page.
+/// alerts, confirms and prompts, file choices, downloads they didn't ask
+/// for, logins, and links to other apps. Each attaches to the window showing
+/// the page.
 ///
-/// A page's dialogs and file choosers wait for the page to be shown; logins
-/// and links to other apps on a page that isn't on screen are cancelled.
+/// A page's dialogs, file choosers, and downloads wait for the page to be
+/// shown; logins and links to other apps on a page that isn't on screen are
+/// cancelled.
 @MainActor enum BrowserDialogs {
     /// Shows a page's waiting dialog or file chooser as a sheet on `window`.
     /// `completion` receives the person's answer: whether they accepted,
@@ -46,11 +48,58 @@ import AppKit
             alert.window.initialFirstResponder = input
             field = input
         }
+        return present(alert, in: window, sheet: sheet, completion: completion) { response in
+            PageDialogAnswer(accept: dialog.kind == .alert || response == .alertFirstButtonReturn,
+                             text: field?.stringValue, suppress: alert.suppressionButton?.state == .on)
+        }
+    }
+
+    /// Asks whether a download the person didn't ask for may start.
+    /// `completion` receives whether they allowed it and whether they
+    /// stopped further downloads from the page.
+    static func present(_ request: BrowserDownloadRequest, in window: NSWindow,
+                        completion: @escaping @MainActor (PageDialogAnswer) -> Void) -> PageDialogSheet {
+        let alert = downloadAlert(request)
+        let sheet = PageDialogSheet()
+        sheet.redescribe = { [weak alert] request in
+            guard let alert else { return }
+            describe(request, in: alert)
+            alert.layout()
+        }
+        return present(alert, in: window, sheet: sheet, completion: completion) { response in
+            PageDialogAnswer(accept: response == .alertFirstButtonReturn, suppress: alert.suppressionButton?.state == .on)
+        }
+    }
+
+    /// The sheet asking about `request`: the file's name, the site sending
+    /// it, and where it will be saved. Allow is the default button, and
+    /// Escape doesn't allow it.
+    static func downloadAlert(_ request: BrowserDownloadRequest) -> NSAlert {
+        let alert = NSAlert()
+        describe(request, in: alert)
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don’t allow more downloads from this page"
+        alert.addButton(withTitle: "Allow")
+        alert.addButton(withTitle: "Don’t Allow").keyEquivalent = "\u{1b}"
+        return alert
+    }
+
+    private static func describe(_ request: BrowserDownloadRequest, in alert: NSAlert) {
+        alert.messageText = request.filename.map { "Download “\($0)”?" } ?? "Download a file?"
+        let site = request.site.isEmpty ? "This page" : request.site
+        alert.informativeText = site + (request.filename == nil ? " wants to save a file" : " wants to save this file")
+            + " to your Downloads folder."
+    }
+
+    /// Begins `alert` as a sheet on `window` that completes once, with the
+    /// answer `answer` makes of the button pressed.
+    private static func present(_ alert: NSAlert, in window: NSWindow, sheet: PageDialogSheet,
+                                completion: @escaping @MainActor (PageDialogAnswer) -> Void,
+                                answer: @escaping @MainActor (NSApplication.ModalResponse) -> PageDialogAnswer) -> PageDialogSheet {
         alert.beginSheetModal(for: window) { [weak sheet] response in
             guard let sheet, !sheet.ended else { return }
             sheet.ended = true
-            completion(PageDialogAnswer(accept: dialog.kind == .alert || response == .alertFirstButtonReturn,
-                                        text: field?.stringValue, suppress: alert.suppressionButton?.state == .on))
+            completion(answer(response))
         }
         sheet.end = { [weak window, weak alert] in
             guard let window, let alert, window.attachedSheet === alert.window else { return }
@@ -119,6 +168,10 @@ struct PageDialogAnswer {
     /// Whether the sheet has completed or been taken down.
     fileprivate(set) var ended = false
     fileprivate var end: () -> Void = {}
+    fileprivate var redescribe: (BrowserDownloadRequest) -> Void = { _ in }
+
+    /// Asks a download sheet about a newer download in its place.
+    func update(_ request: BrowserDownloadRequest) { redescribe(request) }
 
     /// Takes the sheet down without completing it, as when another answer
     /// came first or the page left the window.

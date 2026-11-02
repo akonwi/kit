@@ -297,11 +297,19 @@ browser tab after its opener in the same tile, keeping its opener, and a page
 that closes its window closes its tab. Login prompts, page alerts, confirms,
 prompts, and file choosers use standard macOS sheets on the window; page
 dialogs offer "Don't allow more dialogs from this page" until the next page
-loads, and a page that isn't on screen gets none (alerts are dismissed,
-confirms and logins cancelled). A download starts only when the person asked
-for it: within 5 s of clicking or typing in the page, as a link click or form
-submission does, or from a navigation started with Kit's own controls. Others are blocked with a warning toast
-naming the site. Downloads save to `~/Downloads`, numbering a
+loads. A page dialog or file chooser on a page that isn't on screen waits,
+with its tab marked as waiting for an answer, and its sheet appears once the
+page is shown; logins and app links there are cancelled. A download the
+person asked for starts at once: within 5 s of clicking or typing in the
+page, as a link click or form submission does, from a navigation started
+with Kit's own controls, or in a window such a click opened. Any other
+download waits for the person, its request held so nothing is sent twice, in
+a standard sheet on the window: "Download ‘name’?" naming the site, with
+Allow, Don't Allow, and "Don't allow more downloads from this page" until
+the next page loads. Like a page dialog, it waits while the page isn't on
+screen. A newer download from the page takes the place of one waiting, in
+the same sheet, and one still waiting when the next page loads is declined. The agent's input never
+counts as asking, and only the person answers the sheet. Downloads save to `~/Downloads`, numbering a
 name already taken ("report 2.pdf"), and are quarantined as web downloads; a
 finished download shows the info toast with Show in Finder, and a failed one a
 persistent error toast. A clicked mail, phone, or app link asks before opening

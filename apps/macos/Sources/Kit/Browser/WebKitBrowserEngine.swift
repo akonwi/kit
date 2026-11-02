@@ -14,6 +14,8 @@ import WebKit
     private var restartedSinceCommit = false
     /// The person chose to stop this page's alerts, confirms, and prompts.
     private var dialogsSuppressed = false
+    /// The person chose to stop this page's downloads they didn't ask for.
+    private var downloadsSuppressed = false
     /// Where downloads are saved.
     private let downloadFolder: URL
     /// Whether the main frame's navigation in progress came from the person,
@@ -24,8 +26,18 @@ import WebKit
     private var explicitNavigation = false
     private(set) var state = BrowserPageState()
     /// The page dialog or file chooser waiting for an answer.
-    private var waiting: WaitingDialog?
-    var pageDialog: BrowserPageDialog? { waiting?.dialog }
+    private var waiting: WaitingAnswer?
+    /// The download the person didn't ask for, waiting for their answer.
+    private var waitingDownload: WaitingAnswer?
+    /// Counts the pages shown and the engine's close, so an answer that
+    /// arrives after the page it was for has gone doesn't count.
+    private var generation = 0
+    /// Waits for another sheet on the window to end, to show a waiting one.
+    private var sheetEndObserver: (any NSObjectProtocol)?
+    var pageDialog: BrowserPageDialog? {
+        if case .dialog(let dialog, _) = waiting?.question { return dialog }
+        return nil
+    }
     /// Numbers native events, as the window server would.
     private var inputEvents = 0
     var onEvent: (@MainActor (BrowserEngineEvent) -> Void)?
@@ -74,7 +86,7 @@ import WebKit
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.isInspectable = true
-        webView.windowChanged = { [weak self] in self?.showWaitingDialog() }
+        webView.windowChanged = { [weak self] in self?.showWaitingSheet() }
         observe()
     }
 
@@ -90,8 +102,12 @@ import WebKit
     func stop() { webView.stopLoading() }
 
     func close() {
-        // A page closing with a dialog open gets the dialog's cancel.
+        // A page closing with a dialog or download waiting gets its cancel.
         if let waiting { finish(waiting, PageDialogAnswer(accept: false)) }
+        if let waitingDownload { finish(waitingDownload, PageDialogAnswer(accept: false)) }
+        generation += 1
+        if let sheetEndObserver { NotificationCenter.default.removeObserver(sheetEndObserver) }
+        sheetEndObserver = nil
         faviconTask?.cancel()
         observations.removeAll()
         webView.stopLoading()
@@ -203,8 +219,8 @@ extension WebKitBrowserEngine: WKNavigationDelegate {
             if let url = action.request.url, interceptsNavigation?(url) == true { return .cancel }
         }
         if action.shouldPerformDownload {
-            guard clicked else { blockDownload(action.request.url); return .cancel }
-            return .download
+            if clicked { return .download }
+            return await allowsDownload(BrowserDownloadRequest(site: Self.host(of: action.sourceFrame))) ? .download : .cancel
         }
         guard let url = action.request.url, let scheme = url.scheme?.lowercased() else { return .allow }
         guard !["http", "https", "about", "blob", "data", "javascript"].contains(scheme) else { return .allow }
@@ -222,11 +238,14 @@ extension WebKitBrowserEngine: WKNavigationDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse) async -> WKNavigationResponsePolicy {
         let disposition = (response.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition") ?? ""
         guard !response.canShowMIMEType || disposition.lowercased().hasPrefix("attachment") else { return .allow }
-        // Only a download the person asked for starts: from a navigation they
-        // began, or just after they used the page. Pages can't start one alone.
+        // A download the person asked for starts: from a navigation they
+        // began, or just after they used the page. Others wait for them to
+        // allow it, with the response held, so nothing is requested twice.
         guard (response.isForMainFrame && userNavigation) || self.webView.recentlyInteracted else {
-            blockDownload(response.response.url)
-            return .cancel
+            let name = response.response.suggestedFilename.flatMap { $0.lowercased() == "unknown" ? nil : $0 }
+            let request = BrowserDownloadRequest(site: response.response.url.map(BrowserAddress.hostLabel) ?? "",
+                                                 filename: name.map(BrowserDownloads.sanitized))
+            return await allowsDownload(request) ? .download : .cancel
         }
         return .download
     }
@@ -243,6 +262,10 @@ extension WebKitBrowserEngine: WKNavigationDelegate {
         userNavigation = false
         restartedSinceCommit = false
         dialogsSuppressed = false
+        downloadsSuppressed = false
+        generation += 1
+        // A download still waiting belongs to the page that left.
+        if let waitingDownload { finish(waitingDownload, PageDialogAnswer(accept: false)) }
         emit(.committed)
         publish()
     }
@@ -351,47 +374,114 @@ extension WebKitBrowserEngine: WKUIDelegate {
     /// window on screen. WebKit asks one at a time for a page.
     private func wait(for dialog: BrowserPageDialog, from host: String) async -> PageDialogAnswer {
         let answer = await withCheckedContinuation { continuation in
-            waiting = WaitingDialog(dialog: dialog, host: host) { continuation.resume(returning: $0) }
+            waiting = WaitingAnswer(.dialog(dialog, host: host)) { continuation.resume(returning: $0) }
             emit(.dialogChanged(dialog))
-            showWaitingDialog()
+            showWaitingSheet()
         }
         if answer.suppress { dialogsSuppressed = true }
         return answer
     }
 
-    /// Shows the waiting dialog's sheet once the page is in a window on
-    /// screen, and takes it down, still waiting, when the page leaves it.
-    fileprivate func showWaitingDialog() {
-        guard let waiting else { return }
+    /// Whether the person allows a download they didn't ask for. It waits
+    /// for their answer as a page dialog does; only the person answers it.
+    /// A page whose downloads they stopped gets none. A newer download
+    /// takes the place of one waiting, in the same sheet, as WebKit keeps
+    /// only a frame's latest navigation; the sheet is never replaced, so a
+    /// page starting downloads over and over can't keep it from being used.
+    private func allowsDownload(_ request: BrowserDownloadRequest) async -> Bool {
+        guard !downloadsSuppressed else { return false }
+        let page = generation
+        let answer = await withCheckedContinuation { continuation in
+            let resume: (PageDialogAnswer) -> Void = { continuation.resume(returning: $0) }
+            if let waitingDownload {
+                waitingDownload.replace(.download(request), resume: resume)
+                waitingDownload.sheet?.update(request)
+                emit(.downloadWaiting(request))
+                return
+            }
+            waitingDownload = WaitingAnswer(.download(request), resume: resume)
+            emit(.downloadWaiting(request))
+            showWaitingSheet()
+        }
+        // The page may have gone between the answer and now.
+        guard generation == page else { return false }
+        if answer.suppress { downloadsSuppressed = true }
+        return answer.accept
+    }
+
+    /// Shows a waiting sheet, the page dialog's first, once the page is in
+    /// a window on screen, and takes it down, still waiting, when the page
+    /// leaves it. One shows at a time.
+    fileprivate func showWaitingSheet() {
+        let questions = [waiting, waitingDownload].compactMap { $0 }
         guard let window = webView.window, window.isVisible else {
-            waiting.sheet?.withdraw()
-            waiting.sheet = nil
+            for question in questions {
+                question.sheet?.withdraw()
+                question.sheet = nil
+            }
             return
         }
-        guard waiting.sheet == nil, window.attachedSheet == nil else { return }
-        waiting.sheet = BrowserDialogs.present(waiting.dialog, from: waiting.host, in: window) { [weak self] answer in
-            self?.finish(waiting, answer)
+        guard questions.allSatisfy({ $0.sheet == nil }), let next = questions.first else { return }
+        // Another sheet, or one on its way out, holds the window; show this
+        // one once it ends.
+        guard window.attachedSheet == nil else { showAfterSheetEnds(on: window); return }
+        let done: @MainActor (PageDialogAnswer) -> Void = { [weak self] answer in self?.finish(next, answer) }
+        switch next.question {
+        case .dialog(let dialog, let host): next.sheet = BrowserDialogs.present(dialog, from: host, in: window, completion: done)
+        case .download(let request): next.sheet = BrowserDialogs.present(request, in: window, completion: done)
         }
     }
 
-    private func finish(_ dialog: WaitingDialog, _ answer: PageDialogAnswer) {
-        guard waiting === dialog else { return }
-        waiting = nil
-        dialog.sheet?.withdraw()
-        emit(.dialogChanged(nil))
-        dialog.resume(answer)
+    private func showAfterSheetEnds(on window: NSWindow) {
+        // The page may have moved windows since it last waited.
+        if let sheetEndObserver { NotificationCenter.default.removeObserver(sheetEndObserver) }
+        sheetEndObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didEndSheetNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let observer = self.sheetEndObserver { NotificationCenter.default.removeObserver(observer) }
+                self.sheetEndObserver = nil
+                // The ended sheet leaves the window after this turn.
+                Task { @MainActor [weak self] in self?.showWaitingSheet() }
+            }
+        }
+    }
+
+    private func finish(_ question: WaitingAnswer, _ answer: PageDialogAnswer) {
+        if waiting === question {
+            waiting = nil
+            question.sheet?.withdraw()
+            emit(.dialogChanged(nil))
+        } else if waitingDownload === question {
+            waitingDownload = nil
+            question.sheet?.withdraw()
+            emit(.downloadWaiting(nil))
+        } else {
+            return
+        }
+        question.resume(answer)
+        // The other question's sheet follows once this one is down.
+        Task { @MainActor [weak self] in self?.showWaitingSheet() }
     }
 
     func answerPageDialog(accept: Bool, text: String?) -> Bool {
-        guard let waiting else { return false }
-        finish(waiting, PageDialogAnswer(accept: waiting.dialog.kind == .alert || (accept && waiting.dialog.kind != .files),
-                                         text: text))
+        guard let waiting, let dialog = pageDialog else { return false }
+        finish(waiting, PageDialogAnswer(accept: dialog.kind == .alert || (accept && dialog.kind != .files), text: text))
         return true
     }
 
     func choosePageFiles(_ files: [URL]) -> Bool {
-        guard let waiting, waiting.dialog.kind == .files else { return false }
+        guard let waiting, pageDialog?.kind == .files else { return false }
         finish(waiting, PageDialogAnswer(accept: true, files: files))
+        return true
+    }
+
+    /// Answers the waiting download as its sheet's buttons would. Returns
+    /// false when none is waiting. Not part of the agent's engine: only the
+    /// person allows a download.
+    func answerDownload(allow: Bool, suppress: Bool = false) -> Bool {
+        guard let waitingDownload else { return false }
+        finish(waitingDownload, PageDialogAnswer(accept: allow, suppress: suppress))
         return true
     }
 
@@ -475,10 +565,6 @@ extension WebKitBrowserEngine {
 // MARK: Downloads
 
 extension WebKitBrowserEngine: WKDownloadDelegate {
-    private func blockDownload(_ source: URL?) {
-        emit(.downloadBlocked(source: source ?? state.url))
-    }
-
     private func adopt(_ download: WKDownload, source: URL?) {
         download.delegate = self
         if let source { downloadSources[ObjectIdentifier(download)] = source }
@@ -524,22 +610,32 @@ extension WebKitBrowserEngine {
     }
 }
 
-/// The page's view, noting when the person last clicked or typed in it.
-/// A page dialog or file chooser waiting for an answer, and its sheet
-/// while one shows.
-@MainActor private final class WaitingDialog {
-    let dialog: BrowserPageDialog
-    let host: String
-    let resume: (PageDialogAnswer) -> Void
+/// A page dialog, file chooser, or download waiting for an answer, and its
+/// sheet while one shows.
+@MainActor private final class WaitingAnswer {
+    enum Question {
+        case dialog(BrowserPageDialog, host: String)
+        case download(BrowserDownloadRequest)
+    }
+    private(set) var question: Question
+    private(set) var resume: (PageDialogAnswer) -> Void
     var sheet: PageDialogSheet?
 
-    init(dialog: BrowserPageDialog, host: String, resume: @escaping (PageDialogAnswer) -> Void) {
-        self.dialog = dialog
-        self.host = host
+    init(_ question: Question, resume: @escaping (PageDialogAnswer) -> Void) {
+        self.question = question
         self.resume = resume
+    }
+
+    /// Asks `question` in this one's place, declining this one.
+    func replace(_ question: Question, resume: @escaping (PageDialogAnswer) -> Void) {
+        let declined = self.resume
+        self.question = question
+        self.resume = resume
+        declined(PageDialogAnswer(accept: false))
     }
 }
 
+/// The page's view, noting when the person last clicked or typed in it.
 private final class KitWebView: WKWebView {
     /// Told when the page enters or leaves a window.
     var windowChanged: (() -> Void)?
