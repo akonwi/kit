@@ -1,71 +1,74 @@
 import Foundation
 import Observation
 
-enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side by side" }
+/// How a diff lays out its two sides.
+public enum DiffLayout: String, CaseIterable, Sendable { case unified = "Unified", split = "Side by side" }
 
-@MainActor @Observable final class DiffState {
+/// A session's diff: the targets it can compare, the observed change list,
+/// and each file's pages, read and polled through a `DiffClient`.
+@MainActor @Observable public final class DiffState {
     /// How often a shown Diff pane checks the target for changes, as in the TUI.
-    static let pollInterval: Duration = .seconds(5)
+    public static let pollInterval: Duration = .seconds(5)
     /// Below this width two columns don't fit, so side by side shows unified.
-    static let splitMinimumWidth: CGFloat = 640
+    public static let splitMinimumWidth: CGFloat = 640
     /// Background prefetch stops once this many files are loaded...
-    var prefetchFileLimit = 50
+    public var prefetchFileLimit = 50
     /// ...or this many diff rows; past it, files load as they come near.
-    var prefetchRowLimit = 5000
+    public var prefetchRowLimit = 5000
     /// How many files past one that comes into view load with it.
-    static let lookahead = 3
+    public static let lookahead = 3
     /// The height of one unwrapped row, as last laid out by an editor.
-    static var rowHeight: CGFloat = 17
+    public static var rowHeight: CGFloat = 17
 
     /// An unwrapped editor's height for `rows` rows: the rows, the empty line
     /// after the final newline, and the editor's bottom inset.
-    static func estimatedHeight(rows: Int) -> CGFloat {
+    public static func estimatedHeight(rows: Int) -> CGFloat {
         ceil(CGFloat(rows + 1) * rowHeight) + 8
     }
 
     /// The app's diff presentation, which this diff follows.
-    let preferences: DiffPreferences
-    var layout: DiffLayout {
+    public let preferences: DiffPreferences
+    public var layout: DiffLayout {
         get { preferences.layout }
         set { preferences.layout = newValue }
     }
-    var wrapLines: Bool {
+    public var wrapLines: Bool {
         get { preferences.wrapLines }
         set { preferences.wrapLines = newValue }
     }
     /// Files whose sections are folded to their header.
-    var collapsed: Set<String> = []
-    var fileStates: [String: DiffState] = [:]
+    public var collapsed: Set<String> = []
+    public var fileStates: [String: DiffState] = [:]
     /// A file's laid-out height by presentation, kept here because the lazy
     /// stack discards its views' state when they scroll away.
-    var measuredHeights: [String: CGFloat] = [:]
+    public var measuredHeights: [String: CGFloat] = [:]
     private var fileReadTail: Task<Void, Never>?
-    var catalog: WireDiffTargetCatalog?
-    var target: WireDiffTargetEntry?
-    var observation: WireDiffObservation?
-    var files: [WireDiffFileSummary] = []
-    var selectedPath: String?
-    var document: DiffDocument?
-    var loading = false
-    var error: String?
+    public var catalog: WireDiffTargetCatalog?
+    public var target: WireDiffTargetEntry?
+    public var observation: WireDiffObservation?
+    public var files: [WireDiffFileSummary] = []
+    public var selectedPath: String?
+    public var document: DiffDocument?
+    public var loading = false
+    public var error: String?
     /// A line under `error` when the reason needs one.
-    var errorDetail: String?
-    var notice: String?
-    var stale = false
-    var fileCursor: String?
-    var lineCursor: String?
-    var navigation: FileAnnotation?
-    var navigationToken = UUID()
+    public var errorDetail: String?
+    public var notice: String?
+    public var stale = false
+    public var fileCursor: String?
+    public var lineCursor: String?
+    public var navigation: FileAnnotation?
+    public var navigationToken = UUID()
     private var hunks: [WireDiffHunk] = []
     private var epoch = UUID()
     private var fileCursors = Set<String>()
     private var lineCursors = Set<String>()
     private var annotationID: UInt64?
 
-    init(preferences: DiffPreferences = .shared) { self.preferences = preferences }
+    public init(preferences: DiffPreferences = .shared) { self.preferences = preferences }
 
     /// Files keep independent pagination and native editor identity within one observed revision.
-    func loadFile(_ file: WireDiffFileSummary, client: any DiffClient, session: String) async {
+    public func loadFile(_ file: WireDiffFileSummary, client: any DiffClient, session: String) async {
         guard fileStates[file.path] == nil, let observation else { return }
         let previous = fileReadTail
         let task = Task { @MainActor [weak self] in
@@ -96,7 +99,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side 
     /// Loads listed files' first pages in order, one at a time, until the
     /// prefetch budget is spent. A file that comes into view waits behind at
     /// most the one read in flight.
-    func prefetch(client: any DiffClient, session: String) async {
+    public func prefetch(client: any DiffClient, session: String) async {
         for file in files where file.contentState == "text" && !collapsed.contains(file.path) {
             guard !Task.isCancelled, prefetchBudgetRemains else { return }
             await loadFile(file, client: client, session: session)
@@ -104,7 +107,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side 
     }
 
     /// A file came into view: load it, then the next few.
-    func appeared(_ file: WireDiffFileSummary, client: any DiffClient, session: String) async {
+    public func appeared(_ file: WireDiffFileSummary, client: any DiffClient, session: String) async {
         await loadFile(file, client: client, session: session)
         guard let index = files.firstIndex(where: { $0.path == file.path }) else { return }
         for next in files[(index + 1)...].filter({ $0.contentState == "text" }).prefix(Self.lookahead) {
@@ -113,34 +116,34 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side 
         }
     }
 
-    var prefetchBudgetRemains: Bool {
+    public var prefetchBudgetRemains: Bool {
         fileStates.count < prefetchFileLimit
             && fileStates.values.reduce(0) { $0 + ($1.document?.rows.count ?? 0) } < prefetchRowLimit
     }
 
     /// Line totals across the listed files, or nil when the server sent no
     /// counts for any of them.
-    var additions: Int? {
+    public var additions: Int? {
         files.contains { $0.additions != nil } ? files.reduce(0) { $0 + ($1.additions ?? 0) } : nil
     }
-    var deletions: Int? {
+    public var deletions: Int? {
         files.contains { $0.deletions != nil } ? files.reduce(0) { $0 + ($1.deletions ?? 0) } : nil
     }
 
     /// Whether side by side fits a pane `width` points wide.
-    static func splitFits(_ width: CGFloat) -> Bool { width >= splitMinimumWidth }
+    public static func splitFits(_ width: CGFloat) -> Bool { width >= splitMinimumWidth }
 
     /// Lists targets again for the picker without changing what is shown.
-    func refreshCatalog(client: any DiffClient, session: String) async {
+    public func refreshCatalog(client: any DiffClient, session: String) async {
         guard let catalog = try? await client.diffTargets(session), !Task.isCancelled else { return }
         self.catalog = catalog
     }
 
-    func reveal(_ note: FileAnnotation) { navigation = note; navigationToken = UUID() }
-    func invalidate() { fileStates = [:]; epoch = UUID(); catalog = nil; target = nil; observation = nil; files = []; selectedPath = nil; document = nil; loading = false; error = nil; errorDetail = nil }
+    public func reveal(_ note: FileAnnotation) { navigation = note; navigationToken = UUID() }
+    public func invalidate() { fileStates = [:]; epoch = UUID(); catalog = nil; target = nil; observation = nil; files = []; selectedPath = nil; document = nil; loading = false; error = nil; errorDetail = nil }
 
     /// Fetch in isolation so polling never clears the visible diff or interrupts a draft.
-    func poll(client: any DiffClient, session: String, canApply: () -> Bool) async {
+    public func poll(client: any DiffClient, session: String, canApply: () -> Bool) async {
         guard !loading, canApply() else { return }
         let token = epoch
         let updated = DiffState(preferences: preferences)
@@ -178,7 +181,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side 
         fileCursors = updated.fileCursors; lineCursors = updated.lineCursors; annotationID = nil
     }
 
-    func refresh(client: any DiffClient, session: String) async {
+    public func refresh(client: any DiffClient, session: String) async {
         let token = UUID(); epoch = token; loading = true; error = nil; errorDetail = nil
         defer { if epoch == token { loading = false } }
         do {
@@ -192,7 +195,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side 
         } catch { if epoch == token { fail(error) } }
     }
 
-    func select(_ target: WireDiffTargetEntry, client: any DiffClient, session: String, more: Bool = false) async {
+    public func select(_ target: WireDiffTargetEntry, client: any DiffClient, session: String, more: Bool = false) async {
         guard let catalog else { return }
         let token = UUID(); epoch = token; loading = true; error = nil; errorDetail = nil; stale = false
         let priorPath = selectedPath
@@ -221,7 +224,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side 
         } catch { if epoch == token { fail(error) } }
     }
 
-    func read(_ file: WireDiffFileSummary, client: any DiffClient, session: String, more: Bool = false) async {
+    public func read(_ file: WireDiffFileSummary, client: any DiffClient, session: String, more: Bool = false) async {
         guard let observation else { return }
         let token = UUID(); epoch = token; loading = true; error = nil; errorDetail = nil; stale = false
         if !more { selectedPath = file.path; document = nil; notice = nil; hunks = []; lineCursor = nil; lineCursors = [] }
@@ -235,7 +238,7 @@ enum DiffLayout: String, CaseIterable { case unified = "Unified", split = "Side 
         } catch { if epoch == token { fail(error) } }
     }
 
-    func openAnnotation(_ note: FileAnnotation, client: any DiffClient, session: String) async -> Bool {
+    public func openAnnotation(_ note: FileAnnotation, client: any DiffClient, session: String) async -> Bool {
         guard let anchor = note.diffAnchor else { return false }
         let token = UUID(); epoch = token; loading = true; error = nil; errorDetail = nil; stale = false
         defer { if epoch == token { loading = false } }
