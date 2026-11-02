@@ -1,0 +1,495 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		C10000000000000000000017 /* Kit.icon in Resources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000016 /* Kit.icon */; };
+		C10000000000000000000052 /* KitClient in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000051 /* KitClient */; };
+		C10000000000000000000062 /* KitTranscript in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000061 /* KitTranscript */; };
+		C10000000000000000000072 /* KitHighlighting in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000071 /* KitHighlighting */; };
+		C10000000000000000000082 /* KitGrammars in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000081 /* KitGrammars */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C10000000000000000000040 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C10000000000000000000005;
+			remoteInfo = Kit;
+		};
+		C10000000000000000000020 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C10000000000000000000005;
+			remoteInfo = Kit;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		C10000000000000000000006 /* Kit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kit.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C10000000000000000000016 /* Kit.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = Kit.icon; path = ../../assets/kit/Kit.icon; sourceTree = SOURCE_ROOT; };
+		C10000000000000000000039 /* KitUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KitUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C10000000000000000000019 /* KitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		C10000000000000000000004 /* Kit */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Kit; sourceTree = "<group>"; };
+		C10000000000000000000018 /* KitTests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = KitTests; sourceTree = "<group>"; };
+		C10000000000000000000038 /* KitUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = KitUITests; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C10000000000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C10000000000000000000052 /* KitClient in Frameworks */,
+				C10000000000000000000062 /* KitTranscript in Frameworks */,
+				C10000000000000000000072 /* KitHighlighting in Frameworks */,
+				C10000000000000000000082 /* KitGrammars in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C10000000000000000000033 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C10000000000000000000023 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C10000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				C10000000000000000000004 /* Kit */,
+				C10000000000000000000018 /* KitTests */,
+				C10000000000000000000038 /* KitUITests */,
+				C10000000000000000000016 /* Kit.icon */,
+				C10000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C10000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C10000000000000000000006 /* Kit.app */,
+				C10000000000000000000019 /* KitTests.xctest */,
+				C10000000000000000000039 /* KitUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C10000000000000000000005 /* Kit */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C10000000000000000000011 /* Build configuration list for PBXNativeTarget "Kit" */;
+			buildPhases = (
+				C10000000000000000000007 /* Sources */,
+				C10000000000000000000008 /* Frameworks */,
+				C10000000000000000000009 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C10000000000000000000004 /* Kit */,
+			);
+			name = Kit;
+			packageProductDependencies = (
+				C10000000000000000000051 /* KitClient */,
+				C10000000000000000000061 /* KitTranscript */,
+				C10000000000000000000071 /* KitHighlighting */,
+				C10000000000000000000081 /* KitGrammars */,
+			);
+			productName = Kit;
+			productReference = C10000000000000000000006 /* Kit.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C10000000000000000000021 /* KitTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C10000000000000000000027 /* Build configuration list for PBXNativeTarget "KitTests" */;
+			buildPhases = (
+				C10000000000000000000022 /* Sources */,
+				C10000000000000000000023 /* Frameworks */,
+				C10000000000000000000024 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C10000000000000000000028 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C10000000000000000000018 /* KitTests */,
+			);
+			name = KitTests;
+			productName = KitTests;
+			productReference = C10000000000000000000019 /* KitTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		C10000000000000000000031 /* KitUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C10000000000000000000037 /* Build configuration list for PBXNativeTarget "KitUITests" */;
+			buildPhases = (
+				C10000000000000000000032 /* Sources */,
+				C10000000000000000000033 /* Frameworks */,
+				C10000000000000000000034 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C10000000000000000000041 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C10000000000000000000038 /* KitUITests */,
+			);
+			name = KitUITests;
+			productName = KitUITests;
+			productReference = C10000000000000000000039 /* KitUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C10000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					C10000000000000000000005 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					C10000000000000000000021 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = C10000000000000000000005;
+					};
+					C10000000000000000000031 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = C10000000000000000000005;
+					};
+				};
+			};
+			buildConfigurationList = C10000000000000000000010 /* Build configuration list for PBXProject "Kit" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = C10000000000000000000002;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C10000000000000000000050 /* XCLocalSwiftPackageReference "../apple/KitShared" */,
+				C10000000000000000000080 /* XCLocalSwiftPackageReference "KitGrammars" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = C10000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C10000000000000000000005 /* Kit */,
+				C10000000000000000000021 /* KitTests */,
+				C10000000000000000000031 /* KitUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C10000000000000000000009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C10000000000000000000017 /* Kit.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C10000000000000000000034 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C10000000000000000000024 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C10000000000000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C10000000000000000000032 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C10000000000000000000022 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C10000000000000000000028 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C10000000000000000000005 /* Kit */;
+			targetProxy = C10000000000000000000020 /* PBXContainerItemProxy */;
+		};
+		C10000000000000000000041 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C10000000000000000000005 /* Kit */;
+			targetProxy = C10000000000000000000040 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		C10000000000000000000012 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		C10000000000000000000013 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 6.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		C10000000000000000000014 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = Kit;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M7B73F53MK;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Kit Dev";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Kit scans the pairing code that kit server pair shows, and takes photos you attach to a message.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Kit connects to Kit servers on your local network.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.akonwi.kit.dev;
+				PRODUCT_NAME = Kit;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		C10000000000000000000015 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = Kit;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M7B73F53MK;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Kit;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Kit scans the pairing code that kit server pair shows, and takes photos you attach to a message.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Kit connects to Kit servers on your local network.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.akonwi.kit.ios;
+				PRODUCT_NAME = Kit;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		C10000000000000000000025 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M7B73F53MK;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.akonwi.kit.dev.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Kit";
+			};
+			name = Debug;
+		};
+		C10000000000000000000026 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M7B73F53MK;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.akonwi.kit.ios.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Kit";
+			};
+			name = Release;
+		};
+		C10000000000000000000035 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M7B73F53MK;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.akonwi.kit.dev.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Kit;
+			};
+			name = Debug;
+		};
+		C10000000000000000000036 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M7B73F53MK;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.akonwi.kit.ios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Kit;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C10000000000000000000010 /* Build configuration list for PBXProject "Kit" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C10000000000000000000012 /* Debug */,
+				C10000000000000000000013 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C10000000000000000000011 /* Build configuration list for PBXNativeTarget "Kit" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C10000000000000000000014 /* Debug */,
+				C10000000000000000000015 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C10000000000000000000027 /* Build configuration list for PBXNativeTarget "KitTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C10000000000000000000025 /* Debug */,
+				C10000000000000000000026 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C10000000000000000000037 /* Build configuration list for PBXNativeTarget "KitUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C10000000000000000000035 /* Debug */,
+				C10000000000000000000036 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		C10000000000000000000050 /* XCLocalSwiftPackageReference "../apple/KitShared" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../apple/KitShared;
+		};
+		C10000000000000000000080 /* XCLocalSwiftPackageReference "KitGrammars" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = KitGrammars;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C10000000000000000000051 /* KitClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C10000000000000000000050 /* XCLocalSwiftPackageReference "../apple/KitShared" */;
+			productName = KitClient;
+		};
+		C10000000000000000000061 /* KitTranscript */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C10000000000000000000050 /* XCLocalSwiftPackageReference "../apple/KitShared" */;
+			productName = KitTranscript;
+		};
+		C10000000000000000000071 /* KitHighlighting */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C10000000000000000000050 /* XCLocalSwiftPackageReference "../apple/KitShared" */;
+			productName = KitHighlighting;
+		};
+		C10000000000000000000081 /* KitGrammars */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C10000000000000000000080 /* XCLocalSwiftPackageReference "KitGrammars" */;
+			productName = KitGrammars;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = C10000000000000000000001 /* Project object */;
+}

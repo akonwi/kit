@@ -105,6 +105,15 @@ It has its own build, test, signing, notarization, and update pipeline and
 does not affect the Go build. Bun, Node, and Xcode remain development-time
 dependencies only.
 
+The session client, generated Swift wire types, native Mermaid and figure
+renderers, and transcript presentation (the Markdown projection, tool call
+presentation, and session mention links) live in the `apps/apple/KitShared`
+package, which the application
+shares with the iOS client of
+[ADR 0056](./0056-build-a-native-ios-client.md). That package contains no
+AppKit code. Local daemon discovery and startup, the macOS presentation, and
+the workspace's platform views stay in the application.
+
 ### Non-goals
 
 - Linux or Windows desktop builds.
