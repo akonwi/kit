@@ -22,8 +22,10 @@ struct SessionScreen: View {
     @State private var sheet: Sheet?
     @State private var confirmingDelete = false
     @State private var selecting: SelectedText?
-    /// Bumped by Retry now, which starts a new connection at once.
-    @State private var connectionAttempt = 0
+    /// The session's changes: counted for the menu, shown by Changes.
+    @State private var diff = DiffState()
+    @State private var showingChanges = false
+    private let client: ServerClient
     @State private var position = ScrollPosition(edge: .bottom)
     /// Whether the reader is at the end, so new output scrolls into view.
     @State private var following = true
@@ -39,6 +41,11 @@ struct SessionScreen: View {
             interactions?.reconcile($0)
         }
         actions.deliver = { [weak feed] in feed?.receive($0) }
+        feed.onConnection = { [weak composer, weak actions, weak interactions] connection in
+            composer?.live = connection == .live
+            actions?.live = connection == .live
+            interactions?.live = connection == .live
+        }
         composer.modelName = { [weak actions] in actions?.modelName ?? "" }
         if let failure = ForkFirstTurnFailures.shared.take(identity) { composer.restore(failedFork: failure) }
         _feed = State(initialValue: feed)
@@ -46,6 +53,7 @@ struct SessionScreen: View {
         _actions = State(initialValue: actions)
         _interactions = State(initialValue: interactions)
         _attachments = State(initialValue: TranscriptAttachmentStore(client: client, session: identity.session))
+        self.client = client
     }
 
     var body: some View {
@@ -58,14 +66,15 @@ struct SessionScreen: View {
                     .sharedBackgroundVisibility(.hidden)
                 if let session = feed.session {
                     ToolbarItem(placement: .topBarTrailing) {
-                        SessionMenu(session: session, actions: actions, present: { sheet = $0 },
+                        SessionMenu(session: session, actions: actions, diff: diff, present: { sheet = $0 },
+                                    openChanges: { showingChanges = true },
                                     confirmDelete: { confirmingDelete = true })
                     }
                 }
             }
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 if !feed.unavailable {
-                    ComposerBar(composer: composer, actions: actions, interactions: interactions, feed: feed) { connectionAttempt += 1 }
+                    ComposerBar(composer: composer, actions: actions, interactions: interactions, feed: feed) { feed.reconnect() }
                 }
             }
             .sheet(item: $sheet) { sheet in
@@ -98,14 +107,21 @@ struct SessionScreen: View {
                 Text(actions.deleteError ?? "")
             }
             .overlay { if actions.deleting { deletingOverlay } }
-            .onChange(of: feed.connection, initial: true) {
-                composer.live = feed.connection == .live
-                actions.live = feed.connection == .live
-                interactions.live = feed.connection == .live
+            .navigationDestination(isPresented: $showingChanges) {
+                ChangesScreen(diff: diff, client: client, feed: feed, composer: composer,
+                              actions: actions, interactions: interactions)
             }
-            .task(id: TaskKey(active: scenePhase == .active, attempt: connectionAttempt)) {
+            .task(id: scenePhase == .active) {
                 guard scenePhase == .active else { return }
-                await feed.run()
+                await feed.view()
+            }
+            // Count the changes for the menu once, and again when a turn ends.
+            .task {
+                if diff.catalog == nil && diff.document == nil { await diff.refresh(client: client, session: feed.identity.session) }
+            }
+            .onChange(of: feed.session?.activeRunID == nil) { _, idle in
+                guard idle else { return }
+                Task { await diff.poll(client: client, session: feed.identity.session) { true } }
             }
             .onChange(of: feed.session?.lastActivity) { markSeen() }
             .onDisappear { markSeen() }
@@ -147,11 +163,6 @@ struct SessionScreen: View {
     private func refreshList() {
         let server = feed.identity.server
         Task { await sessions.retry(server) }
-    }
-
-    private struct TaskKey: Equatable {
-        let active: Bool
-        let attempt: Int
     }
 
     private func markSeen() {

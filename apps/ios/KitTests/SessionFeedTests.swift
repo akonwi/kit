@@ -101,6 +101,43 @@ struct SessionFeedTests {
         #expect(client.watches == 1)
     }
 
+    @Test func screensOfASessionShareOneStream() async throws {
+        let client = FakeTranscriptClient()
+        client.holdOpen = true
+        client.deliver = Self.snapshot(["a"])
+        let feed = SessionFeed(identity: id, client: client)
+        let session = Task { await feed.view() }
+        try await Self.wait { feed.connection == .live }
+
+        // Changes opens over the session, which stops viewing.
+        let changes = Task { await feed.view() }
+        session.cancel()
+        await session.value
+        try await Task.sleep(for: SessionFeed.viewerGrace * 2)
+        #expect(feed.connection == .live)
+        #expect(client.watches == 1)
+        #expect(client.open == 1)
+
+        // Retry now starts a new connection at once.
+        feed.reconnect()
+        try await Self.wait { client.watches == 2 && client.open == 1 }
+
+        // The last screen closes the stream.
+        changes.cancel()
+        await changes.value
+        try await Self.wait { client.open == 0 }
+        #expect(client.watches == 2)
+    }
+
+    /// Waits up to five seconds for `condition`, rather than a fixed time.
+    static func wait(_ condition: @MainActor () -> Bool) async throws {
+        for _ in 0..<500 {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("The condition didn't hold within five seconds")
+    }
+
     @Test func headerDirectoriesKeepTheirEnds() {
         #expect(SessionScreen.shortDirectory("/Users/me/Developer/agent/kit") == "~/…/agent/kit")
         #expect(SessionScreen.shortDirectory("/Users/me/kit") == "~/kit")
@@ -115,16 +152,23 @@ final class FakeTranscriptClient: TranscriptPagingClient, @unchecked Sendable {
     var historyError: (any Error)?
     var watchError: (any Error)?
     var deliver: SessionExcerpt?
+    /// Keeps each watch open until it is cancelled, as a live stream does.
+    var holdOpen = false
     private var _watches = 0
+    private var _open = 0
     var watches: Int { lock.withLock { _watches } }
+    /// Watches still open.
+    var open: Int { lock.withLock { _open } }
 
     func sessions() async throws -> [SessionExcerpt] { [] }
     func snapshot(_ id: String) async throws -> SessionExcerpt { throw ClientError.missingSession }
 
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
-        lock.withLock { _watches += 1 }
+        lock.withLock { _watches += 1; _open += 1 }
+        defer { lock.withLock { _open -= 1 } }
         if let deliver { await receive(deliver) }
         if let watchError { throw watchError }
+        while holdOpen { try await Task.sleep(for: .seconds(60)) }
     }
 
     func history(_ id: String, before: String) async throws -> TranscriptHistoryPage {

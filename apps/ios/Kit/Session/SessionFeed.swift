@@ -19,11 +19,24 @@ final class SessionFeed {
     let identity: SessionIdentity
     private let client: any TranscriptPagingClient
     private(set) var session: SessionExcerpt?
-    private(set) var connection = Connection.connecting
+    private(set) var connection = Connection.connecting {
+        didSet { if connection != oldValue { onConnection?(connection) } }
+    }
     private(set) var historyLoading = false
     private(set) var historyError: String?
     /// Called with each snapshot as shown, after history is joined to it.
     @ObservationIgnored var onSnapshot: (@MainActor (SessionExcerpt) -> Void)?
+    /// Called when the connection changes, so the parts that send follow it
+    /// whichever of the session's screens is showing.
+    @ObservationIgnored var onConnection: (@MainActor (Connection) -> Void)?
+
+    /// Screens of this session that are showing; the stream stays open while
+    /// any is, so moving between them doesn't reconnect.
+    @ObservationIgnored private var viewers = 0
+    @ObservationIgnored private var watcher: Task<Void, Never>?
+    /// How long the stream outlives its last screen, so the screen that
+    /// replaces it keeps the same connection.
+    static let viewerGrace: Duration = .milliseconds(500)
 
     /// Older pages loaded in front of the snapshot, oldest first.
     private var historyPrefix: [TranscriptMessage] = []
@@ -48,6 +61,31 @@ final class SessionFeed {
     }
 
     // MARK: Watching
+
+    /// Keeps the session watched until the caller is cancelled. Screens of
+    /// the same session share one stream, which closes shortly after the
+    /// last of them stops viewing.
+    func view() async {
+        viewers += 1
+        if watcher == nil { watcher = Task { await run() } }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(3600))
+        }
+        viewers -= 1
+        guard viewers == 0 else { return }
+        Task {
+            try? await Task.sleep(for: Self.viewerGrace)
+            guard viewers == 0 else { return }
+            watcher?.cancel()
+            watcher = nil
+        }
+    }
+
+    /// Starts a new connection at once, for Retry now.
+    func reconnect() {
+        watcher?.cancel()
+        watcher = viewers > 0 ? Task { await run() } : nil
+    }
 
     /// Watches the session until cancelled, reconnecting after transient
     /// failures. Each connection starts from a fresh snapshot.
