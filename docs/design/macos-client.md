@@ -91,7 +91,9 @@ family. The working directory isn't in the sidebar; the session bar shows it.
   the family's rail runs under that title. Indentation stops after three
   levels; deeper sessions share the third level's rail.
 - Top tabs stay flat, in the window's tab order. Dragging a top tab moves it
-  alone, not its family. The held tab lifts, raised with a shadow, and slides
+  alone, not its family, from anywhere on the tab, its close button and number
+  included; it never moves the window, while empty strip space still moves
+  and zooms the window. The held tab lifts, raised with a shadow, and slides
   along the strip with the pointer. Its empty slot is where it will land: a
   neighbor slides aside into it once the held tab is nearer the neighbor's
   place than its own. Holding

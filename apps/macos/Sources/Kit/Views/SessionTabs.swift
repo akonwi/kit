@@ -509,9 +509,6 @@ struct SessionTopTabs: View {
                             // The slot covers the tab rather than hiding it,
                             // which would end the tab's drag gesture.
                             .overlay { if drag.id == tab.id { SessionTopTabSlot() } }
-                            // The tab sits in the title bar, where a drag
-                            // would move the window instead of the tab.
-                            .background(TitlebarDragExclusion())
                             .id(tab.id)
                             .onGeometryChange(for: ClosedRange<CGFloat>.self) {
                                 let frame = $0.frame(in: .named(Self.space))
@@ -546,6 +543,13 @@ struct SessionTopTabs: View {
                                      leading: Self.leadingFade, trailing: Self.trailingFade)
                 }
                 .background(HorizontalWheelScrolling())
+                // The strip sits in the title bar, where a drag would move
+                // the window instead of the tab. The whole viewport is cut
+                // out of the window's drag area, not each tab: AppKit doesn't
+                // update that area when the strip scrolls, so a cut-out that
+                // scrolled with its tab would be left behind. Space beside
+                // the tabs moves the window through its titlebar region.
+                .background(TitlebarDragExclusion())
                 .onChange(of: model.selectedTabID) { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(model.selectedTabID) } }
                 .onAppear { proxy.scrollTo(model.selectedTabID) }
             }

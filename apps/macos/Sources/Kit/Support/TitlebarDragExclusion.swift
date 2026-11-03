@@ -10,9 +10,15 @@ import SwiftUI
 /// sees the press. AppKit leaves a view out of that region only when the
 /// view can't move the window, accepts first responder, and overrides
 /// `mouseDown(with:)`; SwiftUI's views do none of these. Place this as the
-/// background of the content, such as a top session tab, to cut its area
-/// out of the drag region. It takes no clicks and never becomes first
-/// responder, so the content above it handles the press as anywhere else.
+/// background of the content, such as the top session tab strip, to cut
+/// its area out of the drag region. It takes no clicks and never becomes
+/// first responder, so the content above it handles the press as anywhere
+/// else.
+///
+/// AppKit works the drag region out again as views change size, but not when
+/// a scroll view scrolls. Put the region outside content that scrolls, such
+/// as behind the scroll view itself; one inside it would leave its cut-out
+/// where the content was before the scroll.
 struct TitlebarDragExclusion: NSViewRepresentable {
     func makeNSView(context: Context) -> Region { Region() }
     func updateNSView(_ nsView: Region, context: Context) {}
