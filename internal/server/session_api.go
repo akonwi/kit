@@ -1124,6 +1124,13 @@ func (s runtimeSessionService) ConfigureSubagent(ctx context.Context, sessionID,
 			if resolvedModel != target.Model || input.ThinkingLevel != nil && resolvedThinking != target.ThinkingLevel {
 				return subagent.Configuration{}, fmt.Errorf("%w: requested model/thinking combination is unsupported", errInvalidSessionRequest)
 			}
+			// A subagent keeps a model the catalog has retired, but can switch
+			// only to a listed one.
+			if resolvedModel != conversation.Model && s.defaults.providers != nil {
+				if _, listed := s.defaults.providers.Model(resolvedModel); !listed {
+					return subagent.Configuration{}, fmt.Errorf("%w: model %q is no longer in the catalog", errInvalidSessionRequest, resolvedModel)
+				}
+			}
 			if input.ThinkingLevel == nil && resolvedThinking != target.ThinkingLevel {
 				warnings = append(warnings, fmt.Sprintf("Thinking level %q is unavailable for %s; using %q.", target.ThinkingLevel, resolvedModel, resolvedThinking))
 			}

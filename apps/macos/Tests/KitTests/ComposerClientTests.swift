@@ -241,6 +241,17 @@ private actor ComposerMock: ComposerClient {
         #expect(host.fittingSize.width == 320)
         #expect(host.fittingSize.height == 300)
     }
+    @Test func theModelPickerAsksForTheCatalogWhenItOpens() async throws {
+        let theme = ThemeConfiguration.decode("").theme(dark: false)
+        var opened = 0
+        let host = NSHostingView(rootView: ComposerModelPicker(models: [], selectedID: "",
+            select: { _ in }, reload: {}, dismiss: {}, opened: { opened += 1 }).environment(\.mica, theme))
+        let window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 320, height: 300))
+        window.contentView = host; window.orderFront(nil)
+        defer { window.close() }
+        try await eventually { opened == 1 }
+        #expect(opened == 1)
+    }
     @Test func configurationConflictRefreshesAuthoritativeMetadata() async throws {
         let configuration = ComposerConfiguration()
         var session = try Fixture.load().sessions[0]

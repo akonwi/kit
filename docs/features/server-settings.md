@@ -35,7 +35,7 @@ then uses:
   first of `openai-codex/gpt-5.6-sol`, `openai/gpt-5.6-sol`, and
   `anthropic/claude-sonnet-4-6` with credentials, otherwise another model of
   the first of those providers with credentials, otherwise the first model in
-  the catalog with credentials. With no credentials at all, creation fails
+  the [catalog](model-catalog.md) with credentials. With no credentials at all, creation fails
   with "no model is available; log in to a provider".
 - **Thinking level:** the model's default.
 

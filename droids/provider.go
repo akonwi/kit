@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,14 +25,16 @@ type ModelResolver interface {
 // registered provider owns the target model.
 type Providers interface {
 	ModelResolver
-	// Models returns every model across all registered providers.
+	// Models returns every listed model across all registered providers.
 	Models() []Model
-	// Model resolves a user-facing id to a concrete model. The id may be bare
+	// Model resolves a user-facing id to a listed model. The id may be bare
 	// ("gpt-5.6") or namespaced ("openai/gpt-5.6") to disambiguate.
 	Model(id string) (Model, bool)
-	// RefreshModels fetches the latest models.dev catalog and overlays complete
-	// model metadata onto each built-in provider. Existing models remain usable
-	// when refresh fails.
+	// RefreshModels fetches the latest models.dev catalog. Each built-in
+	// provider the catalog lists models for then lists exactly those models;
+	// models it no longer lists stay resolvable by their namespaced selector,
+	// so runtimes already using them keep working. The current catalog
+	// remains when refresh fails.
 	RefreshModels(ctx context.Context) error
 	// Stream runs a request against the provider that owns model, after
 	// preparing its images through the model's image policy.
@@ -170,10 +173,13 @@ type ProviderConfig interface {
 
 // providerEntry is the internal, resolved form of a Provider.
 type providerEntry struct {
-	id              string
-	catalogID       string
-	baseURL         string
-	models          map[string]Model
+	id        string
+	catalogID string
+	baseURL   string
+	models    map[string]Model
+	// retired holds models a catalog update stopped listing. They are not
+	// listed, but Resolve and Stream still serve them by namespaced selector.
+	retired         map[string]Model
 	canonicalModels bool
 	stream          streamFn
 	validateReplay  func(context.Context, Model, []Message) error
@@ -210,8 +216,13 @@ type ModelCatalogCache interface {
 // RegistryOptions configures optional model-registry behavior.
 type RegistryOptions struct {
 	// ModelCatalogCache is loaded during construction and updated after a
-	// successful model-catalog refresh. Cache load failures never prevent startup.
+	// successful model-catalog refresh. A cached catalog replaces the listed
+	// models of each built-in provider it covers, as RefreshModels does.
+	// Cache load failures never prevent startup.
 	ModelCatalogCache ModelCatalogCache
+	// ModelCatalogURL is the models.dev-format catalog RefreshModels fetches.
+	// Empty selects https://models.dev/api.json.
+	ModelCatalogURL string
 }
 
 type modelCatalogTarget struct {
@@ -227,6 +238,13 @@ type registry struct {
 	entries map[string]providerEntry // by provider id
 	order   []string                 // provider registration order
 	cache   ModelCatalogCache
+	// catalogURL is the catalog RefreshModels fetches.
+	catalogURL string
+	// refreshes numbers refreshes in the order they start. committed is the
+	// number of the latest refresh to commit, guarded by commit, so a slow
+	// refresh cannot replace a catalog fetched after it.
+	refreshes atomic.Uint64
+	committed uint64
 	// index maps a bare model id to its owning provider id. Ambiguous ids
 	// (served by multiple providers) are omitted; callers must namespace.
 	index     map[string]string
@@ -249,6 +267,10 @@ func NewProvidersWithOptions(ctx context.Context, options RegistryOptions, confi
 		index:     map[string]string{},
 		ambiguous: map[string]bool{},
 		cache:     options.ModelCatalogCache,
+	}
+	r.catalogURL = options.ModelCatalogURL
+	if r.catalogURL == "" {
+		r.catalogURL = modelsDevCatalogURL
 	}
 	for _, cfg := range configs {
 		entry, err := cfg.build()
@@ -324,7 +346,7 @@ func (r *registry) Resolve(selector string) (Model, error) {
 	providerID, modelID := "", selector
 	if candidateProvider, candidateModel, namespaced := strings.Cut(selector, "/"); namespaced {
 		if entry, exists := r.entries[candidateProvider]; exists {
-			if _, exists := entry.models[candidateModel]; exists {
+			if _, exists := entry.servedModel(candidateModel); exists {
 				providerID, modelID = candidateProvider, candidateModel
 			}
 		}
@@ -339,15 +361,21 @@ func (r *registry) Resolve(selector string) (Model, error) {
 	if !ok {
 		return Model{}, fmt.Errorf("droids: unknown model %q", selector)
 	}
-	model, ok := entry.models[modelID]
+	model, ok := entry.servedModel(modelID)
 	if !ok {
 		return Model{}, fmt.Errorf("droids: unknown model %q", selector)
 	}
-	models := make(map[string]Model, len(entry.models))
+	// The bound provider serves every model the registry serves for it, so a
+	// retired model keeps streaming.
+	models := make(map[string]Model, len(entry.models)+len(entry.retired))
+	for id, candidate := range entry.retired {
+		models[id] = cloneModel(candidate)
+	}
 	for id, candidate := range entry.models {
 		models[id] = cloneModel(candidate)
 	}
 	entry.models = models
+	entry.retired = nil
 	provider := &resolvedProvider{entry: entry}
 	return BindModel(provider, model)
 }
@@ -375,7 +403,7 @@ func (r *registry) Model(id string) (Model, bool) {
 }
 
 func (r *registry) RefreshModels(ctx context.Context) error {
-	return r.refreshModels(ctx, modelsDevCatalogURL)
+	return r.refreshModels(ctx, r.catalogURL)
 }
 
 func (r *registry) refreshModels(ctx context.Context, catalogURL string) error {
@@ -384,6 +412,7 @@ func (r *registry) refreshModels(ctx context.Context, catalogURL string) error {
 		return nil
 	}
 
+	refresh := r.refreshes.Add(1)
 	catalog, err := fetchModelCatalog(ctx, catalogURL)
 	if err != nil {
 		return err
@@ -398,6 +427,11 @@ func (r *registry) refreshModels(ctx context.Context, catalogURL string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if refresh < r.committed {
+		// A refresh that started later already committed a newer catalog.
+		return nil
+	}
+	r.committed = refresh
 	if r.cache != nil && hasCatalogUpdates(updates) {
 		if data, err := json.Marshal(catalog); err == nil {
 			// Persistence is best-effort: a cache failure must not discard a
@@ -455,15 +489,34 @@ func hasCatalogUpdates(updates map[string][]Model) bool {
 	return false
 }
 
+// applyCatalogUpdates makes each updated provider list exactly its catalog
+// models, retiring models the catalog no longer lists. A provider without
+// valid catalog models keeps its current models, so a partial or empty catalog
+// cannot empty a provider. It replaces the entry's maps rather than mutating
+// them, because bound providers and snapshots may share the previous maps.
 func (r *registry) applyCatalogUpdates(updates map[string][]Model) {
 	for providerID, models := range updates {
 		entry, ok := r.entries[providerID]
 		if !ok || len(models) == 0 {
 			continue
 		}
+		listed := make(map[string]Model, len(models))
 		for _, model := range models {
-			entry.models[model.ID] = model
+			listed[model.ID] = model
 		}
+		retired := make(map[string]Model, len(entry.retired))
+		for id, model := range entry.retired {
+			if _, relisted := listed[id]; !relisted {
+				retired[id] = model
+			}
+		}
+		for id, model := range entry.models {
+			if _, kept := listed[id]; !kept {
+				retired[id] = model
+			}
+		}
+		entry.models = listed
+		entry.retired = retired
 		r.entries[providerID] = entry
 	}
 }
@@ -483,6 +536,15 @@ func (r *registry) rebuildIndex() {
 			}
 		}
 	}
+}
+
+// servedModel returns the model id, whether listed or retired.
+func (e providerEntry) servedModel(id string) (Model, bool) {
+	if model, ok := e.models[id]; ok {
+		return model, true
+	}
+	model, ok := e.retired[id]
+	return model, ok
 }
 
 type resolvedProvider struct{ entry providerEntry }
@@ -551,7 +613,7 @@ func (r *registry) Stream(ctx context.Context, model Model, req Request) Stream 
 	requested := model
 	r.mu.RLock()
 	e, providerExists := r.entries[requested.Provider]
-	canonical, modelExists := e.models[requested.ID]
+	canonical, modelExists := e.servedModel(requested.ID)
 	r.mu.RUnlock()
 	if !providerExists {
 		return erroredStream(requested, fmt.Sprintf("unknown provider %q", requested.Provider))

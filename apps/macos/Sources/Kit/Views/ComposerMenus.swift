@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// The model half's popover: the session's models, dimmed while a turn runs.
+/// Opening it re-reads the catalog, so models the server refreshed appear.
 /// Picking a model applies it and closes the popover.
 struct ComposerModelMenu: View {
     @Bindable var state: SessionStore
@@ -18,7 +19,8 @@ struct ComposerModelMenu: View {
             }, reload: {
                 Task { await state.loadComposer() }
             }, dismiss: dismiss,
-            lockedNote: state.running ? Self.lockedNote : nil)
+            lockedNote: state.running ? Self.lockedNote : nil,
+            opened: { Task { await state.loadComposer() } })
             .popoverCard(theme)
             .accessibilityLabel("Model")
     }

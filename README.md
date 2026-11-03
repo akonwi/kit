@@ -116,7 +116,7 @@ available when explicit metadata is needed. `ANTHROPIC_OAUTH_TOKEN` supplies a
 managed Claude subscription access token. `OPENCODE_API_KEY` enables both the `opencode/*` OpenCode Zen catalog through
 `https://opencode.ai/zen/v1` and the `opencode-go/*` catalog through
 `https://opencode.ai/zen/go/v1`; models are routed to Responses, Chat Completions,
-or Anthropic Messages according to their models.dev metadata. Without explicit provider environment credentials, the
+or Anthropic Messages according to their models.dev metadata, which the server keeps fresh ([model catalog](docs/features/model-catalog.md)). Without explicit provider environment credentials, the
 daemon uses the locked, atomic `~/.kit/auth.json` store and
 persists refresh-token rotations. Provider environment is read only at daemon
 startup, takes precedence over the file store, and refreshes only in memory, so

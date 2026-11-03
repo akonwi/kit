@@ -407,7 +407,7 @@ func runInternalServer(ctx context.Context, args []string, stderr io.Writer) int
 		return 1
 	}
 	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	if err := kitserver.Run(ctx, kitserver.RunOptions{Paths: paths, Logger: logger, Listen: *listen}); err != nil {
+	if err := kitserver.Run(ctx, kitserver.RunOptions{Paths: paths, Logger: logger, Listen: *listen, RefreshModelCatalog: true}); err != nil {
 		if errors.Is(err, kitserver.ErrAlreadyRunning) {
 			fmt.Fprintln(stderr, "kit: local daemon is already running")
 			return 2
@@ -439,7 +439,7 @@ func runForegroundServer(ctx context.Context, paths apphome.Paths, listen string
 		}
 	}
 	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	err := kitserver.Run(ctx, kitserver.RunOptions{Paths: paths, Logger: logger, Listen: listen, Foreground: true})
+	err := kitserver.Run(ctx, kitserver.RunOptions{Paths: paths, Logger: logger, Listen: listen, Foreground: true, RefreshModelCatalog: true})
 	switch {
 	case errors.Is(err, kitserver.ErrAlreadyRunning):
 		fmt.Fprintln(stderr, "kit: a server is already running for this Kit home; stop it with `kit server stop`")

@@ -208,7 +208,8 @@ private struct SubagentModelMenu: View {
                 Task { await state.loadComposer() }
             }, dismiss: dismiss,
             title: "Model for \(name)",
-            lockedNote: agent?.hasOutstandingWork == false ? nil : SubagentConfigurationControls.lockedNote(name))
+            lockedNote: agent?.hasOutstandingWork == false ? nil : SubagentConfigurationControls.lockedNote(name),
+            opened: { Task { await state.loadComposer() } })
             .accessibilityLabel("Model for \(name)")
     }
 }

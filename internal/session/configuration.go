@@ -75,13 +75,17 @@ func (m *Manager) ModelCapabilities(ctx context.Context) ([]ModelCapability, err
 }
 
 // ModelInputs lists what the model selected by selector accepts in user
-// messages, or nil when the selector names no known model.
+// messages, or nil when the selector names no known model. A model the
+// catalog no longer lists still reports its inputs, since sessions using it
+// keep running.
 func (m *Manager) ModelInputs(selector string) []string {
-	model, ok := m.providers.Model(selector)
-	if !ok {
-		return nil
+	if model, ok := m.providers.Model(selector); ok {
+		return modelInputs(model)
 	}
-	return modelInputs(model)
+	if model, err := m.providers.Resolve(selector); err == nil {
+		return modelInputs(model)
+	}
+	return nil
 }
 
 // modelInputs lists what model accepts in user messages: text, and images when
@@ -139,11 +143,11 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	if err != nil {
 		return ConfigureSessionResult{}, err
 	}
-	targetModel, err := m.resolveExactModel(input.Model)
+	initialRecord, err := m.sessionRecord(ctx, sessionID)
 	if err != nil {
 		return ConfigureSessionResult{}, err
 	}
-	initialRecord, err := m.sessionRecord(ctx, sessionID)
+	targetModel, err := m.resolveConfigurationTarget(input.Model, initialRecord)
 	if err != nil {
 		return ConfigureSessionResult{}, err
 	}
@@ -176,7 +180,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	if record.ConfigurationRevision != input.ExpectedRevision {
 		return ConfigureSessionResult{}, &ConfigurationConflictError{Expected: input.ExpectedRevision, Actual: record.ConfigurationRevision}
 	}
-	targetModel, err = m.resolveExactModel(input.Model)
+	targetModel, err = m.resolveConfigurationTarget(input.Model, record)
 	if err != nil {
 		return ConfigureSessionResult{}, err
 	}
@@ -516,6 +520,22 @@ func (m *Manager) requireQuiescentTransition(ctx context.Context, sessionID stri
 		return fmt.Errorf("wait for session %q to become quiescent: %w", sessionID, err)
 	}
 	return nil
+}
+
+// resolveConfigurationTarget resolves the model a session's configuration
+// changes to. A session keeps a model the catalog has retired, so it can still
+// change its thinking level, but it can switch only to a listed model.
+func (m *Manager) resolveConfigurationTarget(selector string, current SessionRecord) (droids.Model, error) {
+	model, err := m.resolveExactModel(selector)
+	if err != nil {
+		return droids.Model{}, err
+	}
+	if model.Provider != current.ModelProvider || model.ID != current.ModelID {
+		if _, listed := m.providers.Model(selector); !listed {
+			return droids.Model{}, fmt.Errorf("%w: model %q is no longer in the catalog", ErrInvalidInput, selector)
+		}
+	}
+	return model, nil
 }
 
 func (m *Manager) resolveExactModel(selector string) (droids.Model, error) {

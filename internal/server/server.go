@@ -79,6 +79,10 @@ type RunOptions struct {
 	// LoginFlows replaces the provider login flows, which otherwise use the
 	// providers' real endpoints.
 	LoginFlows *providerlogin.Flows
+	// RefreshModelCatalog refreshes the providers' model catalog in the
+	// background when the daemon starts and daily while it runs. Startup never
+	// waits for it, and a failure keeps the current catalog.
+	RefreshModelCatalog bool
 }
 
 // Run serves the authenticated local daemon until cancellation or shutdown.
@@ -170,6 +174,12 @@ func Run(ctx context.Context, options RunOptions) error {
 		if err != nil {
 			return err
 		}
+	}
+	if options.RefreshModelCatalog {
+		// Deferred after the teardown above, so it runs first: shutdown
+		// cancels a refresh in flight before the session manager stops.
+		stopCatalogRefresh := startModelCatalogRefresh(ctx, providers, defaultModelCatalogRefresh, logger)
+		defer stopCatalogRefresh()
 	}
 	systemPrompt := options.SystemPrompt
 	if systemPrompt == "" {

@@ -12,6 +12,9 @@ struct ComposerModelPicker: View {
     var title: String? = nil
     /// Why the model can't change now; the list is dimmed while it is set.
     var lockedNote: String? = nil
+    /// Runs when the picker opens, so a caller holding a catalog it loaded
+    /// earlier can re-read it and show models the server refreshed since.
+    var opened: (() -> Void)? = nil
     @State private var selection = 0
     @State private var hoveredID: String?
     @FocusState private var focused: Bool
@@ -62,6 +65,7 @@ struct ComposerModelPicker: View {
         .frame(width: Self.width)
         .foregroundStyle(theme.text)
         .background(theme.surface)
+        .onAppear { opened?() }
         .focusable().focused($focused)
         .onKeyPress(.downArrow) {
             guard !models.isEmpty, lockedNote == nil else { return .ignored }
