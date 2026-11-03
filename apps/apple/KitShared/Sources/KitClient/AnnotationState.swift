@@ -1,29 +1,33 @@
 import Foundation
 import Observation
 
-/// UI drafts survive failed writes. Records only come from server reads or ordered events.
-@MainActor @Observable final class AnnotationState {
-    private(set) var records: [FileAnnotation] = []
-    private(set) var pending = false
-    private(set) var error: String?
-    private(set) var evidenceConflict: AnnotationEvidenceConflict?
-    private(set) var uncertain = false
+/// A session's annotations and the one being written. UI drafts survive
+/// failed writes. Records only come from server reads or ordered events.
+@MainActor @Observable public final class AnnotationState {
+    public private(set) var records: [FileAnnotation] = []
+    public private(set) var pending = false
+    public private(set) var error: String?
+    public private(set) var evidenceConflict: AnnotationEvidenceConflict?
+    public private(set) var uncertain = false
     private var observed: [FileAnnotation] = []
     private var generation = 0
     private var acknowledgedCreation: FileAnnotation?
-    var draft = ""
-    var revealed: UInt64?
-    var revealToken = UUID()
-    var editor: Editor?
-    var replacement: FileAnnotation?
-    var inspected: FileAnnotation?
-    var selectionDraft: SelectionDraft?
-    struct SelectionDraft {
-        let body: String
-        let replacing: UInt64?
-        let path: String
+    public var draft = ""
+    public var revealed: UInt64?
+    public var revealToken = UUID()
+    public var editor: Editor?
+    public var replacement: FileAnnotation?
+    public var inspected: FileAnnotation?
+    public var selectionDraft: SelectionDraft?
+
+    public init() {}
+
+    public struct SelectionDraft {
+        public let body: String
+        public let replacing: UInt64?
+        public let path: String
     }
-    func reselectEditor() {
+    public func reselectEditor() {
         guard !pending else { return }
         stageReselection()
     }
@@ -32,14 +36,14 @@ import Observation
         selectionDraft = SelectionDraft(body: draft, replacing: acknowledgedCreation?.id ?? editor.editing ?? editor.replacing, path: path)
         self.editor = nil
     }
-    struct Editor {
-        let token = UUID()
-        let anchor: WireAnnotationAnchor
-        let editing: UInt64?
-        let replacing: UInt64?
+    public struct Editor {
+        public let token = UUID()
+        public let anchor: WireAnnotationAnchor
+        public let editing: UInt64?
+        public let replacing: UInt64?
     }
 
-    func begin(anchor: WireAnnotationAnchor, editing: FileAnnotation? = nil) {
+    public func begin(anchor: WireAnnotationAnchor, editing: FileAnnotation? = nil) {
         guard !pending, !uncertain, editor == nil else { return }
         guard editing != nil || records.count < 128 else {
             error = "A session can contain up to 128 annotations. Delete one before adding another."
@@ -54,25 +58,25 @@ import Observation
         editor = Editor(anchor: anchor, editing: editing?.id, replacing: selectionDraft?.replacing ?? replacement?.id)
     }
 
-    func cancelEditor() {
+    public func cancelEditor() {
         guard !pending else { return }
         editor = nil; replacement = nil; selectionDraft = nil; draft = ""; acknowledgedCreation = nil; evidenceConflict = nil
     }
 
-    func reveal(_ note: FileAnnotation) {
+    public func reveal(_ note: FileAnnotation) {
         if note.isDiff { inspected = note; return }
         revealed = note.id; revealToken = UUID()
         if note.stale { inspected = note }
     }
 
-    func observe(_ incoming: [FileAnnotation]) {
+    public func observe(_ incoming: [FileAnnotation]) {
         guard incoming != observed else { return }
         observed = incoming
         generation += 1
         records = incoming
     }
 
-    func refresh(client: any AnnotationClient, session: String) async throws {
+    public func refresh(client: any AnnotationClient, session: String) async throws {
         let epoch = generation
         let values = try await client.annotations(session)
         try Task.checkCancellation()
@@ -81,7 +85,7 @@ import Observation
     }
 
     /// No retry loop: an uncertain create must be reconciled and reviewed before another write.
-    func save(client: any AnnotationClient, session: String, anchor: WireAnnotationAnchor,
+    public func save(client: any AnnotationClient, session: String, anchor: WireAnnotationAnchor,
               editing: UInt64? = nil, replacing: UInt64? = nil) async -> Bool {
         guard !pending, !uncertain, FileAnnotation.validBody(draft) else { return false }
         pending = true; error = nil; evidenceConflict = nil
@@ -116,7 +120,7 @@ import Observation
         }
     }
 
-    func remove(client: any AnnotationClient, session: String, id: UInt64) async {
+    public func remove(client: any AnnotationClient, session: String, id: UInt64) async {
         guard !pending else { return }
         pending = true; error = nil
         defer { pending = false }
@@ -129,9 +133,9 @@ import Observation
         }
     }
 
-    func report(_ error: Error) { self.error = error.localizedDescription }
+    public func report(_ error: Error) { self.error = error.localizedDescription }
 
-    func acknowledgeUncertainty() { uncertain = false; error = nil }
+    public func acknowledgeUncertainty() { uncertain = false; error = nil }
 
     private static func ambiguous(_ error: Error) -> Bool {
         if error is MutationNotSent || error is AnnotationEvidenceConflict { return false }
