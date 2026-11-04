@@ -7,9 +7,9 @@ import Testing
 struct DiffCommentsTests {
     /// Rows: 0 `func greet() {` (1→1), 1 −old 2, 2 +new 2, 3 +new 3,
     /// 4 `}` (3→4), 5 ⋯, 6 context (10→11), 7 +new 12.
-    static func document() throws -> DiffDocument {
+    static func document(path: String = "Sources/greet.swift") throws -> DiffDocument {
         let observation = #"{"sessionId":"session_test","target":{"id":"difftarget_test","workspaceId":"workspace_test","kind":"working_tree","repositoryPath":"/tmp","base":{"kind":"commit","oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"head":{"kind":"working_tree"}},"revision":"diffrev_test","head":{"state":"commit","oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"indexSummary":"index_test","complete":true,"omissions":[]}"#
-        let file = #"{"path":"Sources/greet.swift","fileRevision":"diff_file_test","change":"modified","old":{"kind":"regular","mode":33188},"new":{"kind":"regular","mode":33188},"contentState":"text","additions":3,"deletions":1}"#
+        let file = #"{"path":"\#(path)","fileRevision":"diff_file_test","change":"modified","old":{"kind":"regular","mode":33188},"new":{"kind":"regular","mode":33188},"contentState":"text","additions":3,"deletions":1}"#
         func line(_ kind: String, _ old: Int?, _ new: Int?, _ text: String) -> String {
             let numbers = [old.map { "\"oldLine\":\($0)" }, new.map { "\"newLine\":\($0)" }].compactMap { $0 }.joined(separator: ",")
             return #"{"kind":"\#(kind)",\#(numbers),"content":"\#(text)","hasTerminatingLF":true}"#

@@ -130,6 +130,8 @@ struct CommentableDiff: View {
     /// The rows the handle covers while it's dragged.
     @State private var dragged: ClosedRange<Int>?
     @State private var refusal: String?
+    /// The rows colored by syntax, and the document they were colored for.
+    @State private var colored: (identity: String, lines: [AttributedString?])?
 
     /// The comment being written, when it's on this file.
     private var editor: AnnotationState.Editor? {
@@ -171,7 +173,8 @@ struct CommentableDiff: View {
             ForEach(unplaced) { note in card(note) }
             ForEach(segments, id: \.lowerBound) { segment in
                 let last = segment.upperBound - 1
-                DiffLines(document: document, rows: segment, wrap: wrap, selected: selected,
+                DiffLines(document: document, rows: segment, wrap: wrap,
+                          colored: colored?.identity == document.identity ? colored?.lines : nil, selected: selected,
                           handle: annotations.pending ? nil : selected?.upperBound,
                           tap: select, drag: drag, drop: drop)
                     // The handle hangs over the top edge of what's below.
@@ -187,6 +190,11 @@ struct CommentableDiff: View {
                     }
                 }
             }
+        }
+        .task(id: document.identity) {
+            let current = document
+            guard let lines = await DiffHighlighting.lines(current), !Task.isCancelled else { return }
+            colored = (current.identity, lines)
         }
     }
 
@@ -248,6 +256,8 @@ struct DiffLines: View {
     let document: DiffDocument
     var rows: Range<Int>
     let wrap: Bool
+    /// Each row's text colored by syntax, once highlighting finishes.
+    var colored: [AttributedString?]? = nil
     var selected: ClosedRange<Int>? = nil
     /// The row the selection handle hangs under.
     var handle: Int? = nil
@@ -258,12 +268,14 @@ struct DiffLines: View {
     /// Where each row ends, measured when lines wrap.
     @State private var bottoms: [Int: CGFloat] = [:]
 
-    init(document: DiffDocument, rows: Range<Int>? = nil, wrap: Bool, selected: ClosedRange<Int>? = nil,
+    init(document: DiffDocument, rows: Range<Int>? = nil, wrap: Bool, colored: [AttributedString?]? = nil,
+         selected: ClosedRange<Int>? = nil,
          handle: Int? = nil, tap: @escaping (Int) -> Void = { _ in }, drag: @escaping (Int) -> Void = { _ in },
          drop: @escaping () -> Void = {}) {
         self.document = document
         self.rows = rows ?? document.rows.indices
         self.wrap = wrap
+        self.colored = colored
         self.selected = selected
         self.handle = handle
         self.tap = tap
@@ -285,7 +297,7 @@ struct DiffLines: View {
                         let row = document.rows[index]
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
                             gutter(index, numberWidth: numberWidth)
-                            Text(Self.display(row.text))
+                            Text(text(index))
                                 .foregroundStyle(Self.textColor(row))
                                 .italic(row.kind == "marker")
                                 .padding(.vertical, 2)
@@ -312,7 +324,7 @@ struct DiffLines: View {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(rows, id: \.self) { index in
                                 let row = document.rows[index]
-                                Text(Self.display(row.text))
+                                Text(text(index))
                                     .foregroundStyle(Self.textColor(row))
                                     .italic(row.kind == "marker")
                                     .lineLimit(1)
@@ -361,6 +373,12 @@ struct DiffLines: View {
         .background { if wrap && chosen { Theme.accent } }
         .contentShape(Rectangle())
         .onTapGesture { tap(index) }
+    }
+
+    /// A row's text, colored once highlighting finishes.
+    private func text(_ index: Int) -> AttributedString {
+        if let colored, colored.count == document.rows.count, let line = colored[index] { return line }
+        return AttributedString(Self.display(document.rows[index].text))
     }
 
     /// The bottom edge of a row in this block.
