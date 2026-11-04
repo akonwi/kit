@@ -110,6 +110,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		store          *storage.Store
 		sessionManager *kitsession.Manager
 		subagents      *subagent.Supervisor
+		diffs          *workingdiff.Service
 		listener       net.Listener
 		instanceID     string
 		published      bool
@@ -129,6 +130,15 @@ func Run(ctx context.Context, options RunOptions) error {
 			shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			if err := sessionManager.Shutdown(shutdownContext); err != nil {
 				logger.Error("stop session runtimes", "error", err)
+			}
+			cancel()
+		}
+		// Session runtimes and handlers read diffs through the annotation
+		// service, so close it after they stop.
+		if diffs != nil {
+			closeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := diffs.Close(closeContext); err != nil {
+				logger.Error("close working-tree diff service", "error", err)
 			}
 			cancel()
 		}
@@ -289,11 +299,11 @@ func Run(ctx context.Context, options RunOptions) error {
 		return fmt.Errorf("create runtime bundle builder: %w", err)
 	}
 	workspaceService := workspace.NewService()
-	diffService, err := workingdiff.NewService(workspaceService)
+	diffs, err = workingdiff.NewService(workspaceService)
 	if err != nil {
 		return fmt.Errorf("configure working-tree diff service: %w", err)
 	}
-	annotationService, err := kitannotation.NewService(store, annotationWorkspaceReader{service: workspaceService}, annotationDiffReader{service: diffService})
+	annotationService, err := kitannotation.NewService(store, annotationWorkspaceReader{service: workspaceService}, annotationDiffReader{service: diffs})
 	if err != nil {
 		return fmt.Errorf("configure annotation service: %w", err)
 	}
@@ -437,7 +447,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		logger:         logger,
 		sessions: runtimeSessionService{
 			manager: sessionManager, defaults: defaults, availableProviders: providerAvailability, modelContextWindow: modelContextWindow, fileIndexes: newSessionFileIndexCache(),
-			workspaces: workspaceService, diffs: diffService, annotations: annotationService, annotationCursorKey: []byte(token), subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
+			workspaces: workspaceService, diffs: diffs, annotations: annotationService, annotationCursorKey: []byte(token), subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
 		},
 		attachments: runtimeAttachmentService{manager: sessionManager, store: attachmentStore},
 		providers:   providerAvailability,

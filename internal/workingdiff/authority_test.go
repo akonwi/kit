@@ -56,7 +56,7 @@ func TestGitBooleanSparseAndAuthorityReplacement(t *testing.T) {
 func serviceObservation(t *testing.T, d string) (*workspace.Service, *Service, protocol.WorkingTreePage) {
 	t.Helper()
 	w := workspace.NewService()
-	s, e := NewService(w)
+	s, e := newTestService(t, w)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -130,7 +130,7 @@ func TestObjectSymlinkEscapingAuthorityIsRejected(t *testing.T) {
 func TestObservationCancellationRemainsCancellation(t *testing.T) {
 	d := fixture(t)
 	w := workspace.NewService()
-	s, e := NewService(w)
+	s, e := newTestService(t, w)
 	if e != nil {
 		t.Fatal(e)
 	}

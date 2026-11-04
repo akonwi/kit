@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -41,23 +42,100 @@ func (w *boundedWriter) Write(p []byte) (int, error) {
 	return w.b.Write(p)
 }
 
-type gitRunner struct{ exe, home string }
+// errRunnerClosed reports a git command requested after the runner closed.
+var errRunnerClosed = errors.New("git runner is closed")
 
-func newGitRunner() (gitRunner, error) {
+// gitRunner runs git with an isolated environment. It owns a private, empty
+// directory that serves as git's HOME, XDG_CONFIG_HOME, and working
+// directory, so git reads no user or ambient configuration, attributes,
+// ignore rules, or credentials, and discovers no repository from its cwd.
+// close cancels running commands, waits for them to exit, and then removes
+// the directory.
+type gitRunner struct {
+	exe, home string
+	// stopped is cancelled when close begins, ending every running command.
+	stopped context.Context
+	stop    context.CancelFunc
+
+	mu     sync.Mutex
+	closed bool
+	// runs counts admitted commands. Add happens under mu after checking
+	// closed, and close sets closed before waiting, so no Add follows Wait.
+	runs sync.WaitGroup
+	// done is closed after the home directory is removed; closeErr is
+	// written before done closes.
+	done     chan struct{}
+	closeErr error
+}
+
+func newGitRunner() (*gitRunner, error) {
 	exe, err := exec.LookPath("git")
 	if err != nil {
-		return gitRunner{}, err
+		return nil, err
 	}
 	home, err := os.MkdirTemp("", "kit-diff-git-")
 	if err != nil {
-		return gitRunner{}, err
+		return nil, err
 	}
 	if err = os.Chmod(home, 0700); err != nil {
-		return gitRunner{}, err
+		_ = os.RemoveAll(home)
+		return nil, err
 	}
-	return gitRunner{exe, home}, nil
+	stopped, stop := context.WithCancel(context.Background())
+	return &gitRunner{exe: exe, home: home, stopped: stopped, stop: stop, done: make(chan struct{})}, nil
 }
-func (r gitRunner) run(ctx context.Context, repo *repository, input []byte, limit int, args ...string) ([]byte, error) {
+
+// admit counts a command unless the runner is closed.
+func (r *gitRunner) admit() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return false
+	}
+	r.runs.Add(1)
+	return true
+}
+
+// isClosed reports whether close has begun.
+func (r *gitRunner) isClosed() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.closed
+}
+
+// close stops running commands and removes the isolated home once they have
+// exited. The first call starts teardown; every call waits for it to finish
+// or for its own ctx to end, and a caller's ctx ending never abandons the
+// teardown. It is safe to call more than once and concurrently with run.
+func (r *gitRunner) close(ctx context.Context) error {
+	r.mu.Lock()
+	first := !r.closed
+	r.closed = true
+	r.mu.Unlock()
+	if first {
+		r.stop()
+		go func() {
+			r.runs.Wait()
+			r.closeErr = os.RemoveAll(r.home)
+			close(r.done)
+		}()
+	}
+	select {
+	case <-r.done:
+		return r.closeErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (r *gitRunner) run(ctx context.Context, repo *repository, input []byte, limit int, args ...string) ([]byte, error) {
+	if !r.admit() {
+		return nil, errRunnerClosed
+	}
+	defer r.runs.Done()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	defer context.AfterFunc(r.stopped, cancel)()
 	base := []string{"--no-pager", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-c", "credential.helper=", "-c", "core.askPass=", "-c", "diff.external=", "-c", "interactive.diffFilter="}
 	if repo != nil {
 		base = append(base, "--git-dir="+repo.gitdir, "--work-tree="+repo.root)

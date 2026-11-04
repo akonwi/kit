@@ -36,7 +36,7 @@ func targetFixture(t *testing.T) (string, *Service, string) {
 	t.Helper()
 	dir := fixture(t)
 	ws := workspace.NewService()
-	service, err := NewService(ws)
+	service, err := newTestService(t, ws)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestUnbornWorkingTreeTargetRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws := workspace.NewService()
-	service, err := NewService(ws)
+	service, err := newTestService(t, ws)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func TestCommittedObservationBoundsCandidatesAndBlobAcquisition(t *testing.T) {
 	git(t, dir, "add", ".")
 	git(t, dir, "commit", "-qm", "large root")
 	ws := workspace.NewService()
-	service, err := NewService(ws)
+	service, err := newTestService(t, ws)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +485,7 @@ func TestCommittedTreeTruncationDoesNotFabricateShiftedPrefixDeletion(t *testing
 	git(t, dir, "add", ".")
 	git(t, dir, "commit", "-qm", "shift prefix")
 	ws := workspace.NewService()
-	service, err := NewService(ws)
+	service, err := newTestService(t, ws)
 	if err != nil {
 		t.Fatal(err)
 	}

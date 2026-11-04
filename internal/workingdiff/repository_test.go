@@ -13,7 +13,7 @@ import (
 func observeError(t *testing.T, d string) error {
 	t.Helper()
 	ws := workspace.NewService()
-	s, e := NewService(ws)
+	s, e := newTestService(t, ws)
 	if e != nil {
 		t.Fatal(e)
 	}

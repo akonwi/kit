@@ -22,7 +22,7 @@ func committedAnnotationFixture(t *testing.T) (string, *workspace.Service, *Serv
 	git(t, dir, "add", "a.txt")
 	git(t, dir, "commit", "-qm", "annotation target")
 	workspaces := workspace.NewService()
-	service, err := NewService(workspaces)
+	service, err := newTestService(t, workspaces)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestReadLineRangeReconstructsCommittedEvidenceAfterExpiryAndRestart(t *test
 		t.Fatalf("expired evidence = %+v, %v", evidence, err)
 	}
 
-	restarted, err := NewService(workspaces)
+	restarted, err := newTestService(t, workspaces)
 	if err != nil {
 		t.Fatal(err)
 	}

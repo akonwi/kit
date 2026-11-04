@@ -15,7 +15,6 @@ import (
 	protocol "github.com/akonwi/kit/api/contract"
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/httpapi"
-	kitworkingdiff "github.com/akonwi/kit/internal/workingdiff"
 	kitworkspace "github.com/akonwi/kit/internal/workspace"
 )
 
@@ -72,10 +71,7 @@ func TestCreateWorkingTreeAnnotationRangesEndingOnBlankLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspaces := kitworkspace.NewService()
-	diffs, err := kitworkingdiff.NewService(workspaces)
-	if err != nil {
-		t.Fatal(err)
-	}
+	diffs := newTestDiffService(t, workspaces)
 	workspaceID := workspaces.Ref(sessionID, dir).WorkspaceID
 	page, err := diffs.Observe(t.Context(), sessionID, dir, protocol.ObserveWorkingTreeInput{WorkspaceID: workspaceID})
 	if err != nil || len(page.Files) != 1 {

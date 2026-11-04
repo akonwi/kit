@@ -11,7 +11,6 @@ import (
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	kitsession "github.com/akonwi/kit/internal/session"
 	kitstorage "github.com/akonwi/kit/internal/storage"
-	kitworkingdiff "github.com/akonwi/kit/internal/workingdiff"
 	kitworkspace "github.com/akonwi/kit/internal/workspace"
 )
 
@@ -57,10 +56,7 @@ func TestCommittedAnnotationCreateListAndSubmitAfterDiffServiceRestart(t *testin
 		t.Fatal(err)
 	}
 	workspaces := kitworkspace.NewService()
-	diffs, err := kitworkingdiff.NewService(workspaces)
-	if err != nil {
-		t.Fatal(err)
-	}
+	diffs := newTestDiffService(t, workspaces)
 	workspaceID := workspaces.Ref(sessionID, dir).WorkspaceID
 	catalog, err := diffs.ListTargets(t.Context(), sessionID, dir, protocol.ListDiffTargetsInput{WorkspaceID: workspaceID})
 	if err != nil {
@@ -98,10 +94,7 @@ func TestCommittedAnnotationCreateListAndSubmitAfterDiffServiceRestart(t *testin
 		t.Fatal(err)
 	}
 	defer restartedStore.Close()
-	restartedDiffs, err := kitworkingdiff.NewService(workspaces)
-	if err != nil {
-		t.Fatal(err)
-	}
+	restartedDiffs := newTestDiffService(t, workspaces)
 	restartedAnnotations, err := kitannotation.NewService(restartedStore, unusedAnnotationFileReader{}, annotationDiffReader{service: restartedDiffs})
 	if err != nil {
 		t.Fatal(err)
