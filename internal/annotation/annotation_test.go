@@ -102,7 +102,7 @@ func (r *staticReader) ReadFile(context.Context, string, string, WorkspaceFileAn
 
 func TestCreateDerivesDiffPreview(t *testing.T) {
 	repository := &memoryRepository{records: make(map[uint64]Record)}
-	service, err := NewService(repository, &staticReader{content: "unused"}, staticDiffReader{content: "old evidence"})
+	service, err := NewService(repository, &staticReader{content: "unused\n"}, staticDiffReader{content: "old evidence\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +127,8 @@ func TestCommittedDiffTargetPersistsThroughListingAndSubmission(t *testing.T) {
 		WorkspaceID: "workspace_" + token, Kind: protocol.DiffTargetCommit,
 		Base: protocol.DiffEndpoint{Kind: "empty_tree"}, Head: protocol.DiffEndpoint{Kind: "commit", OID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 	}
-	reader := staticDiffReader{content: "old evidence", target: &target}
-	service, err := NewService(repository, &staticReader{content: "unused"}, reader)
+	reader := staticDiffReader{content: "old evidence\n", target: &target}
+	service, err := NewService(repository, &staticReader{content: "unused\n"}, reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestCommittedDiffTargetPersistsThroughListingAndSubmission(t *testing.T) {
 	if err != nil || created.DiffTarget == nil || *created.DiffTarget != target {
 		t.Fatalf("created = %+v, %v", created, err)
 	}
-	service.diffs = staticDiffReader{content: "old evidence", required: &target, target: &target}
+	service.diffs = staticDiffReader{content: "old evidence\n", required: &target, target: &target}
 	records, stale, err := service.List(t.Context(), "session_test", "/repo", 0, 10)
 	if err != nil || len(records) != 1 || len(stale) != 0 || records[0].DiffTarget == nil {
 		t.Fatalf("records = %+v, stale = %+v, %v", records, stale, err)
@@ -168,7 +168,7 @@ func TestCreateDerivesAuthoritativePreview(t *testing.T) {
 }
 
 func TestCreateEnforcesRendererSafeText(t *testing.T) {
-	service, _ := NewService(&memoryRepository{records: make(map[uint64]Record)}, &staticReader{content: "one\n\x1b[31munsafe\nthree"})
+	service, _ := NewService(&memoryRepository{records: make(map[uint64]Record)}, &staticReader{content: "one\n\x1b[31munsafe\nthree\n"})
 	record, err := service.Create(t.Context(), "session_test", "/repo", testAnchor(), "Safe body")
 	if err != nil {
 		t.Fatal(err)
@@ -182,7 +182,7 @@ func TestCreateEnforcesRendererSafeText(t *testing.T) {
 }
 
 func TestCreateRejectsUnavailableRange(t *testing.T) {
-	service, _ := NewService(&memoryRepository{records: make(map[uint64]Record)}, &staticReader{content: "one"})
+	service, _ := NewService(&memoryRepository{records: make(map[uint64]Record)}, &staticReader{content: "one\n"})
 	_, err := service.Create(t.Context(), "session_test", "/repo", testAnchor(), "Change this")
 	if !errors.Is(err, ErrStale) {
 		t.Fatalf("error = %v", err)
@@ -213,7 +213,7 @@ func (r *controlledDiffReader) ReadDiff(ctx context.Context, _ string, _ string,
 			return FileEvidence{}, ctx.Err()
 		}
 	}
-	return FileEvidence{Content: "evidence", ContentStartLine: 1, CompleteLineCount: 1}, nil
+	return FileEvidence{Content: "evidence\n", ContentStartLine: 1, CompleteLineCount: 1}, nil
 }
 
 func listedDiffRecord(id uint64, revision string) Record {
@@ -290,7 +290,7 @@ func TestListAppliesOneAggregateEvidenceDeadline(t *testing.T) {
 
 func TestListProjectsStaleWithoutDeletingEvidence(t *testing.T) {
 	repository := &memoryRepository{records: make(map[uint64]Record)}
-	service, _ := NewService(repository, &staticReader{content: "one\ntwo\nthree"})
+	service, _ := NewService(repository, &staticReader{content: "one\ntwo\nthree\n"})
 	record, err := service.Create(t.Context(), "session_test", "/repo", testAnchor(), "Change this")
 	if err != nil {
 		t.Fatal(err)
@@ -304,7 +304,7 @@ func TestListProjectsStaleWithoutDeletingEvidence(t *testing.T) {
 
 func TestPreparedSubmissionCommitsOrAborts(t *testing.T) {
 	repository := NewMemoryRepository()
-	service, _ := NewService(repository, &staticReader{content: "one\ntwo\nthree"})
+	service, _ := NewService(repository, &staticReader{content: "one\ntwo\nthree\n"})
 	first, err := service.Create(t.Context(), "session_test", "/repo", testAnchor(), "First")
 	if err != nil {
 		t.Fatal(err)
@@ -358,7 +358,7 @@ func (o *blockingObserver) AnnotationUpdated(record Record) {
 
 func TestMutationObserverPreservesStorageOrder(t *testing.T) {
 	repository := NewMemoryRepository()
-	service, _ := NewService(repository, &staticReader{content: "one\ntwo\nthree"})
+	service, _ := NewService(repository, &staticReader{content: "one\ntwo\nthree\n"})
 	record, err := service.Create(t.Context(), "session_test", "/repo", testAnchor(), "Initial")
 	if err != nil {
 		t.Fatal(err)
@@ -408,4 +408,52 @@ func testAnchor() protocol.AnnotationAnchor {
 		Path:        "file.go", FileRevision: "file_H3T9powiSBvNvpOX7c0rfRXfUK9elSR5ymvVeBfsi7A",
 		StartLine: 2, EndLine: 3,
 	}}
+}
+
+func TestDerivePreviewReadsNewlineTerminatedEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		content    string
+		start, end int
+		want       string
+	}{
+		{name: "ends on blank", content: "context\n\n", start: 5, end: 6, want: "context\n"},
+		{name: "starts on blank", content: "\ncontext\n", start: 4, end: 5, want: "\ncontext"},
+		{name: "single blank", content: "\n", start: 6, end: 6, want: ""},
+		{name: "blank lines on both edges", content: "\ncontext\n\n", start: 4, end: 6, want: "\ncontext\n"},
+		{name: "CRLF", content: "two\r\n\r\n", start: 2, end: 3, want: "two\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			evidence := FileEvidence{Content: test.content, ContentStartLine: test.start, CompleteLineCount: test.end}
+			preview, err := derivePreview(evidence, lineRange{start: test.start, end: test.end})
+			want := Preview{StartLine: test.start, EndLine: test.end, Text: test.want}
+			if err != nil || preview != want {
+				t.Fatalf("preview = %+v, %v; want %+v", preview, err, want)
+			}
+		})
+	}
+}
+
+func TestDerivePreviewSelectsFromLongerEvidence(t *testing.T) {
+	evidence := FileEvidence{Content: "one\n\nthree\n\n"}
+	preview, err := derivePreview(evidence, lineRange{start: 2, end: 4})
+	want := Preview{StartLine: 2, EndLine: 4, Text: "\nthree\n"}
+	if err != nil || preview != want {
+		t.Fatalf("preview = %+v, %v; want %+v", preview, err, want)
+	}
+}
+
+func TestDerivePreviewRejectsUnterminatedEvidence(t *testing.T) {
+	_, err := derivePreview(FileEvidence{Content: "one\ntwo", ContentStartLine: 1, CompleteLineCount: 2}, lineRange{start: 1, end: 2})
+	if err == nil || errors.Is(err, ErrStale) {
+		t.Fatalf("error = %v, want an evidence contract violation", err)
+	}
+}
+
+func TestDerivePreviewReportsMissingLinesAsAStaleFile(t *testing.T) {
+	_, err := derivePreview(FileEvidence{Content: "context\n", ContentStartLine: 5, CompleteLineCount: 6}, lineRange{start: 5, end: 6})
+	var evidenceErr *EvidenceError
+	if !errors.Is(err, ErrStale) || !errors.As(err, &evidenceErr) || evidenceErr.Kind != EvidenceStaleFile {
+		t.Fatalf("error = %v, want a stale file", err)
+	}
 }

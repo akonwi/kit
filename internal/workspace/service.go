@@ -536,6 +536,8 @@ type LineRangeInput struct {
 
 // LineRangeRead is an authoritative complete-line read.
 type LineRangeRead struct {
+	// Content holds the requested lines, each followed by "\n" even when the
+	// file's last line has no terminator. A CRLF line keeps its "\r".
 	Content  string
 	Revision string
 }
@@ -598,7 +600,7 @@ func (s *Service) ReadLineRange(ctx context.Context, sessionID, cwd string, inpu
 		return LineRangeRead{}, &Error{Code: StaleFile, Message: "workspace file changed", Details: map[string]string{"currentFileRevision": revision}}
 	}
 	reader := bufio.NewReaderSize(file, 32<<10)
-	selected := make([]string, 0, input.EndLine-input.StartLine+1)
+	var selected strings.Builder
 	totalRead := 0
 	for lineNumber := 1; lineNumber <= input.EndLine; lineNumber++ {
 		if err := ctx.Err(); err != nil {
@@ -613,7 +615,8 @@ func (s *Service) ReadLineRange(ctx context.Context, sessionID, cwd string, inpu
 			return LineRangeRead{}, &Error{Code: BinaryFile, Message: "binary files cannot be read as lines"}
 		}
 		if lineNumber >= input.StartLine {
-			selected = append(selected, strings.TrimSuffix(line, "\n"))
+			selected.WriteString(strings.TrimSuffix(line, "\n"))
+			selected.WriteByte('\n')
 		}
 		if readErr == io.EOF {
 			if line == "" || lineNumber < input.EndLine {
@@ -658,7 +661,7 @@ func (s *Service) ReadLineRange(ctx context.Context, sessionID, cwd string, inpu
 	if _, err := s.check(sessionID, cwd, input.WorkspaceID); err != nil {
 		return LineRangeRead{}, err
 	}
-	return LineRangeRead{Content: strings.Join(selected, "\n"), Revision: revision}, nil
+	return LineRangeRead{Content: selected.String(), Revision: revision}, nil
 }
 
 func exactChild(root *os.Root, name string, checked *int) (fs.FileInfo, error) {

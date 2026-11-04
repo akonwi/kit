@@ -203,14 +203,14 @@ func TestObserveAndReadSemanticDiff(t *testing.T) {
 		TargetID: page.Observation.Target.ID, TargetRevision: page.Observation.Revision, Path: "a.txt",
 		FileRevision: page.Files[0].FileRevision, Side: "old", StartLine: 2, EndLine: 2,
 	})
-	if err != nil || oldEvidence.Content != "two" {
+	if err != nil || oldEvidence.Content != "two\n" {
 		t.Fatalf("old evidence = %+v, %v", oldEvidence, err)
 	}
 	newEvidence, err := s.ReadLineRange(t.Context(), "session_test", d, LineRangeInput{
 		TargetID: page.Observation.Target.ID, TargetRevision: page.Observation.Revision, Path: "a.txt",
 		FileRevision: page.Files[0].FileRevision, Side: "new", StartLine: 2, EndLine: 2,
 	})
-	if err != nil || newEvidence.Content != "changed" {
+	if err != nil || newEvidence.Content != "changed\n" {
 		t.Fatalf("new evidence = %+v, %v", newEvidence, err)
 	}
 }

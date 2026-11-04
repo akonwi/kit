@@ -6,7 +6,7 @@ import (
 )
 
 func TestSessionLockLeaseRetainsIdentityWhileWaitersExist(t *testing.T) {
-	service, err := NewService(&memoryRepository{records: make(map[uint64]Record)}, &staticReader{content: "one"})
+	service, err := NewService(&memoryRepository{records: make(map[uint64]Record)}, &staticReader{content: "one\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestSessionLockLeaseRetainsIdentityWhileWaitersExist(t *testing.T) {
 
 func TestTemporarySessionUsesVolatileMonotonicIDs(t *testing.T) {
 	durable := &memoryRepository{records: make(map[uint64]Record)}
-	service, err := NewService(durable, &staticReader{content: "one\ntwo\nthree"})
+	service, err := NewService(durable, &staticReader{content: "one\ntwo\nthree\n"})
 	if err != nil {
 		t.Fatal(err)
 	}

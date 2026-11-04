@@ -8,7 +8,7 @@ import (
 
 func TestQueuedSubmissionRetainsOwnershipAfterFailedAcceptance(t *testing.T) {
 	repository := NewMemoryRepository()
-	reader := &staticReader{content: "captured evidence"}
+	reader := &staticReader{content: "captured evidence\n"}
 	service, err := NewService(repository, reader)
 	if err != nil {
 		t.Fatal(err)

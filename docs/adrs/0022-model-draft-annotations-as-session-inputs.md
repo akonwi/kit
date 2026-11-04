@@ -147,6 +147,12 @@ type AnnotationPreview struct {
 }
 ```
 
+Preview text joins the selected lines with LF and adds no final terminator, so
+a range that ends on a blank line ends in LF and a single blank line is empty.
+A CRLF line is previewed without its CR. Guarded readers hand the annotation
+service each selected line terminated by LF, including a final source line that
+has none, so a blank line is never mistaken for a terminator.
+
 Preview text is renderer-safe UTF-8 and is bounded to 16 KiB. The preview is
 frozen evidence: it remains available if the live resource later changes or
 becomes unavailable. A client cannot provide a preview that disagrees with the

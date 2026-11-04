@@ -306,7 +306,7 @@ func TestReadLineRangeReadsBeyondPreviewLimits(t *testing.T) {
 		WorkspaceID: ref.WorkspaceID, Path: "large.txt", ExpectedFileRevision: preview.Revision,
 		StartLine: start, EndLine: start + 1,
 	})
-	if err != nil || read.Content != strings.Join(lines[start-1:start+1], "\n") {
+	if err != nil || read.Content != strings.Join(lines[start-1:start+1], "\n")+"\n" {
 		t.Fatalf("range = %+v, %v", read, err)
 	}
 }
@@ -335,5 +335,37 @@ func TestReadFileReportsBinaryTruncationAndStaleness(t *testing.T) {
 	_, err = service.Read(t.Context(), ref.SessionID, root, protocol.ReadWorkspaceFileInput{WorkspaceID: ref.WorkspaceID, Path: "large", ExpectedFileRevision: "file_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 	if !errors.As(err, &workspaceErr) || workspaceErr.Code != StaleFile {
 		t.Fatalf("stale file error = %v", err)
+	}
+}
+
+func TestReadLineRangeTerminatesEverySelectedLine(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name, file string
+		start, end int
+		content    string
+	}{
+		{name: "ends on blank", file: "intro\n\ncontext\n", start: 1, end: 2, content: "intro\n\n"},
+		{name: "starts on blank", file: "intro\n\ncontext\n", start: 2, end: 3, content: "\ncontext\n"},
+		{name: "single blank", file: "intro\n\ncontext\n", start: 2, end: 2, content: "\n"},
+		{name: "trailing blank at end of file", file: "one\ntwo\n\n", start: 2, end: 3, content: "two\n\n"},
+		{name: "no trailing newline", file: "one\n\nthree", start: 2, end: 3, content: "\nthree\n"},
+		{name: "CRLF", file: "one\r\n\r\nthree\r\n", start: 1, end: 2, content: "one\r\n\r\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			service := NewService()
+			ref := service.Ref("session_test", root)
+			if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte(test.file), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			read, err := service.ReadLineRange(t.Context(), ref.SessionID, root, LineRangeInput{
+				WorkspaceID: ref.WorkspaceID, Path: "file.txt", StartLine: test.start, EndLine: test.end,
+			})
+			if err != nil || read.Content != test.content {
+				t.Fatalf("range = %+v, %v; want %q", read, err, test.content)
+			}
+		})
 	}
 }

@@ -48,7 +48,7 @@ func TestReadLineRangeReconstructsCommittedEvidenceAfterExpiryAndRestart(t *test
 	}
 	service.now = func() time.Time { return time.Now().Add(observationTTL + time.Minute) }
 	evidence, err := service.ReadLineRange(t.Context(), "session_test", dir, input)
-	if err != nil || evidence.Content != "two" || evidence.Target == nil || *evidence.Target != definition {
+	if err != nil || evidence.Content != "two\n" || evidence.Target == nil || *evidence.Target != definition {
 		t.Fatalf("expired evidence = %+v, %v", evidence, err)
 	}
 
@@ -57,7 +57,7 @@ func TestReadLineRangeReconstructsCommittedEvidenceAfterExpiryAndRestart(t *test
 		t.Fatal(err)
 	}
 	evidence, err = restarted.ReadLineRange(t.Context(), "session_test", dir, input)
-	if err != nil || evidence.Content != "two" || evidence.Target == nil || *evidence.Target != definition {
+	if err != nil || evidence.Content != "two\n" || evidence.Target == nil || *evidence.Target != definition {
 		t.Fatalf("restarted evidence = %+v, %v", evidence, err)
 	}
 }

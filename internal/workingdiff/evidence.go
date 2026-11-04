@@ -18,6 +18,8 @@ type LineRangeInput struct {
 
 // LineRangeEvidence is authoritative source text for one diff-side range.
 type LineRangeEvidence struct {
+	// Content holds the selected source lines, each followed by "\n" even when
+	// the source's last line has no terminator. A CRLF line keeps its "\r".
 	Content string
 	EndLine int
 	Target  *protocol.PinnedDiffTarget
@@ -84,16 +86,17 @@ func (s *Service) ReadLineRange(ctx context.Context, session, cwd string, input 
 	if len(covered) != input.EndLine-input.StartLine+1 {
 		return LineRangeEvidence{}, &Error{Code: InvalidPath, Message: "diff evidence range is outside rendered hunks"}
 	}
-	selected := make([]string, 0, input.EndLine-input.StartLine+1)
+	var content strings.Builder
 	for _, line := range lines[input.StartLine-1 : input.EndLine] {
-		selected = append(selected, line.text)
+		content.WriteString(line.text)
+		content.WriteByte('\n')
 	}
 	var target *protocol.PinnedDiffTarget
 	if observation.committed {
 		definition := protocol.PinnedDiffTarget{WorkspaceID: observation.Target.WorkspaceID, Kind: observation.Target.Kind, Base: observation.Target.Base, Head: observation.Target.Head}
 		target = &definition
 	}
-	return LineRangeEvidence{Content: strings.Join(selected, "\n"), EndLine: input.EndLine, Target: target}, nil
+	return LineRangeEvidence{Content: content.String(), EndLine: input.EndLine, Target: target}, nil
 }
 
 func (s *Service) resolveAnnotationObservation(ctx context.Context, session, cwd string, input LineRangeInput) (*observation, error) {

@@ -46,6 +46,10 @@ type Record struct {
 
 // FileEvidence is the guarded file projection required to derive a preview.
 type FileEvidence struct {
+	// Content holds complete source lines starting at ContentStartLine. Every
+	// line, including the last and a blank one, is followed by "\n"; a reader
+	// terminates a final source line that has none. A CRLF line may keep its
+	// "\r", which previews omit.
 	Content           string
 	ContentStartLine  int
 	CompleteLineCount int
@@ -572,9 +576,14 @@ func (s *Service) readEvidence(ctx context.Context, sessionID, cwd string, ancho
 }
 
 func derivePreview(evidence FileEvidence, anchor lineRange) (Preview, error) {
-	lines := strings.Split(evidence.Content, "\n")
-	if strings.HasSuffix(evidence.Content, "\n") {
-		lines = lines[:len(lines)-1]
+	if evidence.Content != "" && !strings.HasSuffix(evidence.Content, "\n") {
+		return Preview{}, fmt.Errorf("annotation evidence is not newline-terminated")
+	}
+	lines := strings.SplitAfter(evidence.Content, "\n")
+	lines = lines[:len(lines)-1]
+	for index, line := range lines {
+		line = strings.TrimSuffix(line, "\n")
+		lines[index] = strings.TrimSuffix(line, "\r")
 	}
 	contentStart := evidence.ContentStartLine
 	if contentStart == 0 {
@@ -587,7 +596,7 @@ func derivePreview(evidence FileEvidence, anchor lineRange) (Preview, error) {
 	startIndex := anchor.start - contentStart
 	endIndex := anchor.end - contentStart + 1
 	if startIndex < 0 || endIndex > len(lines) || anchor.end > completeLines {
-		return Preview{}, fmt.Errorf("%w: selected lines are unavailable", ErrStale)
+		return Preview{}, fmt.Errorf("%w: selected lines are unavailable: %w", ErrStale, &EvidenceError{Kind: EvidenceStaleFile})
 	}
 	text := sanitizeEvidence(strings.Join(lines[startIndex:endIndex], "\n"))
 	truncated := false

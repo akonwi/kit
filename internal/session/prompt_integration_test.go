@@ -42,7 +42,7 @@ func TestManagerSubmitsAndConsumesOrderedAnnotations(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	annotations, err := kitannotation.NewService(store, annotationFileReader{content: "first\nsecond\nthird"})
+	annotations, err := kitannotation.NewService(store, annotationFileReader{content: "first\nsecond\nthird\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -815,7 +815,7 @@ func (r *queuedAnnotationReader) ReadFile(ctx context.Context, _ string, _ strin
 	if r.stale.Load() {
 		return kitannotation.FileEvidence{}, kitannotation.ErrStale
 	}
-	return kitannotation.FileEvidence{Content: "first\nsecond\nthird"}, nil
+	return kitannotation.FileEvidence{Content: "first\nsecond\nthird\n"}, nil
 }
 
 func TestManagerQueuesStructuredFollowUps(t *testing.T) {

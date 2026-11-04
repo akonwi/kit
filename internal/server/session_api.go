@@ -3184,6 +3184,9 @@ func annotationAPIError(err error) error {
 		}[evidence.Kind]
 		return httpapi.NewAPIError(status, httpapi.ErrorCode(evidence.Kind), evidence.Error(), nil)
 	}
+	if errors.Is(err, kitannotation.ErrStale) {
+		return httpapi.NewAPIError(http.StatusConflict, httpapi.ErrorConflict, "the annotation is out of date; refresh the file or diff and try again", nil)
+	}
 	if errors.Is(err, kitsession.ErrNotFound) {
 		return httpapi.NewAPIError(http.StatusNotFound, httpapi.ErrorNotFound, "session not found", nil)
 	}
