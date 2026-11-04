@@ -18,7 +18,9 @@ let package = Package(
         .package(url: "https://github.com/tree-sitter/tree-sitter-python.git", exact: "0.23.6"),
         .package(url: "https://github.com/tree-sitter/tree-sitter-javascript.git", exact: "0.23.1"),
         .package(url: "https://github.com/tree-sitter/tree-sitter-typescript.git", exact: "0.23.2"),
-        .package(url: "https://github.com/alex-pinkus/tree-sitter-swift.git", exact: "0.7.4-with-generated-files")
+        .package(url: "https://github.com/alex-pinkus/tree-sitter-swift.git", exact: "0.7.4-with-generated-files"),
+        .package(url: "https://github.com/tree-sitter/tree-sitter-ruby.git", exact: "0.23.1"),
+        .package(url: "https://github.com/tree-sitter/tree-sitter-css.git", exact: "0.23.2")
     ],
     targets: [
         .target(name: "KitGrammars", dependencies: [
@@ -30,7 +32,9 @@ let package = Package(
             .product(name: "TreeSitterPython", package: "tree-sitter-python"),
             .product(name: "TreeSitterJavaScript", package: "tree-sitter-javascript"),
             .product(name: "TreeSitterTypeScript", package: "tree-sitter-typescript"),
-            .product(name: "TreeSitterSwift", package: "tree-sitter-swift")
+            .product(name: "TreeSitterSwift", package: "tree-sitter-swift"),
+            .product(name: "TreeSitterRuby", package: "tree-sitter-ruby"),
+            .product(name: "TreeSitterCSS", package: "tree-sitter-css")
         ]),
         .testTarget(name: "KitGrammarsTests", dependencies: [
             "KitGrammars",

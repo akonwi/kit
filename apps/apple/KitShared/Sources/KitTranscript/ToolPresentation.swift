@@ -88,6 +88,8 @@ public struct ToolPresentation {
         case "json": return "json"
         case "py": return "python"
         case "sh", "bash", "zsh": return "bash"
+        case "rb": return "ruby"
+        case "css": return "css"
         default: return "text"
         }
     }

@@ -2,10 +2,12 @@ import Foundation
 import KitHighlighting
 import SwiftTreeSitter
 import TreeSitterBash
+import TreeSitterCSS
 import TreeSitterGo
 import TreeSitterJSON
 import TreeSitterJavaScript
 import TreeSitterPython
+import TreeSitterRuby
 import TreeSitterSwift
 import TreeSitterTSX
 import TreeSitterTypeScript
@@ -24,6 +26,8 @@ public struct BundledSyntaxGrammars: SyntaxGrammars {
         case "json": (tree_sitter_json(), [(Queries(target: "TreeSitterJSON"), "highlights")])
         case "swift": (tree_sitter_swift(), [(Queries(target: "TreeSitterSwift"), "highlights")])
         case "python": (tree_sitter_python(), [(Queries(target: "TreeSitterPython"), "highlights")])
+        case "ruby": (tree_sitter_ruby(), [(Queries(target: "TreeSitterRuby"), "highlights")])
+        case "css": (tree_sitter_css(), [(Queries(target: "TreeSitterCSS"), "highlights")])
         case "javascript": (tree_sitter_javascript(),
                             [(javascript, "highlights"), (javascript, "highlights-jsx")])
         case "typescript": (tree_sitter_typescript(),

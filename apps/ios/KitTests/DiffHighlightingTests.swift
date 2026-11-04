@@ -36,6 +36,8 @@ struct DiffHighlightingTests {
         #expect(DiffHighlighting.language("web/app.TSX") == "tsx")
         #expect(DiffHighlighting.language("scripts/build.mjs") == "javascript")
         #expect(DiffHighlighting.language("install.sh") == "bash")
+        #expect(DiffHighlighting.language("app/models/user.rb") == "ruby")
+        #expect(DiffHighlighting.language("styles/site.css") == "css")
         #expect(DiffHighlighting.language("docs/README.md") == nil)
         #expect(DiffHighlighting.language("Makefile") == nil)
     }

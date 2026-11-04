@@ -1,5 +1,5 @@
 {
-  "originHash" : "e0b6f5fd3f257b15287cd76b5338db477670304586a3cabe5a6a0ddab6cf6a37",
+  "originHash" : "18a1d61f7f6f02641dcb28a4b395aa0e4af1d963b2c54653f2ca135632aac79f",
   "pins" : [
     {
       "identity" : "swift-cmark",
@@ -65,6 +65,15 @@
       }
     },
     {
+      "identity" : "tree-sitter-css",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tree-sitter/tree-sitter-css.git",
+      "state" : {
+        "revision" : "c0d581e32d183a536731ed6c3a72758b27e20411",
+        "version" : "0.23.2"
+      }
+    },
+    {
       "identity" : "tree-sitter-go",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tree-sitter/tree-sitter-go.git",
@@ -98,6 +107,15 @@
       "state" : {
         "revision" : "bffb65a8cfe4e46290331dfef0dbf0ef3679de11",
         "version" : "0.23.6"
+      }
+    },
+    {
+      "identity" : "tree-sitter-ruby",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tree-sitter/tree-sitter-ruby.git",
+      "state" : {
+        "revision" : "71bd32fb7607035768799732addba884a37a6210",
+        "version" : "0.23.1"
       }
     },
     {

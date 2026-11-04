@@ -33,7 +33,12 @@ struct BundledSyntaxGrammarsTests {
         ("typescript", "const count: number = 42;", "const", "keyword"),
         ("typescript", "const count: number = 42;", "number", "keywordType"),
         ("tsx", "const view = <Button title=\"hello\" />;", "Button", "type"),
-        ("tsx", "const view = <Button title=\"hello\" />;", "title", "attribute")
+        ("tsx", "const view = <Button title=\"hello\" />;", "title", "attribute"),
+        ("ruby", "def greet\n  puts \"hello\" # note\nend", "def", "keyword"),
+        ("ruby", "def greet\n  puts \"hello\" # note\nend", "\"hello\"", "string"),
+        ("ruby", "def greet\n  puts \"hello\" # note\nend", "# note", "comment"),
+        ("css", ".card { color: #fff; } /* note */", "color", "member"),
+        ("css", ".card { color: #fff; } /* note */", "/* note */", "comment")
     ])
     func grammarsColorEachLanguage(sample: (String, String, String, String)) async throws {
         let (language, source, word, expected) = sample

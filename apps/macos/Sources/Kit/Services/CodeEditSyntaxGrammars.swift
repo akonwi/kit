@@ -16,6 +16,8 @@ struct CodeEditSyntaxGrammars: SyntaxGrammars {
         case "python": grammar = .python
         case "javascript": grammar = .jsx
         case "typescript": grammar = .typescript
+        case "ruby": grammar = .ruby
+        case "css": grammar = .css
         default: grammar = .tsx
         }
         guard let language = grammar.language, let queryURL = grammar.queryURL else {

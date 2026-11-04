@@ -19,7 +19,9 @@ struct CodeSyntaxHighlighterTests {
         ("python", "def greet():\n    return 42 # comment"),
         ("javascript", "function greet() { return 42; }"),
         ("typescript", "const count: number = 42;"),
-        ("tsx", "const view = <Button title=\"hello\" />;")
+        ("tsx", "const view = <Button title=\"hello\" />;"),
+        ("ruby", "def greet\n  puts \"hello\" # comment\nend"),
+        ("css", ".card { color: #fff; } /* comment */")
     ])
     func bundledGrammarsHighlightCode(sample: (String, String)) async throws {
         let spans = try await CodeSyntaxHighlighter().spans(for: .init(source: sample.1, language: sample.0))
@@ -46,6 +48,9 @@ struct CodeSyntaxHighlighterTests {
         let shell = try await highlighter.spans(for: .init(source: source, language: "sh"))
         let bash = try await highlighter.spans(for: .init(source: source, language: "bash"))
         #expect(shell == bash)
+        let ruby = "def greet; end"
+        #expect(try await highlighter.spans(for: .init(source: ruby, language: "rb"))
+                == highlighter.spans(for: .init(source: ruby, language: "ruby")))
         for label in ["", "text", "plaintext", "unknown"] {
             let spans = try await highlighter.spans(for: .init(source: source, language: label))
             #expect(spans == [])

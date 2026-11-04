@@ -66,6 +66,8 @@ public actor CodeSyntaxHighlighter {
         case "js", "javascript", "jsx": return "javascript"
         case "ts", "typescript": return "typescript"
         case "tsx": return "tsx"
+        case "rb", "ruby": return "ruby"
+        case "css": return "css"
         default: return nil
         }
     }
