@@ -1,0 +1,6 @@
+{
+  "manifestVersion": 1,
+  "id": "dock-overflow",
+  "name": "Dock overflow",
+  "transport": { "type": "stdio", "command": "python3", "args": ["plugin.py"] }
+}

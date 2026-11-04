@@ -66,34 +66,39 @@ struct InteractionDock: View {
                     .accessibilityLabel("Question \(flow.step + 1) of \(flow.questions.count)")
                 CollapseButton { interactions.collapsed = true }
             }
-            Text(flow.question.prompt)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Theme.text)
-                .fixedSize(horizontal: false, vertical: true)
+            DockTitle(text: flow.question.prompt)
         } else {
-            HStack(spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
                 Text("?")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Theme.surface)
                     .frame(width: 20, height: 20)
                     .background(Theme.warning, in: Circle())
+                    .padding(.top, 1)
                     .accessibilityHidden(true)
-                Text(flow.title)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Theme.text)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if let plugin = flow.plugin {
-                    Text(plugin)
-                        .font(.system(size: 12, design: .monospaced))
+                // The title wraps at the full width it can have, with what
+                // asks below it.
+                VStack(alignment: .leading, spacing: 3) {
+                    DockTitle(text: flow.title)
+                    if flow.plugin != nil || interactions.flows.count > 1 {
+                        HStack(spacing: 8) {
+                            if let plugin = flow.plugin {
+                                Text(plugin)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            if interactions.flows.count > 1 {
+                                Text("1 of \(interactions.flows.count)")
+                                    .font(.system(size: 12))
+                            }
+                        }
                         .foregroundStyle(Theme.muted)
+                    }
                 }
-                if interactions.flows.count > 1 {
-                    Text("1 of \(interactions.flows.count)")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.muted)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 CollapseButton { interactions.collapsed = true }
+                    .padding(.top, -3)
                 if flow.mode != .unsupported {
                     Button { interactions.cancel(flow) } label: {
                         Image(systemName: "xmark")
@@ -103,6 +108,7 @@ struct InteractionDock: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .padding(.top, -3)
                     .disabled(!enabled)
                     .accessibilityLabel("Cancel request")
                 }
@@ -121,13 +127,11 @@ struct InteractionDock: View {
         } else {
             let detail = flow.guided ? flow.question.detail : flow.detail
             if !detail.isEmpty {
-                ScrollView {
+                // Wide code and tables scroll sideways inside it.
+                CappedScroll(maxHeight: detailHeight) {
                     MarkdownBlocks(source: detail)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: 220)
-                .fixedSize(horizontal: false, vertical: true)
             }
             if let url = flow.authorizationURL {
                 Link(url.absoluteString, destination: url)
@@ -139,6 +143,15 @@ struct InteractionDock: View {
                     .foregroundStyle(Theme.muted)
             }
             answer
+        }
+    }
+
+    /// How tall the detail grows before it scrolls: taller when nothing
+    /// but the buttons follows it.
+    private var detailHeight: CGFloat {
+        switch flow.mode {
+        case .confirm, .unsupported: 320
+        case .text, .choice, .multiple: 220
         }
     }
 
@@ -219,6 +232,45 @@ struct InteractionDock: View {
             interactions.forward(flow) { $0.confirm(value) }
         }
         .disabled(!enabled)
+    }
+}
+
+/// A request's title or question, wrapped in full. A very long one scrolls
+/// after six lines rather than pushing the answer off the screen.
+private struct DockTitle: View {
+    let text: String
+
+    var body: some View {
+        CappedScroll(maxHeight: 132) {
+            Text(text)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Theme.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// Content at its own height up to `maxHeight`, then scrolling. Until it
+/// overflows it doesn't scroll, so a swipe on it reaches the dock.
+private struct CappedScroll<Content: View>: View {
+    let maxHeight: CGFloat
+    @ViewBuilder let content: Content
+    @State private var overflows = false
+
+    var body: some View {
+        ScrollView {
+            content.fixedSize(horizontal: false, vertical: true)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollDisabled(!overflows)
+        .scrollIndicatorsFlash(trigger: overflows)
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentSize.height > geometry.containerSize.height + 0.5
+        } action: { _, overflowing in
+            overflows = overflowing
+        }
+        .frame(maxHeight: maxHeight)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
