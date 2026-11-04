@@ -1,5 +1,6 @@
 #!/bin/sh
-# Sends, queues, and stops in one session in the app on a simulator, against
+# Sends, queues, and stops in one session in the app on a simulator, follows a
+# sent message and its reply, and holds still while the reader looks back, against
 # the server of an isolated Kit home that the app is already paired with (see
 # test_pairing.sh). This starts real turns, so the session's model must be
 # signed in on that server:

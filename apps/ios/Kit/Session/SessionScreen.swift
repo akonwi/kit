@@ -29,6 +29,8 @@ struct SessionScreen: View {
     @State private var position = ScrollPosition(edge: .bottom)
     /// Whether the reader is at the end, so new output scrolls into view.
     @State private var following = true
+    /// Whether the reader is scrolling the transcript.
+    @State private var scrolling = false
 
     init(identity: SessionIdentity, client: ServerClient) {
         let feed = SessionFeed(identity: identity, client: client)
@@ -242,21 +244,33 @@ struct SessionScreen: View {
         // the end in place. Without it, a taller bar can leave the lazy stack
         // laying itself out without end.
         .defaultScrollAnchor(following ? .bottom : nil, for: .sizeChanges)
+        // Only the reader's own scrolling stops or resumes following. The
+        // screen's own scrolls aren't animated, so any scroll phase, including
+        // a tap on the status bar, is the reader's.
+        .onScrollPhaseChange { old, phase, context in
+            scrolling = phase.isScrolling
+            if old.isScrolling || phase.isScrolling {
+                following = Self.atEnd(context.geometry)
+            }
+        }
         .onScrollGeometryChange(for: EndGeometry.self) { geometry in
-            EndGeometry(inset: geometry.contentInsets.bottom,
-                        atEnd: geometry.contentSize.height - geometry.visibleRect.maxY < 48)
+            EndGeometry(inset: geometry.contentInsets.bottom, atEnd: Self.atEnd(geometry))
         } action: { old, new in
-            // A taller bar, such as the dock or a status line, hides the end
-            // without the reader scrolling; keep it in view.
-            if new.inset > old.inset, old.atEnd {
-                following = true
-                position.scrollTo(edge: .bottom)
-            } else {
+            if scrolling {
                 following = new.atEnd
+            } else if following, new.inset > old.inset {
+                // A taller bar, such as the dock or a status line, hides the
+                // end without the reader scrolling; keep it in view.
+                position.scrollTo(edge: .bottom)
             }
         }
         .onChange(of: Self.tail(session)) {
             if following { position.scrollTo(edge: .bottom) }
+        }
+        // Sending shows the message, wherever the reader was.
+        .onChange(of: composer.sends) {
+            following = true
+            position.scrollTo(edge: .bottom)
         }
     }
 
@@ -264,6 +278,12 @@ struct SessionScreen: View {
     private struct EndGeometry: Equatable {
         let inset: CGFloat
         let atEnd: Bool
+    }
+
+    /// Whether the end is in view. The visible rect runs under the bar and
+    /// the keyboard, so their inset counts as part of the content.
+    private static func atEnd(_ geometry: ScrollGeometry) -> Bool {
+        geometry.contentSize.height + geometry.contentInsets.bottom - geometry.visibleRect.maxY < 48
     }
 
     /// What changes when output arrives at the end of the transcript.

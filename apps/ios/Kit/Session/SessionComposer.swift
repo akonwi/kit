@@ -45,6 +45,9 @@ final class SessionComposer {
     /// Whether the session's stream is live. Nothing is sent without it.
     var live = false
     private(set) var latest: SessionExcerpt?
+    /// How many messages and prompt commands this composer has sent. The
+    /// session screen follows the end when it changes.
+    private(set) var sends = 0
     /// Set when the draft changes after a refusal, which hides the refusal.
     private var noticeDismissed = false
 
@@ -156,10 +159,12 @@ final class SessionComposer {
                 operations.reject("Prompt commands do not accept attachments or comments.")
                 return
             }
+            sends += 1
             operations.submitCommand(client: client, session: id, input: .init(name: command.name, args: command.args),
                                      draft: sent, uncertain: uncertain, acknowledged: acknowledged)
             return
         }
+        sends += 1
         operations.submit(client: client, session: id,
                           input: WirePromptInput(text: text, attachmentIds: attachments, annotationIds: notes.map(\.id)),
                           draft: sent, uncertain: uncertain, acknowledged: acknowledged)
