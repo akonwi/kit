@@ -80,7 +80,7 @@ type observation struct {
 }
 type Service struct {
 	mu           sync.Mutex
-	runner       *gitRunner
+	runner       gitRunner
 	workspaces   *workspace.Service
 	observations map[string]*observation
 	key          [32]byte
@@ -93,31 +93,15 @@ type Service struct {
 	budget time.Duration
 }
 
-// NewService returns a diff service that reads repositories through ws. The
-// service owns a private temporary directory that isolates the git commands
-// it runs; the caller must Close the service to remove it.
 func NewService(ws *workspace.Service) (*Service, error) {
 	r, e := newGitRunner()
 	if e != nil {
 		return nil, e
 	}
 	s := &Service{runner: r, workspaces: ws, observations: map[string]*observation{}, active: make(chan struct{}, 8), gates: map[string]chan struct{}{}, pending: map[string]int{}, now: time.Now, budget: observationBudget}
-	if _, e = rand.Read(s.key[:]); e != nil {
-		return nil, errors.Join(e, r.close(context.Background()))
-	}
-	return s, nil
+	_, e = rand.Read(s.key[:])
+	return s, e
 }
-
-// Close ends the service's lifetime. It cancels running git commands, waits
-// for them to exit, and removes the service's temporary git home. Requests
-// that arrive afterward fail as unavailable, and requests already running fail
-// once their git commands stop. Close may be called more than once and
-// concurrently; every call waits for the same teardown, or returns ctx's error
-// if ctx ends first, in which case the teardown still completes.
-func (s *Service) Close(ctx context.Context) error {
-	return s.runner.close(ctx)
-}
-
 func (s *Service) RemoveSession(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -130,9 +114,6 @@ func (s *Service) RemoveSession(id string) {
 	delete(s.gates, id)
 }
 func (s *Service) acquire(ctx context.Context, session string) (func(), error) {
-	if s.runner.isClosed() {
-		return nil, &Error{Code: Unavailable, Message: "diff service is closed"}
-	}
 	s.mu.Lock()
 	if s.pending[session] >= 16 {
 		s.mu.Unlock()
@@ -492,7 +473,7 @@ func (s *Service) observeControl(ctx context.Context, r *repository) (control, e
 	if !ok {
 		return c, commandFailure(ctx)
 	}
-	other, e := s.runner.run(ctx, r, nil, 16<<20, "-c", "core.excludesFile=/dev/null", "ls-files", "--others", "--exclude-standard", "-z")
+	other, e := s.runner.run(ctx, r, nil, 16<<20, "ls-files", "--others", "--exclude-standard", "-z")
 	if e != nil {
 		return c, commandFailure(ctx)
 	}
@@ -537,7 +518,7 @@ func (s *Service) observeControl(ctx context.Context, r *repository) (control, e
 		input.WriteString(p)
 		input.WriteByte(0)
 	}
-	attrs, e := s.runner.run(ctx, r, input.Bytes(), 16<<20, "-c", "core.attributesFile=/dev/null", "check-attr", "-z", "--all", "--stdin")
+	attrs, e := s.runner.run(ctx, r, input.Bytes(), 16<<20, "check-attr", "-z", "--all", "--stdin")
 	if e != nil {
 		return c, commandFailure(ctx)
 	}

@@ -57,7 +57,7 @@ func TestObserveBulkTrackedRepositoryWithoutRepeatingWorkspaceNameBudget(t *test
 		t.Fatal(err)
 	}
 	ws := workspace.NewService()
-	service, err := newTestService(t, ws)
+	service, err := NewService(ws)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestObserveCandidateLimitCountsChangesNotTrackedFiles(t *testing.T) {
 	}
 
 	ws := workspace.NewService()
-	service, err := newTestService(t, ws)
+	service, err := NewService(ws)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestReadFileDiffPaginatesCompleteSemanticHunks(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws := workspace.NewService()
-	service, err := newTestService(t, ws)
+	service, err := NewService(ws)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestObserveAndReadSemanticDiff(t *testing.T) {
 		t.Fatal(e)
 	}
 	ws := workspace.NewService()
-	s, e := newTestService(t, ws)
+	s, e := NewService(ws)
 	if e != nil {
 		t.Fatalf("%#v", e)
 	}
@@ -235,7 +235,7 @@ func TestStaleFileAndHostileHelpersNotExecuted(t *testing.T) {
 		t.Fatal(e)
 	}
 	ws := workspace.NewService()
-	s, e := newTestService(t, ws)
+	s, e := NewService(ws)
 	if e != nil {
 		t.Fatalf("%#v", e)
 	}
@@ -266,7 +266,7 @@ func TestUnbornAndSparseRejection(t *testing.T) {
 		t.Fatal(e)
 	}
 	ws := workspace.NewService()
-	s, e := newTestService(t, ws)
+	s, e := NewService(ws)
 	if e != nil {
 		t.Fatalf("%#v", e)
 	}

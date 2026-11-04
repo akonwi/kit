@@ -13,7 +13,7 @@ import (
 func observeFixture(t *testing.T, d string) (*Service, protocol.WorkingTreePage) {
 	t.Helper()
 	ws := workspace.NewService()
-	s, e := newTestService(t, ws)
+	s, e := NewService(ws)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -126,7 +126,7 @@ func TestCursorTamperAndSessionRemoval(t *testing.T) {
 		}
 	}
 	ws := workspace.NewService()
-	s, e := newTestService(t, ws)
+	s, e := NewService(ws)
 	if e != nil {
 		t.Fatal(e)
 	}

@@ -35,7 +35,7 @@ func evidenceFixture(t *testing.T, path, base, head string, committed bool) (str
 		t.Fatal(err)
 	}
 	workspaces := workspace.NewService()
-	service, err := newTestService(t, workspaces)
+	service, err := NewService(workspaces)
 	if err != nil {
 		t.Fatal(err)
 	}
