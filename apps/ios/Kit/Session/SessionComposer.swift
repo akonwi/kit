@@ -3,9 +3,9 @@ import KitClient
 import Observation
 
 /// The client a composer sends through: prompts and prompt commands, the
-/// follow-up queue, aborts, attachment uploads, and the snapshot that
-/// settles an uncertain send.
-typealias SessionSendClient = SessionMutationClient & PromptCommandClient & ComposerClient
+/// follow-up queue, aborts, attachment uploads, comments, and the snapshot
+/// that settles an uncertain send.
+typealias SessionSendClient = SessionMutationClient & PromptCommandClient & ComposerClient & AnnotationClient
 
 /// The composer under one session's transcript: the draft, and what its one
 /// button does with it. Sending, stopping, and queue changes go through the
@@ -38,6 +38,8 @@ final class SessionComposer {
     private(set) var restoredNames: [String: String] = [:]
     /// Files attached to the draft, each uploading as soon as it's added.
     let uploads = ComposerAttachments()
+    /// Comments on the session's changes, sent with the next message.
+    let annotations = AnnotationState()
     /// The session's model name, for saying it can't take images.
     var modelName: @MainActor () -> String = { "" }
     /// Whether the session's stream is live. Nothing is sent without it.
@@ -55,6 +57,7 @@ final class SessionComposer {
     func reconcile(_ snapshot: SessionExcerpt) {
         latest = snapshot
         operations.reconcile(snapshot)
+        annotations.observe(snapshot.annotations ?? [])
     }
 
     // MARK: State
@@ -62,7 +65,7 @@ final class SessionComposer {
     var running: Bool { latest?.activeRunID != nil }
     private var hasContent: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !restoredAttachmentIDs.isEmpty
-            || !uploads.items.isEmpty
+            || !uploads.items.isEmpty || !annotations.records.isEmpty
     }
     /// The model's name when the session's model accepts no images.
     var imageRejectingModel: String? {
@@ -94,6 +97,9 @@ final class SessionComposer {
     /// Whether the queue's Edit and Clear can act.
     var queueEnabled: Bool { live && editable && !operations.queuePending }
 
+    /// What went wrong with a comment, while no comment box is open to say.
+    var commentNotice: String? { annotations.editor == nil ? annotations.error : nil }
+
     /// What went wrong with the last send, stop, or queue change, shown in
     /// place of the activity line.
     var notice: String? {
@@ -124,6 +130,20 @@ final class SessionComposer {
             operations.reject("A message can contain up to eight attachments.")
             return
         }
+        // Comments go with the message, as on the Mac.
+        guard !annotations.pending, !annotations.uncertain, annotations.editor == nil else {
+            operations.reject("Finish the comment you’re writing before sending.")
+            return
+        }
+        let notes = annotations.records
+        guard notes.count <= 64 else {
+            operations.reject("A message can contain up to 64 comments.")
+            return
+        }
+        guard !notes.contains(where: \.stale) else {
+            operations.reject("The code under a comment changed. Select its lines again or delete it before sending.")
+            return
+        }
         let sent = SessionOperations.Draft(text: text, notes: [:], attachmentIDs: attachments)
         let uncertain: @MainActor () -> Void = { [weak self] in self?.recover() }
         let acknowledged: @MainActor () -> Void = { [weak self] in self?.applyAcknowledgedDraft() }
@@ -132,8 +152,8 @@ final class SessionComposer {
                 operations.reject("Unknown prompt command: /" + command.name)
                 return
             }
-            guard attachments.isEmpty else {
-                operations.reject("Prompt commands do not accept attachments.")
+            guard attachments.isEmpty, notes.isEmpty else {
+                operations.reject("Prompt commands do not accept attachments or comments.")
                 return
             }
             operations.submitCommand(client: client, session: id, input: .init(name: command.name, args: command.args),
@@ -141,7 +161,7 @@ final class SessionComposer {
             return
         }
         operations.submit(client: client, session: id,
-                          input: WirePromptInput(text: text, attachmentIds: attachments, annotationIds: []),
+                          input: WirePromptInput(text: text, attachmentIds: attachments, annotationIds: notes.map(\.id)),
                           draft: sent, uncertain: uncertain, acknowledged: acknowledged)
     }
 
@@ -155,6 +175,12 @@ final class SessionComposer {
     func attach(url: URL) {
         uploads.add(url: url, client: client, session: session,
                     imageRejectingModel: { [weak self] in self?.imageRejectingModel })
+    }
+
+    /// Deletes a comment before it's sent.
+    func removeComment(_ note: FileAnnotation) {
+        let client = client, id = session
+        Task { await annotations.remove(client: client, session: id, id: note.id) }
     }
 
     /// Uploads a file again after it failed.

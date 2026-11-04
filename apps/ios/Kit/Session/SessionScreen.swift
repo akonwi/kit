@@ -74,7 +74,11 @@ struct SessionScreen: View {
             }
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 if !feed.unavailable {
-                    ComposerBar(composer: composer, actions: actions, interactions: interactions, feed: feed) { feed.reconnect() }
+                    ComposerBar(composer: composer, actions: actions, interactions: interactions, feed: feed,
+                                revealComment: { note in
+                                    diff.reveal(note)
+                                    showingChanges = true
+                                }) { feed.reconnect() }
                 }
             }
             .sheet(item: $sheet) { sheet in
@@ -95,6 +99,11 @@ struct SessionScreen: View {
             .sheet(item: $selecting) { SelectTextSheet(text: $0.text) }
             .environment(\.selectText) { selecting = SelectedText(text: $0) }
             .environment(\.transcriptAttachments, attachments)
+            // Whether comments' code changed is known when they're read.
+            .task(id: "\(feed.session != nil)|\(feed.session?.watchGeneration ?? "")") {
+                guard feed.session != nil else { return }
+                try? await composer.annotations.refresh(client: client, session: feed.identity.session)
+            }
             .alert(deleteTitle, isPresented: $confirmingDelete) {
                 Button("Cancel", role: .cancel) {}
                 Button(actions.temporary ? "Dispose session" : "Delete session", role: .destructive) { delete() }
@@ -229,6 +238,10 @@ struct SessionScreen: View {
         // Open at the end, but start a short transcript at the top.
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .defaultScrollAnchor(.top, for: .alignment)
+        // At the end, a row that grows as it loads, such as an image, keeps
+        // the end in place. Without it, a taller bar can leave the lazy stack
+        // laying itself out without end.
+        .defaultScrollAnchor(following ? .bottom : nil, for: .sizeChanges)
         .onScrollGeometryChange(for: EndGeometry.self) { geometry in
             EndGeometry(inset: geometry.contentInsets.bottom,
                         atEnd: geometry.contentSize.height - geometry.visibleRect.maxY < 48)

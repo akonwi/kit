@@ -9,6 +9,8 @@ struct ComposerBar: View {
     let actions: SessionActions
     let interactions: SessionInteractions
     let feed: SessionFeed
+    /// Shows a comment in Changes when its chip is tapped.
+    var revealComment: ((FileAnnotation) -> Void)? = nil
     let retryConnection: () -> Void
     @FocusState private var focused: Bool
 
@@ -28,6 +30,7 @@ struct ComposerBar: View {
                                enabled: composer.queueEnabled, running: composer.running,
                                change: composer.changeQueue)
                 }
+                CommentChips(composer: composer, reveal: revealComment)
                 AttachmentStrip(composer: composer)
                 capsule
             }
@@ -36,6 +39,7 @@ struct ComposerBar: View {
         .padding(.bottom, 4)
         .animation(.snappy(duration: 0.2), value: composer.queue?.count)
         .animation(.snappy(duration: 0.2), value: composer.uploads.items.map(\.id))
+        .animation(.snappy(duration: 0.2), value: composer.annotations.records.map(\.id))
         .animation(.snappy(duration: 0.25), value: interactions.docked?.id)
         .animation(.snappy(duration: 0.25), value: interactions.collapsed)
     }
@@ -51,6 +55,8 @@ struct ComposerBar: View {
                 ReconnectLine(server: feed.identity.server, retry: retryConnection)
             } else if let notice = composer.notice {
                 NoticeLine(text: notice)
+            } else if let notice = composer.commentNotice {
+                NoticeLine(text: notice, dismiss: composer.annotations.acknowledgeUncertainty)
             } else if let notice = actions.notice {
                 NoticeLine(text: notice.text, tone: notice.tone, dismiss: actions.dismissNotice)
             } else if interactions.docked != nil {

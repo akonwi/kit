@@ -156,6 +156,73 @@ struct SessionComposerTests {
         composer.send()
         #expect(composer.notice == "Didn’t send. Unknown prompt command: /unknown")
     }
+    static func comment(_ id: UInt64, stale: Bool = false) throws -> FileAnnotation {
+        try FileAnnotation(id: id, anchor: .init(kind: .value1, workspaceFile: nil, workingTreeDiff: .init(
+            targetId: "difftarget_test", targetRevision: "diffrev_test", path: "client.go",
+            fileRevision: "diff_file_test", side: "new", startLine: 4, endLine: 6)),
+            body: "Why?", source: "", stale: stale, complete: true)
+    }
+
+    static func commented(_ notes: [FileAnnotation]) -> SessionExcerpt {
+        var session = snapshot()
+        session.annotations = notes
+        return session
+    }
+
+    @Test func commentsGoWithTheNextMessage() async throws {
+        let client = FakeComposerClient()
+        let composer = Self.composer(client, snapshot: Self.commented([try Self.comment(3), try Self.comment(5)]))
+        // Comments alone are enough to send.
+        #expect(composer.action == .send(enabled: true))
+        composer.draft = "Look at these two"
+        composer.send()
+        await Self.settle()
+        #expect(client.submitted.map(\.text) == ["Look at these two"])
+        #expect(client.submitted.map(\.annotationIds) == [[3, 5]])
+    }
+
+    @Test func aCommentWhoseCodeChangedHoldsTheSend() async throws {
+        let client = FakeComposerClient()
+        let composer = Self.composer(client, snapshot: Self.commented([try Self.comment(3, stale: true)]))
+        composer.draft = "Look at this"
+        composer.send()
+        await Self.settle()
+        #expect(client.submitted.isEmpty)
+        #expect(composer.notice == "Didn’t send. The code under a comment changed. Select its lines again or delete it before sending.")
+    }
+
+    @Test func aCommentBeingWrittenHoldsTheSend() async throws {
+        let client = FakeComposerClient()
+        let note = try Self.comment(3)
+        let composer = Self.composer(client, snapshot: Self.commented([note]))
+        composer.annotations.begin(anchor: note.anchor, editing: note)
+        composer.draft = "Look at this"
+        composer.send()
+        await Self.settle()
+        #expect(client.submitted.isEmpty)
+        #expect(composer.notice == "Didn’t send. Finish the comment you’re writing before sending.")
+    }
+
+    @Test func aPromptCommandTakesNoComments() async throws {
+        let client = FakeComposerClient()
+        var session = Self.commented([try Self.comment(3)])
+        session.promptCommands = [try JSONDecoder().decode(PromptCommand.self, from: Data(
+            #"{"name":"review","description":"Review the diff","source":"project","location":"/r.md"}"#.utf8))]
+        let composer = Self.composer(client, snapshot: session)
+        composer.draft = "/review"
+        composer.send()
+        await Self.settle()
+        #expect(client.commands.isEmpty)
+        #expect(composer.notice == "Didn’t send. Prompt commands do not accept attachments or comments.")
+    }
+
+    @Test func aCommentCanBeDeletedFromTheComposer() async throws {
+        let client = FakeComposerClient()
+        let composer = Self.composer(client, snapshot: Self.commented([try Self.comment(3)]))
+        composer.removeComment(try Self.comment(3))
+        await Self.settle()
+        #expect(client.deletedAnnotations == [3])
+    }
 }
 
 final class FakeComposerClient: SessionSendClient, @unchecked Sendable {
@@ -225,4 +292,17 @@ final class FakeComposerClient: SessionSendClient, @unchecked Sendable {
         .init(attachments: [], missingAttachmentIds: ids)
     }
     func respond(_ session: String, input: WireInteractionResponse) async throws {}
+
+    private var _deletedAnnotations: [UInt64] = []
+    var deletedAnnotations: [UInt64] { lock.withLock { _deletedAnnotations } }
+    func annotations(_ session: String) async throws -> [FileAnnotation] { [] }
+    func createAnnotation(_ session: String, input: WireCreateAnnotationInput) async throws -> FileAnnotation {
+        throw ClientError.http(409)
+    }
+    func updateAnnotation(_ session: String, input: WireUpdateAnnotationInput) async throws -> FileAnnotation {
+        throw ClientError.http(409)
+    }
+    func deleteAnnotation(_ session: String, id: UInt64) async throws {
+        lock.withLock { _deletedAnnotations.append(id) }
+    }
 }

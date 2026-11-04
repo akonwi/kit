@@ -12,6 +12,10 @@ struct ChangesScreen: View {
     let interactions: SessionInteractions
     @Environment(\.scenePhase) private var scenePhase
     @State private var choosingTarget = false
+    /// The comment to scroll to once its card is shown.
+    @State private var revealing: UInt64?
+    /// A chip's comment whose code changed and whose file left the diff.
+    @State private var orphan: FileAnnotation?
 
     private var session: String { feed.identity.session }
 
@@ -28,9 +32,22 @@ struct ChangesScreen: View {
                 ToolbarItem(placement: .topBarTrailing) { viewMenu }
             }
             .safeAreaBar(edge: .bottom, spacing: 0) {
-                if !feed.unavailable {
-                    ComposerBar(composer: composer, actions: actions, interactions: interactions, feed: feed) { feed.reconnect() }
+                // The comment box takes the keyboard while it's open.
+                if !feed.unavailable && composer.annotations.editor == nil {
+                    ComposerBar(composer: composer, actions: actions, interactions: interactions, feed: feed,
+                                revealComment: { diff.reveal($0) }) { feed.reconnect() }
                 }
+            }
+            .alert("The code under this comment changed", isPresented: Binding(
+                get: { orphan != nil }, set: { if !$0 { orphan = nil } }), presenting: orphan) { note in
+                Button("Delete", role: .destructive) { composer.removeComment(note) }
+                Button("Cancel", role: .cancel) {}
+            } message: { note in
+                Text("\(note.label) isn’t in these changes any more. Delete the comment to send without it.")
+            }
+            // Whether comments' code changed is known when they're read.
+            .task(id: diff.observation?.revision ?? "") {
+                try? await composer.annotations.refresh(client: client, session: session)
             }
             .sheet(isPresented: $choosingTarget) {
                 CompareSheet(diff: diff) { target in
@@ -138,6 +155,51 @@ struct ChangesScreen: View {
     }
 
     private var document: some View {
+        ScrollViewReader { proxy in
+            scroll
+                // A chip's comment: its target, then its file, then its card.
+                .task(id: "\(diff.navigationToken)|\(diff.observation?.target.id ?? "")|\(diff.files.count)") {
+                    await reveal(proxy)
+                }
+                .environment(\.commentReveal, CommentReveal(id: revealing) { id in
+                    revealing = nil
+                    Task { withAnimation { proxy.scrollTo(DiffComments.cardID(id), anchor: .center) } }
+                })
+        }
+    }
+
+    /// Brings a chip's comment into view: switches to the comparison it was
+    /// written on, unfolds its file, and scrolls there. The card scrolls
+    /// itself into the middle once it's shown.
+    private func reveal(_ proxy: ScrollViewProxy) async {
+        guard let note = diff.navigation, let anchor = note.diffAnchor else { return }
+        if diff.observation?.target.id != anchor.targetId {
+            guard !diff.loading else { return }
+            if diff.catalog?.targets?.contains(where: { $0.targetId == anchor.targetId }) != true {
+                await diff.refreshCatalog(client: client, session: session)
+            }
+            guard let target = diff.catalog?.targets?.first(where: { $0.targetId == anchor.targetId }) else {
+                diff.navigation = nil
+                return
+            }
+            await diff.select(target, client: client, session: session)
+            return
+        }
+        guard diff.files.contains(where: { $0.path == anchor.path }) else {
+            // Every file is here and its file isn't: it can only be deleted.
+            if diff.fileCursor == nil, !diff.loading, diff.observation != nil {
+                diff.navigation = nil
+                if note.stale { orphan = note }
+            }
+            return
+        }
+        diff.navigation = nil
+        diff.collapsed.remove(anchor.path)
+        proxy.scrollTo(anchor.path, anchor: .top)
+        revealing = note.id
+    }
+
+    private var scroll: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 summary
@@ -147,7 +209,8 @@ struct ChangesScreen: View {
                     let collapsed = diff.collapsed.contains(file.path)
                     Section {
                         if !collapsed {
-                            DiffFileBody(file: file, diff: diff, client: client, session: session)
+                            DiffFileBody(file: file, diff: diff, annotations: composer.annotations,
+                                         client: client, session: session)
                         }
                     } header: {
                         DiffFileHeader(file: file, collapsed: collapsed) {
