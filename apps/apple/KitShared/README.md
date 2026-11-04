@@ -16,7 +16,8 @@ iOS app. It holds no AppKit or UIKit code.
   them for one session. `ComposerAttachments` validates, converts, and
   uploads the files a draft attaches. `SessionCreation` resolves a new
   session's typed folder and default thinking level, and tells a refused
-  create from one whose answer was lost. Regenerate the transport after changing
+  create from one whose answer was lost. `FilePathSearch` ranks a
+  session's file paths for a search. Regenerate the transport after changing
   `api/kit-session.openapi.json`:
 
   ```sh
