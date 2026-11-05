@@ -654,7 +654,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
                 case .staleTarget: throw AnnotationEvidenceConflict.staleTarget
                 default: throw ClientError.http(409)
                 }
-            default: throw ClientError.invalidPayload
+            default: throw Self.statusFailure(output)
             }
         } catch let error as AnnotationEvidenceConflict { throw error }
           catch let error as ClientError { throw error }
@@ -670,7 +670,15 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         guard Self.validScratchpadSession(id), input.annotationId > 0, FileAnnotation.validBody(input.body), let version = Operations.UpdateAnnotation.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw MutationNotSent(reason: "Enter a comment of at most 16 KiB.") }
         let body: Components.Schemas.UpdateAnnotationInput = try generated(input, as: Components.Schemas.UpdateAnnotationInput.self)
         let output = try await api.updateAnnotation(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        if case let .conflict(response) = output {
+            switch try response.body.json.error {
+            case .staleFile: throw AnnotationEvidenceConflict.staleFile
+            case .staleWorkspace: throw AnnotationEvidenceConflict.staleWorkspace
+            case .staleTarget: throw AnnotationEvidenceConflict.staleTarget
+            default: throw ClientError.http(409)
+            }
+        }
+        guard case let .ok(response) = output else { throw Self.statusFailure(output) }
         let record: WireAnnotation = try generated(try response.body.json, as: WireAnnotation.self)
         guard record.id == input.annotationId else { throw ClientError.invalidPayload }; return try FileAnnotation(record, session: id)
     }
@@ -734,7 +742,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
             conversationId: conversation, taskId: nil, timeoutMs: nil, generation: generation)
         let body: Components.Schemas.SubagentOperationInput = try generated(input, as: Components.Schemas.SubagentOperationInput.self)
         let output = try await api.operateSubagent(path: .init(sessionID: session), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50), body: .json(body))
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        guard case let .ok(response) = output else { throw Self.statusFailure(output) }
         let result: WireSubagentOperationResult = try generated(try response.body.json, as: WireSubagentOperationResult.self)
         guard result.dismissed == true else { throw ClientError.invalidPayload }
     }
@@ -1010,7 +1018,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         guard Self.validScratchpadSession(id), !input.path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let version = Operations.ChangeSessionCWD.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
         let body: Components.Schemas.ChangeCWDInput = try generated(input, as: Components.Schemas.ChangeCWDInput.self)
         let output = try await api.changeSessionCWD(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        guard case let .ok(response) = output else { throw Self.statusFailure(output) }
         let result: WireChangeWorkspaceCWDResult = try generated(try response.body.json, as: WireChangeWorkspaceCWDResult.self)
         guard result.session.id == id, result.workspace.sessionId == id, result.workspace.cwd == result.session.cwd else { throw ClientError.invalidPayload }
         return try SessionProjection.summary(result.session)
@@ -1069,7 +1077,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
             let input = WireReadWorkspaceFileInput(workspaceId: workspace.workspaceId, path: path, expectedFileRevision: expectedRevision)
             let body: Components.Schemas.ReadWorkspaceFileInput = try generated(input, as: Components.Schemas.ReadWorkspaceFileInput.self)
             let output = try await api.readWorkspaceFile(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50), body: .json(body))
-            guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+            guard case let .ok(response) = output else { throw Self.statusFailure(output) }
             let result: WireWorkspaceFileRead = try generated(try response.body.json, as: WireWorkspaceFileRead.self)
             guard result.sessionId == id, result.path == path,
                   result.workspace.workspaceId == workspace.workspaceId, result.workspace.cwd == workspace.cwd,
@@ -1313,14 +1321,14 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     public func sessions() async throws -> [SessionExcerpt] {
         guard let version = Operations.ListSessions.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.incompatible }
         let output = try await api.listSessions(query: .init(), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version))
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        guard case let .ok(response) = output else { throw Self.statusFailure(output) }
         let list: [WireSessionInfo] = try generated(try response.body.json.sessions, as: [WireSessionInfo].self)
         return try list.map { try SessionProjection.summary($0) }
     }
 
     public func sessionActivity() async throws -> [String: SessionTabStatus] {
         let output = try await generatedOperation { try await api.getSessionActivity(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        guard case let .ok(response) = output else { throw Self.statusFailure(output) }
         return try Self.activity(try response.body.json.sessions)
     }
 
@@ -1340,7 +1348,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
               let cursor = UInt64(before), cursor > 0 else { throw ClientError.invalidPayload }
         let output = try await generatedOperation { try await api.getTranscriptPage(path: .init(sessionID: id), query: .init(before: String(cursor)), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        guard case let .ok(response) = output else { throw Self.statusFailure(output) }
         let page: WireTranscriptPage = try generated(try response.body.json, as: WireTranscriptPage.self)
         return try TranscriptHistoryPage(page, sessionID: id, before: before)
     }
@@ -1692,14 +1700,14 @@ extension HTTPClient {
         if let hosting {
             do {
                 let output = try await generatedOperation { try await api.streamSessionEvents(path: .init(sessionID: id), query: .init(stream: stream, after: after, clientPlugin: hosting.instanceID), headers: headers) }
-                guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+                guard case let .ok(response) = output else { throw Self.statusFailure(output) }
                 return response
             } catch ClientError.http(let status) where ![401, 403].contains(status) {
                 hosting.refused(ClientError.http(status))
             }
         }
         let output = try await generatedOperation { try await api.streamSessionEvents(path: .init(sessionID: id), query: .init(stream: stream, after: after), headers: headers) }
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        guard case let .ok(response) = output else { throw Self.statusFailure(output) }
         return response
     }
 
@@ -1884,17 +1892,30 @@ extension HTTPClient {
         return parser.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 
+    /// The status of each generated error response case, by case name.
+    private static let failureStatuses = ["badRequest": 400, "unauthorized": 401, "forbidden": 403, "notFound": 404, "conflict": 409,
+                                          "contentTooLarge": 413, "unsupportedMediaType": 415, "misdirectedRequest": 421,
+                                          "unprocessableContent": 422, "upgradeRequired": 426, "tooManyRequests": 429,
+                                          "internalServerError": 500, "serviceUnavailable": 503]
+
+    /// The error for a response other than the one an operation expects:
+    /// `ClientError.http` with the response's status, documented or not, so
+    /// callers can tell a refusal from a broken answer. Any other success
+    /// is `ClientError.invalidPayload`.
+    private static func statusFailure(_ output: Any) -> Error {
+        guard let child = Mirror(reflecting: output).children.first, let label = child.label else { return ClientError.invalidPayload }
+        if label == "undocumented", let code = Mirror(reflecting: child.value).children.first?.value as? Int { return ClientError.http(code) }
+        return failureStatuses[label].map { ClientError.http($0) } ?? ClientError.invalidPayload
+    }
+
     /// The server's explanation of a refused provider request, or its status.
     /// The error for a response a provider or settings request didn't
     /// expect: the server's explanation when it gave one, made into an error
     /// by `explained`, or the status.
     private static func providerFailure(_ output: Any, explained: (String) -> any Error = { ProviderRequestFailed(message: $0) }) -> Error {
-        let statuses = ["badRequest": 400, "unauthorized": 401, "forbidden": 403, "notFound": 404, "conflict": 409,
-                        "contentTooLarge": 413, "misdirectedRequest": 421, "upgradeRequired": 426, "tooManyRequests": 429,
-                        "internalServerError": 500, "serviceUnavailable": 503]
         guard let child = Mirror(reflecting: output).children.first, let label = child.label else { return ClientError.invalidPayload }
         if label == "undocumented", let code = Mirror(reflecting: child.value).children.first?.value as? Int { return ClientError.http(code) }
-        let status = statuses[label] ?? 0
+        let status = failureStatuses[label] ?? 0
         if status == 401 || status == 403 { return ClientError.http(status) }
         if let message = errorMessage(in: child.value) { return explained(message) }
         return status == 0 ? ClientError.invalidPayload : ClientError.http(status)
