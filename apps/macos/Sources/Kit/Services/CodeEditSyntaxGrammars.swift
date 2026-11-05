@@ -18,6 +18,8 @@ struct CodeEditSyntaxGrammars: SyntaxGrammars {
         case "typescript": grammar = .typescript
         case "ruby": grammar = .ruby
         case "css": grammar = .css
+        // CodeEditLanguages has no Ard grammar: Ard code stays plain.
+        case "ard": throw SyntaxGrammarError.unavailable
         default: grammar = .tsx
         }
         guard let language = grammar.language, let queryURL = grammar.queryURL else {

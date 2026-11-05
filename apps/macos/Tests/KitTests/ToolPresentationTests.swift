@@ -11,6 +11,8 @@ struct ToolPresentationTests {
         #expect(value.summary == "internal/model.go:120–120")
         #expect(value.startLine == 120)
         #expect(value.language == "go")
+        #expect(ToolPresentation(tool("read", #"{"path":"std/list.ard"}"#)).language == "ard")
+        #expect(ToolPresentation(tool("read", #"{"path":"Makefile"}"#)).language == "text")
     }
     @Test func readTruncationIsSeparateFromFileLines() {
         let value = ToolPresentation(tool("read", #"{"path":"a.go","offset":10,"limit":50}"#, output: "a\nb\n[truncated]"))

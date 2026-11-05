@@ -51,6 +51,9 @@ struct CodeSyntaxHighlighterTests {
         let ruby = "def greet; end"
         #expect(try await highlighter.spans(for: .init(source: ruby, language: "rb"))
                 == highlighter.spans(for: .init(source: ruby, language: "ruby")))
+        // Ard has a name but no grammar on the Mac, so it stays plain.
+        #expect(CodeSyntaxHighlighter.canonicalLanguage("ard") == "ard")
+        #expect(try await highlighter.spans(for: .init(source: "let x = 1", language: "ard")) == [])
         for label in ["", "text", "plaintext", "unknown"] {
             let spans = try await highlighter.spans(for: .init(source: source, language: label))
             #expect(spans == [])

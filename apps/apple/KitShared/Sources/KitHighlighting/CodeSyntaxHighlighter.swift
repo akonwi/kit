@@ -37,8 +37,16 @@ public struct SyntaxGrammar: Sendable {
 /// Supplies the grammars a highlighter parses with. Each app bundles its own.
 public protocol SyntaxGrammars: Sendable {
     /// The grammar for a canonical language name from
-    /// `CodeSyntaxHighlighter.canonicalLanguage(_:)`.
+    /// `CodeSyntaxHighlighter.canonicalLanguage(_:)`. Throws
+    /// `SyntaxGrammarError.unavailable` for a language this app doesn't
+    /// bundle, whose code then stays plain.
     func grammar(named name: String) throws -> SyntaxGrammar
+}
+
+/// Why a `SyntaxGrammars` has no grammar for a language.
+public enum SyntaxGrammarError: Error, Equatable, Sendable {
+    /// The app doesn't bundle a grammar for the language.
+    case unavailable
 }
 
 /// Parse off the main actor; cache captures independently of the active theme.
@@ -68,6 +76,7 @@ public actor CodeSyntaxHighlighter {
         case "tsx": return "tsx"
         case "rb", "ruby": return "ruby"
         case "css": return "css"
+        case "ard": return "ard"
         default: return nil
         }
     }
@@ -79,7 +88,12 @@ public actor CodeSyntaxHighlighter {
         guard request.source.utf8.count <= 256 * 1024 else { return [] }
         let key = CodeHighlightRequest(source: request.source, language: name)
         if let cached = cache[key] { return cached }
-        let grammar = try configuration(for: name)
+        let grammar: SyntaxGrammar
+        do {
+            grammar = try configuration(for: name)
+        } catch SyntaxGrammarError.unavailable {
+            return []
+        }
         let parser = Parser()
         parser.timeout = 0.1
         try parser.setLanguage(grammar.language)

@@ -90,6 +90,7 @@ public struct ToolPresentation {
         case "sh", "bash", "zsh": return "bash"
         case "rb": return "ruby"
         case "css": return "css"
+        case "ard": return "ard"
         default: return "text"
         }
     }
