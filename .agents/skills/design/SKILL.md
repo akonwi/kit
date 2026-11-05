@@ -420,6 +420,21 @@ The native TUI transcript mirrors the macOS transcript's reading layout:
   align with the group label; interleaved thinking and prose indent to the same
   title column.
 
+The macOS transcript keeps a 32 pt gutter on each side of its rows and, by
+default, centres them in a 780 pt reading column. Settings › Workspace ›
+Full-width transcript, mirrored by View › Full-Width Transcript, is a global
+app preference that is off by default. Turning it on lifts the cap, so rows
+fill the pane. Panes narrower than 844 pt look the same at either setting.
+
+- **Follows the setting:** the reading strip, subagent conversation tabs, and
+  Markdown file previews.
+- **Ignores the setting:** the composer, queued tray, and interaction dock,
+  which keep their centred 844 pt column.
+- **Live change:** a change re-measures rows in place and keeps the reading
+  position.
+- **Sizing:** size transcript columns through `TranscriptLayout` and the
+  `transcriptFullWidth` environment value, not literal widths.
+
 ## Component Conventions
 
 ### Borders and reusable surfaces

@@ -179,6 +179,11 @@ Markdown headings; scrolling remains continuous and the composer stays available
 Latest resumes following the bottom. Loading a saved transcript does not initiate
 a new-response jump. The same behavior applies to subagent conversations.
 
+Transcripts read in a centred 780 pt column. Settings › Workspace ›
+Full-width transcript (also View › Full-Width Transcript) lets them fill wide
+panes, and Markdown file previews follow the transcript. The composer keeps its
+centred column at either setting.
+
 ## Development and validation
 
 The macOS client uses the committed, tag-filtered generated OpenAPI client in the shared `KitClient` module (`apps/apple/KitShared`). After changing `api/kit-session.openapi.json`:

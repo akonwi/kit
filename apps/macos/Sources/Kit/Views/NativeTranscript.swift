@@ -27,6 +27,8 @@ struct NativeTranscript: NSViewRepresentable {
     var releaseHistory: () -> Void = {}
     /// How long the reader stays at the live bottom before loaded pages are released.
     var historyReleaseDelay: Duration = .seconds(30)
+    /// Whether rows fill the pane rather than the reading column. See `TranscriptLayout`.
+    var fullWidth = TranscriptLayout.fullWidthDefault
     @AppStorage("interfaceFont") private var interfaceFont = ""
     @AppStorage("monoFont") private var monoFont = ""
     @AppStorage("interfaceFontSize") private var interfaceSize = 0.0
@@ -168,10 +170,11 @@ struct NativeTranscript: NSViewRepresentable {
             .environment(\.openURL, .transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink))
             .foregroundStyle(input.theme.text)
             .environment(\.colorScheme, input.theme.dark ? .dark : .light)
-            .frame(width: min(780, max(1, scroll.contentSize.width - 64)), alignment: .leading)
+            .frame(width: TranscriptLayout.rowWidth(pane: scroll.contentSize.width, fullWidth: input.fullWidth),
+                   alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 32).padding(.top, message.id == Self.headerID ? 32 : 12).padding(.bottom, 12)
+            .padding(.horizontal, TranscriptLayout.gutter).padding(.top, message.id == Self.headerID ? 32 : 12).padding(.bottom, 12)
             .onGeometryChange(for: Measurement.self) {
                 Measurement(height: $0.size.height, configuration: token)
             } action: { [weak self, weak cell] measurement in
@@ -344,6 +347,7 @@ struct NativeTranscript: NSViewRepresentable {
             arrival = "message:" + last.id
         }
         let styleChanged = input.theme != next.theme || typography != next.typography
+            || input.fullWidth != next.fullWidth
             || input.sessionLink?.serverID != next.sessionLink?.serverID || input.toolContext != next.toolContext
             || input.presentation !== next.presentation || input.workspace !== next.workspace
             || input.attachmentSession != next.attachmentSession || input.attachmentClient?.serverID != next.attachmentClient?.serverID

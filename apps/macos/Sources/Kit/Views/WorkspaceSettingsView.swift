@@ -11,27 +11,26 @@ enum WorkspacePreferences {
     }
 }
 
-/// Settings › Workspace: how tiles and diffs behave in this app.
+/// Settings › Workspace: how tiles, transcripts and diffs behave in this app.
 struct WorkspaceSettingsView: View {
     @Environment(\.mica) private var theme
     @AppStorage(WorkspacePreferences.focusFollowsPointerKey)
     private var focusFollowsPointer = WorkspacePreferences.focusFollowsPointerDefault
+    @AppStorage(TranscriptLayout.fullWidthKey) private var fullWidthTranscript = TranscriptLayout.fullWidthDefault
     @Bindable private var diff = DiffPreferences.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Workspace").font(.kit(size: 23, weight: .semibold))
-                Text("How tiles and diffs behave in this app.").foregroundStyle(theme.muted)
+                Text("How tiles, transcripts and diffs behave in this app.").foregroundStyle(theme.muted)
             }
-            Toggle(isOn: $focusFollowsPointer) {
+            row(Toggle(isOn: $focusFollowsPointer) {
                 label("Focus follows the pointer", "Moving the pointer into a tile focuses it, as a click would.")
-            }
-            .toggleStyle(FormSwitchStyle(trailing: true))
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .frame(minHeight: 52)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border) }
+            })
+            row(Toggle(isOn: $fullWidthTranscript) {
+                label("Full-width transcript", "In a wide pane, the conversation fills it instead of a centred column.")
+            })
             VStack(spacing: 0) {
                 HStack(spacing: 20) {
                     label("Diff layout", "Side by side shows old and new lines in two columns where the pane is wide enough.")
@@ -51,6 +50,16 @@ struct WorkspaceSettingsView: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border) }
         }
+    }
+
+    /// A lone toggle in its own bordered row.
+    private func row(_ toggle: Toggle<some View>) -> some View {
+        toggle
+            .toggleStyle(FormSwitchStyle(trailing: true))
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .frame(minHeight: 52)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(theme.border) }
     }
 
     private func label(_ title: String, _ detail: String) -> some View {

@@ -91,6 +91,7 @@ struct KitApp: App {
             UpdateCommands()
             SessionCommands(windows: windows)
             TileCommands()
+            TranscriptCommands()
         }
         Settings {
             SettingsView(themeLibrary: themeLibrary, windows: windows)
@@ -188,6 +189,19 @@ private struct SessionCommands: Commands {
             window.window?.performClose(nil)
         } else {
             window.requestClose(window.selectedTab, from: placement)
+        }
+    }
+}
+
+/// View › Full-Width Transcript: the Settings › Workspace preference, in
+/// reach without opening Settings. It has no default shortcut; ⌃⌘F is
+/// Enter Full Screen.
+private struct TranscriptCommands: Commands {
+    @AppStorage(TranscriptLayout.fullWidthKey) private var fullWidth = TranscriptLayout.fullWidthDefault
+
+    var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Toggle("Full-Width Transcript", isOn: $fullWidth)
         }
     }
 }

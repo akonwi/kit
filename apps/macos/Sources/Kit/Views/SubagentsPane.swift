@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AgentPane: View {
     @Environment(\.mica) private var theme
+    @Environment(\.transcriptFullWidth) private var fullWidth
     @Bindable var state: SessionStore
     let name: String
     @State private var conversation = SubagentConversationState()
@@ -60,7 +61,8 @@ struct AgentPane: View {
                 NativeTranscript(messages: conversation.messages, hasHistory: false,
                     historyLoading: false, historyError: nil, active: conversation.activity != nil, presentation: presentation,
                     workspace: state.ui.workspace, resumeRequest: resumeRequest,
-                    latestOutOfView: $latestOutOfView, loadHistory: {}, theme: theme, attachmentClient: state.attachmentClient, attachmentSession: state.selectedID, pane: .agent(name), reading: reading)
+                    latestOutOfView: $latestOutOfView, loadHistory: {}, theme: theme, attachmentClient: state.attachmentClient, attachmentSession: state.selectedID, pane: .agent(name), reading: reading,
+                    fullWidth: fullWidth)
                     .overlay(alignment: .bottomTrailing) {
                         if latestOutOfView {
                             Button("Latest", icon: .arrowDown) { resumeRequest += 1 }

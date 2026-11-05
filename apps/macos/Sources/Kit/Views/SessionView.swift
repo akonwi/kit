@@ -7,6 +7,7 @@ struct SessionView: View {
     @State private var resumeRequest = 0
     @State private var reading = TranscriptReadingState()
     @State private var height: CGFloat = .infinity
+    @Environment(\.transcriptFullWidth) private var fullWidth
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,7 +29,7 @@ struct SessionView: View {
                          resumeRequest: resumeRequest, latestOutOfView: $latestOutOfView,
                          loadHistory: { state.loadHistory() }, theme: theme, attachmentClient: state.attachmentClient, attachmentSession: state.selectedID, reading: reading,
                          hasLoadedHistory: state.hasLoadedHistory, releaseHistory: { state.releaseLoadedHistory() },
-                         historyReleaseDelay: state.historyReleaseDelay)
+                         historyReleaseDelay: state.historyReleaseDelay, fullWidth: fullWidth)
             .id(state.selectedID)
             .onChange(of: state.selectedID) { latestOutOfView = false }
             .overlay(alignment: .bottomTrailing) {
@@ -104,7 +105,8 @@ struct SessionComposerRegion: View {
                 }.font(.kit(size: 12)).padding(.horizontal, 4)
             }
         }
-        .frame(maxWidth: 844)
+        // The composer keeps its column whether or not the transcript fills the pane.
+        .frame(maxWidth: TranscriptLayout.composerWidth)
         .padding([.horizontal, .bottom], 14)
         .frame(maxWidth: .infinity)
         .background(theme.surface)

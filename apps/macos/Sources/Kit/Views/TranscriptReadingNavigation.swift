@@ -19,6 +19,7 @@ struct TranscriptReadingSection: Equatable, Identifiable {
 struct TranscriptReadingNavigation: View {
     let state: TranscriptReadingState
     @Environment(\.mica) private var theme
+    @Environment(\.transcriptFullWidth) private var fullWidth
 
     var body: some View {
         HStack(spacing: 12) {
@@ -45,8 +46,9 @@ struct TranscriptReadingNavigation: View {
             }
         }
         .buttonStyle(.plain).font(.kit(size: 12)).foregroundStyle(theme.text)
-        .frame(maxWidth: 780)
-        .frame(height: 32).padding(.horizontal, 32)
+        // Ends where the transcript's rows end.
+        .frame(maxWidth: TranscriptLayout.maxWidth(TranscriptLayout.columnWidth, fullWidth: fullWidth))
+        .frame(height: 32).padding(.horizontal, TranscriptLayout.gutter)
         .frame(maxWidth: .infinity, alignment: .center)
         .background(theme.surface)
     }

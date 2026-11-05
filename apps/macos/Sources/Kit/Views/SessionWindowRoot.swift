@@ -46,6 +46,7 @@ struct SessionWindowRoot: View {
             sessionTitle: { identity in model.tab(for: identity)?.title ?? model.catalogEntry(identity)?.title },
             openLauncher: { model.openLauncher() }))
         .environment(\.serverDirectory, model.servers)
+        .transcriptWidthPreference()
         .focusedSceneValue(\.sessionWindow, model)
         .navigationTitle(tab.title)
         .background {

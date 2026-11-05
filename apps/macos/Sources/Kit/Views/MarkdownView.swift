@@ -231,9 +231,10 @@ struct MarkdownDocumentRow: Identifiable, Equatable {
 }
 
 /// A whole Markdown document, such as a file, rendered as the transcript
-/// renders a message, in a reading column as wide as the transcript's. It
-/// parses off the main actor and builds only the rows in view; while a new
-/// source parses, the last one stays. A document past what renders (see
+/// renders a message, in a reading column as wide as the transcript's, or
+/// filling the pane when the transcript does. It parses off the main actor
+/// and builds only the rows in view; while a new source parses, the last
+/// one stays. A document past what renders (see
 /// `MarkdownFiles.renderable`) says so, offering `showSource`.
 ///
 /// With `annotations`, a hovered block offers a + in the margin that
@@ -241,6 +242,7 @@ struct MarkdownDocumentRow: Identifiable, Equatable {
 /// block holding its last line, and a revealed one is scrolled to.
 struct MarkdownDocumentView: View {
     @Environment(\.mica) private var theme
+    @Environment(\.transcriptFullWidth) private var fullWidth
     let source: String
     var annotations: MarkdownPreviewAnnotations? = nil
     var showSource: (() -> Void)? = nil
@@ -304,7 +306,8 @@ struct MarkdownDocumentView: View {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(entries(rows)) { entry in entryView(entry) }
                         }
-                        .frame(maxWidth: Self.columnWidth, alignment: .leading)
+                        .frame(maxWidth: TranscriptLayout.maxWidth(Self.columnWidth, fullWidth: fullWidth),
+                               alignment: .leading)
                         .padding(.leading, 24 - Self.gutterWidth - 6).padding(.trailing, 24).padding(.vertical, 20)
                         .frame(maxWidth: .infinity)
                     }
