@@ -20,7 +20,9 @@ let package = Package(
         .package(url: "https://github.com/tree-sitter/tree-sitter-typescript.git", exact: "0.23.2"),
         .package(url: "https://github.com/alex-pinkus/tree-sitter-swift.git", exact: "0.7.4-with-generated-files"),
         .package(url: "https://github.com/tree-sitter/tree-sitter-ruby.git", exact: "0.23.1"),
-        .package(url: "https://github.com/tree-sitter/tree-sitter-css.git", exact: "0.23.2")
+        .package(url: "https://github.com/tree-sitter/tree-sitter-css.git", exact: "0.23.2"),
+        // Untagged: pinned to the commit that added its Swift package.
+        .package(url: "https://github.com/akonwi/tree-sitter-ard.git", revision: "cff3da3fe80584e8f506c9867fbf17e1eaa7b76c")
     ],
     targets: [
         .target(name: "KitGrammars", dependencies: [
@@ -34,7 +36,8 @@ let package = Package(
             .product(name: "TreeSitterTypeScript", package: "tree-sitter-typescript"),
             .product(name: "TreeSitterSwift", package: "tree-sitter-swift"),
             .product(name: "TreeSitterRuby", package: "tree-sitter-ruby"),
-            .product(name: "TreeSitterCSS", package: "tree-sitter-css")
+            .product(name: "TreeSitterCSS", package: "tree-sitter-css"),
+            .product(name: "TreeSitterArd", package: "tree-sitter-ard")
         ]),
         .testTarget(name: "KitGrammarsTests", dependencies: [
             "KitGrammars",

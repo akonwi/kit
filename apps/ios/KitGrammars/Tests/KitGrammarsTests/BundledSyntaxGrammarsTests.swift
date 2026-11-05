@@ -38,7 +38,12 @@ struct BundledSyntaxGrammarsTests {
         ("ruby", "def greet\n  puts \"hello\" # note\nend", "\"hello\"", "string"),
         ("ruby", "def greet\n  puts \"hello\" # note\nend", "# note", "comment"),
         ("css", ".card { color: #fff; } /* note */", "color", "member"),
-        ("css", ".card { color: #fff; } /* note */", "/* note */", "comment")
+        ("css", ".card { color: #fff; } /* note */", "/* note */", "comment"),
+        ("ard", "fn greet() Str {\n  let name = \"Ard\" // note\n  name\n}", "fn", "keyword"),
+        ("ard", "fn greet() Str {\n  let name = \"Ard\" // note\n  name\n}", "greet", "function"),
+        ("ard", "fn greet() Str {\n  let name = \"Ard\" // note\n  name\n}", "Str", "keywordType"),
+        ("ard", "fn greet() Str {\n  let name = \"Ard\" // note\n  name\n}", "\"Ard\"", "string"),
+        ("ard", "fn greet() Str {\n  let name = \"Ard\" // note\n  name\n}", "// note", "comment")
     ])
     func grammarsColorEachLanguage(sample: (String, String, String, String)) async throws {
         let (language, source, word, expected) = sample

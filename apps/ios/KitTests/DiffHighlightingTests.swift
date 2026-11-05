@@ -31,12 +31,21 @@ struct DiffHighlightingTests {
         #expect(await DiffHighlighting.lines(try DiffCommentsTests.document(path: "README.md")) == nil)
     }
 
+    /// The app finds the Ard grammar and its highlight query in its bundle.
+    @Test func ardCodeIsColored() async throws {
+        let source = "fn greet() Str {\n  \"Ard\"\n}"
+        let spans = try #require(await CodeColoring.spans(for: .init(source: source, language: "ard")))
+        let keyword = (source as NSString).range(of: "fn")
+        #expect(spans.contains(SyntaxSpan(range: keyword, role: "keyword")))
+    }
+
     @Test func extensionsNameTheirGrammar() {
         #expect(DiffHighlighting.language("cmd/main.go") == "go")
         #expect(DiffHighlighting.language("web/app.TSX") == "tsx")
         #expect(DiffHighlighting.language("scripts/build.mjs") == "javascript")
         #expect(DiffHighlighting.language("install.sh") == "bash")
         #expect(DiffHighlighting.language("app/models/user.rb") == "ruby")
+        #expect(DiffHighlighting.language("std/list.ard") == "ard")
         #expect(DiffHighlighting.language("styles/site.css") == "css")
         #expect(DiffHighlighting.language("docs/README.md") == nil)
         #expect(DiffHighlighting.language("Makefile") == nil)
