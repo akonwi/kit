@@ -4,14 +4,10 @@ import Foundation
 /// file links in one open.
 enum MarkdownFiles {
     /// The extensions of files that show rendered: Markdown's common ones.
-    static let extensions: Set<String> = ["md", "markdown", "mdown", "mdwn", "mkd", "mkdn", "mkdown"]
+    static var extensions: Set<String> { MarkdownFilePaths.extensions }
 
     /// Whether a file is Markdown by its name.
-    static func isMarkdown(_ path: String) -> Bool {
-        let name = (path as NSString).lastPathComponent
-        let ext = (name as NSString).pathExtension.lowercased()
-        return !ext.isEmpty && name.count > ext.count + 1 && extensions.contains(ext)
-    }
+    static func isMarkdown(_ path: String) -> Bool { MarkdownFilePaths.isMarkdown(path) }
 
     /// The pane a file link in the Markdown file `file` shows. A link names a
     /// file on the same machine as the file it's in. A relative link is
