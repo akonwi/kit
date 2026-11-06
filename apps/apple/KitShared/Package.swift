@@ -9,6 +9,7 @@ let package = Package(
     products: [
         .library(name: "KitClient", targets: ["KitClient"]),
         .library(name: "KitMermaid", targets: ["KitMermaid"]),
+        .library(name: "KitMermaidScene", targets: ["KitMermaidScene"]),
         .library(name: "KitFigures", targets: ["KitFigures"]),
         .library(name: "KitTranscript", targets: ["KitTranscript"]),
         .library(name: "KitHighlighting", targets: ["KitHighlighting"])
@@ -30,6 +31,9 @@ let package = Package(
         ], exclude: ["openapi-generator-config.yaml"]),
         // Kit's Mermaid renderer, ported from the terminal client's (ADR 0046).
         .target(name: "KitMermaid"),
+        // A Mermaid layout as shapes, strokes and text to draw: the geometry
+        // both apps draw from. Each app supplies its own fonts and colors.
+        .target(name: "KitMermaidScene", dependencies: ["KitMermaid"]),
         // Kit's data figures, ported from the terminal client's (ADR 0054).
         .target(name: "KitFigures"),
         // What a transcript shows, apart from how a platform draws it: the

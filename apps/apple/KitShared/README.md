@@ -31,6 +31,10 @@ iOS app. It holds no AppKit or UIKit code.
   reached from a Mac. See [`docs/api-development.md`](../../../docs/api-development.md).
 - `KitMermaid` draws Mermaid diagrams as text, a port of the terminal client's
   renderer ([ADR 0046](../../../docs/adrs/0046-draw-mermaid-diagrams-with-kits-own-renderer.md)).
+- `KitMermaidScene` turns a `KitMermaid` layout into the shapes, strokes,
+  and text both apps draw, and caches them. It is the only module that
+  imports SwiftUI, for `Path`; each app draws the scene in its own fonts and
+  colors.
 - `KitFigures` reads and lays out Kit's data figures, a port of the terminal
   client's ([ADR 0054](../../../docs/adrs/0054-draw-data-figures-from-fenced-markdown.md)).
 - `KitTranscript` is what a transcript shows, apart from how each app draws
