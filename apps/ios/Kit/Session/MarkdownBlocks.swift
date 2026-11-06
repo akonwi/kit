@@ -49,8 +49,7 @@ private struct MarkdownBlockView: View {
         case .code(let language, let source):
             CodeBlock(language: language, source: source)
         case .mermaid(let diagram):
-            // Drawing diagrams at phone width is still to be designed.
-            CodeBlock(language: "mermaid", source: diagram.source)
+            MermaidBlock(diagram: diagram)
         case .figure(let figure):
             FigureBlockView(block: figure)
         case .quote(let blocks):

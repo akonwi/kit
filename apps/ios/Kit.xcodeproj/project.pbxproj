@@ -12,6 +12,8 @@
 		C10000000000000000000062 /* KitTranscript in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000061 /* KitTranscript */; };
 		C10000000000000000000072 /* KitHighlighting in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000071 /* KitHighlighting */; };
 		C10000000000000000000082 /* KitGrammars in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000081 /* KitGrammars */; };
+		C10000000000000000000092 /* KitMermaidScene in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000091 /* KitMermaidScene */; };
+		C10000000000000000000094 /* KitMermaid in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000093 /* KitMermaid */; };
 		C10000000000000000000096 /* KitFigures in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000095 /* KitFigures */; };
 /* End PBXBuildFile section */
 
@@ -54,6 +56,8 @@
 				C10000000000000000000062 /* KitTranscript in Frameworks */,
 				C10000000000000000000072 /* KitHighlighting in Frameworks */,
 				C10000000000000000000082 /* KitGrammars in Frameworks */,
+				C10000000000000000000092 /* KitMermaidScene in Frameworks */,
+				C10000000000000000000094 /* KitMermaid in Frameworks */,
 				C10000000000000000000096 /* KitFigures in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -120,6 +124,8 @@
 				C10000000000000000000061 /* KitTranscript */,
 				C10000000000000000000071 /* KitHighlighting */,
 				C10000000000000000000081 /* KitGrammars */,
+				C10000000000000000000091 /* KitMermaidScene */,
+				C10000000000000000000093 /* KitMermaid */,
 				C10000000000000000000095 /* KitFigures */,
 			);
 			productName = Kit;
@@ -486,6 +492,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C10000000000000000000050 /* XCLocalSwiftPackageReference "../apple/KitShared" */;
 			productName = KitHighlighting;
+		};
+		C10000000000000000000091 /* KitMermaidScene */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C10000000000000000000050 /* XCLocalSwiftPackageReference "../apple/KitShared" */;
+			productName = KitMermaidScene;
+		};
+		C10000000000000000000093 /* KitMermaid */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C10000000000000000000050 /* XCLocalSwiftPackageReference "../apple/KitShared" */;
+			productName = KitMermaid;
 		};
 		C10000000000000000000095 /* KitFigures */ = {
 			isa = XCSwiftPackageProductDependency;
