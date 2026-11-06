@@ -25,6 +25,11 @@ struct SessionScreen: View {
     /// The session's changes: counted for the menu, shown by Changes.
     @State private var diff = DiffState()
     @State private var showingChanges = false
+    /// The session's files, listed for Open File.
+    @State private var files = WorkspaceFiles()
+    @State private var openingFile = false
+    /// The file shown over the session.
+    @State private var openedFile: OpenedFile?
     private let client: ServerClient
     @State private var position = ScrollPosition(edge: .bottom)
     /// Whether the reader is at the end, so new output scrolls into view.
@@ -70,6 +75,7 @@ struct SessionScreen: View {
                     ToolbarItem(placement: .topBarTrailing) {
                         SessionMenu(session: session, actions: actions, diff: diff, present: { sheet = $0 },
                                     openChanges: { showingChanges = true },
+                                    openFile: { openingFile = true },
                                     confirmDelete: { confirmingDelete = true })
                     }
                 }
@@ -99,6 +105,12 @@ struct SessionScreen: View {
                 }
             }
             .sheet(item: $selecting) { SelectTextSheet(text: $0.text) }
+            .sheet(isPresented: $openingFile) {
+                OpenFileSheet(files: files, client: client, session: feed.identity.session) { file in
+                    openingFile = false
+                    openedFile = OpenedFile(path: file)
+                }
+            }
             .environment(\.selectText) { selecting = SelectedText(text: $0) }
             .environment(\.transcriptAttachments, attachments)
             // Whether comments' code changed is known when they're read.
@@ -121,6 +133,10 @@ struct SessionScreen: View {
             .navigationDestination(isPresented: $showingChanges) {
                 ChangesScreen(diff: diff, client: client, feed: feed, composer: composer,
                               actions: actions, interactions: interactions)
+            }
+            .navigationDestination(item: $openedFile) { file in
+                FileScreen(path: file.path, line: file.line, client: client, feed: feed, composer: composer,
+                           actions: actions, interactions: interactions)
             }
             .task(id: scenePhase == .active) {
                 guard scenePhase == .active else { return }

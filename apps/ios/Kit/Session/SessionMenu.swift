@@ -2,14 +2,15 @@ import KitClient
 import SwiftUI
 
 /// The session menu, behind a ••• button so the title keeps the header:
-/// changes, context, model, thinking, compact, rename, fork, details, and
-/// delete.
+/// changes and files, context, model, thinking, compact, rename, fork,
+/// details, and delete.
 struct SessionMenu: View {
     let session: SessionExcerpt
     let actions: SessionActions
     let diff: DiffState
     let present: (SessionScreen.Sheet) -> Void
     let openChanges: () -> Void
+    let openFile: () -> Void
     let confirmDelete: () -> Void
 
     var body: some View {
@@ -22,6 +23,8 @@ struct SessionMenu: View {
                 }
                 .accessibilityLabel("Changes, \(ChangesFormat.summary(diff))")
                 .accessibilityIdentifier("changes")
+                Button("Open File…", systemImage: "doc", action: openFile)
+                    .accessibilityIdentifier("open-file")
             }
             Section(contextTitle) {
                 modelPicker

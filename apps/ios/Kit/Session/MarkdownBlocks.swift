@@ -24,18 +24,27 @@ private struct BlockList: View {
     }
 }
 
+extension EnvironmentValues {
+    /// Whether Markdown shows as a document, such as a Markdown file, with
+    /// larger headings than a message's.
+    @Entry var markdownDocument = false
+}
+
 private struct MarkdownBlockView: View {
     let block: MarkdownContent.Block
+    @Environment(\.markdownDocument) private var document
 
     var body: some View {
         switch block {
         case .paragraph(let text):
             Prose(text: text)
         case .heading(let level, let text):
+            let (size, line, weight) = Self.heading(level, document: document)
             Text(text)
-                .font(.system(size: level == 1 ? 20 : level == 2 ? 18 : 16, weight: .semibold))
+                .font(.system(size: size, weight: weight))
+                .lineSpacing(document ? line - size * 1.2 : 0)
                 .foregroundStyle(Theme.text)
-                .padding(.top, 4)
+                .padding(.top, document && level > 1 ? 6 : 4)
                 .accessibilityAddTraits(.isHeader)
         case .code(let language, let source):
             CodeBlock(language: language, source: source)
@@ -69,6 +78,22 @@ private struct MarkdownBlockView: View {
         case .rule:
             Rectangle().fill(Theme.border).frame(height: 0.5).padding(.vertical, 6)
         }
+    }
+}
+
+extension MarkdownBlockView {
+    /// A heading's size, line height, and weight: a message's headings stay
+    /// close to its text, on the font's own lines; a document's step down
+    /// from a title.
+    static func heading(_ level: Int, document: Bool) -> (CGFloat, CGFloat, Font.Weight) {
+        if document {
+            switch level {
+            case 1: return (26, 32, .bold)
+            case 2: return (20, 26, .bold)
+            default: return (17, 22, .semibold)
+            }
+        }
+        return (level == 1 ? 20 : level == 2 ? 18 : 16, 0, .semibold)
     }
 }
 
