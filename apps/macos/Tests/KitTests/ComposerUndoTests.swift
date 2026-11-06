@@ -119,28 +119,41 @@ private struct ComposerUndoHarness: View {
 
     /// Text undo actions don't retain the text they edit. Undo after a
     /// composer is gone, as after its session tab closes or an interaction
-    /// replaces it, must not reach that composer's freed text.
+    /// replaces it, must not reach that composer's text.
+    ///
+    /// The test keeps the removed composer's text storage so it can show
+    /// that nothing reaches it, instead of waiting for it to be freed.
+    /// When another text storage is freed, it leaves NSTextStorage's class-wide
+    /// registry, and the registry's hash table rehashes. That retains and
+    /// autoreleases live neighbouring storages. In the app the event loop's
+    /// pool releases them when the event ends. Under the test runner they land
+    /// in the main thread's outermost pool, which no test drains, so whether
+    /// a storage is ever freed during a test depends on heap layout.
     @Test func undoAfterAComposerIsRemovedDoesNotReachItsText() async throws {
         let model = ComposerUndoModel()
         let (window, host) = Self.window(model)
         defer { window.close() }
-        weak var storage: NSTextStorage?
-        try autoreleasepool {
+        let (storage, history) = try autoreleasepool {
             let composer = try Self.editor("Message composer", in: host)
-            storage = composer.textStorage
             #expect(window.makeFirstResponder(composer))
             try Self.type("removed draft", in: window)
-            #expect(model.draft == "removed draft")
+            return (try #require(composer.textStorage), try #require(composer.undoManager))
         }
+        #expect(model.draft == "removed draft")
+        #expect(history.canUndo)
+
         model.shown = false
         try await eventually { Self.editors(in: host).isEmpty }
         window.makeFirstResponder(nil)
-        try await eventually { storage == nil }
 
         // Before the fix the window kept the removed composer's typing, and
         // undoing it messaged the freed text storage.
         try #require(window.undoManager?.canUndo == false)
+        #expect(window.undoManager?.canRedo == false)
+        #expect(!history.canUndo && !history.canRedo)
         #expect(try Self.perform(undo, in: window) == (false, "Undo"))
+        #expect(try Self.perform(redo, in: window) == (false, "Redo"))
+        #expect(storage.string == "removed draft")
         #expect(model.draft == "removed draft")
     }
 }
