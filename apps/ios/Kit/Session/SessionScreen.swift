@@ -30,6 +30,9 @@ struct SessionScreen: View {
     @State private var openingFile = false
     /// The file shown over the session.
     @State private var openedFile: OpenedFile?
+    /// The session's shared scratchpad, kept current from its snapshots.
+    @State private var scratchpad: ScratchpadState
+    @State private var showingScratchpad = false
     private let client: ServerClient
     /// Whether the reader is at the end, so new output scrolls into view.
     @State private var following = true
@@ -41,10 +44,13 @@ struct SessionScreen: View {
         let composer = SessionComposer(session: identity.session, client: client)
         let actions = SessionActions(identity: identity, client: client)
         let interactions = SessionInteractions(session: identity.session, client: client)
-        feed.onSnapshot = { [weak composer, weak actions, weak interactions] in
+        let scratchpad = ScratchpadState(demo: false)
+        scratchpad.bind(client: client, session: identity.session)
+        feed.onSnapshot = { [weak composer, weak actions, weak interactions, weak scratchpad] in
             composer?.reconcile($0)
             actions?.reconcile($0)
             interactions?.reconcile($0)
+            if let record = $0.scratchpad { scratchpad?.observe(record) }
         }
         actions.deliver = { [weak feed] in feed?.receive($0) }
         feed.onConnection = { [weak composer, weak actions, weak interactions] connection in
@@ -58,6 +64,7 @@ struct SessionScreen: View {
         _composer = State(initialValue: composer)
         _actions = State(initialValue: actions)
         _interactions = State(initialValue: interactions)
+        _scratchpad = State(initialValue: scratchpad)
         _attachments = State(initialValue: TranscriptAttachmentStore(client: client, session: identity.session))
         self.client = client
     }
@@ -75,6 +82,7 @@ struct SessionScreen: View {
                         SessionMenu(session: session, actions: actions, diff: diff, present: { sheet = $0 },
                                     openChanges: { showingChanges = true },
                                     openFile: { openingFile = true },
+                                    openScratchpad: { showingScratchpad = true },
                                     confirmDelete: { confirmingDelete = true })
                     }
                 }
@@ -130,6 +138,9 @@ struct SessionScreen: View {
             .navigationDestination(isPresented: $showingChanges) {
                 ChangesScreen(diff: diff, client: client, feed: feed, composer: composer,
                               actions: actions, interactions: interactions)
+            }
+            .navigationDestination(isPresented: $showingScratchpad) {
+                ScratchpadScreen(pad: scratchpad, client: client, feed: feed)
             }
             .navigationDestination(item: $openedFile) { file in
                 FileScreen(path: file.path, line: file.line, client: client, feed: feed, composer: composer,

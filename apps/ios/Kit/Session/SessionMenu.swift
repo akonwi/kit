@@ -2,7 +2,7 @@ import KitClient
 import SwiftUI
 
 /// The session menu, behind a ••• button so the title keeps the header:
-/// changes and files, context, model, thinking, compact, rename, fork,
+/// changes, files and the scratchpad, context, model, thinking, compact, rename, fork,
 /// details, and delete.
 struct SessionMenu: View {
     let session: SessionExcerpt
@@ -11,6 +11,7 @@ struct SessionMenu: View {
     let present: (SessionScreen.Sheet) -> Void
     let openChanges: () -> Void
     let openFile: () -> Void
+    let openScratchpad: () -> Void
     let confirmDelete: () -> Void
 
     var body: some View {
@@ -25,6 +26,11 @@ struct SessionMenu: View {
                 .accessibilityIdentifier("changes")
                 Button("Open File…", systemImage: "doc", action: openFile)
                     .accessibilityIdentifier("open-file")
+                // Temporary sessions have no scratchpad, as on the Mac.
+                if !actions.temporary {
+                    Button("Scratchpad", systemImage: "note.text", action: openScratchpad)
+                        .accessibilityIdentifier("scratchpad")
+                }
             }
             Section(contextTitle) {
                 modelPicker
