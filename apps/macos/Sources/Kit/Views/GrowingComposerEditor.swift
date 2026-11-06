@@ -21,7 +21,6 @@ struct GrowingComposerEditor: NSViewRepresentable {
     var accessibilityLabel = "Message composer"
     var exitShell: (() -> Void)? = nil
     var cancel: (() -> Void)? = nil
-    var isolatedUndo = false
     var openPalette: (() -> Void)? = nil
     var mentions: ComposerMentionState? = nil
     var history: ComposerHistoryState? = nil
@@ -46,7 +45,6 @@ struct GrowingComposerEditor: NSViewRepresentable {
         view.registerForDraggedTypes([.fileURL, .png, .tiff])
         view.isRichText = false
         view.allowsUndo = true
-        if isolatedUndo { view.localUndoManager = UndoManager() }
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false
         view.drawsBackground = false
@@ -138,6 +136,8 @@ struct GrowingComposerEditor: NSViewRepresentable {
         coordinator.panel.dismiss(); coordinator.parent.mentions?.close()
         coordinator.historyPanel.dismiss(); coordinator.parent.history?.close()
         view.mentionChanged = nil; view.mentionOpened = nil; view.openPalette = nil
+        // The editor's edit history ends with it.
+        view.undoManager?.removeAllActions()
     }
 
     @MainActor final class Coordinator: NSObject, NSTextViewDelegate {
@@ -286,9 +286,34 @@ final class ComposerScrollView: NSScrollView {
 }
 
 final class ComposerTextView: NSTextView {
-    // Embedded annotation inputs must not inherit CodeEdit's source undo manager.
-    var localUndoManager: UndoManager?
-    override var undoManager: UndoManager? { localUndoManager ?? super.undoManager }
+    /// The editor's own edit history, which lives and dies with it.
+    ///
+    /// AppKit's text undo actions target the text storage without retaining
+    /// it. On the window's undo manager they would outlive an editor that
+    /// SwiftUI removes, as when a session tab closes or an interaction dock
+    /// replaces the composer, and a later Undo would message the freed
+    /// storage. Owning the history also keeps Undo in one input from
+    /// reaching another input, or the file source an annotation input sits in.
+    private let editHistory = UndoManager()
+    override var undoManager: UndoManager? { editHistory }
+
+    /// Undo and Redo stop here so they act on this editor's history, not on
+    /// the window's or an enclosing editor's.
+    @objc func undo(_ sender: Any?) { if allowsUndo { editHistory.undo() } }
+    @objc func redo(_ sender: Any?) { if allowsUndo { editHistory.redo() } }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(undo(_:)):
+            (item as? NSMenuItem)?.title = editHistory.undoMenuItemTitle
+            return allowsUndo && editHistory.canUndo
+        case #selector(redo(_:)):
+            (item as? NSMenuItem)?.title = editHistory.redoMenuItemTitle
+            return allowsUndo && editHistory.canRedo
+        default:
+            return super.validateUserInterfaceItem(item)
+        }
+    }
     private var pendingFocus = false
     func requestFocusWhenAttached() {
         pendingFocus = true
@@ -329,7 +354,7 @@ final class ComposerTextView: NSTextView {
         if oldPrefix != prefix {
             // Prefix removal changes native edit ranges. Begin a fresh undo group
             // for the new editing mode; syntax coloring never changes that group.
-            undoManager?.removeAllActions()
+            editHistory.removeAllActions()
         }
     }
 

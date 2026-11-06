@@ -266,6 +266,33 @@ private struct InlineAnnotationClient: AnnotationClient {
         #expect(controller.textView.visibleRect.contains(input.convert(input.bounds, to: controller.textView)))
     }
 
+    /// Undo in a comment undoes the comment's typing. It doesn't reach the
+    /// source editor the input sits in.
+    @Test func undoInAnAnnotationInputUndoesItsComment() async throws {
+        _ = NSApplication.shared
+        let source = "func send() {\n    submit()\n}\n"
+        let file = try Self.file(source)
+        let annotations = AnnotationState()
+        let host = NSHostingView(rootView: Harness(file: file, annotations: annotations))
+        let window = FocusIsolatedWindow(testContentRect: NSRect(x: 0, y: 0, width: 760, height: 460), styleMask: [.titled, .closable])
+        window.contentView = host; window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        try await eventually { Self.controller(in: host)?.textView.layoutManager.lineStorage.getLine(atIndex: 2) != nil }
+        let controller = try #require(Self.controller(in: host))
+        annotations.begin(anchor: .init(kind: .value0, workspaceFile: .init(workspaceId: "workspace_test",
+            path: file.path, fileRevision: file.revision, startLine: 1, endLine: 1), workingTreeDiff: nil))
+        let input = try await Self.waitForFocusedInput(in: host, window: window)
+        try ComposerUndoTests.type("Note", in: window)
+        #expect(annotations.draft == "Note")
+
+        #expect(try ComposerUndoTests.perform(ComposerUndoTests.undo, in: window) == (true, "Undo Typing"))
+        #expect(input.string == "")
+        #expect(annotations.draft == "")
+        #expect(controller.textView.string == source)
+        #expect(try ComposerUndoTests.perform(ComposerUndoTests.redo, in: window) == (true, "Redo Typing"))
+        #expect(annotations.draft == "Note")
+    }
+
     private struct Harness: View {
         let file: WireWorkspaceFileRead
         let annotations: AnnotationState

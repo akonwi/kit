@@ -16,7 +16,7 @@ struct AnnotationInput: View {
                 foreground: theme.text, placeholderColor: theme.muted,
                 attachmentDrop: { _ in false }, attachmentDropTargeted: { _ in }, submit: save,
                 shellEnabled: false, placeholder: "Add a comment…", accessibilityLabel: "Annotation comment",
-                cancel: cancel, isolatedUndo: true, theme: theme)
+                cancel: cancel, theme: theme)
                 .frame(minHeight: 20)
             if annotations.draft.utf8.count > 16 * 1024 {
                 Text("Comments can contain up to 16 KiB.").font(.kit(size: 11)).foregroundStyle(theme.muted)
