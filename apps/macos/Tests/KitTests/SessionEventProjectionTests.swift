@@ -266,6 +266,29 @@ struct SessionEventProjectionTests {
         #expect(tool.contentTruncated == true)
     }
 
+    @Test func aStoredUserMessageTakesItsLiveRowsPlaceOnce() throws {
+        var state = try SessionEventProjection(snapshot())
+        try state.apply(event("turn.started"))
+        try state.apply(event("user.message.added", ["text": "Attachment"]))
+        try state.apply(event("assistant.started", ["messageId": "a"]))
+        try state.apply(event("assistant.completed", ["messageId": "a", "text": "Looking"]))
+        let stored: [String: Any] = ["id": "message_0123456789abcdef0123456789abcdef",
+            "turnId": "t", "sequence": 1, "role": "user", "createdAt": "2026-11-05T00:00:00Z",
+            "content": [["kind": "image", "filename": "shot.png", "mediaType": "image/png", "attachmentId": "attachment_shot"]]]
+        let message = try JSONDecoder().decode(WireTranscriptMessage.self, from: JSONSerialization.data(withJSONObject: stored))
+        let otherTurn = state.acceptUserMessage(message, turn: "other")
+        #expect(!otherTurn)
+        let accepted = state.acceptUserMessage(message, turn: "t")
+        #expect(accepted)
+        // In its place, with what follows it where it was.
+        #expect(state.session.messages.map(\.id) == ["message_0123456789abcdef0123456789abcdef", "a"])
+        #expect(state.session.messages.first?.text == "")
+        #expect(state.session.messages.first?.attachments?.map(\.filename) == ["shot.png"])
+        // Its live row is gone, so the same message again changes nothing.
+        let again = state.acceptUserMessage(message, turn: "t")
+        #expect(!again)
+    }
+
     @Test func annotationOnlyLivePreviewWaitsForPersistedEvidence() throws {
         var state = try SessionEventProjection(snapshot())
         try state.apply(event("turn.started"))

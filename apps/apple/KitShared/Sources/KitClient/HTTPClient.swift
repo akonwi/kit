@@ -1,5 +1,6 @@
 import Foundation
 import OpenAPIRuntime
+import Synchronization
 
 private struct ChildTranscriptCursorUnavailable: Error {}
 import CryptoKit
@@ -18,6 +19,9 @@ public struct LiveAnnotationGate {
     public private(set) var releasedOrdinaryCandidate = false
 
     public init() {}
+
+    /// Whether a possible annotation preview is held back from publication.
+    public var holding: Bool { candidateTurn != nil }
 
     public mutating func shouldPublish(_ events: [WireSessionEvent]) -> Bool {
         releasedOrdinaryCandidate = false
@@ -171,6 +175,11 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     private let api: Client
     /// Requests that suggest the server has changed since it was verified.
     public let failures = TransportFailures()
+    /// The latest turns this client started with no attachments, whose
+    /// stored message a watch needn't read for them.
+    private let plainTurns = Mutex<[String]>([])
+    /// How many plain turns are remembered.
+    private static let plainTurnLimit = 32
 
     /// How long a request may wait for more data before failing.
     public static let requestTimeout: TimeInterval = 45
@@ -989,6 +998,7 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         _ = try FollowUpState(result.queue)
         guard result.queued ? (result.reservation == nil && result.queue.count > 0) : result.reservation?.sessionId == id,
               result.queued || !(result.reservation?.turnId ?? "").isEmpty else { throw ClientError.invalidPayload }
+        rememberPlainTurn(result)
         return result
     }
 
@@ -1293,8 +1303,19 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         _ = try FollowUpState(result.queue)
         guard result.queued ? (result.reservation == nil && result.queue.count > 0) : result.reservation?.sessionId == id,
               result.queued || !(result.reservation?.turnId ?? "").isEmpty else { throw ClientError.invalidPayload }
+        if (input.attachmentIds ?? []).isEmpty { rememberPlainTurn(result) }
         return result
     }
+
+    /// Remembers a turn this client started that has no attachments.
+    private func rememberPlainTurn(_ result: WirePromptSubmission) {
+        guard !result.queued, let turn = result.reservation?.turnId, !turn.isEmpty else { return }
+        plainTurns.withLock { turns in
+            turns.append(turn)
+            if turns.count > Self.plainTurnLimit { turns.removeFirst(turns.count - Self.plainTurnLimit) }
+        }
+    }
+
     public func restoreFollowUps(_ id: String) async throws -> WireRestoreFollowUpsResult {
         let output = try await generatedOperation { try await api.restoreTurnFollowUps(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
@@ -1573,6 +1594,23 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         return message
     }
 
+    /// A turn's stored user message: the earliest of the turn's on the
+    /// latest page of user messages. Nil when it isn't there.
+    func storedUserMessage(session id: String, turn: String) async throws -> WireTranscriptMessage? {
+        let output = try await generatedOperation { try await api.getMessagePage(path: .init(sessionID: id), query: .init(limit: 20, role: ["user"]), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._50)) }
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let page: WireMessageHistoryPage = try generated(try response.body.json, as: WireMessageHistoryPage.self)
+        // Newest first, so the turn's prompt is its last.
+        return try page.validatedMessages(session: id, before: nil).last { $0.turnId == turn }
+    }
+
+    /// What a watch reads: the event stream's chunks, and the stored user
+    /// messages it reads beside them.
+    private enum WatchInput: Sendable {
+        case chunk(ArraySlice<UInt8>)
+        case userMessage(turn: String, WireTranscriptMessage)
+    }
+
     private func watchStream(_ id: String, hosting: ClientPluginHosting? = nil,
                              receive: @escaping @Sendable (SessionExcerpt, _ live: Bool) async -> Void) async throws {
         // A plugin the server refuses doesn't stop the session's own stream.
@@ -1590,7 +1628,45 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         let response = try await openEventStream(id, stream: stream, after: after, hosting: bound)
         let body = try response.body.textEventStream
         var parser = SSEParser()
-        for try await chunk in body {
+        // The body is read one chunk ahead of the loop, which also wakes for
+        // the stored user messages it reads beside the stream.
+        let (inputs, input) = AsyncThrowingStream.makeStream(of: WatchInput.self)
+        let (demands, demand) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        let reader = Task {
+            do {
+                var next = demands.makeAsyncIterator()
+                for try await chunk in body {
+                    input.yield(.chunk(chunk))
+                    guard await next.next() != nil else { return }
+                }
+                input.finish()
+            } catch {
+                input.finish(throwing: error)
+            }
+        }
+        // One read per turn, ended with the watch.
+        var reads: [String: Task<Void, Never>] = [:]
+        var readTurns: [String] = []
+        var latestUserTurn: String?
+        defer {
+            reader.cancel()
+            demand.finish()
+            input.finish()
+            for read in reads.values { read.cancel() }
+        }
+        for try await item in inputs {
+            let chunk: ArraySlice<UInt8>
+            switch item {
+            case .userMessage(let turn, let message):
+                reads[turn] = nil
+                if projection.acceptUserMessage(message, turn: turn), !annotationGate.holding {
+                    await receive(projection.session, true)
+                }
+                continue
+            case .chunk(let value):
+                chunk = value
+            }
+            defer { demand.yield(()) }
             for byte in chunk {
                 try Task.checkCancellation()
                 guard let frame = try parser.append(byte) else { continue }
@@ -1622,9 +1698,24 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
                 var refreshSubagents = false
                 var applied: [WireSessionEvent] = []
                 var submissions: [WireSessionEvent] = []
+                // Turns whose live message has only its text, to read stored.
+                var userTurns: [String] = []
                 for event in batch.events ?? [] where event.sequence > cursor {
                     applied.append(event)
-                    if event.kind.rawValue == "annotation.submitted" { submissions.append(event) }
+                    if event.kind.rawValue == "user.message.added", let turn = event.turnId {
+                        latestUserTurn = turn
+                        // A server that sends the message's content needs no read.
+                        if event.content == nil { userTurns.append(turn) }
+                    }
+                    if event.kind.rawValue == "annotation.submitted" {
+                        submissions.append(event)
+                        // A submission brings its message on its own.
+                        if let turn = latestUserTurn {
+                            userTurns.removeAll { $0 == turn }
+                            reads[turn]?.cancel()
+                            reads[turn] = nil
+                        }
+                    }
                     refreshSubagents = refreshSubagents || event.kind.rawValue == "subagent.changed"
                     let newEvent = event.sequence > (snapshot.eventCursor ?? 0)
                     try projection.apply(event, receivedAt: newEvent ? Date() : nil)
@@ -1671,8 +1762,21 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
                     cursor = snapshot.eventCursor ?? cursor
                     await receive(projection.session, false)
                 }
+                let plain = plainTurns.withLock { $0 }
+                for turn in userTurns where !readTurns.contains(turn) && !plain.contains(turn)
+                    && projection.session.messages.contains(where: { $0.id == "live-user-" + turn }) {
+                    readTurns.append(turn)
+                    if readTurns.count > Self.plainTurnLimit { reads.removeValue(forKey: readTurns.removeFirst())?.cancel() }
+                    // One try: a failure leaves the row to the turn's end.
+                    reads[turn] = Task {
+                        guard let message = try? await storedUserMessage(session: id, turn: turn),
+                              !Task.isCancelled else { return }
+                        input.yield(.userMessage(turn: turn, message))
+                    }
+                }
             }
         }
+        try Task.checkCancellation()
         throw StreamResync()
     }
 }

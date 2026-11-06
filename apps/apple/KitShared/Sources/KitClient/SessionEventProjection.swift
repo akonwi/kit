@@ -397,6 +397,21 @@ public struct SessionEventProjection {
         session.requestedPages = Array(pages.suffix(Self.requestedPageLimit))
     }
 
+    /// Puts a turn's stored user message in place of the row its live event
+    /// made, which has only its text: the stored one also has its
+    /// attachments. Nothing changes once that row is gone, as when a
+    /// refresh already holds the message, so a late fetch never goes back.
+    /// Returns whether the row changed.
+    public mutating func acceptUserMessage(_ message: WireTranscriptMessage, turn: String) -> Bool {
+        guard message.role == "user", message.turnId == turn,
+              let index = session.messages.firstIndex(where: { $0.id == "live-user-" + turn && $0.role == "user" }),
+              !session.messages.contains(where: { $0.id == message.id }),
+              let rows = try? SessionProjection.transcript([message]), rows.count == 1,
+              let row = rows.first, row.role == "user", row != session.messages[index] else { return false }
+        session.messages[index] = row
+        return true
+    }
+
     public mutating func acceptAnnotationMessage(_ message: WireTranscriptMessage, ids: [UInt64]) throws {
         let rows = try SessionProjection.transcript([message])
         guard message.role == "user", rows.count == 1, let row = rows.first,
