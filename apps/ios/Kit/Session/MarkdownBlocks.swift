@@ -52,7 +52,7 @@ private struct MarkdownBlockView: View {
             // Drawing diagrams at phone width is still to be designed.
             CodeBlock(language: "mermaid", source: diagram.source)
         case .figure(let figure):
-            CodeBlock(language: figure.name, source: figure.source)
+            FigureBlockView(block: figure)
         case .quote(let blocks):
             HStack(alignment: .top, spacing: 12) {
                 RoundedRectangle(cornerRadius: 1).fill(Theme.strongBorder).frame(width: 2)
