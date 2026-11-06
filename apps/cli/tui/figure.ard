@@ -7,6 +7,7 @@ use cooper/testing as headless
 use cooper/ui
 use kit/tui/code
 use kit/tui/figure/bars
+use kit/tui/figure/checklist
 use kit/tui/figure/compare
 use kit/tui/figure/decision
 use kit/tui/figure/delta
@@ -38,6 +39,7 @@ let kinds = [
   "meter",
   "timeline",
   "steps",
+  "checklist",
   "decision",
   "delta",
   "spec",
@@ -72,6 +74,7 @@ fn parse(info: Str, body: Str) model::Figure!Str {
     "meter" => meter::parse(parsed, body),
     "timeline" => timeline::parse(parsed, body),
     "steps" => steps::parse(parsed, body),
+    "checklist" => checklist::parse(parsed, body),
     "decision" => decision::parse(parsed, body),
     "delta" => delta::parse(parsed, body),
     "spec" => spec::parse(parsed, body),
@@ -86,7 +89,7 @@ fn parse(info: Str, body: Str) model::Figure!Str {
 // Whether a figure is laid out at the width it has, so its prose wraps,
 // instead of drawn at its own width.
 fn is_listing(kind: Str) Bool {
-  kind == "timeline" or kind == "steps" or kind == "decision" or kind == "spec"
+  kind == "timeline" or kind == "steps" or kind == "checklist" or kind == "decision" or kind == "spec"
 }
 
 // A drawn figure's rows; a listing is laid out by `listing_view` instead.
@@ -109,6 +112,7 @@ fn layout(figure: model::Figure) listing::Listing {
     "decision" => decision::layout(figure),
     "spec" => spec::layout(figure),
     "steps" => spaced(steps::entries(figure)),
+    "checklist" => checklist::layout(figure),
     _ => spaced(timeline::entries(figure)),
   }
 }
@@ -477,11 +481,17 @@ fn listing_view(
     false => 0,
   }
   let measure = minimum(widest_text(texts.@), max_measure)
+  // The widest an entry's text reaches, inset included.
+  mut reach = measure
+  for each in rows {
+    let own = minimum(widest_text([each.heading.text, each.note, each.body]), max_measure)
+    reach = maximum(reach, each.indent + own)
+  }
   let heading = format::truncate_cells(figure.title, drawing::max_title)
   let lead_width = drawing::row_width(laid.lead)
   let closing_width = minimum(ui::text_width(laid.closing), max_measure)
   let inner = maximum(
-    maximum(marker_span + lane_span + measure, ui::text_width(heading) + 2),
+    maximum(marker_span + lane_span + reach, ui::text_width(heading) + 2),
     maximum(lead_width, closing_width),
   )
   let width = inner + drawing::padding * 2 + 2
@@ -592,7 +602,20 @@ fn listing_view(
         ),
       ),
     )
-    items.push(cui::box(columns.@, styles: ui::style(flex_direction: ui::FlexDirection::row)))
+    items.push(
+      cui::box(
+        columns.@,
+        styles: ui::style(
+          flex_direction: ui::FlexDirection::row,
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(0),
+            bottom: ui::cells(0),
+            left: ui::cells(each.indent),
+          },
+        ),
+      ),
+    )
     index =+ 1
   }
   if laid.closing != "" {

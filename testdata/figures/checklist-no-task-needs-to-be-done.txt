@@ -1,0 +1,13 @@
+figure checklist
+title ""
+item label="" value="Docs" note="" accent=false muted=false scale=0 share="" spark= state=open level=1
+item label="" value="Registry" note="" accent=false muted=false scale=0 share="" spark= state=open level=1
+item label="" value="Announcement" note="" accent=false muted=false scale=0 share="" spark= state=open level=1
+laid out 48
+┌───────────────────┐
+│                   │
+│  □  Docs          │
+│  □  Registry      │
+│  □  Announcement  │
+│                   │
+└───────────────────┘

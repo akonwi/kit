@@ -6,7 +6,7 @@ import Foundation
 /// terminal client's reference computes them.
 public struct Figure: Equatable, Sendable {
     public enum Kind: String, Sendable {
-        case stat, bars, meter, timeline, steps, decision, delta, spec, tree, compare, score, stack
+        case stat, bars, meter, timeline, steps, checklist, decision, delta, spec, tree, compare, score, stack
     }
 
     /// One row, column, or point of a figure.
@@ -29,9 +29,10 @@ public struct Figure: Equatable, Sendable {
         public var target = ""
         /// A meter past its target or past 100%, which turns warning.
         public var over = false
-        /// Where a timeline item or step stands against the bold one.
+        /// Where a timeline item or step stands against the bold one, or
+        /// whether a checklist task is done.
         public var state: State = .none
-        /// A timeline item's or step's indented body, its lines joined.
+        /// A timeline item's, step's, or task's indented body, its lines joined.
         public var body = ""
         /// A delta row's value before, as written, or empty.
         public var from = ""
@@ -58,8 +59,9 @@ public struct Figure: Equatable, Sendable {
     public enum Trend: String, Sendable { case none = "", better, worse }
 
     /// Where a timeline item or step stands against the bold one: before
-    /// it, at it, after it, or `none` when nothing is bold.
-    public enum State: String, Sendable { case none = "", done, now, next }
+    /// it, at it, after it, or `none` when nothing is bold. A checklist
+    /// task is `done`, `now` when bold, or `open`.
+    public enum State: String, Sendable { case none = "", done, now, next, open }
 
     public let kind: Kind
     public let title: String
@@ -78,7 +80,7 @@ public struct Figure: Equatable, Sendable {
 
     /// The figures drawn. Any other fence is ordinary code.
     public static let kinds = [
-        "stat", "bars", "meter", "timeline", "steps", "decision", "delta", "spec", "tree", "compare", "score", "stack",
+        "stat", "bars", "meter", "timeline", "steps", "checklist", "decision", "delta", "spec", "tree", "compare", "score", "stack",
     ]
 
     /// The widest label, cell, or heading drawn, in characters.
@@ -104,6 +106,7 @@ public struct Figure: Equatable, Sendable {
             case "meter": Meter.parse(info, body)
             case "timeline": Timeline.parse(info, body)
             case "steps": Steps.parse(info, body)
+            case "checklist": Checklist.parse(info, body)
             case "decision": Decision.parse(info, body)
             case "delta": Delta.parse(info, body)
             case "spec": Spec.parse(info, body)

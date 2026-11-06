@@ -17,6 +17,7 @@ let kinds = [
   "meter",
   "timeline",
   "steps",
+  "checklist",
   "decision",
   "delta",
   "spec",

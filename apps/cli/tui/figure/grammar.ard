@@ -46,6 +46,8 @@ struct Item {
   italic: Bool,
   // The indented lines under the item, trimmed.
   details: [Str],
+  // The indent of each of details, in spaces, where a tab counts as two.
+  depths: [Int],
   // The number an ordered item is written with, or -1 for a `- ` item.
   ordinal: Int,
 }
@@ -247,6 +249,7 @@ private fn parse_item(text: Str) Item {
     bold: bold,
     italic: italic,
     details: [],
+    depths: [],
     ordinal: -1,
   }
 }
@@ -276,6 +279,19 @@ fn line(text: Str) Item {
   parse_item(text)
 }
 
+// A trimmed line read as a list item, `- text` or `N. text`, with its
+// emphasis and note split off; or nothing when it isn't one.
+fn list_item(trimmed: Str) Item? {
+  match marked(trimmed) {
+    found => {
+      let item = mut parse_item(found.text)
+      item.ordinal = found.ordinal
+      Maybe::new(item.@)
+    },
+    _ => Maybe::new<Item>(),
+  }
+}
+
 // text with its emphasis split off but no note, as a table cell is read.
 fn emphasis(text: Str) Item {
   let body = strings::TrimSpace(clean(text))
@@ -292,6 +308,7 @@ fn emphasis(text: Str) Item {
     bold: bold,
     italic: italic,
     details: [],
+    depths: [],
     ordinal: -1,
   }
 }
@@ -334,6 +351,7 @@ private fn list(body: Str, closing: Bool) Listed!Str {
 private fn list_items(body: Str, closing: Bool) Listed!Str {
   let result = mut List::new<Item>()
   mut details = mut List::new<Str>()
+  mut depths = mut List::new<Int>()
   mut current = Maybe::new<Item>()
   let note = mut List::new<Str>()
   // Whether the line before was blank, once the closing paragraph started.
@@ -365,17 +383,22 @@ private fn list_items(body: Str, closing: Bool) Listed!Str {
           item => {
             let done = mut item
             done.details = details.@
+            done.depths = depths.@
             result.push(done.@)
           },
           _ => (),
         }
         details = mut List::new<Str>()
+        depths = mut List::new<Int>()
         let found = marker.expect("marker")
         let next = mut parse_item(found.text)
         next.ordinal = found.ordinal
         current = Maybe::new(next.@)
       },
-      indent(line) >= 2 and current.is_some() => details.push(clean(trimmed)),
+      indent(line) >= 2 and current.is_some() => {
+        details.push(clean(trimmed))
+        depths.push(indent(line))
+      },
       closing and current.is_some() => note.push(clean(trimmed)),
       _ => {
         if failure == "" {
@@ -388,6 +411,7 @@ private fn list_items(body: Str, closing: Bool) Listed!Str {
     item => {
       let done = mut item
       done.details = details.@
+      done.depths = depths.@
       result.push(done.@)
     },
     _ => (),

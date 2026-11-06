@@ -42,6 +42,7 @@ struct FigureView: View {
         case .meter: MeterFigure(items: figure.items)
         case .timeline: ListingFigure(items: figure.items, marker: TimelineMarker.init, lane: true)
         case .steps: ListingFigure(items: figure.items, marker: StepMarker.init, lane: false)
+        case .checklist: ChecklistFigure(items: figure.items)
         case .decision: DecisionFigure(figure: figure)
         case .delta: DeltaFigure(figure: figure)
         case .spec: SpecFigure(items: figure.items)
@@ -263,7 +264,7 @@ private struct TimelineMarker: View {
                 .background(Circle().fill(theme.accent.opacity(0.25)).frame(width: 15, height: 15))
         case .next:
             Circle().strokeBorder(theme.muted, lineWidth: 1.25).frame(width: 8, height: 8)
-        case .done, .none:
+        case .done, .open, .none:
             Circle().fill(theme.muted).frame(width: 7, height: 7)
         }
     }
@@ -288,6 +289,67 @@ private struct StepMarker: View {
         .frame(width: 20, height: 20)
         .background(Circle().fill(item.state == .now ? theme.accent.opacity(0.15) : .clear))
         .overlay(Circle().strokeBorder(item.state == .now ? theme.accent.opacity(0.5) : theme.border, lineWidth: 1))
+    }
+}
+
+/// A checklist's tasks, one per row with no rail: a box, then the title
+/// with its note and body, which wrap. A done task's title recedes. A
+/// subtask is inset so its box sits under its task's title.
+private struct ChecklistFigure: View {
+    @Environment(\.mica) private var theme
+    let items: [Figure.Item]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                HStack(alignment: .top, spacing: 10) {
+                    ChecklistBox(item: item).frame(width: 16, height: 18)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.value)
+                            .font(.kit(size: 13, weight: item.accent ? .semibold : .regular))
+                            .foregroundStyle(item.muted || item.state == .done ? theme.muted : theme.text)
+                            .frame(minHeight: 18)
+                        if !item.note.isEmpty {
+                            Text(item.note).font(.kit(size: 12)).foregroundStyle(theme.muted)
+                        }
+                        if !item.body.isEmpty {
+                            Text(item.body).font(.kit(size: 12)).foregroundStyle(theme.muted)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.leading, item.level == 2 ? 26 : 0)
+            }
+        }
+    }
+}
+
+/// A task's box: a muted check in a border outline when done, the accent
+/// outline on an accent wash when it is the task in hand, and an empty
+/// strong-border outline when open.
+private struct ChecklistBox: View {
+    @Environment(\.mica) private var theme
+    let item: Figure.Item
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 4)
+        ZStack {
+            shape.fill(item.state == .now ? theme.accent.opacity(0.15) : .clear)
+            shape.strokeBorder(stroke, lineWidth: 1)
+            if item.state == .done {
+                IconView(.check, size: 10).foregroundStyle(theme.muted)
+            }
+        }
+        .frame(width: 16, height: 16)
+    }
+
+    private var stroke: Color {
+        switch item.state {
+        case .done: theme.border
+        case .now: theme.accent.opacity(0.5)
+        default: theme.strongBorder
+        }
     }
 }
 

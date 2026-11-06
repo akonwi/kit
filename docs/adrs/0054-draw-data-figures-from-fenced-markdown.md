@@ -50,9 +50,9 @@ by attributes:
 ````
 
 - **Names.** Figure names are Kit's own and bare: `stat`, `bars`, `meter`,
-  `delta`, `timeline`, `steps`, `decision`, `spec`, `tree`, `compare`,
-  `score`, `stack`, `plot`, `heatmap`, and `gantt`. There are no aliases. Any
-  other language is an ordinary code block.
+  `delta`, `timeline`, `steps`, `checklist`, `decision`, `spec`, `tree`,
+  `compare`, `score`, `stack`, `plot`, `heatmap`, and `gantt`. There are no
+  aliases. Any other language is an ordinary code block.
 - **Attributes.** `key="value"` only, in double quotes without escapes, each
   key at most once. Every figure takes `title`; each figure documents the
   rest. An unknown or repeated key stops the figure from drawing.
@@ -127,12 +127,12 @@ theme tokens.
   rounded corners, a border, the title as the card's label, and a Copy
   button that copies the fenced source. Inside, the figure is drawn natively
   in the interface font with tabular figures. Bars are capsules on a track,
-  timeline and steps are dots or numbered circles on a rail, and a meter's
-  target is a tick. In a narrow tile, stat tiles fall to fewer columns,
-  bars' label lanes truncate, and prose wraps. A callout is a tinted card
-  without a label or Copy: its wash and edge mix the kind's colour into the
-  surface, and Note and Important share the accent, told apart by icon and
-  label.
+  timeline and steps are dots or numbered circles on a rail, checklist
+  tasks are boxes, and a meter's target is a tick. In a narrow tile, stat
+  tiles fall to fewer columns, bars' label lanes truncate, and prose wraps.
+  A callout is a tinted card without a label or Copy: its wash and edge mix
+  the kind's colour into the surface, and Note and Important share the
+  accent, told apart by icon and label.
 
 ## Consequences
 

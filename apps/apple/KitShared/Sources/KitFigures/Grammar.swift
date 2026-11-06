@@ -44,6 +44,8 @@ enum Grammar {
         var bold: Bool
         var italic: Bool
         var details: [String] = []
+        /// The indent of each of details, in spaces, where a tab counts as two.
+        var depths: [Int] = []
         /// The number an ordered item is written with, or -1 for a `- ` item.
         var ordinal = -1
     }
@@ -267,6 +269,15 @@ enum Grammar {
         return (Int(trimmed[number]) ?? 0, String(trimmed[text]))
     }
 
+    /// A trimmed line read as a list item, `- text` or `N. text`, with its
+    /// emphasis and note split off; or nil when it isn't one.
+    static func listItem(_ trimmed: String) -> Item? {
+        guard let marker = marked(trimmed) else { return nil }
+        var item = parseItem(marker.text)
+        item.ordinal = marker.ordinal
+        return item
+    }
+
     /// Whether a trimmed line starts an ordered item, as in `1. text`.
     static func isOrdered(_ trimmed: String) -> Bool { (marked(trimmed)?.ordinal ?? -1) >= 0 }
 
@@ -309,6 +320,7 @@ enum Grammar {
                 current?.ordinal = marker.ordinal
             } else if indent(line) >= 2, current != nil {
                 current?.details.append(clean(trimmed))
+                current?.depths.append(indent(line))
             } else if closing, current != nil {
                 note.append(clean(trimmed))
             } else {

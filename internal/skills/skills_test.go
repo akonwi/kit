@@ -172,7 +172,7 @@ When a skill's instructions reference a relative path, resolve it against the sk
   </skill>
   <skill>
     <name>kit-figures</name>
-    <description>Syntax for the data figures and callouts Kit draws in replies: stat, bars, meter, timeline, steps, decision, delta, spec, tree, compare, score and stack fences, and GitHub-alert callouts. Load it before writing any of them, and before a reply with a Markdown table of numbers or options, an ASCII file tree, or several numbers, a change, progress, a decision or ratings, even if the user didn&apos;t ask for a chart. Figures draw only in Kit, not in text to paste elsewhere.</description>
+    <description>Syntax for the data figures and callouts Kit draws in replies: stat, bars, meter, timeline, steps, checklist, decision, delta, spec, tree, compare, score and stack fences, and GitHub-alert callouts. Load it before writing any of them, and before a reply with a Markdown table of numbers or options, an ASCII file tree, a task list, or several numbers, a change, progress, a decision or ratings, even if the user didn&apos;t ask for a chart. Figures draw only in Kit, not in text to paste elsewhere.</description>
     <source>built-in</source>
   </skill>
   <skill>

@@ -1,0 +1,13 @@
+figure checklist
+title ""
+item label="" value="Freeze the tokens" note="" accent=false muted=false scale=0 share="" spark= state=done level=1
+item label="" value="Ship the registry JSON" note="" accent=false muted=false scale=0 share="" spark= state=done level=1
+item label="" value="Write the postmortem" note="" accent=false muted=false scale=0 share="" spark= state=open level=1
+laid out 48
+┌─────────────────────────────┐
+│                             │
+│  ✓  Freeze the tokens       │
+│  ✓  Ship the registry JSON  │
+│  □  Write the postmortem    │
+│                             │
+└─────────────────────────────┘

@@ -148,11 +148,110 @@ enum Steps {
             item.state = standing[index]
             return item
         }
+        if items.contains(where: { Checklist.task($0.text) != nil }) {
+            return .failure(NotDrawn("steps take no `[ ]` or `[x]` boxes; a list of tasks is a `checklist` figure"))
+        }
         if let unordered = items.first(where: { $0.ordinal < 0 }) {
             return .failure(NotDrawn("steps are an ordered list, as in `1. \(Grammar.clip(unordered.text))`"))
         }
         if made.isEmpty { return .failure(NotDrawn("the figure has no steps")) }
         if made.count > maxItems { return .failure(NotDrawn("a steps figure has at most \(maxItems) steps")) }
         return .success(Figure(kind: .steps, title: info.attribute("title"), items: made))
+    }
+}
+
+/// `checklist`: tasks done in any order, each `[ ]` or `[x]` with a title
+/// and an optional indented body, and one level of subtasks indented under
+/// a task. The bold task is the one in hand, which is never checked.
+enum Checklist {
+    static let maxItems = 20
+
+    /// text's leading `[ ]`, `[x]`, or `[X]` box and the title after it,
+    /// or nil when it doesn't start with a box.
+    static func task(_ text: String) -> (done: Bool, title: String)? {
+        let box = Grammar.slice(text, 0, 3)
+        let after = Grammar.slice(text, 3)
+        let done = box == "[x]" || box == "[X]"
+        guard box == "[ ]" || done, after.isEmpty || Grammar.hasPrefix(after, " ") else { return nil }
+        return (done, Grammar.trimSpace(after))
+    }
+
+    /// each's indented lines split into its body and its subtasks, which
+    /// all share one indent. A box line deeper than that is a second level,
+    /// and prose after a subtask is a subtask's body; neither is drawn.
+    private static func under(_ each: Grammar.Item) -> Result<(body: [String], subtasks: [Grammar.Item]), NotDrawn> {
+        var body: [String] = [], subtasks: [Grammar.Item] = []
+        // The indent the task's subtasks share, once one is read.
+        var depth = -1
+        for (index, line) in each.details.enumerated() {
+            let at = index < each.depths.count ? each.depths[index] : 0
+            if let subtask = Grammar.listItem(line) {
+                if depth < 0 { depth = at }
+                if at > depth { return .failure(NotDrawn("a checklist nests one level, got `\(Grammar.clip(line))`")) }
+                if at < depth {
+                    return .failure(NotDrawn("a task's subtasks are indented alike, got `\(Grammar.clip(line))`"))
+                }
+                subtasks.append(subtask)
+            } else {
+                if depth >= 0 {
+                    return .failure(NotDrawn(at > depth
+                        ? "a subtask takes no indented body, got `\(Grammar.clip(line))`"
+                        : "a task's body comes before its subtasks, got `\(Grammar.clip(line))`"))
+                }
+                body.append(line)
+            }
+        }
+        return .success((body, subtasks))
+    }
+
+    /// each as a task at level, 1 or 2 for a subtask, with body under it:
+    /// its box split off, then the emphasis around the title after it, as
+    /// in `- [ ] **title**`.
+    private static func entry(_ each: Grammar.Item, level: Int, body: [String]) -> Result<Figure.Item, NotDrawn> {
+        guard let (done, written) = task(each.text) else {
+            return .failure(NotDrawn("a checklist item starts with `[ ]` or `[x]`, got `\(Grammar.clip(each.text))`"))
+        }
+        // Emphasis around the box, as in `- **[ ] title**`, was already read.
+        let marked = each.bold || each.italic
+        let inner = Grammar.emphasis(written)
+        let title = marked ? written : inner.text
+        var item = Figure.Item(
+            label: "", value: title, note: each.note,
+            accent: each.bold || (!marked && inner.bold), muted: each.italic || (!marked && inner.italic))
+        item.body = body.joined(separator: " ")
+        item.level = level
+        item.state = done ? .done : item.accent ? .now : .open
+        if title.isEmpty { return .failure(NotDrawn("a checklist task needs a title, as in `- [ ] Ship`")) }
+        if done && item.accent {
+            return .failure(NotDrawn("the bold task is the one in hand, so it can't be checked: `\(Grammar.clip(title))`"))
+        }
+        return .success(item)
+    }
+
+    static func parse(_ info: Grammar.Info, _ body: String) -> Result<Figure, NotDrawn> {
+        if let failure = Grammar.checkAttributes(info, ["title"]) { return .failure(failure) }
+        let items: [Grammar.Item]
+        switch Grammar.items(body) {
+        case .failure(let failure): return .failure(failure)
+        case .success(let parsed): items = parsed
+        }
+        var made: [Figure.Item] = []
+        for each in items {
+            let split: (body: [String], subtasks: [Grammar.Item])
+            switch under(each) {
+            case .failure(let failure): return .failure(failure)
+            case .success(let parts): split = parts
+            }
+            for (task, level, lines) in [(each, 1, split.body)] + split.subtasks.map({ ($0, 2, [String]()) }) {
+                switch entry(task, level: level, body: lines) {
+                case .failure(let failure): return .failure(failure)
+                case .success(let item): made.append(item)
+                }
+            }
+        }
+        if made.filter(\.accent).count > 1 { return .failure(NotDrawn("only one item can be bold")) }
+        if made.isEmpty { return .failure(NotDrawn("the figure has no tasks")) }
+        if made.count > maxItems { return .failure(NotDrawn("a checklist has at most \(maxItems) tasks")) }
+        return .success(Figure(kind: .checklist, title: info.attribute("title"), items: made))
     }
 }

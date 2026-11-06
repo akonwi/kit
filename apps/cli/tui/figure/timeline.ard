@@ -82,6 +82,7 @@ fn entries(figure: model::Figure) [listing::Entry] {
         heading: heading,
         note: each.note,
         body: each.body,
+        indent: 0,
       },
     )
   }

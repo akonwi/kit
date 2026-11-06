@@ -62,6 +62,7 @@ fn layout(figure: model::Figure) listing::Listing {
         },
         note: each.note,
         body: each.body,
+        indent: 0,
       },
     )
   }

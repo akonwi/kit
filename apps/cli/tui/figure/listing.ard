@@ -2,9 +2,10 @@ use cooper/ui
 use kit/tui/figure/drawing
 
 // Figures the terminal lays out at the width it has, so their prose wraps:
-// timeline items, steps, decisions, and specs (docs/figures.md). Each entry
-// is an optional marker in a column of its own, an optional lane such as a
-// date, then a heading with its note and body under it.
+// timeline items, steps, checklists, decisions, and specs
+// (docs/figures.md). Each entry is an optional marker in a column of its
+// own, an optional lane such as a date, then a heading with its note and
+// body under it.
 
 struct Entry {
   marker: drawing::Segment,
@@ -12,6 +13,9 @@ struct Entry {
   heading: drawing::Segment,
   note: Str,
   body: Str,
+  // The cells the entry is inset from the others, as a checklist's
+  // subtasks are.
+  indent: Int,
 }
 
 // A figure's entries and the rows around them.

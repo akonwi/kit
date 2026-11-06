@@ -156,6 +156,40 @@ Rows against a target:
   Numbering starts at the list's first number.
 - The bold item is current (accent number, bold title). Items before it are
   done (muted `✓`). With no bold item, every step is numbered and none is done.
+- Steps are a sequence. Items that start with a `[ ]` or `[x]` box are a
+  checklist, so the steps figure isn't drawn and its reason points to
+  `checklist`.
+
+### checklist
+
+````markdown
+```checklist title="Web adoption"
+- [x] Port the figure renderer
+- [ ] Web adoption branch — two parts
+
+  Lands once both are done.
+
+  - [x] Rebase on main
+  - [ ] **Second approval** — in review
+- [ ] Update docs/figures.md
+```
+````
+
+- 1–20 tasks, subtasks included, each `[ ] title` (open) or `[x] title`
+  (done; `[X]` also works) with an optional note and indented body. Every
+  item needs a box and a title. `- ` and `1. ` items both work; tasks aren't
+  numbered.
+- **Subtasks:** one level of tasks indented under a task, all at the same
+  indent, after the task's body. A subtask has a box and an optional note
+  but no body or subtasks of its own. Subtasks are inset under their task's
+  title. A task's box is what's written: Kit doesn't check a task when its
+  subtasks are done.
+- Tasks are done in any order. A done task is a muted `✓` with a muted
+  title; an open task is an empty box.
+- The bold task is the one in hand: an accent box and a bold title. Zero or
+  one task (or subtask) is bold, and it can't be checked. Bold goes after the box
+  (`- [ ] **title**`) or around it (`- **[ ] title**`).
+- Italic tasks recede.
 
 ### decision
 

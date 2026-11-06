@@ -1,0 +1,15 @@
+figure checklist
+title ""
+item label="" value="Release" note="" accent=false muted=false scale=0 share="" spark= state=open level=1
+item label="" value="Tag the release" note="" accent=false muted=false scale=0 share="" spark= state=done level=2
+item label="" value="Write the notes" note="" accent=false muted=false scale=0 share="" spark= state=open level=2
+item label="" value="Announce" note="" accent=false muted=false scale=0 share="" spark= state=open level=1
+laid out 48
+┌─────────────────────────┐
+│                         │
+│  □  Release             │
+│     ✓  Tag the release  │
+│     □  Write the notes  │
+│  □  Announce            │
+│                         │
+└─────────────────────────┘

@@ -1,0 +1,214 @@
+use ard/testing
+
+use kit/tui/figure/drawing
+use kit/tui/figure/grammar
+use kit/tui/figure/listing
+use kit/tui/figure/model
+use go:strings
+
+// `checklist`: tasks done in any order, each `[ ]` or `[x]` with a title
+// and an optional indented body, and one level of subtasks indented under
+// a task. The bold task is the one in hand, which is never checked
+// (docs/figures.md).
+
+let max_items = 20
+
+// The cells a subtask is inset: its parent's marker and the gap after it.
+let subtask_indent = 3
+
+// A task's box and the title after it.
+struct Task {
+  done: Bool,
+  title: Str,
+}
+
+// text's leading `[ ]`, `[x]`, or `[X]` box and the title after it, or
+// nothing when it doesn't start with a box.
+fn task(text: Str) Task? {
+  let box = text.slice(end: 3).or("")
+  let after = text.slice(start: 3).or("")
+  let open = box == "[ ]"
+  let done = box == "[x]" or box == "[X]"
+  match (open or done) and (after == "" or strings::HasPrefix(after, " ")) {
+    true => Maybe::new(Task{done: done, title: strings::TrimSpace(after)}),
+    false => Maybe::new<Task>(),
+  }
+}
+
+// each as a checklist item: its box split off, then the emphasis around
+// the title after it, as in `- [ ] **title**`.
+// The lines indented under a task: its body, then its subtasks.
+private struct Under {
+  body: [Str],
+  subtasks: [grammar::Item],
+}
+
+// each's indented lines split into its body and its subtasks, which all
+// share one indent. A box line deeper than that is a second level, and
+// prose after a subtask is a subtask's body; neither is drawn.
+private fn under(each: grammar::Item) Under!Str {
+  let body = mut List::new<Str>()
+  let subtasks = mut List::new<grammar::Item>()
+  // The indent the task's subtasks share, once one is read.
+  mut depth = -1
+  mut failure = ""
+  mut index = 0
+  for line in each.details {
+    let at = each.depths.at(index).or(0)
+    index =+ 1
+    match grammar::list_item(line) {
+      subtask => {
+        if depth < 0 {
+          depth = at
+        }
+        if failure == "" and at > depth {
+          failure = "a checklist nests one level, got `{grammar::clip(line)}`"
+        }
+        if failure == "" and at < depth {
+          failure = "a task's subtasks are indented alike, got `{grammar::clip(line)}`"
+        }
+        subtasks.push(subtask)
+      },
+      _ => {
+        if failure == "" and depth >= 0 {
+          failure = match at > depth {
+            true => "a subtask takes no indented body, got `{grammar::clip(line)}`",
+            false => "a task's body comes before its subtasks, got `{grammar::clip(line)}`",
+          }
+        }
+        body.push(line)
+      },
+    }
+  }
+  match failure == "" {
+    true => Result::ok(Under{body: body.@, subtasks: subtasks.@}),
+    false => Result::err(failure),
+  }
+}
+
+// each as a task at level, 1 or 2 for a subtask, with body under it.
+private fn entry(each: grammar::Item, level: Int, body: [Str]) model::Item!Str {
+  match task(each.text) {
+    found => {
+      // Emphasis around the box, as in `- **[ ] title**`, was already read.
+      let marked = each.bold or each.italic
+      let inner = grammar::emphasis(found.title)
+      let title = match marked {
+        true => found.title,
+        false => inner.text,
+      }
+      let made = mut model::item("", title)
+      made.note = each.note
+      made.accent = each.bold or (not marked) and inner.bold
+      made.muted = each.italic or (not marked) and inner.italic
+      made.body = strings::Join(mut body, " ")
+      made.level = level
+      made.state = match {
+        found.done => "done",
+        made.accent => "now",
+        _ => "open",
+      }
+      match {
+        title == "" => Result::err("a checklist task needs a title, as in `- [ ] Ship`"),
+        found.done and made.accent => {
+          Result::err(
+            "the bold task is the one in hand, so it can't be checked: `{grammar::clip(title)}`",
+          )
+        },
+        _ => Result::ok(made.@),
+      }
+    },
+    _ => Result::err("a checklist item starts with `[ ]` or `[x]`, got `{grammar::clip(each.text)}`"),
+  }
+}
+
+fn parse(info: grammar::Info, body: Str) model::Figure!Str {
+  try grammar::check_attributes(info, ["title"])
+  let items = try grammar::items(body)
+  let made = mut List::new<model::Item>()
+  mut bold = 0
+  for each in items {
+    let split = try under(each)
+    made.push(try entry(each, 1, split.body))
+    for subtask in split.subtasks {
+      made.push(try entry(subtask, 2, []))
+    }
+  }
+  for each in made {
+    if each.accent {
+      bold =+ 1
+    }
+  }
+  match {
+    bold > 1 => Result::err("only one item can be bold"),
+    made.size() == 0 => Result::err("the figure has no tasks"),
+    made.size() > max_items => Result::err("a checklist has at most {max_items} tasks"),
+    _ => Result::ok(model::figure("checklist", grammar::attribute(info, "title"), made.@)),
+  }
+}
+
+// Each task as the listing lays it out: a done task is checked and
+// recedes; the one in hand has its box in the accent and its title in
+// bold; an open task has an empty box.
+fn entries(figure: model::Figure) [listing::Entry] {
+  let result = mut List::new<listing::Entry>()
+  for each in figure.items {
+    let marker = match each.state {
+      "done" => drawing::segment("✓", drawing::Role::muted),
+      "now" => drawing::segment("□", drawing::Role::accent),
+      _ => drawing::segment("□", drawing::Role::muted),
+    }
+    let heading = match {
+      each.accent => drawing::bold(each.value, drawing::Role::text),
+      each.muted or each.state == "done" => drawing::segment(each.value, drawing::Role::muted),
+      _ => drawing::segment(each.value, drawing::Role::text),
+    }
+    result.push(
+      listing::Entry{
+        marker: marker,
+        lane: drawing::segment("", drawing::Role::muted),
+        heading: heading,
+        note: each.note,
+        body: each.body,
+        indent: match each.level == 2 {
+          true => subtask_indent,
+          false => 0,
+        },
+      },
+    )
+  }
+  result.@
+}
+
+// A checklist's tasks, one per row with no rail between them, each
+// subtask inset under its task's title.
+fn layout(figure: model::Figure) listing::Listing {
+  listing::Listing{
+    entries: entries(figure),
+    spaced: false,
+    lead: [],
+    closing: "",
+  }
+}
+
+test fn boxes_split_off_their_title() Void!Str {
+  let cases = ["[ ] Ship", "[x] Ship", "[X]  Ship", "[ ]", "[x]Ship", "[-] Ship", "Ship"]
+  let expected = ["open:Ship", "done:Ship", "done:Ship", "open:", "none", "none", "none"]
+  mut index = 0
+  while index < cases.size() {
+    let got = match task(cases.at(index).or("")) {
+      found => {
+        let state = match found.done {
+          true => "done",
+          false => "open",
+        }
+        "{state}:{found.title}"
+      },
+      _ => "none",
+    }
+    let want = expected.at(index).or("")
+    try testing::assert(got == want, "`{cases.at(index).or("")}`: got {got}, want {want}")
+    index =+ 1
+  }
+  testing::pass()
+}

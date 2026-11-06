@@ -115,6 +115,7 @@ fn layout(figure: model::Figure) listing::Listing {
         heading: drawing::segment(each.note, drawing::Role::muted),
         note: "",
         body: "",
+        indent: 0,
       },
     )
   }

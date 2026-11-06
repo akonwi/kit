@@ -29,9 +29,10 @@ struct Item {
   // A meter past its target or past 100%, which turns warning.
   over: Bool,
   // Where a timeline item or step stands against the bold one: `done`,
-  // `now`, `next`, or empty when nothing is bold.
+  // `now`, `next`, or empty when nothing is bold. A checklist task is
+  // `done`, `now` when bold, or `open`.
   state: Str,
-  // A timeline item's or step's indented body, its lines joined.
+  // A timeline item's, step's, or task's indented body, its lines joined.
   body: Str,
   // A delta row's value before, as written, or empty.
   from: Str,

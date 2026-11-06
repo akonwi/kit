@@ -1,0 +1,5 @@
+```checklist
+- [ ] Docs
+- [ ] Registry
+- [ ] Announcement
+```

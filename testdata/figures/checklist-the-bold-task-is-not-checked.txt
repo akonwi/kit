@@ -1,0 +1,1 @@
+not drawn: the bold task is the one in hand, so it can't be checked: `Merge`

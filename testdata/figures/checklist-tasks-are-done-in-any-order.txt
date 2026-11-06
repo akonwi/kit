@@ -1,0 +1,20 @@
+figure checklist
+title "Web adoption"
+item label="" value="Port the figure renderer" note="" accent=false muted=false scale=0 share="" spark= state=done level=1
+item label="" value="Web adoption branch" note="in review" accent=true muted=false scale=0 share="" spark= state=now body="Waiting on the second approval before it merges into main." level=1
+item label="" value="Shared fixtures" note="" accent=false muted=false scale=0 share="" spark= state=done level=1
+item label="" value="Update docs/figures.md" note="" accent=false muted=false scale=0 share="" spark= state=open level=1
+item label="" value="Release notes" note="" accent=false muted=false scale=0 share="" spark= state=open level=1
+laid out 48
+┌─ Web adoption ───────────────────────────────┐
+│                                              │
+│  ✓  Port the figure renderer                 │
+│  □  Web adoption branch                      │
+│     in review                                │
+│     Waiting on the second approval before    │
+│     it merges into main.                     │
+│  ✓  Shared fixtures                          │
+│  □  Update docs/figures.md                   │
+│  □  Release notes                            │
+│                                              │
+└──────────────────────────────────────────────┘

@@ -1,0 +1,4 @@
+```checklist
+- [ ] Draft
+- [ ] *Optional: announce*
+```

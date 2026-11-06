@@ -2,12 +2,12 @@
 name: kit-figures
 description: >-
   Syntax for the data figures and callouts Kit draws in replies: stat, bars,
-  meter, timeline, steps, decision, delta, spec, tree, compare, score and
-  stack fences, and GitHub-alert callouts. Load it before writing any of
-  them, and before a reply with a Markdown table of numbers or options, an
-  ASCII file tree, or several numbers, a change, progress, a decision or
-  ratings, even if the user didn't ask for a chart. Figures draw only in Kit,
-  not in text to paste elsewhere.
+  meter, timeline, steps, checklist, decision, delta, spec, tree, compare,
+  score and stack fences, and GitHub-alert callouts. Load it before writing
+  any of them, and before a reply with a Markdown table of numbers or
+  options, an ASCII file tree, a task list, or several numbers, a change,
+  progress, a decision or ratings, even if the user didn't ask for a chart.
+  Figures draw only in Kit, not in text to paste elsewhere.
 ---
 
 # Kit figures
@@ -42,6 +42,7 @@ table. A figure for one or two numbers is noise; put them in the sentence.
 | Progress toward a whole, or rows against their own targets | `meter` |
 | Dated events, with where things stand now | `timeline` |
 | An ordered procedure and the current step | `steps` |
+| Tasks done in any order, and which are done | `checklist` |
 | Options weighed and the one chosen | `decision` |
 | Changes per item, or values before and after | `delta` |
 | Labelled properties (settings, a type scale, a config) | `spec` |
@@ -56,7 +57,8 @@ table. A figure for one or two numbers is noise; put them in the sentence.
 - Info string: the name, then `key="value"` attributes in double quotes.
   Only the keys listed for that figure are allowed, each once. Every figure
   takes `title` (plain text, cut at 48 characters); it is optional.
-- One item per list line: `- ` (or `1. ` for steps).
+- One item per list line: `- ` (or `1. ` for steps). A task with a box,
+  `- [ ] task` or `- [x] task`, goes in a `checklist`, never in `steps`.
 - `label: value` splits at the first colon followed by a space, so
   `14:11: rolled back` has the label `14:11`.
 - `**…**` around a whole item marks the one item to read; it takes the accent
@@ -143,6 +145,29 @@ table. A figure for one or two numbers is noise; put them in the sentence.
 
 - 1–20 items of a numbered list, each a title with an optional indented body.
 - The bold step is current and the ones before it are done. Keys: `title`.
+- No `[ ]` or `[x]` boxes: for tasks done in any order, use `checklist`.
+
+### checklist
+
+```checklist title="Web adoption"
+- [x] Port the figure renderer
+- [ ] Web adoption branch — two parts
+
+    Lands once both are done.
+
+  - [x] Rebase on main
+  - [ ] **Second approval** — in review
+- [ ] Update docs/figures.md
+```
+
+- 1–20 tasks, subtasks included, each `- [ ] title` (open) or `- [x] title`
+  (done), with an optional note and indented body. Every item needs a box
+  and a title; tasks can be done in any order.
+- Subtasks: one level only, indented two spaces under a task, after its
+  body. A subtask takes a note but no body. Check a task yourself when it's
+  done; Kit doesn't infer it from its subtasks.
+- Bold the task in hand, after the box: `- [ ] **title**`. At most one task
+  is bold, and it can't be checked. Keys: `title`.
 
 ### decision
 

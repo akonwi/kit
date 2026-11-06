@@ -1,0 +1,1 @@
+not drawn: `checklist` has no `status` attribute

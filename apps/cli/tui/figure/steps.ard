@@ -1,5 +1,6 @@
 use ard/testing
 
+use kit/tui/figure/checklist
 use kit/tui/figure/drawing
 use kit/tui/figure/grammar
 use kit/tui/figure/listing
@@ -19,10 +20,14 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   try grammar::check_one_bold(items)
   let bold = mut List::new<Bool>()
   mut unordered = ""
+  mut boxed = false
   for each in items {
     bold.push(each.bold)
     if each.ordinal < 0 and unordered == "" {
       unordered = each.text
+    }
+    if checklist::task(each.text).is_some() {
+      boxed = true
     }
   }
   let states = listing::states(bold.@)
@@ -43,6 +48,7 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     index =+ 1
   }
   match {
+    boxed => Result::err("steps take no `[ ]` or `[x]` boxes; a list of tasks is a `checklist` figure"),
     unordered != "" => Result::err("steps are an ordered list, as in `1. {grammar::clip(unordered)}`"),
     made.size() == 0 => Result::err("the figure has no steps"),
     made.size() > max_items => Result::err("a steps figure has at most {max_items} steps"),
@@ -72,6 +78,7 @@ fn entries(figure: model::Figure) [listing::Entry] {
         heading: heading,
         note: each.note,
         body: each.body,
+        indent: 0,
       },
     )
   }
