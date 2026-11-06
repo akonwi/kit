@@ -72,6 +72,9 @@ private struct UserMessage: View {
                 Prose(text: AttributedString(message.text), lineHeight: 23)
             }
             TranscriptAttachments(attachments: message.attachments ?? [])
+            if let notes = message.annotations, !notes.isEmpty {
+                SentComments(notes: notes)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

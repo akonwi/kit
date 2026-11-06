@@ -4,7 +4,8 @@ import XCTest
 /// server of an isolated Kit home: finds a code file by a fuzzy search and
 /// reads it, comments on its lines and finds the comment again from its
 /// chip, wraps its lines, reads a Markdown file rendered and as source, and
-/// sees why a binary file can't be shown. Run by script/test_files.sh,
+/// sees why a binary file can't be shown, then sends a comment and opens
+/// its file from the card in the message. Run by script/test_files.sh,
 /// whose session's folder is made by fixtures/make_files_demo.py.
 final class FilesUITests: XCTestCase {
     override func setUp() {
@@ -112,6 +113,36 @@ final class FilesUITests: XCTestCase {
         results.firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Binary files cannot be previewed."].waitForExistence(timeout: 10))
         attach(app, "Binary")
+        app.navigationBars.buttons.firstMatch.tap()
+
+        // Sent, a comment shows as a card in its message, and a tap opens
+        // its file at its lines. Each run's comment is its own.
+        let note = "Sent note \(Int(Date().timeIntervalSince1970))"
+        openFile(app, search: "httpcl")
+        results.firstMatch.tap()
+        let seventh = line(app, 7)
+        XCTAssertTrue(seventh.waitForExistence(timeout: 10))
+        seventh.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: 20, dy: 0)).tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText(note)
+        app.buttons["diff-comment-save"].tap()
+        XCTAssertTrue(waitForAbsence(field, timeout: 10))
+        app.navigationBars.buttons.firstMatch.tap()
+        let composer = app.textViews["composer"].exists ? app.textViews["composer"] : app.descendants(matching: .any)["composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        composer.tap()
+        composer.typeText("Look here")
+        app.buttons["composer-action"].tap()
+        let sent = app.buttons.matching(identifier: "sent-comment")
+            .matching(NSPredicate(format: "label == %@", "Comment on HTTPClient.swift:7, \(note)")).firstMatch
+        XCTAssertTrue(sent.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Look here"].exists)
+        attach(app, "Sent comment")
+        sent.tap()
+        XCTAssertTrue(app.staticTexts["HTTPClient.swift"].waitForExistence(timeout: 10))
+        XCTAssertTrue(line(app, 7).waitForExistence(timeout: 10))
+        attach(app, "Sent comment opened")
     }
 
     @MainActor
