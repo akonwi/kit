@@ -69,6 +69,49 @@ struct EditDiffBlock: View {
     }
 }
 
+/// A fenced block's card: raised, its label in mono above what it holds.
+/// A long press copies `copy`. `accessory` sits at the label's end.
+struct FenceCard<Content: View, Accessory: View>: View {
+    let label: String
+    let copy: String
+    var copyTitle = "Copy"
+    @ViewBuilder var accessory: () -> Accessory
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !label.isEmpty {
+                HStack(spacing: 8) {
+                    Text(label)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    accessory()
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 2)
+                .padding(.bottom, 6)
+            }
+            content()
+        }
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: Theme.controlRadius))
+        .overlay { RoundedRectangle(cornerRadius: Theme.controlRadius).strokeBorder(Theme.border, lineWidth: 0.5) }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.controlRadius))
+        .contextMenu {
+            Button(copyTitle, systemImage: "doc.on.doc") { UIPasteboard.general.string = copy }
+        }
+    }
+}
+
+extension FenceCard where Accessory == EmptyView {
+    init(label: String, copy: String, copyTitle: String = "Copy", @ViewBuilder content: @escaping () -> Content) {
+        self.init(label: label, copy: copy, copyTitle: copyTitle, accessory: { EmptyView() }, content: content)
+    }
+}
+
 /// Code lines on a raised card that scrolls sideways. A long press copies
 /// `copy`.
 private struct CodeCard: View {
@@ -80,15 +123,7 @@ private struct CodeCard: View {
     @State private var width: CGFloat = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !label.isEmpty {
-                Text(label)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(Theme.muted)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 2)
-                    .padding(.bottom, 6)
-            }
+        FenceCard(label: label, copy: copy, copyTitle: "Copy Code") {
             ScrollView(.horizontal) {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
@@ -107,13 +142,6 @@ private struct CodeCard: View {
             }
             .scrollIndicators(.hidden)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-        }
-        .padding(.vertical, 6)
-        .background(Theme.raised, in: RoundedRectangle(cornerRadius: Theme.controlRadius))
-        .overlay { RoundedRectangle(cornerRadius: Theme.controlRadius).strokeBorder(Theme.border, lineWidth: 0.5) }
-        .clipShape(RoundedRectangle(cornerRadius: Theme.controlRadius))
-        .contextMenu {
-            Button("Copy Code", systemImage: "doc.on.doc") { UIPasteboard.general.string = copy }
         }
     }
 
