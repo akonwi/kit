@@ -1,36 +1,45 @@
 import Foundation
 import Observation
 
+/// A session's shared scratchpad as one client edits it: the draft, the
+/// shared copy it was based on, a debounced autosave, and, when the shared
+/// copy changes under unsaved edits, a review of the two before either wins.
 @MainActor @Observable
-final class ScratchpadState {
-    enum Status: Equatable { case loading, saved, unsaved, saving, conflict, failed(String) }
-    var draft: String
-    private(set) var authoritative: ScratchpadRecord?
-    private(set) var status: Status
-    private(set) var reviewing = false
-    private(set) var reviewed: ScratchpadRecord?
-    private(set) var documentVersion = 0
+public final class ScratchpadState {
+    public enum Status: Equatable, Sendable { case loading, saved, unsaved, saving, conflict, failed(String) }
+    /// Waits out a delay, throwing if the waiting task is cancelled first.
+    public typealias Sleep = @Sendable (Duration) async throws -> Void
+    public var draft: String
+    public private(set) var authoritative: ScratchpadRecord?
+    public private(set) var status: Status
+    public private(set) var reviewing = false
+    public private(set) var reviewed: ScratchpadRecord?
+    /// Bumped when the draft is replaced by a shared copy rather than typed,
+    /// so an editor knows to reload its text.
+    public private(set) var documentVersion = 0
     @ObservationIgnored private var debounce: Task<Void, Never>?
     @ObservationIgnored private var savingContent: String?
     @ObservationIgnored private var loading = false
     /// Waits out `autosaveDelay`.
-    @ObservationIgnored private let sleeper: Sleeper
+    @ObservationIgnored private let sleeper: Sleep
     /// How long an edit waits for more before it is saved.
-    static let autosaveDelay: Duration = .seconds(5)
+    public static let autosaveDelay: Duration = .seconds(5)
 
-    init(demo: Bool, sleep: @escaping Sleeper = realTimeSleeper) {
+    /// A demo scratchpad starts saved with a heading; a real one loads.
+    /// `sleep` waits out the autosave delay, so tests can decide when it ends.
+    public init(demo: Bool, sleep: @escaping Sleep = { try await Task.sleep(for: $0) }) {
         self.sleeper = sleep
         draft = demo ? "# Scratchpad\n\n" : ""
         status = demo ? .saved : .loading
     }
 
-    var dirty: Bool { authoritative.map { $0.content != draft } ?? !draft.isEmpty }
-    var reviewText: String {
+    public var dirty: Bool { authoritative.map { $0.content != draft } ?? !draft.isEmpty }
+    public var reviewText: String {
         guard let reviewed else { return "" }
         return Self.unified(shared: reviewed.content, draft: draft)
     }
 
-    func edit(_ value: String) {
+    public func edit(_ value: String) {
         draft = value
         guard let authoritative else { status = .unsaved; return }
         if status == .conflict || reviewing { return }
@@ -38,7 +47,7 @@ final class ScratchpadState {
         if status == .unsaved { schedule() } else { debounce?.cancel() }
     }
 
-    func observe(_ record: ScratchpadRecord) {
+    public func observe(_ record: ScratchpadRecord) {
         guard record.revision >= (authoritative?.revision ?? 0) else { return }
         if let previous = authoritative, previous.owner != record.owner { return }
         if authoritative?.revision == record.revision && authoritative?.content == record.content { return }
@@ -60,7 +69,7 @@ final class ScratchpadState {
         }
     }
 
-    func load(client: any ScratchpadClient, session: String) async {
+    public func load(client: any ScratchpadClient, session: String) async {
         guard authoritative == nil, !loading else { return }
         loading = true
         defer { loading = false }
@@ -79,7 +88,7 @@ final class ScratchpadState {
 
     @ObservationIgnored private var client: (any ScratchpadClient)?
     @ObservationIgnored private var session = ""
-    func bind(client: any ScratchpadClient, session: String) {
+    public func bind(client: any ScratchpadClient, session: String) {
         self.client = client
         self.session = session
         if dirty, authoritative != nil, status == .unsaved { schedule() }
@@ -92,7 +101,7 @@ final class ScratchpadState {
         _ = await save(client: client, session: session)
     }
 
-    @discardableResult func save(client: any ScratchpadClient, session: String, reviewedRevision: Int64? = nil) async -> Bool {
+    @discardableResult public func save(client: any ScratchpadClient, session: String, reviewedRevision: Int64? = nil) async -> Bool {
         debounce?.cancel()
         guard let current = authoritative else { await load(client: client, session: session); return !dirty }
         guard savingContent == nil else { return false }
@@ -123,13 +132,13 @@ final class ScratchpadState {
         }
     }
 
-    func review() {
+    public func review() {
         guard status == .conflict, let authoritative else { return }
         reviewed = authoritative
         reviewing = true
     }
-    func keepEditing() { reviewing = false }
-    func useShared() {
+    public func keepEditing() { reviewing = false }
+    public func useShared() {
         guard let authoritative else { return }
         debounce?.cancel()
         if draft != authoritative.content { documentVersion += 1 }
@@ -138,12 +147,12 @@ final class ScratchpadState {
         reviewing = false
         reviewed = nil
     }
-    func replaceReviewed(client: any ScratchpadClient, session: String) async {
+    public func replaceReviewed(client: any ScratchpadClient, session: String) async {
         guard reviewing, let revision = reviewed?.revision else { return }
         _ = await save(client: client, session: session, reviewedRevision: revision)
     }
 
-    static func unified(shared: String, draft: String) -> String {
+    public static func unified(shared: String, draft: String) -> String {
         let old = shared.components(separatedBy: "\n")
         let new = draft.components(separatedBy: "\n")
         let changes = new.difference(from: old)
