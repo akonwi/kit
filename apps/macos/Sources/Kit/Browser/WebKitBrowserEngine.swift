@@ -87,6 +87,7 @@ import WebKit
         webView.allowsBackForwardNavigationGestures = true
         webView.isInspectable = true
         webView.windowChanged = { [weak self] in self?.showWaitingSheet() }
+        webView.historyButtonClicked = { [weak self] in self?.emit(.historyButton($0)) }
         observe()
     }
 
@@ -677,6 +678,32 @@ private final class KitWebView: WKWebView {
 
     override func mouseDown(with event: NSEvent) { interacted(); super.mouseDown(with: event) }
     override func rightMouseDown(with event: NSEvent) { interacted(); super.rightMouseDown(with: event) }
-    override func otherMouseDown(with event: NSEvent) { interacted(); super.otherMouseDown(with: event) }
     override func keyDown(with event: NSEvent) { interacted(); super.keyDown(with: event) }
+
+    /// Told when the person clicks a mouse's back or forward button.
+    var historyButtonClicked: ((BrowserHistoryStep) -> Void)?
+    /// The back or forward button pressed over the page, until released.
+    private var pressedHistoryButton: Int?
+
+    /// A mouse's back and forward buttons reach the page, as in Chrome,
+    /// and then step through the tab's history when released.
+    /// Like Kit's own Back and Forward, they aren't the person using the
+    /// page, so they give it no activation, which would outlast the page
+    /// it leaves.
+    override func otherMouseDown(with event: NSEvent) {
+        if BrowserHistoryStep(mouseButton: event.buttonNumber) != nil {
+            pressedHistoryButton = event.buttonNumber
+        } else {
+            interacted()
+        }
+        super.otherMouseDown(with: event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        super.otherMouseUp(with: event)
+        guard pressedHistoryButton == event.buttonNumber,
+              let step = BrowserHistoryStep(mouseButton: event.buttonNumber) else { return }
+        pressedHistoryButton = nil
+        historyButtonClicked?(step)
+    }
 }

@@ -143,6 +143,17 @@ final class BrowserTab: Identifiable {
 
     func goBack() { engine?.goBack() }
     func goForward() { engine?.goForward() }
+
+    /// Takes `step` as the toolbar's Back or Forward button would, when
+    /// that button is enabled; otherwise nothing happens. A mouse's back
+    /// and forward buttons step this way.
+    func take(_ step: BrowserHistoryStep) {
+        switch step {
+        case .back: if page.canGoBack { goBack() }
+        case .forward: if page.canGoForward { goForward() }
+        }
+    }
+
     func stop() { engine?.stop() }
 
     func reload() {
@@ -298,6 +309,8 @@ final class BrowserTab: Identifiable {
             pageDialog = dialog
         case .downloadWaiting(let request):
             waitingDownload = request
+        case .historyButton(let step):
+            take(step)
         }
     }
 }

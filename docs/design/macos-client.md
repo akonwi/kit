@@ -294,6 +294,13 @@ engine's reason and Try again, and the tab is titled with the host. The tab
 shows the site's favicon and page title, capped at 180 pt; the browser icon
 and host stand in until they load.
 
+A mouse's back and forward buttons (buttons 3 and 4) go back and forward
+anywhere in the pane, as the toolbar's buttons do, once per click when the
+button is released, and do nothing at either end of the history. The page
+gets the click first and can't cancel the step. They don't count as using
+the page for the download and app-link rules. A two-finger swipe also goes
+back and forward.
+
 The page draws with its own colours. A link that opens a window opens a new
 browser tab after its opener in the same tile, keeping its opener, and a page
 that closes its window closes its tab. Login prompts, page alerts, confirms,

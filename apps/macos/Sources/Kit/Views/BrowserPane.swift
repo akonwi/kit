@@ -5,6 +5,10 @@ import SwiftUI
 /// Open in default browser over the page. The page draws with its own
 /// colours; a page that can't load shows Kit's message instead.
 ///
+/// A mouse's back and forward buttons step through the tab's history
+/// anywhere in the pane: the page takes them itself, and the toolbar and
+/// Kit's failure message pass them to the tab.
+///
 /// The pane draws only while its tab is on screen. A hidden tab's page stays
 /// loaded in its engine but out of the window, so showing a session with
 /// many browser tabs builds and attaches only the ones in view.
@@ -28,6 +32,7 @@ struct BrowserPane: View {
     private var content: some View {
         VStack(spacing: 0) {
             BrowserToolbar(workspace: workspace, tab: tab, draft: $draft)
+                .overlay { MouseHistoryButtons(tab: tab).accessibilityHidden(true) }
             ZStack {
                 theme.surface
                 if tab.url != nil {
@@ -40,6 +45,7 @@ struct BrowserPane: View {
                 }
                 if let failure = tab.failure {
                     BrowserFailureView(failure: failure) { tab.reload() }
+                        .overlay { MouseHistoryButtons(tab: tab).accessibilityHidden(true) }
                 }
             }
         }
@@ -160,6 +166,40 @@ private struct BrowserToolbar: View {
         addressFocused = false
         let view = tab.view
         DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
+    }
+}
+
+/// Takes a mouse's back and forward buttons over Kit's own parts of a
+/// browser pane, for its tab to step through its history when released.
+/// AppKit hits it only while one of those buttons is being sent, so every
+/// other press, the wheel, and the pointer reach the controls under it,
+/// and a panel over it takes the buttons itself.
+private struct MouseHistoryButtons: NSViewRepresentable {
+    let tab: BrowserTab
+
+    func makeNSView(context: Context) -> Region { Region() }
+    func updateNSView(_ region: Region, context: Context) { region.tab = tab }
+
+    final class Region: NSView {
+        weak var tab: BrowserTab?
+        /// The back or forward button pressed over the region, until released.
+        private var pressed: Int?
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard let event = NSApp.currentEvent, [.otherMouseDown, .otherMouseUp, .otherMouseDragged].contains(event.type),
+                  BrowserHistoryStep(mouseButton: event.buttonNumber) != nil else { return nil }
+            return super.hitTest(point)
+        }
+
+        override func otherMouseDown(with event: NSEvent) { pressed = event.buttonNumber }
+
+        override func otherMouseUp(with event: NSEvent) {
+            guard pressed == event.buttonNumber, let step = BrowserHistoryStep(mouseButton: event.buttonNumber) else { return }
+            pressed = nil
+            tab?.take(step)
+        }
+
+        override func otherMouseDragged(with event: NSEvent) {}
     }
 }
 

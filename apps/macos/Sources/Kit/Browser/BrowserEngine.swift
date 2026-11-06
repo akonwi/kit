@@ -34,6 +34,25 @@ enum BrowserEngineEvent {
     /// A download the person didn't ask for is waiting for them to allow
     /// it; nil once none is.
     case downloadWaiting(BrowserDownloadRequest?)
+    /// The person clicked a mouse's back or forward button over the page.
+    /// The page has had the click; the tab takes the step if it can.
+    case historyButton(BrowserHistoryStep)
+}
+
+/// A step back or forward through a tab's history.
+enum BrowserHistoryStep: Equatable {
+    case back, forward
+
+    /// The step a mouse's side button takes when clicked: button 3 goes
+    /// back and button 4 forward, as in other browsers. Other buttons take
+    /// none.
+    init?(mouseButton: Int) {
+        switch mouseButton {
+        case 3: self = .back
+        case 4: self = .forward
+        default: return nil
+        }
+    }
 }
 
 /// A web page engine behind a browser tab. Kit's views and models use only
