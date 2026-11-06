@@ -91,10 +91,11 @@ struct ImageViewer<Leading: View>: View {
                 Text(error).font(.kit(size: 11)).foregroundStyle(theme.muted).padding(12)
                 Rule()
             }
-            ImageCanvas(image: image.cgImage, zoom: zoom, checker: (theme.raised, theme.surface))
+            ImageCanvas(image: image.cgImage, size: CGSize(width: image.cgImage.width, height: image.cgImage.height),
+                        zoom: zoom, checker: (theme.raised, theme.surface))
                 .accessibilityLabel("Image: " + title)
         }
-        .background { if focused { shortcuts } }
+        .background { if focused { ZoomShortcuts(zoom: zoom) } }
     }
 
     private var header: some View {
@@ -104,15 +105,7 @@ struct ImageViewer<Leading: View>: View {
             Text("\(image.width) × \(image.height) · " + ByteCountFormatter.string(fromByteCount: Int64(image.data.count), countStyle: .file))
                 .font(.kit(size: 11)).foregroundStyle(theme.muted).lineLimit(1)
             Spacer(minLength: 8)
-            Text("\(Int((zoom.scale * 100).rounded()))%").font(.kit(size: 11).monospacedDigit())
-                .foregroundStyle(theme.muted)
-                .accessibilityLabel("Zoom \(Int((zoom.scale * 100).rounded())) percent")
-            HStack(spacing: 2) {
-                ZoomModeButton(title: "Fit", selected: zoom.fitted) { zoom.fit() }
-                    .help("Zoom to fit (⌘9)")
-                ZoomModeButton(title: "100%", selected: !zoom.fitted && zoom.scale == 1) { zoom.actualSize() }
-                    .help("Actual size (⌘0)")
-            }
+            ZoomControls(zoom: zoom)
             Button(action: copy) { IconView(.copy, size: 12) }
                 .buttonStyle(.plain).foregroundStyle(theme.muted)
                 .help("Copy image").accessibilityLabel("Copy image")
@@ -120,18 +113,6 @@ struct ImageViewer<Leading: View>: View {
         }
         .foregroundStyle(theme.text)
         .padding(.horizontal, 20).frame(height: 38)
-    }
-
-    /// Preview's zoom keys, while this image's tile has focus.
-    private var shortcuts: some View {
-        Group {
-            Button("") { zoom.zoomIn() }.keyboardShortcut("=", modifiers: .command)
-            Button("") { zoom.zoomIn() }.keyboardShortcut("+", modifiers: .command)
-            Button("") { zoom.zoomOut() }.keyboardShortcut("-", modifiers: .command)
-            Button("") { zoom.actualSize() }.keyboardShortcut("0", modifiers: .command)
-            Button("") { zoom.fit() }.keyboardShortcut("9", modifiers: .command)
-        }
-        .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
     }
 
     private func copy() {
@@ -208,6 +189,41 @@ final class ImageZoom {
     }
 }
 
+/// The zoom's percentage, and Fit and 100% to choose between.
+struct ZoomControls: View {
+    @Environment(\.mica) private var theme
+    let zoom: ImageZoom
+
+    var body: some View {
+        Text("\(Int((zoom.scale * 100).rounded()))%").font(.kit(size: 11).monospacedDigit())
+            .foregroundStyle(theme.muted)
+            .accessibilityLabel("Zoom \(Int((zoom.scale * 100).rounded())) percent")
+        HStack(spacing: 2) {
+            ZoomModeButton(title: "Fit", selected: zoom.fitted) { zoom.fit() }
+                .help("Zoom to fit (⌘9)")
+            ZoomModeButton(title: "100%", selected: !zoom.fitted && zoom.scale == 1) { zoom.actualSize() }
+                .help("Actual size (⌘0)")
+        }
+    }
+}
+
+/// Preview's zoom keys, placed in a view's background while its tile has
+/// focus.
+struct ZoomShortcuts: View {
+    let zoom: ImageZoom
+
+    var body: some View {
+        Group {
+            Button("") { zoom.zoomIn() }.keyboardShortcut("=", modifiers: .command)
+            Button("") { zoom.zoomIn() }.keyboardShortcut("+", modifiers: .command)
+            Button("") { zoom.zoomOut() }.keyboardShortcut("-", modifiers: .command)
+            Button("") { zoom.actualSize() }.keyboardShortcut("0", modifiers: .command)
+            Button("") { zoom.fit() }.keyboardShortcut("9", modifiers: .command)
+        }
+        .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
+    }
+}
+
 private struct ZoomModeButton: View {
     @Environment(\.mica) private var theme
     let title: String
@@ -229,10 +245,17 @@ private struct ZoomModeButton: View {
 
 /// The image in a magnifying scroll view: centred when smaller than the
 /// pane, panned by scrolling or dragging, zoomed by pinching.
-private struct ImageCanvas: NSViewRepresentable {
+struct ImageCanvas: NSViewRepresentable {
     let image: CGImage
+    /// The image's size at 100%, in points. An image drawn at a higher
+    /// resolution stays sharp up to the zoom that resolution allows.
+    let size: CGSize
     let zoom: ImageZoom
+    /// The checkerboard behind the image; one color twice draws none.
     let checker: (Color, Color)
+    /// Whether enlarged pixels are smoothed, as a drawing's should be,
+    /// rather than kept sharp, as a photo's or screenshot's are.
+    var smoothsEnlarged = false
 
     func makeCoordinator() -> Coordinator { Coordinator(zoom: zoom) }
 
@@ -247,7 +270,7 @@ private struct ImageCanvas: NSViewRepresentable {
         scroll.allowsMagnification = true
         scroll.minMagnification = ImageZoom.range.lowerBound
         scroll.maxMagnification = ImageZoom.range.upperBound
-        let document = ImageDocumentView(frame: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let document = ImageDocumentView(frame: CGRect(origin: .zero, size: size))
         scroll.documentView = document
         scroll.onResize = { [weak coordinator = context.coordinator] in coordinator?.refit() }
         context.coordinator.scroll = scroll
@@ -260,7 +283,11 @@ private struct ImageCanvas: NSViewRepresentable {
         guard let document = scroll.documentView as? ImageDocumentView else { return }
         document.image = image
         document.checker = (NSColor(checker.0), NSColor(checker.1))
-        document.setFrameSize(CGSize(width: image.width, height: image.height))
+        document.smoothsEnlarged = smoothsEnlarged
+        if document.frame.size != size {
+            document.setFrameSize(size)
+            context.coordinator.refit()
+        }
         let coordinator = context.coordinator
         if coordinator.request != zoom.request {
             coordinator.request = zoom.request
@@ -322,6 +349,7 @@ private final class CenteringClipView: NSClipView {
 private final class ImageDocumentView: NSView {
     var image: CGImage?
     var checker: (NSColor, NSColor) = (.windowBackgroundColor, .controlBackgroundColor)
+    var smoothsEnlarged = false
     private var dragStart: (point: CGPoint, origin: CGPoint)?
 
     override var isFlipped: Bool { true }
@@ -341,7 +369,7 @@ private final class ImageDocumentView: NSView {
             }
         }
         // Enlarged pixels stay sharp; reduced images are smoothed.
-        context.interpolationQuality = magnification >= 2 ? .none : .high
+        context.interpolationQuality = magnification >= 2 && !smoothsEnlarged ? .none : .high
         context.saveGState()
         context.translateBy(x: 0, y: bounds.height)
         context.scaleBy(x: 1, y: -1)
