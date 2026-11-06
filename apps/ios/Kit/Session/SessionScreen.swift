@@ -31,7 +31,6 @@ struct SessionScreen: View {
     /// The file shown over the session.
     @State private var openedFile: OpenedFile?
     private let client: ServerClient
-    @State private var position = ScrollPosition(edge: .bottom)
     /// Whether the reader is at the end, so new output scrolls into view.
     @State private var following = true
     /// Whether the reader is scrolling the transcript.
@@ -250,57 +249,71 @@ struct SessionScreen: View {
 
     private func transcript(_ session: SessionExcerpt) -> some View {
         let live = ToolGroupActivity.liveGroups(in: session.messages, active: session.activeRunID != nil)
-        return ScrollView {
-            LazyVStack(alignment: .leading, spacing: 16) {
-                if feed.hasEarlier || feed.historyError != nil { earlier }
-                ForEach(session.messages) { message in
+        // A list, which sizes its own rows: under the composer's bar, a lazy
+        // stack of rows this uneven can lay itself out without end as the
+        // reader scrolls back.
+        return ScrollViewReader { proxy in
+            List {
+                if feed.hasEarlier || feed.historyError != nil { earlier.transcriptRow() }
+                ForEach(session.messages.filter(TranscriptRow.draws)) { message in
                     TranscriptRow(message: message, live: live.contains(message.id))
+                        .transcriptRow()
+                }
+                Color.clear.frame(height: 0).transcriptRow(bottom: 0).id(Self.endRow)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 0)
+            // A button in a row takes only its own taps.
+            .buttonStyle(.borderless)
+            .contentMargins(.top, 8, for: .scrollContent)
+            .accessibilityIdentifier("transcript")
+            // Open at the end.
+            .onAppear { scrollToEnd(proxy) }
+            // Only the reader's own scrolling stops or resumes following. The
+            // screen's own scrolls aren't animated, so any scroll phase,
+            // including a tap on the status bar, is the reader's.
+            .onScrollPhaseChange { old, phase, context in
+                scrolling = phase.isScrolling
+                if old.isScrolling || phase.isScrolling {
+                    following = Self.atEnd(context.geometry)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
-        }
-        .scrollPosition($position)
-        // Open at the end, but start a short transcript at the top.
-        .defaultScrollAnchor(.bottom, for: .initialOffset)
-        .defaultScrollAnchor(.top, for: .alignment)
-        // At the end, a row that grows as it loads, such as an image, keeps
-        // the end in place. Without it, a taller bar can leave the lazy stack
-        // laying itself out without end.
-        .defaultScrollAnchor(following ? .bottom : nil, for: .sizeChanges)
-        // Only the reader's own scrolling stops or resumes following. The
-        // screen's own scrolls aren't animated, so any scroll phase, including
-        // a tap on the status bar, is the reader's.
-        .onScrollPhaseChange { old, phase, context in
-            scrolling = phase.isScrolling
-            if old.isScrolling || phase.isScrolling {
-                following = Self.atEnd(context.geometry)
+            .onScrollGeometryChange(for: EndGeometry.self) { geometry in
+                EndGeometry(height: geometry.contentSize.height, inset: geometry.contentInsets.bottom,
+                            atEnd: Self.atEnd(geometry))
+            } action: { old, new in
+                if scrolling {
+                    following = new.atEnd
+                } else if following, !new.atEnd, new.height > old.height || new.inset > old.inset {
+                    // A row that grows as it loads, such as an image, or a
+                    // taller bar, such as the dock or a status line, hides
+                    // the end without the reader scrolling; keep it in view.
+                    scrollToEnd(proxy)
+                }
             }
-        }
-        .onScrollGeometryChange(for: EndGeometry.self) { geometry in
-            EndGeometry(inset: geometry.contentInsets.bottom, atEnd: Self.atEnd(geometry))
-        } action: { old, new in
-            if scrolling {
-                following = new.atEnd
-            } else if following, new.inset > old.inset {
-                // A taller bar, such as the dock or a status line, hides the
-                // end without the reader scrolling; keep it in view.
-                position.scrollTo(edge: .bottom)
+            .onChange(of: Self.tail(session)) {
+                if following { scrollToEnd(proxy) }
             }
-        }
-        .onChange(of: Self.tail(session)) {
-            if following { position.scrollTo(edge: .bottom) }
-        }
-        // Sending shows the message, wherever the reader was.
-        .onChange(of: composer.sends) {
-            following = true
-            position.scrollTo(edge: .bottom)
+            // Sending shows the message, wherever the reader was.
+            .onChange(of: composer.sends) {
+                following = true
+                scrollToEnd(proxy)
+            }
         }
     }
 
-    /// How far the transcript is from its end, and how much the bar covers.
+    /// The empty last row the transcript scrolls to for its end.
+    private static let endRow = "transcript-end"
+
+    private func scrollToEnd(_ proxy: ScrollViewProxy) {
+        proxy.scrollTo(Self.endRow, anchor: .bottom)
+    }
+
+    /// How tall the transcript is, how much the bar covers, and whether its
+    /// end is in view.
     private struct EndGeometry: Equatable {
+        let height: CGFloat
         let inset: CGFloat
         let atEnd: Bool
     }
@@ -332,6 +345,16 @@ struct SessionScreen: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
+    }
+}
+
+private extension View {
+    /// A transcript row: no separator or background, inset from the screen's
+    /// edges, 16 points from the next.
+    func transcriptRow(bottom: CGFloat = 16) -> some View {
+        listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: bottom, trailing: 20))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 }
 

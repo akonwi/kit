@@ -73,7 +73,7 @@ final class ComposerUITests: XCTestCase {
 
         let composer = app.textFields["composer"].exists ? app.textFields["composer"] : app.textViews["composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 15))
-        app.scrollViews.firstMatch.swipeDown(velocity: .slow)
+        app.collectionViews["transcript"].swipeDown(velocity: .slow)
         attach(app, "Scrolled up")
 
         let mark = String(Int(Date().timeIntervalSince1970) % 100_000)

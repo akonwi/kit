@@ -8,6 +8,13 @@ struct TranscriptRow: View {
     /// Whether this tool batch belongs to the run in progress.
     var live = false
 
+    /// Whether a message draws anything, so it takes a row.
+    static func draws(_ message: TranscriptMessage) -> Bool {
+        message.bash != nil || message.marker != nil || message.inbox != nil || message.role == "tools"
+            || message.role == "user" || message.plugin != nil
+            || !message.text.isEmpty || !(message.attachments ?? []).isEmpty
+    }
+
     var body: some View {
         if let bash = message.bash {
             BashRow(execution: bash)
