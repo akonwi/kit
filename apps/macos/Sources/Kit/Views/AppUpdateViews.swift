@@ -180,6 +180,7 @@ struct AppUpdateSheet: View {
                         IconView(.arrowUpRight, size: 10)
                     }
                     .font(.kit(size: 12)).foregroundStyle(theme.accent)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 Spacer()

@@ -144,9 +144,31 @@ extension Label where Title == Text, Icon == IconView {
     }
 }
 
-extension Button where Label == SwiftUI.Label<Text, IconView> {
-    /// A button labelled with a title and a Phosphor icon.
-    init(_ title: String, icon: KitIcon, size: CGFloat = 12, role: ButtonRole? = nil, action: @escaping () -> Void) {
-        self.init(role: role, action: action) { SwiftUI.Label(title, icon: icon, size: size) }
+/// The label of ``Button/init(_:icon:size:margin:role:action:)``: a title
+/// and a Phosphor icon that take the pointer across their whole frame.
+///
+/// A button styled `.plain` takes clicks only where its label draws, the
+/// icon's box and the title's, so the gap between them and the edges around
+/// them miss. This label's frame is its hit shape instead, widened by
+/// `margin` on every side. The margin is layout space, as SwiftUI hit-tests
+/// no further than a view's frame, so a caller that keeps its layout takes
+/// the same amount out of its own padding.
+struct IconButtonLabel: View {
+    let title: String
+    let icon: KitIcon
+    var size: CGFloat = 12
+    var margin: CGFloat = 0
+
+    var body: some View {
+        Label(title, icon: icon, size: size).padding(margin).contentShape(Rectangle())
+    }
+}
+
+extension Button where Label == IconButtonLabel {
+    /// A button labelled with a title and a Phosphor icon. The whole label,
+    /// widened by `margin` on every side, takes clicks; see ``IconButtonLabel``.
+    init(_ title: String, icon: KitIcon, size: CGFloat = 12, margin: CGFloat = 0, role: ButtonRole? = nil,
+         action: @escaping () -> Void) {
+        self.init(role: role, action: action) { IconButtonLabel(title: title, icon: icon, size: size, margin: margin) }
     }
 }

@@ -27,7 +27,7 @@ struct AnnotationStrip: View {
                                         IconView(note.statusLabel != nil ? .warning : .chatCenteredText, size: 12)
                                         Text(note.label).font(.kit(size: 11, design: .monospaced))
                                         Text(note.statusLabel ?? note.body).lineLimit(1).frame(maxWidth: 160)
-                                    }
+                                    }.contentShape(Rectangle())
                                 }.buttonStyle(.plain)
                                 Button {
                                     guard let client = state.catalogClient as? any AnnotationClient else { return }

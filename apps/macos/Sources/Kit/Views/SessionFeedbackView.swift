@@ -40,7 +40,7 @@ struct SessionFeedbackView: View {
                             HStack(spacing: 4) {
                                 Text("Collapse")
                                 IconView(.caretUp, size: 10)
-                            }
+                            }.contentShape(Rectangle())
                         }
                         .buttonStyle(.plain).foregroundStyle(theme.muted)
                         .focused($stackControlFocused)

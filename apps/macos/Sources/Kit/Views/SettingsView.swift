@@ -116,6 +116,7 @@ struct SettingsView: View {
             Label(title, icon: icon, size: 14).frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12).padding(.vertical, 10)
                 .background(selection == id ? theme.hover : .clear, in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(RoundedRectangle(cornerRadius: 6))
         }.buttonStyle(.plain).accessibilityAddTraits(selection == id ? .isSelected : [])
     }
 }

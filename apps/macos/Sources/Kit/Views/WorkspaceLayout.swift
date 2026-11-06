@@ -774,7 +774,7 @@ struct FilePane: View {
                         Text(note.body).lineLimit(1)
                         Spacer()
                         Text("View captured source")
-                    }.font(.kit(size: 11)).foregroundStyle(theme.muted).padding(12)
+                    }.font(.kit(size: 11)).foregroundStyle(theme.muted).padding(12).contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
             if let anchor = state.annotationState.editor?.anchor.workspaceFile,

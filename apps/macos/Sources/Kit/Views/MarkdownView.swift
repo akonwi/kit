@@ -584,20 +584,27 @@ struct FenceCard<Content: View>: View {
     let label: String
     /// The text the copy action puts on the pasteboard.
     let copy: String
+    /// Where the copy action puts it; tests use a private pasteboard.
+    var pasteboard: NSPasteboard = .general
     @ViewBuilder let content: Content
     @State private var copied = false
+
+    /// How far the copy button's hit area reaches past its icon and title.
+    /// It fills the header's height, and the header's padding gives up the
+    /// same space so the button stays where it's drawn.
+    static var copyMargin: CGFloat { 8 }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 MetaLabel(text: label)
                 Spacer()
-                Button(copied ? "Copied" : "Copy", icon: copied ? .check : .copy, size: 10) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(copy, forType: .string)
+                Button(copied ? "Copied" : "Copy", icon: copied ? .check : .copy, size: 10, margin: Self.copyMargin) {
+                    pasteboard.clearContents()
+                    pasteboard.setString(copy, forType: .string)
                     copied = true
                 }.buttonStyle(.plain).font(.kit(size: 10)).foregroundStyle(theme.muted)
-            }.padding(.horizontal, 12).padding(.vertical, 8)
+            }.padding(.leading, 12).padding(.trailing, 12 - Self.copyMargin).padding(.vertical, 8 - Self.copyMargin)
             Rule()
             content
         }.background(theme.raised).clipShape(RoundedRectangle(cornerRadius: 8))
