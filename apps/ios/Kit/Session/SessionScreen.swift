@@ -83,10 +83,7 @@ struct SessionScreen: View {
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 if !feed.unavailable {
                     ComposerBar(composer: composer, actions: actions, interactions: interactions, feed: feed,
-                                revealComment: { note in
-                                    diff.reveal(note)
-                                    showingChanges = true
-                                }) { feed.reconnect() }
+                                revealComment: open, revealable: { _ in true }) { feed.reconnect() }
                 }
             }
             .sheet(item: $sheet) { sheet in
@@ -155,6 +152,17 @@ struct SessionScreen: View {
     }
 
     // MARK: Delete
+
+    /// Shows a comment where it was written: Changes for a comment on a
+    /// diff, its file at its lines for the rest.
+    private func open(_ note: FileAnnotation) {
+        if note.isDiff {
+            diff.reveal(note)
+            showingChanges = true
+        } else {
+            openedFile = OpenedFile(path: note.path, line: note.startLine)
+        }
+    }
 
     private var deleteTitle: String { actions.temporary ? "Dispose temporary session?" : "Delete session?" }
 

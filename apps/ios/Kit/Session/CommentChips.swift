@@ -2,10 +2,12 @@ import KitClient
 import SwiftUI
 
 /// The session's comments above the composer, a chip each, to go with the
-/// next message. A tap shows the comment in Changes; × deletes it.
+/// next message. A tap shows the comment in Changes or its file; × deletes it.
 struct CommentChips: View {
     let composer: SessionComposer
     let reveal: ((FileAnnotation) -> Void)?
+    /// Which comments a tap can show from here.
+    var revealable: (FileAnnotation) -> Bool = { $0.isDiff }
 
     var body: some View {
         let notes = composer.annotations.records
@@ -14,7 +16,7 @@ struct CommentChips: View {
                 HStack(spacing: 8) {
                     ForEach(notes) { note in
                         CommentChip(note: note, enabled: !composer.annotations.pending,
-                                    reveal: note.isDiff ? reveal.map { reveal in { reveal(note) } } : nil,
+                                    reveal: revealable(note) ? reveal.map { reveal in { reveal(note) } } : nil,
                                     remove: { composer.removeComment(note) })
                     }
                 }
@@ -55,7 +57,7 @@ private struct CommentChip: View {
             .buttonStyle(.plain)
             .disabled(reveal == nil)
             .accessibilityLabel(Self.accessibilityLabel(note))
-            .accessibilityHint(reveal == nil ? "" : "Shows the comment in Changes")
+            .accessibilityHint(reveal == nil ? "" : note.isDiff ? "Shows the comment in Changes" : "Shows the comment in its file")
             .accessibilityIdentifier("comment-chip")
             Button(action: remove) {
                 Image(systemName: "xmark")

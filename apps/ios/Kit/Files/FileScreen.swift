@@ -2,8 +2,9 @@ import KitClient
 import SwiftUI
 
 /// A file in the session's project, read-only, with the composer below so a
-/// follow-up can go straight back to the agent. Code shows by line; a
-/// Markdown file shows rendered, with its source one tap away.
+/// follow-up can go straight back to the agent. Code shows by line, where a
+/// tap on a line number starts a comment; a Markdown file shows rendered,
+/// with its source one tap away.
 struct FileScreen: View {
     let path: String
     /// The line to bring into view and mark, counted from 1.
@@ -16,7 +17,8 @@ struct FileScreen: View {
     @State private var reader: FileReader
     @State private var colored: (revision: String, lines: [AttributedString])?
     @State private var source: Bool
-    /// The line brought into view and marked: the one opened at.
+    /// The line brought into view and marked: the one opened at, or a
+    /// comment's whose chip was tapped.
     @State private var focus: Int?
     @AppStorage("fileWrapLines") private var wrapLines = false
     @Environment(\.scenePhase) private var scenePhase
@@ -31,13 +33,14 @@ struct FileScreen: View {
         self.actions = actions
         self.interactions = interactions
         _reader = State(initialValue: FileReader(path: path))
-        // A Markdown file opened at a line shows its source.
+        // Comments sit on lines, so a Markdown file opened at one shows its source.
         _source = State(initialValue: line != nil)
         _focus = State(initialValue: line)
     }
 
     private var session: String { feed.identity.session }
     private var markdown: Bool { MarkdownFilePaths.isMarkdown(path) }
+    private var annotations: AnnotationState { composer.annotations }
 
     var body: some View {
         content
@@ -55,11 +58,18 @@ struct FileScreen: View {
                 }
             }
             .safeAreaBar(edge: .bottom, spacing: 0) {
-                if !feed.unavailable {
-                    ComposerBar(composer: composer, actions: actions, interactions: interactions, feed: feed) { feed.reconnect() }
+                // The comment box takes the keyboard while it's open.
+                if !feed.unavailable && annotations.editor == nil {
+                    ComposerBar(composer: composer, actions: actions, interactions: interactions, feed: feed,
+                                revealComment: reveal, revealable: { !$0.isDiff && $0.path == path }) { feed.reconnect() }
                 }
             }
             .task { await load() }
+            // Whether comments' lines changed is known when they're read.
+            .task(id: reader.file?.revision) {
+                guard reader.file != nil else { return }
+                try? await annotations.refresh(client: client, session: session)
+            }
             // Read again when a turn ends, since the agent may have changed it.
             .onChange(of: feed.session?.activeRunID == nil) { _, idle in
                 if idle { Task { await load() } }
@@ -80,6 +90,12 @@ struct FileScreen: View {
 
     private func load() async {
         await reader.load(client: client, session: session, cwd: feed.session?.cwd)
+    }
+
+    /// Brings a comment on this file into view, in the source.
+    private func reveal(_ note: FileAnnotation) {
+        source = true
+        focus = note.startLine
     }
 
     // MARK: Header
@@ -145,9 +161,23 @@ struct FileScreen: View {
                     .accessibilityIdentifier("file-preview")
                 } else {
                     ScrollViewReader { proxy in
-                        FileLines(lines: reader.lines,
-                                  colored: colored?.revision == file.revision ? colored?.lines : nil,
-                                  wrap: wrapLines || markdown, marked: focus)
+                        CommentableFile(file: file, lines: reader.lines,
+                                        colored: colored?.revision == file.revision ? colored?.lines : nil,
+                                        wrap: wrapLines || markdown, marked: focus, annotations: annotations) { anchor, editor in
+                            Task {
+                                await annotations.save(client: client, session: session, anchor: anchor,
+                                                       editing: editor.editing, replacing: editor.replacing)
+                            }
+                        } remove: { note in
+                            Task { await annotations.remove(client: client, session: session, id: note.id) }
+                        } complete: { note in
+                            if note.complete { return note }
+                            do { try await annotations.refresh(client: client, session: session) } catch {
+                                annotations.report(error)
+                                return nil
+                            }
+                            return annotations.records.first { $0.id == note.id && $0.complete }
+                        }
                         .refreshable { await load() }
                         .task(id: "\(file.revision)|\(focus ?? 0)") {
                             guard let focus, focus <= reader.lines.count else { return }

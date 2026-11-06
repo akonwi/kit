@@ -2,8 +2,9 @@ import XCTest
 
 /// Opens files from the session menu's Open File in a session on the paired
 /// server of an isolated Kit home: finds a code file by a fuzzy search and
-/// reads it, wraps its lines, reads a Markdown file rendered and as source,
-/// and sees why a binary file can't be shown. Run by script/test_files.sh,
+/// reads it, comments on its lines and finds the comment again from its
+/// chip, wraps its lines, reads a Markdown file rendered and as source, and
+/// sees why a binary file can't be shown. Run by script/test_files.sh,
 /// whose session's folder is made by fixtures/make_files_demo.py.
 final class FilesUITests: XCTestCase {
     override func setUp() {
@@ -36,6 +37,51 @@ final class FilesUITests: XCTestCase {
         XCTAssertTrue(first.waitForExistence(timeout: 10))
         XCTAssertEqual(first.value as? String, "import Foundation")
         attach(app, "Code")
+
+        // A tap on line 3's number opens the comment box under it.
+        let third = line(app, 3)
+        third.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: 20, dy: 0)).tap()
+        let field = app.descendants(matching: .any)["diff-comment-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Comment on line 3"].exists)
+
+        // The handle stretches it two lines further.
+        let handle = app.descendants(matching: .any)["diff-selection-handle"]
+        XCTAssertTrue(handle.exists)
+        handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.2, thenDragTo: handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .withOffset(CGVector(dx: 0, dy: 30)))
+        XCTAssertTrue(app.staticTexts["Comment on lines 3–5"].waitForExistence(timeout: 5))
+        attach(app, "Commenting")
+
+        // Saved, it sits under its lines and goes with the next message.
+        field.tap()
+        field.typeText("Why a var here?")
+        app.buttons["diff-comment-save"].tap()
+        XCTAssertTrue(waitForAbsence(field, timeout: 10))
+        let card = app.descendants(matching: .any).matching(identifier: "diff-comment-card")
+            .matching(NSPredicate(format: "label CONTAINS %@", "Why a var here?")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertTrue(card.label.contains("Lines 3–5 · goes with your next message"), card.label)
+        let chip = app.buttons.matching(identifier: "comment-chip")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Comment on HTTPClient.swift:3–5")).firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 5))
+        attach(app, "Commented")
+
+        // From the session, its chip opens the file at its lines.
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(chip.waitForExistence(timeout: 10))
+        chip.tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["HTTPClient.swift"].exists)
+
+        // Its menu deletes it.
+        app.buttons["diff-comment-menu"].firstMatch.tap()
+        let delete = app.buttons["Delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.tap()
+        XCTAssertTrue(waitForAbsence(card, timeout: 10))
+        XCTAssertTrue(waitForAbsence(chip, timeout: 10))
 
         // Lines wrap from the menu.
         app.buttons["file-menu"].tap()
@@ -80,6 +126,17 @@ final class FilesUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons.matching(identifier: "open-file-row").firstMatch.waitForExistence(timeout: 10))
         field.typeText(search)
+    }
+
+    @MainActor
+    private func line(_ app: XCUIApplication, _ number: Int) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Line \(number)")).firstMatch
+    }
+
+    @MainActor
+    private func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
+        return XCTWaiter().wait(for: [gone], timeout: timeout) == .completed
     }
 
     @MainActor

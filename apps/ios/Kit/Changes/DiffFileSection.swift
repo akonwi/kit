@@ -447,7 +447,7 @@ struct DiffLines: View {
 }
 
 /// The dot under a selection that drags it longer.
-private struct SelectionHandle: View {
+struct SelectionHandle: View {
     static let size: CGFloat = 14
 
     var body: some View {

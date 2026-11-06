@@ -9,8 +9,10 @@ struct ComposerBar: View {
     let actions: SessionActions
     let interactions: SessionInteractions
     let feed: SessionFeed
-    /// Shows a comment in Changes when its chip is tapped.
+    /// Shows a comment in Changes or its file when its chip is tapped.
     var revealComment: ((FileAnnotation) -> Void)? = nil
+    /// Which comments a chip tap can show from here.
+    var revealable: (FileAnnotation) -> Bool = { $0.isDiff }
     let retryConnection: () -> Void
     @FocusState private var focused: Bool
 
@@ -30,7 +32,7 @@ struct ComposerBar: View {
                                enabled: composer.queueEnabled, running: composer.running,
                                change: composer.changeQueue)
                 }
-                CommentChips(composer: composer, reveal: revealComment)
+                CommentChips(composer: composer, reveal: revealComment, revealable: revealable)
                 AttachmentStrip(composer: composer)
                 capsule
             }

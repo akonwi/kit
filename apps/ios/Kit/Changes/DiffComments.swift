@@ -88,6 +88,10 @@ enum DiffComments {
 
     /// What the comment box says it's about: `Comment on lines 1671–1673`.
     static func title(_ anchor: WireAnnotationAnchor) -> String {
+        if let file = anchor.workspaceFile {
+            if file.startLine == file.endLine { return "Comment on line \(file.startLine)" }
+            return "Comment on lines \(file.startLine)–\(file.endLine)"
+        }
         guard let diff = anchor.workingTreeDiff else { return "Comment" }
         let removed = diff.side == "old" ? "removed " : ""
         if diff.startLine == diff.endLine { return "Comment on \(removed)line \(diff.startLine)" }
@@ -179,8 +183,8 @@ extension EnvironmentValues {
     @Entry var commentReveal = CommentReveal()
 }
 
-/// A saved comment under its lines, waiting to go with the next message.
-/// Its menu edits it in the box or deletes it.
+/// A saved comment under its lines, in a diff or a file, waiting to go
+/// with the next message. Its menu edits it in the box or deletes it.
 struct DiffCommentCard: View {
     let note: FileAnnotation
     let enabled: Bool
@@ -197,7 +201,7 @@ struct DiffCommentCard: View {
             if note.stale {
                 changed
                     .accessibilityElement(children: .contain)
-                    .accessibilityLabel("Diff changed, \(note.body)")
+                    .accessibilityLabel("\(changedLabel), \(note.body)")
             } else {
                 saved.accessibilityElement(children: .combine)
             }
@@ -215,10 +219,13 @@ struct DiffCommentCard: View {
         }
     }
 
+    /// `Diff changed` or `File changed`.
+    private var changedLabel: String { note.isDiff ? "Diff changed" : "File changed" }
+
     /// The code under it changed: say so, and offer to move or delete it.
     private var changed: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Diff changed", systemImage: "exclamationmark.triangle.fill")
+            Label(changedLabel, systemImage: "exclamationmark.triangle.fill")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.warning)
             Text(note.body)
