@@ -49,16 +49,23 @@ struct MermaidBlock: View {
 
 /// A diagram alone, to drag around and pinch. It opens fitted to the
 /// screen's width, or at full size when that's smaller.
-private struct MermaidScreen: View {
+struct MermaidScreen: View {
     let diagram: MermaidDiagram
     let drawing: KitMermaid.Canvas
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         NavigationStack {
-            ZoomingView { MermaidPicture(diagram: diagram, drawing: drawing).padding(20) }
+            MermaidZoomingView(image: MermaidImage(diagram: diagram, drawing: drawing, scheme: scheme,
+                                                   displayScale: displayScale))
                 .background(Theme.raised)
                 .ignoresSafeArea(edges: .bottom)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Mermaid diagram")
+                .accessibilityValue(diagram.source)
+                .accessibilityIdentifier("mermaid-diagram")
                 .navigationTitle("Diagram")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -72,69 +79,148 @@ private struct MermaidScreen: View {
     }
 }
 
-/// SwiftUI content in a scroll view that pans and pinches, from the width
-/// that fits up to three times its size.
-private struct ZoomingView<Content: View>: UIViewRepresentable {
-    @ViewBuilder var content: () -> Content
+/// A diagram drawn as an image at a given resolution: its scene with a
+/// margin around it, in the theme's colors.
+@MainActor
+struct MermaidImage: Equatable {
+    let diagram: MermaidDiagram
+    let drawing: KitMermaid.Canvas
+    let scheme: ColorScheme
+    let displayScale: CGFloat
 
-    func makeCoordinator() -> Coordinator { Coordinator(UIHostingController(rootView: content())) }
+    /// The space around the diagram, in points.
+    static let margin: CGFloat = 20
+    /// The largest image drawn, by side and by pixel count.
+    static let maximumSide: CGFloat = 8192
+    static let maximumPixels: CGFloat = 16_000_000
 
-    func makeUIView(context: Context) -> UIScrollView {
-        let scroll = FittingScrollView()
+    /// The image's size in points: the scene's and its margin.
+    var size: CGSize {
+        let metrics = MermaidPicture.metrics(for: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                                             scale: displayScale)
+        let scene = MermaidSceneCache.shared.scene(for: diagram.source, drawing: drawing, metrics: metrics).size
+        return CGSize(width: scene.width + Self.margin * 2, height: scene.height + Self.margin * 2)
+    }
+
+    /// The pixels per point for a zoom: enough for the screen at that
+    /// zoom, in whole steps, and no more than the image limits allow.
+    func scale(zoom: CGFloat) -> CGFloat {
+        let wanted = max(displayScale, (zoom * displayScale).rounded(.up))
+        let size = size
+        guard size.width > 0, size.height > 0 else { return wanted }
+        let limit = min(Self.maximumSide / max(size.width, size.height),
+                        (Self.maximumPixels / (size.width * size.height)).squareRoot())
+        return max(1, min(wanted, limit.rounded(.down)))
+    }
+
+    func render(scale: CGFloat) -> UIImage? {
+        let renderer = ImageRenderer(content: MermaidPicture(diagram: diagram, drawing: drawing)
+            .padding(Self.margin)
+            .environment(\.colorScheme, scheme)
+            .environment(\.displayScale, displayScale))
+        renderer.scale = scale
+        renderer.isOpaque = false
+        return renderer.uiImage
+    }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.diagram == rhs.diagram && lhs.scheme == rhs.scheme && lhs.displayScale == rhs.displayScale
+    }
+}
+
+/// A diagram's image in a scroll view that pans and pinches, from the
+/// width that fits up to three times its size. The image is drawn again
+/// at each zoom it settles on, so it stays sharp. It isn't a hosted
+/// SwiftUI view under the zoom's transform: that one lays itself out at
+/// its scaled frame and draws only part of a diagram wider than the screen.
+struct MermaidZoomingView: UIViewRepresentable {
+    let image: MermaidImage
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> MermaidScrollView {
+        let scroll = MermaidScrollView()
         scroll.delegate = context.coordinator
         scroll.maximumZoomScale = 3
         scroll.showsHorizontalScrollIndicator = false
         scroll.showsVerticalScrollIndicator = false
         scroll.bouncesZoom = true
-        let hosted = context.coordinator.host.view!
-        hosted.backgroundColor = .clear
-        let size = context.coordinator.host.sizeThatFits(in: CGSize(width: CGFloat.infinity, height: .infinity))
-        hosted.frame = CGRect(origin: .zero, size: size)
-        scroll.addSubview(hosted)
-        scroll.contentSize = size
-        scroll.content = hosted
+        scroll.contentInsetAdjustmentBehavior = .never
         return scroll
     }
 
-    func updateUIView(_ scroll: UIScrollView, context: Context) {
-        context.coordinator.host.rootView = content()
+    func updateUIView(_ scroll: MermaidScrollView, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.scroll = scroll
+        guard coordinator.image != image else { return }
+        coordinator.image = image
+        scroll.show(size: image.size)
+        coordinator.redraw()
     }
 
-    final class Coordinator: NSObject, UIScrollViewDelegate {
-        let host: UIHostingController<Content>
-        init(_ host: UIHostingController<Content>) { self.host = host }
+    @MainActor final class Coordinator: NSObject, UIScrollViewDelegate {
+        var image: MermaidImage?
+        weak var scroll: MermaidScrollView?
+        /// The scale the shown image was drawn at.
+        private(set) var drawnScale: CGFloat = 0
 
-        func viewForZooming(in scroll: UIScrollView) -> UIView? { host.view }
+        func viewForZooming(in scroll: UIScrollView) -> UIView? { (scroll as? MermaidScrollView)?.imageView }
 
         func scrollViewDidZoom(_ scroll: UIScrollView) {
-            (scroll as? FittingScrollView)?.center()
+            (scroll as? MermaidScrollView)?.center()
+        }
+
+        func scrollViewDidEndZooming(_ scroll: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
+            redraw()
+        }
+
+        /// Draws the image for the current zoom, when that needs more pixels
+        /// than the one shown, or it's the first.
+        func redraw() {
+            guard let image, let scroll else { return }
+            let scale = image.scale(zoom: max(scroll.zoomScale, 1))
+            guard scale != drawnScale, let drawn = image.render(scale: scale) else { return }
+            drawnScale = scale
+            scroll.imageView.image = drawn
         }
     }
 }
 
-/// A scroll view that fits its content's width once laid out and keeps
-/// content smaller than itself in the middle.
-private final class FittingScrollView: UIScrollView {
-    weak var content: UIView?
+/// A scroll view that shows an image at its size in points, fits its width
+/// once laid out, and keeps an image smaller than itself in the middle.
+final class MermaidScrollView: UIScrollView {
+    let imageView = UIImageView()
     private var fitted = false
+
+    func show(size: CGSize) {
+        if imageView.superview == nil {
+            imageView.contentMode = .scaleToFill
+            addSubview(imageView)
+        }
+        zoomScale = 1
+        imageView.frame = CGRect(origin: .zero, size: size)
+        contentSize = size
+        fitted = false
+        setNeedsLayout()
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard let content, bounds.width > 0 else { return }
+        let natural = imageView.bounds.size
+        guard bounds.width > 0, bounds.height > 0, natural.width > 0 else { return }
         if !fitted {
             fitted = true
-            let natural = content.bounds.size
-            let fit = min(1, bounds.width / max(natural.width, 1))
-            minimumZoomScale = fit
-            zoomScale = fit
+            // Opens at the width that fits, and zooms out until it all shows.
+            let width = min(1, bounds.width / natural.width)
+            minimumZoomScale = min(width, bounds.height / natural.height)
+            zoomScale = width
         }
         center()
     }
 
     func center() {
-        guard let content else { return }
-        let x = max(0, (bounds.width - content.frame.width) / 2)
-        let y = max(0, (bounds.height - content.frame.height) / 2)
+        let x = max(0, (bounds.width - imageView.frame.width) / 2)
+        let y = max(0, (bounds.height - imageView.frame.height) / 2)
         contentInset = UIEdgeInsets(top: y, left: x, bottom: y, right: x)
     }
 }
