@@ -586,6 +586,8 @@ struct FenceCard<Content: View>: View {
     let copy: String
     /// Where the copy action puts it; tests use a private pasteboard.
     var pasteboard: NSPasteboard = .general
+    /// Opens the content on its own, offered beside Copy when set.
+    var open: (@MainActor () -> Void)? = nil
     @ViewBuilder let content: Content
     @State private var copied = false
 
@@ -596,9 +598,13 @@ struct FenceCard<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 0) {
                 MetaLabel(text: label)
                 Spacer()
+                if let open {
+                    Button("Open", icon: .arrowsOutSimple, size: 10, margin: Self.copyMargin, action: open)
+                        .buttonStyle(.plain).font(.kit(size: 10)).foregroundStyle(theme.muted)
+                }
                 Button(copied ? "Copied" : "Copy", icon: copied ? .check : .copy, size: 10, margin: Self.copyMargin) {
                     pasteboard.clearContents()
                     pasteboard.setString(copy, forType: .string)

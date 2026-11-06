@@ -164,6 +164,7 @@ struct MermaidPicture: View {
 struct MermaidBlock: View {
     @Environment(\.mica) private var theme
     @Environment(\.compactCodeBlocks) private var compact
+    @Environment(\.openMermaidDiagram) private var openDiagram
     let diagram: MermaidDiagram
 
     var body: some View {
@@ -173,7 +174,8 @@ struct MermaidBlock: View {
                 ScrollView(.horizontal) { MermaidPicture(diagram: diagram, drawing: drawing) }
                     .compactFence()
             } else {
-                FenceCard(label: "MERMAID", copy: diagram.source) {
+                FenceCard(label: "MERMAID", copy: diagram.source,
+                          open: openDiagram.map { open in { [source = diagram.source] in open(source) } }) {
                     ScrollView(.horizontal) {
                         MermaidPicture(diagram: diagram, drawing: drawing).padding(14).frame(maxWidth: .infinity, alignment: .leading)
                     }

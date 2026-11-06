@@ -117,6 +117,10 @@ struct WorkspaceLayout: View {
             if let tab = state.ui.workspace.browser(pane) { BrowserPane(workspace: state.ui.workspace, tab: tab) }
         case .terminal:
             if let tab = state.ui.workspace.terminal(pane) { TerminalPane(workspace: state.ui.workspace, tab: tab) }
+        case .diagram:
+            if let source = state.ui.workspace.diagram(pane) {
+                DiagramPane(workspace: state.ui.workspace, pane: pane, source: source)
+            }
         }
     }
 }
@@ -539,6 +543,7 @@ extension WorkspacePane {
         case .image: .image
         case .browser: .browser
         case .terminal: .terminalWindow
+        case .diagram: .treeStructure
         }
     }
 }

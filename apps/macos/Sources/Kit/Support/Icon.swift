@@ -12,6 +12,7 @@ enum Icon: String, CaseIterable, Sendable {
     case arrowUpRight = "arrow-up-right"
     case arrowsInLineVertical = "arrows-in-line-vertical"
     case arrowsLeftRight = "arrows-left-right"
+    case arrowsOutSimple = "arrows-out-simple"
     case arrowSquareOut = "arrow-square-out"
     case browser
     case caretDown = "caret-down"
@@ -72,6 +73,7 @@ enum Icon: String, CaseIterable, Sendable {
     case sun
     case terminalWindow = "terminal-window"
     case trash
+    case treeStructure = "tree-structure"
     case warning
     case warningCircle = "warning-circle"
     case warningOctagon = "warning-octagon"

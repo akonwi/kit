@@ -28,6 +28,9 @@ enum WorkspacePane: Hashable, Identifiable {
     case browser(UUID)
     /// A terminal tab. Each is its own instance; the workspace holds its shell.
     case terminal(UUID)
+    /// A Mermaid diagram from the transcript. The workspace holds its
+    /// source, which lives in a message, so the tab isn't restored.
+    case diagram(UUID)
     var id: String {
         switch self {
         case .conversation: "conversation"
@@ -40,6 +43,7 @@ enum WorkspacePane: Hashable, Identifiable {
         case .image(let id, let filename): "image:" + id + ":" + filename
         case .browser(let id): "browser:" + id.uuidString.lowercased()
         case .terminal(let id): "terminal:" + id.uuidString.lowercased()
+        case .diagram(let id): "diagram:" + id.uuidString.lowercased()
         }
     }
     /// The pane's name. A browser tab's is its page's and a terminal's its
@@ -55,6 +59,7 @@ enum WorkspacePane: Hashable, Identifiable {
         case .image(_, let filename): filename
         case .browser: "Browser"
         case .terminal: "Terminal"
+        case .diagram: "Diagram"
         }
     }
     var closable: Bool { self != .conversation }
@@ -129,6 +134,8 @@ final class WorkspaceState {
     private(set) var browsers: [UUID: BrowserTab] = [:]
     /// Open terminal tabs' shells, by pane.
     private(set) var terminals: [UUID: TerminalTab] = [:]
+    /// Open diagram tabs' Mermaid sources, by pane.
+    private(set) var diagrams: [UUID: String] = [:]
     /// Open Markdown file tabs showing their source; the rest show rendered.
     private(set) var markdownSources: Set<WorkspacePane> = []
     /// Makes the engine behind each browser tab.
@@ -190,6 +197,7 @@ final class WorkspaceState {
     func open(_ pane: WorkspacePane) {
         if case .browser(let id) = pane, browsers[id] == nil { return }
         if case .terminal(let id) = pane, terminals[id] == nil { return }
+        if case .diagram(let id) = pane, diagrams[id] == nil { return }
         if !panes.contains(pane) {
             panes.append(pane)
             tiles[focusedTile]?.panes.append(pane)
@@ -204,6 +212,7 @@ final class WorkspaceState {
     func open(_ pane: WorkspacePane, beside anchor: WorkspacePane) {
         if case .browser(let id) = pane, browsers[id] == nil { return }
         if case .terminal(let id) = pane, terminals[id] == nil { return }
+        if case .diagram(let id) = pane, diagrams[id] == nil { return }
         guard !panes.contains(pane) else { select(pane); return }
         guard let home = tile(containing: anchor) else { open(pane); return }
         let neighbor = [TileDirection.right, .down, .left, .up].lazy
@@ -235,6 +244,7 @@ final class WorkspaceState {
         if case .file(let path) = pane { filePreviews.remove(path) }
         if case .browser(let id) = pane { browsers.removeValue(forKey: id)?.close() }
         if case .terminal(let id) = pane { terminals.removeValue(forKey: id)?.close() }
+        if case .diagram(let id) = pane { diagrams.removeValue(forKey: id) }
         markdownSources.remove(pane)
         panes.removeAll { $0 == pane }
         tile.panes.remove(at: index)
@@ -409,6 +419,7 @@ final class WorkspaceState {
         }
         for tab in terminals.values { tab.close() }
         terminals = [:]
+        diagrams = [:]
         for pane in panes {
             guard case .terminal(let id) = pane else { continue }
             // A terminal starts a new shell in its last directory, or in the
@@ -613,6 +624,24 @@ final class WorkspaceState {
     func closeLiveTabs() {
         for tab in browsers.values { tab.close() }
         for tab in terminals.values { tab.close() }
+    }
+
+    // MARK: Diagram tabs
+
+    /// The Mermaid source a diagram tab shows.
+    func diagram(_ pane: WorkspacePane) -> String? {
+        guard case .diagram(let id) = pane else { return nil }
+        return diagrams[id]
+    }
+
+    /// Opens a Mermaid diagram in a tab beside `anchor`'s tile, or selects
+    /// the tab already showing the same source.
+    func openDiagram(_ source: String, beside anchor: WorkspacePane) {
+        let open = panes.first { if case .diagram(let id) = $0 { diagrams[id] == source } else { false } }
+        if let open { select(open); return }
+        let id = UUID()
+        diagrams[id] = source
+        self.open(.diagram(id), beside: anchor)
     }
 
     // MARK: Terminal tabs

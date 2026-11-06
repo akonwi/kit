@@ -12,6 +12,9 @@ extension EnvironmentValues {
     /// Opens a transcript image in the image viewer, when the transcript sits
     /// in a workspace.
     @Entry var openTranscriptImage: (@MainActor (TranscriptAttachment) -> Void)? = nil
+    /// Opens a Mermaid diagram, by its source, in a diagram tab, when the
+    /// transcript sits in a workspace.
+    @Entry var openMermaidDiagram: (@MainActor (String) -> Void)? = nil
 }
 
 struct TranscriptAttachments: View {

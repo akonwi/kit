@@ -165,6 +165,9 @@ struct NativeTranscript: NSViewRepresentable {
                 guard let id = image.id, !id.isEmpty else { return }
                 workspace.open(.image(id: id, filename: image.filename), beside: pane)
             })
+            .environment(\.openMermaidDiagram, { [workspace = input.workspace, pane = input.pane] source in
+                workspace.openDiagram(source, beside: pane)
+            })
             .environment(\.transcriptSessionLink, input.sessionLink)
             .environment(\.transcriptToolContext, input.toolContext)
             .environment(\.openURL, .transcript(input.workspace, beside: input.pane, sessionLink: input.sessionLink))

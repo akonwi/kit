@@ -343,6 +343,7 @@ struct PaletteChoices: View {
         case .hostFile(let path): path + " · Server"
         case .localFile(let path): path + " · This Mac"
         case .image: "Transcript image"
+        case .diagram: "Mermaid diagram"
         case .browser: workspace.browser(pane)?.url.map { BrowserAddress.withoutCredentials($0).absoluteString } ?? "New browser tab"
         case .terminal: workspace.terminal(pane).map { ($0.directory as NSString).abbreviatingWithTildeInPath } ?? "Terminal"
         }
