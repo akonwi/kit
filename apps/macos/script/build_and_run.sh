@@ -18,11 +18,13 @@ DERIVED_DATA="${KIT_MACOS_DERIVED_DATA:-$APP_ROOT/.build/xcode}"
 # matching the CLI's precedence. Release bundles name no channel.
 CHANNEL="${KIT_MACOS_CHANNEL:-}"
 DEV_HOME=""
+# Development bundles also wear the Kit Dev icon (assets/kit/KitDev.icon, an
+# amber DEV ribbon) so they can't be mistaken for Kit in the Dock or Spotlight.
 if [[ "${KIT_MACOS_RELEASE_BUILD:-0}" == 1 ]]; then
-  BUNDLE_ID=com.akonwi.kit; BUNDLE_NAME=Kit
+  BUNDLE_ID=com.akonwi.kit; BUNDLE_NAME=Kit; ICON_NAME=Kit
   [[ -z "$CHANNEL" ]] || { echo "A release build names no channel" >&2; exit 2; }
 else
-  BUNDLE_ID=com.akonwi.kit.dev; BUNDLE_NAME="Kit Dev"
+  BUNDLE_ID=com.akonwi.kit.dev; BUNDLE_NAME="Kit Dev"; ICON_NAME=KitDev
 fi
 if [[ -n "$CHANNEL" ]]; then
   # One directory name, so a channel can't escape the state directory.
@@ -66,15 +68,22 @@ cp "$BIN_DIR/Kit" "$APP_BUNDLE/Contents/MacOS/Kit"
 # libghostty finds xterm-ghostty and its shell integration in Contents/Resources.
 rm -rf "$APP_BUNDLE/Contents/Resources/terminfo" "$APP_BUNDLE/Contents/Resources/ghostty" "$APP_BUNDLE/Contents/Resources/Licenses"
 ditto "$APP_ROOT/Vendor/Ghostty/Resources" "$APP_BUNDLE/Contents/Resources"
-# Compile appearance-aware Icon Composer layers for Tahoe and later.
-ICON_OUTPUT="$APP_ROOT/.build/icon"
+# Compile appearance-aware Icon Composer layers for Tahoe and later. Start from
+# an empty output so one kind of build never ships the other's icon.
+ICON_OUTPUT="$APP_ROOT/.build/icon/$ICON_NAME"
+rm -rf "$ICON_OUTPUT"
 mkdir -p "$ICON_OUTPUT"
-xcrun actool "$APP_ROOT/../../assets/kit/Kit.icon" \
+xcrun actool "$APP_ROOT/../../assets/kit/$ICON_NAME.icon" \
   --compile "$ICON_OUTPUT" --platform macosx --minimum-deployment-target 15.0 \
-  --app-icon Kit --output-partial-info-plist "$ICON_OUTPUT/icon.plist"
+  --app-icon "$ICON_NAME" --output-partial-info-plist "$ICON_OUTPUT/icon.plist"
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$ICON_OUTPUT/icon.plist")" == "$ICON_NAME" ]] || {
+  echo "actool did not compile the $ICON_NAME app icon" >&2
+  exit 1
+}
 cp "$ICON_OUTPUT/Assets.car" "$APP_BUNDLE/Contents/Resources/Assets.car"
-# Preserve the approved graphite fallback for older macOS releases.
-cp "$APP_ROOT/../../assets/kit/Kit.icns" "$APP_BUNDLE/Contents/Resources/Kit.icns"
+# Preserve the graphite fallback for older macOS releases.
+rm -f "$APP_BUNDLE/Contents/Resources/Kit.icns" "$APP_BUNDLE/Contents/Resources/KitDev.icns"
+cp "$APP_ROOT/../../assets/kit/$ICON_NAME.icns" "$APP_BUNDLE/Contents/Resources/$ICON_NAME.icns"
 # Private recordings are never part of the normal app bundle.
 rm -f "$APP_BUNDLE/Contents/Resources/fixture.json" "$APP_BUNDLE/Contents/Resources/workspace.json"
 commit_entry=""
@@ -92,8 +101,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <key>CFBundleVersion</key><string>$APP_BUILD</string>
 $commit_entry
 $dev_home_entry
-<key>CFBundleIconFile</key><string>Kit</string>
-<key>CFBundleIconName</key><string>Kit</string>
+<key>CFBundleIconFile</key><string>$ICON_NAME</string>
+<key>CFBundleIconName</key><string>$ICON_NAME</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>NSPrincipalClass</key><string>KitApplication</string>

@@ -42,15 +42,43 @@ func svgPath(_ path: CGPath) -> String {
     }
     return result
 }
-func generate(name: String, foreground: String, border: Bool = false, tile: String? = nil) throws {
+// Kit Dev marks development builds with an amber ribbon across the top-right
+// corner of the 1024-pt icon canvas, labelled DEV in the mark's typeface.
+let amber = "FFB224", ink = "191A1D"
+let ribbonPath: CGPath = {
+    let path = CGMutablePath()
+    path.addLines(between: [CGPoint(x: 540, y: 0), CGPoint(x: 720, y: 0),
+                            CGPoint(x: 1024, y: 304), CGPoint(x: 1024, y: 484)])
+    path.closeSubpath()
+    return path
+}()
+let labelPath: CGPath = {
+    let labelFont = CTFontCreateCopyWithAttributes(font, 92, nil, nil)
+    var characters = Array("DEV".utf16)
+    var glyphs = [CGGlyph](repeating: 0, count: characters.count)
+    CTFontGetGlyphsForCharacters(labelFont, &characters, &glyphs, characters.count)
+    var advances = [CGSize](repeating: .zero, count: glyphs.count)
+    CTFontGetAdvancesForGlyphs(labelFont, .horizontal, glyphs, &advances, glyphs.count)
+    let combined = CGMutablePath()
+    var x: CGFloat = 0
+    for (i, glyph) in glyphs.enumerated() {
+        combined.addPath(CTFontCreatePathForGlyph(labelFont, glyph, nil)!, transform: CGAffineTransform(translationX: x, y: 0))
+        x += advances[i].width + (i < glyphs.count - 1 ? 6 : 0)
+    }
+    // Centre the label on the band's midline and run it along the band.
+    let bounds = combined.boundingBoxOfPath
+    var transform = CGAffineTransform(translationX: 827, y: 197).rotated(by: .pi / 4)
+        .scaledBy(x: 1, y: -1).translatedBy(x: -bounds.midX, y: -bounds.midY)
+    return combined.copy(using: &transform)!
+}()
+func generate(name: String, foreground: String, border: Bool = false, tile: String? = nil, ribbon: Bool = false) throws {
     let width = 1024, height = tile == nil ? 768 : 1024
     let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
     context.translateBy(x: 0, y: CGFloat(height)); context.scaleBy(x: 1, y: -1)
     var svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(width)\" height=\"\(height)\" viewBox=\"0 0 \(width) \(height)\">"
+    let outline = CGPath(roundedRect: CGRect(x: 64, y: 64, width: 896, height: 896), cornerWidth: 196, cornerHeight: 196, transform: nil)
     if let tile {
-        let rect = CGRect(x: 64, y: 64, width: 896, height: 896)
-        let outline = CGPath(roundedRect: rect, cornerWidth: 196, cornerHeight: 196, transform: nil)
         context.addPath(outline); context.setFillColor(color(tile)); context.fillPath()
         svg += "<rect x=\"64\" y=\"64\" width=\"896\" height=\"896\" rx=\"196\" fill=\"#\(tile)\"/>"
     }
@@ -73,6 +101,20 @@ func generate(name: String, foreground: String, border: Bool = false, tile: Stri
         context.addPath(path); context.setFillColor(color(fill)); context.fillPath()
         svg += "<path fill=\"#\(fill)\" d=\"\(svgPath(path))\"/>"
     }
+    if ribbon {
+        // The tile is the icon canvas inset by 64 pt, so place the ribbon on it.
+        precondition(tile != nil, "A ribbon needs a tile")
+        context.saveGState(); context.addPath(outline); context.clip()
+        svg += "<clipPath id=\"tile\"><rect x=\"64\" y=\"64\" width=\"896\" height=\"896\" rx=\"196\"/></clipPath><g clip-path=\"url(#tile)\">"
+        for (shape, fill) in [(ribbonPath, amber), (labelPath, ink)] {
+            var placement = CGAffineTransform(a: 0.875, b: 0, c: 0, d: 0.875, tx: 64, ty: 64)
+            let path = shape.copy(using: &placement)!
+            context.addPath(path); context.setFillColor(color(fill)); context.fillPath()
+            svg += "<path fill=\"#\(fill)\" d=\"\(svgPath(path))\"/>"
+        }
+        context.restoreGState()
+        svg += "</g>"
+    }
     svg += "</svg>\n"
     try svg.write(to: root.appendingPathComponent(name + ".svg"), atomically: true, encoding: .utf8)
     let output = CGImageDestinationCreateWithURL(root.appendingPathComponent(name + ".png") as CFURL, UTType.png.identifier as CFString, 1, nil)!
@@ -85,4 +127,34 @@ try generate(name: "logo-light-bordered", foreground: "191A1D", border: true)
 try generate(name: "logo-dark-bordered", foreground: "F2EFE8", border: true)
 try generate(name: "app-icon", foreground: "F2EFE8", tile: "202124")
 try generate(name: "app-icon-light", foreground: "191A1D", tile: "F2F2F4")
-print("Generated six SVG and transparent PNG variants using JetBrains Mono Bold outlines.")
+try generate(name: "app-icon-dev", foreground: "F2EFE8", tile: "202124", ribbon: true)
+
+// KitDev.icon is Kit.icon with the ribbon and its label layered on top.
+func layerSVG(_ path: CGPath) -> String {
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1024\" height=\"1024\" viewBox=\"0 0 1024 1024\"><path fill=\"#FFFFFF\" d=\"\(svgPath(path))\"/></svg>\n"
+}
+func solid(_ hex: String) -> [String: Any] {
+    let n = UInt32(hex, radix: 16)!
+    let c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map { String(format: "%.5f", Double($0) / 255) }
+    return ["solid": "srgb:\(c.joined(separator: ",")),1.00000"]
+}
+func layer(_ name: String, fill: String) -> [String: Any] {
+    ["name": name, "image-name": "\(name).svg", "hidden": false, "glass-specializations": [["value": false]],
+     "fill-specializations": [["value": solid(fill)], ["appearance": "dark", "value": solid(fill)]]]
+}
+let releaseIcon = root.appendingPathComponent("Kit.icon"), devIcon = root.appendingPathComponent("KitDev.icon")
+try? FileManager.default.removeItem(at: devIcon)
+try FileManager.default.createDirectory(at: devIcon.appendingPathComponent("Assets"), withIntermediateDirectories: true)
+for asset in ["K.svg", "Cursor.svg"] {
+    try FileManager.default.copyItem(at: releaseIcon.appendingPathComponent("Assets/\(asset)"),
+                                     to: devIcon.appendingPathComponent("Assets/\(asset)"))
+}
+try layerSVG(ribbonPath).write(to: devIcon.appendingPathComponent("Assets/Ribbon.svg"), atomically: true, encoding: .utf8)
+try layerSVG(labelPath).write(to: devIcon.appendingPathComponent("Assets/Label.svg"), atomically: true, encoding: .utf8)
+var document = try JSONSerialization.jsonObject(with: Data(contentsOf: releaseIcon.appendingPathComponent("icon.json"))) as! [String: Any]
+var groups = document["groups"] as! [[String: Any]]
+groups[0]["layers"] = [layer("Label", fill: ink), layer("Ribbon", fill: amber)] + (groups[0]["layers"] as! [[String: Any]])
+document["groups"] = groups
+try JSONSerialization.data(withJSONObject: document, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+    .write(to: devIcon.appendingPathComponent("icon.json"))
+print("Generated seven SVG and transparent PNG variants and KitDev.icon using JetBrains Mono Bold outlines.")

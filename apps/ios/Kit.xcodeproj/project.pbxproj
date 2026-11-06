@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		C10000000000000000000017 /* Kit.icon in Resources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000016 /* Kit.icon */; };
+		C10000000000000000000098 /* KitDev.icon in Resources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000097 /* KitDev.icon */; };
 		C10000000000000000000052 /* KitClient in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000051 /* KitClient */; };
 		C10000000000000000000062 /* KitTranscript in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000061 /* KitTranscript */; };
 		C10000000000000000000072 /* KitHighlighting in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000071 /* KitHighlighting */; };
@@ -37,6 +38,7 @@
 /* Begin PBXFileReference section */
 		C10000000000000000000006 /* Kit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10000000000000000000016 /* Kit.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = Kit.icon; path = ../../assets/kit/Kit.icon; sourceTree = SOURCE_ROOT; };
+		C10000000000000000000097 /* KitDev.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = KitDev.icon; path = ../../assets/kit/KitDev.icon; sourceTree = SOURCE_ROOT; };
 		C10000000000000000000039 /* KitUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KitUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10000000000000000000019 /* KitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -86,6 +88,7 @@
 				C10000000000000000000018 /* KitTests */,
 				C10000000000000000000038 /* KitUITests */,
 				C10000000000000000000016 /* Kit.icon */,
+				C10000000000000000000097 /* KitDev.icon */,
 				C10000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -228,6 +231,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C10000000000000000000017 /* Kit.icon in Resources */,
+				C10000000000000000000098 /* KitDev.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -320,7 +324,7 @@
 		C10000000000000000000014 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Kit;
+				ASSETCATALOG_COMPILER_APPICON_NAME = KitDev;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = M7B73F53MK;

@@ -559,6 +559,14 @@ Distinguish prominent application empty states from local list empties.
 - Use concise `textMuted` copy such as `No changed files` or `No results`.
 - Do not repeat the Kit wordmark inside drawers, lists, or nested panels.
 
+## App Icons
+
+The released apps use `assets/kit/Kit.icon`. Development builds (the macOS Kit
+Dev bundle and the iOS Debug configuration) use `assets/kit/KitDev.icon`: the
+same tile with an amber DEV ribbon across the top-right corner. Never change
+`Kit.icon` to mark a build; regenerate both documents with
+`assets/kit/script/generate.swift` (see `assets/kit/README.md`).
+
 ## Anti-patterns
 
 - **Fixed palette assumptions:** hardcoded hex values or descriptions that require a dark background.

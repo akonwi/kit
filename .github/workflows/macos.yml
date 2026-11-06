@@ -11,7 +11,12 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-ghostty
       - name: Build clean app without private fixtures
-        run: apps/macos/script/build_and_run.sh --build
+        run: |
+          apps/macos/script/build_and_run.sh --build
+          # Development bundles wear the Kit Dev icon, never the release one.
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' apps/macos/dist/Kit.app/Contents/Info.plist)" = KitDev
+          test -s apps/macos/dist/Kit.app/Contents/Resources/KitDev.icns
+          test ! -e apps/macos/dist/Kit.app/Contents/Resources/Kit.icns
       - name: Test
         working-directory: apps/macos
         run: xcodebuild -scheme Kit -destination 'platform=macOS' -derivedDataPath .build/xcode -skipPackagePluginValidation test
@@ -52,5 +57,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$KIT_MACOS_APP_BUNDLE/Contents/Info.plist")" = "$(git rev-list --count HEAD)"
           test ! -e "$KIT_MACOS_APP_BUNDLE/Contents/Resources/fixture.json"
           test ! -e "$KIT_MACOS_APP_BUNDLE/Contents/Resources/workspace.json"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$KIT_MACOS_APP_BUNDLE/Contents/Info.plist")" = Kit
+          test ! -e "$KIT_MACOS_APP_BUNDLE/Contents/Resources/KitDev.icns"
           apps/macos/script/check_terminal_bundle.sh "$KIT_MACOS_APP_BUNDLE" \
             apps/macos/.build/xcode/Build/Products/Release/Kit.dSYM

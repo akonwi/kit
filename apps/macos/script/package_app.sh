@@ -72,6 +72,13 @@ if /usr/libexec/PlistBuddy -c 'Print :KitDevHome' "$app/Contents/Info.plist" >/d
   echo "A release app bundle carries a development Kit home" >&2
   exit 1
 fi
+# A published app wears the release icon, never the Kit Dev ribbon.
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$app/Contents/Info.plist")" == Kit &&
+   "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$app/Contents/Info.plist")" == Kit &&
+   -s "$app/Contents/Resources/Kit.icns" && ! -e "$app/Contents/Resources/KitDev.icns" ]] || {
+  echo "A release app bundle must use the release Kit icon" >&2
+  exit 1
+}
 [[ "$(lipo -archs "$app/Contents/MacOS/Kit")" == arm64 ]] || { echo "Expected an arm64 app" >&2; exit 1; }
 [[ ! -e "$app/Contents/Resources/fixture.json" && ! -e "$app/Contents/Resources/workspace.json" ]]
 "$APP_ROOT/script/check_terminal_bundle.sh" "$app" "$staging/DerivedData/Build/Products/Release/Kit.dSYM"

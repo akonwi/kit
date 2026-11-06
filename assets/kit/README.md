@@ -16,6 +16,9 @@ gradients or shadows.
 | `app-icon-light.svg` / `.png` | Light tile alternative |
 | `Kit.icns` | Graphite fallback app icon, 16–1024px representations |
 | `Kit.icon` | Editable Icon Composer document with light and dark appearances |
+| `app-icon-dev.svg` / `.png` | Graphite Kit Dev tile with the DEV ribbon |
+| `KitDev.icns` | Kit Dev fallback app icon, 16–1024px representations |
+| `KitDev.icon` | Kit Dev Icon Composer document: `Kit.icon` plus the DEV ribbon |
 
 Logo PNGs are 1024×768 with genuine alpha transparency. Borders have transparent
 interiors. App icon PNGs are 1024×1024 with transparent outer margins. SVGs contain
@@ -35,6 +38,19 @@ document into `Assets.car` with Xcode's `actool` and declares `CFBundleIconName`
 The existing graphite `Kit.icns` remains the fallback for older macOS versions.
 Building requires Xcode 26 or later.
 
+Development builds use the Kit Dev icon so they can't be mistaken for the
+released Kit in the Dock, the app switcher, Spotlight or on the home screen:
+the same K_ tile with an amber (`#FFB224`) ribbon across the top-right corner,
+labelled DEV in ink JetBrains Mono Bold. The ribbon and label are identical in
+light and dark appearances and remain visible in tinted and clear styles. The
+macOS development bundle (`apps/macos/script/build_and_run.sh`, every non-release
+build including channel-bound ones) uses `KitDev.icon` with the `KitDev.icns`
+fallback, and the iOS Debug configuration uses `KitDev.icon`. Mac release builds
+use `Kit.icon` and `Kit.icns`; the iOS Release configuration, which TestFlight
+archives, uses `Kit.icon`. `generate.swift` writes `KitDev.icon` from
+`Kit.icon`, so edit the release document and regenerate rather than editing the
+Dev document's K and cursor layers.
+
 Regenerate on macOS from the repository root:
 
 ```sh
@@ -44,7 +60,7 @@ assets/kit/script/package-icon.sh
 
 Font source: https://github.com/JetBrains/JetBrainsMono (Bold TTF), distributed
 under the bundled `fonts/OFL.txt`. Keep the license with redistributed font files.
-The app build copies `Kit.icns` into its bundle and declares CFBundleIconFile.
+The app build copies `Kit.icns` (or `KitDev.icns`) into its bundle and declares CFBundleIconFile.
 
 The app bundles Regular, Medium, and Bold JetBrains Mono fonts for Typography
 settings. Interface text defaults to the system font; monospace text defaults to
