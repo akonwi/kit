@@ -113,6 +113,74 @@
 					"minLength": 1,
 					"maxLength": 4096,
 					"pattern": "^https?://"
+				},
+				"checks": {
+					"$ref": "#/$defs/GitPullRequestChecks"
+				}
+			},
+			"additionalProperties": false
+		},
+		"GitPullRequestChecks": {
+			"description": "Bounded summary of the pull request's observed checks. items lists at most 50 checks, failing first; omitted counts the rest, so items and omitted together are every counted check.",
+			"type": "object",
+			"required": ["state", "required", "counts", "items", "omitted"],
+			"properties": {
+				"state": {
+					"description": "failing when any check failed or was canceled, otherwise pending when any is running, otherwise passing when any passed, otherwise none.",
+					"enum": ["passing", "failing", "pending", "none"]
+				},
+				"required": {
+					"description": "Whether the repository's required checks are satisfied.",
+					"enum": ["unknown", "pending", "satisfied", "unsatisfied"]
+				},
+				"counts": {
+					"type": "object",
+					"required": ["passed", "failed", "pending", "skipped", "canceled", "unknown"],
+					"properties": {
+						"passed": { "$ref": "#/$defs/GitCheckCount" },
+						"failed": { "$ref": "#/$defs/GitCheckCount" },
+						"pending": { "$ref": "#/$defs/GitCheckCount" },
+						"skipped": { "$ref": "#/$defs/GitCheckCount" },
+						"canceled": { "$ref": "#/$defs/GitCheckCount" },
+						"unknown": { "$ref": "#/$defs/GitCheckCount" }
+					},
+					"additionalProperties": false
+				},
+				"items": {
+					"type": "array",
+					"maxItems": 50,
+					"items": { "$ref": "#/$defs/GitPullRequestCheck" }
+				},
+				"omitted": { "$ref": "#/$defs/GitCheckCount" }
+			},
+			"additionalProperties": false
+		},
+		"GitCheckCount": {
+			"type": "integer",
+			"minimum": 0,
+			"maximum": 10000
+		},
+		"GitPullRequestCheck": {
+			"type": "object",
+			"required": ["name", "state", "required"],
+			"properties": {
+				"name": {
+					"description": "Check name, at most 256 UTF-8 bytes, without control or format characters.",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 256
+				},
+				"workflow": {
+					"description": "Workflow name when GitHub reports one, at most 256 UTF-8 bytes.",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 256
+				},
+				"state": {
+					"enum": ["passed", "failed", "pending", "skipped", "canceled", "unknown"]
+				},
+				"required": {
+					"type": "boolean"
 				}
 			},
 			"additionalProperties": false

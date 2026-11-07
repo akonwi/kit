@@ -136,7 +136,7 @@ ID, while separate transitions receive separate IDs.
 Information boundaries never start an idle turn. During active work they become
 available at the next safe model boundary; while idle they remain pending until
 a later user turn or an explicit harness reaction. Rich-only changes do not
-produce duplicate native VCS records or `kit/events/git.changed` events. The
+produce duplicate native VCS records. The
 observer and Droid both impose hard bounds; a rich-status subscription that
 cannot retain every transition terminates explicitly instead of silently
 coalescing or replacing an observed state.
@@ -148,3 +148,40 @@ PR-only changes (including clearing) trigger plugin notifications too. The publi
 plugin schema accepts the additive field; plugins may ignore it, while strict
 consumers must use the updated schema. This does not add plugin subscriptions or
 alter the `git: null` representation for unavailable local Git metadata.
+
+## Pull request checks
+
+Clients and plugins read the same observed checks
+([ADR 0060](../adrs/0060-share-observed-pull-request-checks-with-clients-and-plugins.md)).
+One summary, built on the server, describes them: an overall `state`
+(`failing` when any check failed or was canceled, otherwise `pending` when any
+is running, otherwise `passing` when any passed, otherwise `none`), the
+`required` checks' state, `counts` of every check by state, and at most 50
+`items`, failing first, with `omitted` counting the rest. Names and workflows
+are at most 256 UTF-8 bytes without control or format characters. Reviews and
+merge readiness stay model context.
+
+Plugins receive the summary as `git.pullRequest.checks`, in initialization and
+in `kit/events/git.changed`; a change in any check's state sends
+`git.changed`. Native clients subscribe to
+`GET /v1/sessions/{sessionID}/pull-request/events` (`streamSessionPullRequest`).
+Like the VCS stream it sends the current state first and then deduplicated
+latest-only `pullRequest.status` records, each a `SessionPullRequestStatus`
+(session ID, cwd, named branch, and the optional pull request with its number,
+URL, state, draft flag, and checks). Records are bounded to 64 KiB, there are at
+most 32 subscriptions per session, and the stream has no cursor or replay.
+Servers released before the stream answer it with an unrouted 404; clients
+then show no check status. The session protocol stays 50.
+
+Neither consumer adds GitHub requests: they read the observation the session
+already keeps for its agent. The macOS app opens the stream only while the VCS
+stream reports a pull request. It shows a checks chip beside the PR chip, with
+a glyph and passed/total (skipped checks excluded) in the state's color, hidden
+when there are no checks; clicking it lists the checks in a popover, while the
+PR chip still opens the pull request. The terminal client watches the stream
+with the VCS stream and shows the checks after the footer's location, before
+plugin items, as `~/kit (feature* · PR #74) · ✗ 10/12`: `✓` passing, `✗`
+failing, or `●` running, in the state's color, linking to the pull request's
+checks page. When the footer narrows, the directory shortens first, then the
+count is dropped and the glyph stays after the PR label. It has no check list.
+The iOS client doesn't show checks yet.

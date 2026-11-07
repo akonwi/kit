@@ -51,6 +51,40 @@ type GitContext struct {
 type PullRequestContext struct {
 	Number int    `json:"number"`
 	URL    string `json:"url"`
+	// Checks summarizes the PR's observed checks. The host always sends it
+	// with a PR; it is optional in the public schema for older hosts.
+	Checks *PullRequestChecks `json:"checks,omitempty"`
+}
+
+// PullRequestChecks is the bounded public summary of a PR's checks.
+type PullRequestChecks struct {
+	// State is passing, failing, pending, or none.
+	State string `json:"state"`
+	// Required is unknown, pending, satisfied, or unsatisfied.
+	Required string                 `json:"required"`
+	Counts   PullRequestCheckCounts `json:"counts"`
+	// Items lists at most 50 checks, failing first; Omitted counts the rest.
+	Items   []PullRequestCheck `json:"items"`
+	Omitted int                `json:"omitted"`
+}
+
+// PullRequestCheckCounts counts every observed check by state.
+type PullRequestCheckCounts struct {
+	Passed   int `json:"passed"`
+	Failed   int `json:"failed"`
+	Pending  int `json:"pending"`
+	Skipped  int `json:"skipped"`
+	Canceled int `json:"canceled"`
+	Unknown  int `json:"unknown"`
+}
+
+// PullRequestCheck is one listed check. State is passed, failed, pending,
+// skipped, canceled, or unknown.
+type PullRequestCheck struct {
+	Name     string `json:"name"`
+	Workflow string `json:"workflow,omitempty"`
+	State    string `json:"state"`
+	Required bool   `json:"required"`
 }
 
 // SessionContext identifies the owning session; its display name is nullable.

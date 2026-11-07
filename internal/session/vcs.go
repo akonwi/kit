@@ -73,3 +73,29 @@ func (m *Manager) SubscribeVCS(ctx context.Context, id string) (VCSSubscription,
 	}
 	return host.SubscribeVCS()
 }
+
+// PullRequestStatusWatchHost is the optional latest-only port through which
+// clients observe a loaded session's pull request status, checks included.
+// Unlike SubscribePullRequestStatus, a slow reader sees only the newest state.
+type PullRequestStatusWatchHost interface {
+	WatchPullRequestStatus() (PullRequestStatusSubscription, error)
+}
+
+// WatchPullRequestStatus observes the pull request status shared with the
+// owning session's agent and plugins. It begins with the current state. The
+// caller must close the subscription; runtime shutdown closes it as well.
+func (m *Manager) WatchPullRequestStatus(ctx context.Context, id string) (PullRequestStatusSubscription, error) {
+	if err := m.beginOperation(); err != nil {
+		return nil, err
+	}
+	defer m.ops.Done()
+	loaded, err := m.runtime(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	host, ok := loaded.plugins.(PullRequestStatusWatchHost)
+	if !ok {
+		return nil, ErrVCSUnavailable
+	}
+	return host.WatchPullRequestStatus()
+}

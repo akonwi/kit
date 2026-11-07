@@ -44,6 +44,7 @@ type sessionTransport interface {
 	GetSubagentEvents(context.Context, string, string, string, int64) (protocol.SubagentLiveEventPage, error)
 	GetSessionVCSStatus(context.Context, string) (protocol.SessionVCSStatus, error)
 	StreamSessionVCS(context.Context, string) (io.ReadCloser, error)
+	StreamSessionPullRequest(context.Context, string) (io.ReadCloser, error)
 	GetSessionFileIndex(context.Context, string) (protocol.SessionFileIndex, error)
 	RefreshSessionFileIndex(context.Context, string) (protocol.SessionFileIndex, error)
 	GetWorkspace(context.Context, string) (protocol.WorkspaceRef, error)
@@ -347,6 +348,39 @@ const vcsStreamIdleLimit = 45 * time.Second
 // server failure. Transient opens, idle timeouts, and disconnects reconnect
 // internally with bounded backoff.
 func (c *Session) WatchVCS(ctx context.Context, receive func(protocol.SessionVCSStatus)) error {
+	return c.watchLatest(ctx, "", c.transport.StreamSessionVCS, func(operation context.Context, body io.Reader) error {
+		return readBoundVCS(operation, body, c.id, receive)
+	})
+}
+
+// WatchPullRequest delivers the observed pull request of the session's named
+// branch, with a bounded summary of its checks, until cancellation or a
+// terminal server failure. The first delivery is the current status, then
+// each change follows; a reconnect delivers the current status again.
+// Transient opens, idle timeouts, and disconnects reconnect internally with
+// bounded backoff.
+//
+// A server that predates the operation fails with an UnsupportedError.
+func (c *Session) WatchPullRequest(ctx context.Context, receive func(protocol.SessionPullRequestStatus)) error {
+	return c.watchLatest(ctx, "watchPullRequest", c.transport.StreamSessionPullRequest, func(operation context.Context, body io.Reader) error {
+		return clienttransport.ReadSessionPullRequest(body, func(status protocol.SessionPullRequestStatus) error {
+			if status.SessionID != c.id {
+				return &StreamWatchTerminalError{Err: fmt.Errorf("daemon session pull request stream identity mismatch")}
+			}
+			if operation.Err() != nil {
+				return operation.Err()
+			}
+			receive(status)
+			return nil
+		})
+	})
+}
+
+// watchLatest owns the reconnect policy of a latest-state stream: transient
+// failures reopen it with bounded backoff, and terminal ones end the watch.
+// When capability names an operation older servers may lack, a server that
+// does not serve the stream fails with an UnsupportedError for it.
+func (c *Session) watchLatest(ctx context.Context, capability string, open func(context.Context, string) (io.ReadCloser, error), read func(context.Context, io.Reader) error) error {
 	operation, cancel, err := c.operationContext(ctx)
 	if err != nil {
 		return err
@@ -354,10 +388,13 @@ func (c *Session) WatchVCS(ctx context.Context, receive func(protocol.SessionVCS
 	defer cancel()
 	failure := 0
 	for {
-		body, err := c.transport.StreamSessionVCS(operation, c.id)
+		body, err := open(operation, c.id)
+		if capability != "" && errors.Is(err, httpapi.ErrOperationNotServed) {
+			return &UnsupportedError{Capability: capability}
+		}
 		if err == nil {
 			watched, stop := httpapi.WatchStreamIdle(operation, body, vcsStreamIdleLimit)
-			err = readBoundVCS(operation, watched, c.id, receive)
+			err = read(operation, watched)
 			stop()
 			_ = body.Close()
 		}

@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"time"
 )
 
@@ -18,6 +19,11 @@ func cloneGitContext(value *GitContext) *GitContext {
 	result := *value
 	if value.PullRequest != nil {
 		pr := *value.PullRequest
+		if pr.Checks != nil {
+			checks := *pr.Checks
+			checks.Items = append([]PullRequestCheck{}, pr.Checks.Items...)
+			pr.Checks = &checks
+		}
 		result.PullRequest = &pr
 	}
 	if value.Branch != nil {
@@ -118,5 +124,5 @@ func samePullRequest(a, b *PullRequestContext) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
-	return *a == *b
+	return reflect.DeepEqual(a, b)
 }

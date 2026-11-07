@@ -35,6 +35,37 @@ type Location struct {
 	// Server names the server the session runs on, or is empty for this
 	// home's own server.
 	Server string
+	// Checks summarizes the pull request's checks, or is nil without a pull
+	// request or checks to report.
+	Checks *Checks
+}
+
+// Tone is the theme role of a footer span drawn in a state color.
+type Tone string
+
+const (
+	// ToneSuccess draws passing checks.
+	ToneSuccess Tone = "success"
+	// ToneDanger draws failing checks.
+	ToneDanger Tone = "danger"
+	// ToneWarning draws running checks.
+	ToneWarning Tone = "warning"
+)
+
+// Checks is the footer's summary of a pull request's checks, such as
+// `✗ 10/12`: a state glyph and the passed checks of those that ran or will
+// run.
+type Checks struct {
+	Glyph string
+	Count string
+	Tone  Tone
+	// URL is the pull request's checks page.
+	URL string
+}
+
+// Text is the glyph with its count.
+func (checks Checks) Text() string {
+	return checks.Glyph + " " + checks.Count
 }
 
 // WithServer returns location labeled with the server it is on.
@@ -73,6 +104,38 @@ func VCSLocation(directory string, status *protocol.VCSStatus) Location {
 	return location
 }
 
+// WithChecks returns location with the checks of pull, the observed pull
+// request of the branch status describes. Checks are shown only for the pull
+// request location links, on the branch pull was observed for, and only when
+// it has checks.
+func WithChecks(location Location, status *protocol.VCSStatus, pull protocol.SessionPullRequestStatus) Location {
+	location.Checks = nil
+	if status == nil || location.URL == "" || pull.PullRequest == nil || pull.Branch != status.Head.Name {
+		return location
+	}
+	number, target, ok := pullRequest(status)
+	if !ok || pull.PullRequest.Number != number {
+		return location
+	}
+	checks := pull.PullRequest.Checks
+	summary := Checks{URL: strings.TrimSuffix(target, "/") + "/checks"}
+	switch checks.State {
+	case protocol.PullRequestChecksPassing:
+		summary.Glyph, summary.Tone = "✓", ToneSuccess
+	case protocol.PullRequestChecksFailing:
+		summary.Glyph, summary.Tone = "✗", ToneDanger
+	case protocol.PullRequestChecksPending:
+		summary.Glyph, summary.Tone = "●", ToneWarning
+	default:
+		return location
+	}
+	counts := checks.Counts
+	ran := counts.Passed + counts.Failed + counts.Pending + counts.Canceled + counts.Unknown
+	summary.Count = strconv.Itoa(counts.Passed) + "/" + strconv.Itoa(ran)
+	location.Checks = &summary
+	return location
+}
+
 func pullRequest(status *protocol.VCSStatus) (int, string, bool) {
 	if status.PullRequest == nil || status.Head.Kind != protocol.VCSHeadBranch {
 		return 0, "", false
@@ -93,9 +156,11 @@ type Span struct {
 	Text string
 	// URL is set on the pull-request label, which opens it.
 	URL string
-	// Item marks plugin content, drawn with Style. Other text is muted.
+	// Item marks plugin content, drawn with Style. Other text is muted
+	// unless it has a Tone.
 	Item  bool
 	Style protocol.PluginFooterStyle
+	Tone  Tone
 }
 
 // Spans fits the location and the plugin's items into width cells, right
@@ -103,7 +168,9 @@ type Span struct {
 // kept whole while anything else fits, even when a plugin hides the
 // location. The directory is shortened from its start before the
 // Git status; at very narrow widths a complete pull-request label outranks
-// the branch and directory. With items, the location gets about half the
+// the branch and directory. The pull request's checks follow the location,
+// as `(main · PR #64) · ✓ 12/12`, and keep their glyph after the label when
+// the count does not fit. With items, the location gets about half the
 // width, and items that do not fit become `… N more`. A plugin may hide the
 // location. A width of zero or less is treated as unbounded.
 func Spans(footer protocol.PluginFooter, location Location, width int) []Span {
@@ -131,7 +198,8 @@ func contentSpans(footer protocol.PluginFooter, location Location, width int) []
 		if footer.LocationHidden {
 			return nil
 		}
-		return locationSpans(fitLocation(location, width), location)
+		spans, _ := placeLocation(location, width)
+		return spans
 	}
 	var spans []Span
 	used := 0
@@ -147,6 +215,15 @@ func contentSpans(footer protocol.PluginFooter, location Location, width int) []
 			if location.LinkText != "" && strings.HasSuffix(suffix, " "+middleDot+" "+location.LinkText+")") && minimum > width {
 				minimum = uucode.StringWidth("(" + location.LinkText + ")")
 			}
+			// The checks keep their count beside the Git status while the
+			// items' overflow label still fits, and their glyph otherwise.
+			if checks := location.Checks; checks != nil {
+				if counted := minimum + itemGap + uucode.StringWidth(checks.Text()); counted <= withOverflow {
+					minimum = counted
+				} else {
+					minimum += itemGap + uucode.StringWidth(checks.Glyph)
+				}
+			}
 			firstItemWidth := 0
 			for _, segment := range footer.Items[0].Content {
 				firstItemWidth += uucode.StringWidth(segment.Text)
@@ -159,10 +236,7 @@ func contentSpans(footer protocol.PluginFooter, location Location, width int) []
 				budget = min(minimum, width)
 			}
 		}
-		if fitted := fitLocation(location, budget); fitted != "" {
-			spans = append(spans, locationSpans(fitted, location)...)
-			used = uucode.StringWidth(fitted)
-		}
+		spans, used = placeLocation(location, budget)
 	}
 	for index, item := range footer.Items {
 		text := ""
@@ -196,6 +270,37 @@ func contentSpans(footer protocol.PluginFooter, location Location, width int) []
 		used += gap + uucode.StringWidth(text)
 	}
 	return spans
+}
+
+// placeLocation fits the location and its checks, which follow it as
+// `(feature · PR #74) · ✗ 10/12`, within width, returning the spans and the
+// cells they use. As width shrinks the directory is shortened first, then the
+// count is dropped, and then the Git status shortens beside the glyph as it
+// would alone. The checks are dropped only when the pull-request label no
+// longer fits beside the glyph.
+func placeLocation(location Location, width int) ([]Span, int) {
+	if checks := location.Checks; checks != nil {
+		bare := location.Text
+		if suffix, ok := gitSuffix(location); ok {
+			bare = strings.TrimPrefix(suffix, " ")
+		}
+		for _, text := range []string{checks.Text(), checks.Glyph} {
+			budget := width - itemGap - uucode.StringWidth(text)
+			if text != checks.Glyph && uucode.StringWidth(bare) > budget {
+				continue
+			}
+			fitted := fitLocation(location, budget)
+			if location.LinkText == "" || !strings.HasSuffix(fitted, location.LinkText+")") {
+				continue
+			}
+			spans := append(locationSpans(fitted, location),
+				Span{Text: " " + middleDot + " "},
+				Span{Text: text, URL: checks.URL, Tone: checks.Tone})
+			return spans, uucode.StringWidth(fitted) + itemGap + uucode.StringWidth(text)
+		}
+	}
+	fitted := fitLocation(location, width)
+	return locationSpans(fitted, location), uucode.StringWidth(fitted)
 }
 
 // gitSuffix is the ` (branch…)` part of location after its directory.

@@ -29,3 +29,21 @@ func ReadSessionVCS(body io.Reader, receive func(protocol.SessionVCSStatus) erro
 		return receive(record.Payload)
 	})
 }
+
+// StreamSessionPullRequest opens the authenticated live pull request status
+// stream. The server sends the current status first, then deduplicated
+// latest-only `pullRequest.status` records, with comment heartbeats while
+// idle. A server that predates the operation fails with
+// httpapi.ErrOperationNotServed; other pre-stream failures are typed *APIError
+// values.
+func (c *Client) StreamSessionPullRequest(ctx context.Context, sessionID string) (io.ReadCloser, error) {
+	return httpapi.OpenStream(ctx, c, httpapi.StreamSessionPullRequest, httpapi.SessionPath{SessionID: sessionID})
+}
+
+// ReadSessionPullRequest validates bounded live records and invokes receive in
+// wire order, like ReadSessionVCS.
+func ReadSessionPullRequest(body io.Reader, receive func(protocol.SessionPullRequestStatus) error) error {
+	return httpapi.ReadStream(body, httpapi.StreamSessionPullRequest, func(record httpapi.StreamRecord[protocol.SessionPullRequestStatus]) error {
+		return receive(record.Payload)
+	})
+}

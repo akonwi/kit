@@ -164,6 +164,9 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/plugin-toasts`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/plugin-toasts/get(streamPluginToasts)`.
     func streamPluginToasts(_ input: Operations.StreamPluginToasts.Input) async throws -> Operations.StreamPluginToasts.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/pull-request/events`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/pull-request/events/get(streamSessionPullRequest)`.
+    func streamSessionPullRequest(_ input: Operations.StreamSessionPullRequest.Input) async throws -> Operations.StreamSessionPullRequest.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/reload`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/reload/post(reloadSession)`.
     func reloadSession(_ input: Operations.ReloadSession.Input) async throws -> Operations.ReloadSession.Output
@@ -816,6 +819,17 @@ extension APIProtocol {
         headers: Operations.StreamPluginToasts.Input.Headers
     ) async throws -> Operations.StreamPluginToasts.Output {
         try await streamPluginToasts(Operations.StreamPluginToasts.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/pull-request/events`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/pull-request/events/get(streamSessionPullRequest)`.
+    public func streamSessionPullRequest(
+        path: Operations.StreamSessionPullRequest.Input.Path,
+        headers: Operations.StreamSessionPullRequest.Input.Headers
+    ) async throws -> Operations.StreamSessionPullRequest.Output {
+        try await streamSessionPullRequest(Operations.StreamSessionPullRequest.Input(
             path: path,
             headers: headers
         ))

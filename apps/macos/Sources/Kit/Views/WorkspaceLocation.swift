@@ -83,7 +83,14 @@ struct WorkspaceLocation: View {
                 .help(head.map { "Git snapshot: \($0)\(dirtyNote)" } ?? "")
             }
             if let number = Self.pullRequestNumber(session), let destination = Self.pullRequestDestination(session) {
-                PullRequestChip(number: number, destination: destination).layoutPriority(2)
+                HStack(spacing: 4) {
+                    PullRequestChip(number: number, destination: destination)
+                    if let checks = PullRequestChecksPresentation.make(session) {
+                        PullRequestChecksChip(presentation: checks)
+                    }
+                }
+                .fixedSize()
+                .layoutPriority(2)
             }
         }
         .font(.kit(size: 11, design: .monospaced))

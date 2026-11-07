@@ -269,10 +269,18 @@ impl cui::Component for RightSide {
   }
 }
 
+private fn toned_span(span: footerlayout::Span, color: ui::Color) ui::Span {
+  ui::span(span.Text, link: span.URL, style: ui::span_style(foreground: color))
+}
+
 // Location text is muted, and its pull-request label is an underlined link
-// that opens on click. Plugin text uses its theme roles over muted.
+// that opens on click. The pull request's checks are drawn in their state
+// color and open its checks page. Plugin text uses its theme roles over muted.
 private fn footer_span(colors: theme::Theme, span: footerlayout::Span) ui::Span {
   match {
+    span.Tone == footerlayout::ToneSuccess => toned_span(span, colors.success_text),
+    span.Tone == footerlayout::ToneDanger => toned_span(span, colors.danger_text),
+    span.Tone == footerlayout::ToneWarning => toned_span(span, colors.warning_text),
     span.Item => {
       let style = span.Style
       ui::span(

@@ -10384,6 +10384,310 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/PullRequestCheck`.
+        public struct PullRequestCheck: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PullRequestCheck/name`.
+            public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PullRequestCheck/required`.
+            public var required: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/PullRequestCheck/state`.
+            public var state: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PullRequestCheck/workflow`.
+            public var workflow: Swift.String?
+            /// Creates a new `PullRequestCheck`.
+            ///
+            /// - Parameters:
+            ///   - name:
+            ///   - required:
+            ///   - state:
+            ///   - workflow:
+            public init(
+                name: Swift.String,
+                required: Swift.Bool,
+                state: Swift.String,
+                workflow: Swift.String? = nil
+            ) {
+                self.name = name
+                self.required = required
+                self.state = state
+                self.workflow = workflow
+            }
+            public enum CodingKeys: String, CodingKey {
+                case name
+                case required
+                case state
+                case workflow
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.required = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .required
+                )
+                self.state = try container.decode(
+                    Swift.String.self,
+                    forKey: .state
+                )
+                self.workflow = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .workflow
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "name",
+                    "required",
+                    "state",
+                    "workflow"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PullRequestCheckCounts`.
+        public struct PullRequestCheckCounts: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PullRequestCheckCounts/canceled`.
+            public var canceled: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/PullRequestCheckCounts/failed`.
+            public var failed: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/PullRequestCheckCounts/passed`.
+            public var passed: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/PullRequestCheckCounts/pending`.
+            public var pending: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/PullRequestCheckCounts/skipped`.
+            public var skipped: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/PullRequestCheckCounts/unknown`.
+            public var unknown: Swift.Int
+            /// Creates a new `PullRequestCheckCounts`.
+            ///
+            /// - Parameters:
+            ///   - canceled:
+            ///   - failed:
+            ///   - passed:
+            ///   - pending:
+            ///   - skipped:
+            ///   - unknown:
+            public init(
+                canceled: Swift.Int,
+                failed: Swift.Int,
+                passed: Swift.Int,
+                pending: Swift.Int,
+                skipped: Swift.Int,
+                unknown: Swift.Int
+            ) {
+                self.canceled = canceled
+                self.failed = failed
+                self.passed = passed
+                self.pending = pending
+                self.skipped = skipped
+                self.unknown = unknown
+            }
+            public enum CodingKeys: String, CodingKey {
+                case canceled
+                case failed
+                case passed
+                case pending
+                case skipped
+                case unknown
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.canceled = try container.decode(
+                    Swift.Int.self,
+                    forKey: .canceled
+                )
+                self.failed = try container.decode(
+                    Swift.Int.self,
+                    forKey: .failed
+                )
+                self.passed = try container.decode(
+                    Swift.Int.self,
+                    forKey: .passed
+                )
+                self.pending = try container.decode(
+                    Swift.Int.self,
+                    forKey: .pending
+                )
+                self.skipped = try container.decode(
+                    Swift.Int.self,
+                    forKey: .skipped
+                )
+                self.unknown = try container.decode(
+                    Swift.Int.self,
+                    forKey: .unknown
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "canceled",
+                    "failed",
+                    "passed",
+                    "pending",
+                    "skipped",
+                    "unknown"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PullRequestChecks`.
+        public struct PullRequestChecks: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PullRequestChecks/counts`.
+            public var counts: Components.Schemas.PullRequestCheckCounts
+            /// - Remark: Generated from `#/components/schemas/PullRequestChecks/items`.
+            public var items: [Components.Schemas.PullRequestCheck]
+            /// - Remark: Generated from `#/components/schemas/PullRequestChecks/omitted`.
+            public var omitted: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/PullRequestChecks/required`.
+            @frozen public enum RequiredPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case unknown = "unknown"
+                case pending = "pending"
+                case satisfied = "satisfied"
+                case unsatisfied = "unsatisfied"
+            }
+            /// - Remark: Generated from `#/components/schemas/PullRequestChecks/required`.
+            public var required: Components.Schemas.PullRequestChecks.RequiredPayload
+            /// - Remark: Generated from `#/components/schemas/PullRequestChecks/state`.
+            @frozen public enum StatePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case passing = "passing"
+                case failing = "failing"
+                case pending = "pending"
+                case none = "none"
+            }
+            /// - Remark: Generated from `#/components/schemas/PullRequestChecks/state`.
+            public var state: Components.Schemas.PullRequestChecks.StatePayload
+            /// Creates a new `PullRequestChecks`.
+            ///
+            /// - Parameters:
+            ///   - counts:
+            ///   - items:
+            ///   - omitted:
+            ///   - required:
+            ///   - state:
+            public init(
+                counts: Components.Schemas.PullRequestCheckCounts,
+                items: [Components.Schemas.PullRequestCheck],
+                omitted: Swift.Int,
+                required: Components.Schemas.PullRequestChecks.RequiredPayload,
+                state: Components.Schemas.PullRequestChecks.StatePayload
+            ) {
+                self.counts = counts
+                self.items = items
+                self.omitted = omitted
+                self.required = required
+                self.state = state
+            }
+            public enum CodingKeys: String, CodingKey {
+                case counts
+                case items
+                case omitted
+                case required
+                case state
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.counts = try container.decode(
+                    Components.Schemas.PullRequestCheckCounts.self,
+                    forKey: .counts
+                )
+                self.items = try container.decode(
+                    [Components.Schemas.PullRequestCheck].self,
+                    forKey: .items
+                )
+                self.omitted = try container.decode(
+                    Swift.Int.self,
+                    forKey: .omitted
+                )
+                self.required = try container.decode(
+                    Components.Schemas.PullRequestChecks.RequiredPayload.self,
+                    forKey: .required
+                )
+                self.state = try container.decode(
+                    Components.Schemas.PullRequestChecks.StatePayload.self,
+                    forKey: .state
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "counts",
+                    "items",
+                    "omitted",
+                    "required",
+                    "state"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PullRequestStatus`.
+        public struct PullRequestStatus: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PullRequestStatus/checks`.
+            public var checks: Components.Schemas.PullRequestChecks
+            /// - Remark: Generated from `#/components/schemas/PullRequestStatus/draft`.
+            public var draft: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/PullRequestStatus/number`.
+            public var number: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/PullRequestStatus/state`.
+            @frozen public enum StatePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case open = "open"
+                case closed = "closed"
+                case merged = "merged"
+            }
+            /// - Remark: Generated from `#/components/schemas/PullRequestStatus/state`.
+            public var state: Components.Schemas.PullRequestStatus.StatePayload
+            /// - Remark: Generated from `#/components/schemas/PullRequestStatus/url`.
+            public var url: Swift.String
+            /// Creates a new `PullRequestStatus`.
+            ///
+            /// - Parameters:
+            ///   - checks:
+            ///   - draft:
+            ///   - number:
+            ///   - state:
+            ///   - url:
+            public init(
+                checks: Components.Schemas.PullRequestChecks,
+                draft: Swift.Bool,
+                number: Swift.Int,
+                state: Components.Schemas.PullRequestStatus.StatePayload,
+                url: Swift.String
+            ) {
+                self.checks = checks
+                self.draft = draft
+                self.number = number
+                self.state = state
+                self.url = url
+            }
+            public enum CodingKeys: String, CodingKey {
+                case checks
+                case draft
+                case number
+                case state
+                case url
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.checks = try container.decode(
+                    Components.Schemas.PullRequestChecks.self,
+                    forKey: .checks
+                )
+                self.draft = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .draft
+                )
+                self.number = try container.decode(
+                    Swift.Int.self,
+                    forKey: .number
+                )
+                self.state = try container.decode(
+                    Components.Schemas.PullRequestStatus.StatePayload.self,
+                    forKey: .state
+                )
+                self.url = try container.decode(
+                    Swift.String.self,
+                    forKey: .url
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "checks",
+                    "draft",
+                    "number",
+                    "state",
+                    "url"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput`.
         public struct ReadFileDiffInput: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/annotationId`.
@@ -12442,6 +12746,66 @@ extension Components {
                     "sessionName",
                     "streamId",
                     "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SessionPullRequestStatus`.
+        public struct SessionPullRequestStatus: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionPullRequestStatus/branch`.
+            public var branch: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SessionPullRequestStatus/cwd`.
+            public var cwd: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionPullRequestStatus/pullRequest`.
+            public var pullRequest: Components.Schemas.PullRequestStatus?
+            /// - Remark: Generated from `#/components/schemas/SessionPullRequestStatus/sessionId`.
+            public var sessionId: Swift.String
+            /// Creates a new `SessionPullRequestStatus`.
+            ///
+            /// - Parameters:
+            ///   - branch:
+            ///   - cwd:
+            ///   - pullRequest:
+            ///   - sessionId:
+            public init(
+                branch: Swift.String? = nil,
+                cwd: Swift.String,
+                pullRequest: Components.Schemas.PullRequestStatus? = nil,
+                sessionId: Swift.String
+            ) {
+                self.branch = branch
+                self.cwd = cwd
+                self.pullRequest = pullRequest
+                self.sessionId = sessionId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case branch
+                case cwd
+                case pullRequest
+                case sessionId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.branch = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .branch
+                )
+                self.cwd = try container.decode(
+                    Swift.String.self,
+                    forKey: .cwd
+                )
+                self.pullRequest = try container.decodeIfPresent(
+                    Components.Schemas.PullRequestStatus.self,
+                    forKey: .pullRequest
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "branch",
+                    "cwd",
+                    "pullRequest",
+                    "sessionId"
                 ])
             }
         }

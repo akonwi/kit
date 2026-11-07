@@ -477,17 +477,24 @@ old workspace metadata before observing the new directory.
 Detached HEAD has a null branch. Null Git means no usable metadata, including a
 non-worktree or a repository that cannot be inspected safely. `pullRequest` is
 optional in the public schema; native v2 always emits it as either
-`{"number":123,"url":"https://..."}` or null while unavailable/loading. PR numbers
+`{"number":123,"url":"https://...","checks":{...}}` or null while
+unavailable/loading. `checks` is the bounded check summary described in v1; native
+v2 always includes it with a PR, as `{"state":"none",...}` with empty `items`
+when the PR has no checks. PR numbers
 are positive JavaScript-safe integers; URLs are absolute credential-free HTTP(S),
 bounded to 4096 UTF-8 bytes and free of whitespace, backslashes and control/format
 characters. GitHub lookup is optional, uses the user's `gh` authentication, and
 never delays local Git delivery. Failures remain silent.
 
-Positive and negative PR lookups are cached for 60 seconds, with bounded cache,
-output, concurrency, and subprocess lifetime. Completion wakes the shared
-observer without waiting for another Git poll. Changes to PR metadata alone,
-including removal, generate `git.changed`; details outside the public Git/PR
-projection do not. Plugins need no subscription flag to consume the new member.
+Positive and negative PR lookups are refreshed once they are 20 seconds old
+while a loaded session observes the branch, with bounded cache, output,
+concurrency, and subprocess lifetime. Each lookup runs `gh pr view` and
+`gh pr checks --required` once for every session observing that branch, so
+plugins that read checks from Git context add no GitHub requests. Completion
+wakes the shared observer and the plugin host without waiting for another Git
+poll. Changes to PR metadata alone, including removal and changed check states,
+generate `git.changed`; details outside the public Git/PR projection, such as
+reviews, do not. Plugins need no subscription flag to consume the new members.
 Strict schema validators must use the updated public schema.
 
 Initialization supplies each generation's current baseline without an extra Git

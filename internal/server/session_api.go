@@ -117,6 +117,7 @@ type sessionService interface {
 	TranscriptPage(context.Context, string, string) (protocol.TranscriptPage, error)
 	VCS(context.Context, string) (protocol.SessionVCSStatus, error)
 	SubscribeVCS(context.Context, string) (vcsSource, error)
+	WatchPullRequest(context.Context, string) (pullRequestSource, error)
 	FileIndex(context.Context, string, bool) (protocol.SessionFileIndex, error)
 	Workspace(context.Context, string) (protocol.WorkspaceRef, error)
 	ListDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)

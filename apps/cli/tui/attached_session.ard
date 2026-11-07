@@ -129,6 +129,9 @@ struct Controller {
   // The latest Git status for the working directory it names, from a watch
   // restarted whenever the directory changes.
   vcs: protocol::SessionVCSStatus,
+  // The observed pull request of the working directory's branch, with its
+  // checks, from a watch that shares the Git status watch's lifetime.
+  pull_request: protocol::SessionPullRequestStatus,
   vcs_watch: contextbridge::Cancellation?,
   vcs_watched_cwd: Str,
   notice: Str,
@@ -332,6 +335,7 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     shown_mcp_warnings: [],
     plugin_footer: protocol::PluginFooter{},
     vcs: protocol::SessionVCSStatus{},
+    pull_request: protocol::SessionPullRequestStatus{},
     vcs_watch: Maybe::new<contextbridge::Cancellation>(),
     vcs_watched_cwd: "",
     notice: "",
@@ -825,7 +829,8 @@ impl Controller {
     }
   }
 
-  // Follows the working directory's Git status. The public handle reconnects
+  // Follows the working directory's Git status and its pull request's checks.
+  // The public handle reconnects
   // on its own and returns only when the watch ends or cannot continue; a
   // directory change replaces the watch, and outside a Git worktree the
   // status is empty. A failed watch shows the directory alone.
@@ -866,6 +871,19 @@ impl Controller {
                     ok(_) => (),
                   }
                 })
+                // The checks are auxiliary: a server without the stream, or
+                // a failed watch, leaves the footer without them, and the Git
+                // status watch reports connection failures.
+                async::start(fn() {
+                  let _ = session.WatchPullRequest(
+                    watch.Context,
+                    fn(status: protocol::SessionPullRequestStatus) {
+                      let _ = dispatch(fn() {
+                        self.apply_pull_request(status)
+                      })
+                    },
+                  )
+                })
               }
             },
             _ => (),
@@ -884,12 +902,26 @@ impl Controller {
     }
   }
 
+  // Keeps the pull request status for this session's current directory; a
+  // late result for a previous directory is ignored.
+  fn mut apply_pull_request(status: protocol::SessionPullRequestStatus) {
+    if self.active and status.SessionID == self.session_id() and status.CWD == self.cwd() {
+      self.pull_request = status
+    }
+  }
+
   // The footer's default content: the attached server, then the working
   // directory with its Git status, once the status describes the current
-  // directory.
+  // directory, and the checks of the pull request it shows.
   fn footer_location() footer::Location {
     let location = match self.vcs.CWD != "" and self.vcs.CWD == self.cwd() {
-      true => footer::VCSLocation(self.location, self.vcs.Status),
+      true => {
+        let shown = footer::VCSLocation(self.location, self.vcs.Status)
+        match self.pull_request.CWD == self.vcs.CWD {
+          true => footer::WithChecks(shown, self.vcs.Status, self.pull_request),
+          false => shown,
+        }
+      },
       false => footer::VCSLocation(self.location, self.no_vcs().Status),
     }
     footer::WithServer(location, self.options.Server)
@@ -6248,6 +6280,62 @@ test fn git_status_applies_only_to_the_current_session_and_directory() Void!Str 
   testing::assert(
     subject.footer_location().Text == "~/next (feature)" and subject.footer_location().Base == "~/next",
     subject.footer_location().Text,
+  )
+}
+
+private fn pull_request_status(cwd: Str, branch: Str, failed: Int) protocol::SessionPullRequestStatus {
+  protocol::SessionPullRequestStatus{
+    SessionID: "session-1",
+    CWD: cwd,
+    Branch: branch,
+    PullRequest: mut protocol::PullRequestStatus{
+      Number: 8,
+      URL: "https://github.com/akonwi/kit/pull/8",
+      State: protocol::PullRequestOpen,
+      Checks: protocol::PullRequestChecks{
+        State: protocol::PullRequestChecksFailing,
+        Counts: protocol::PullRequestCheckCounts{Passed: 10, Failed: failed},
+        Items: [],
+      },
+    },
+  }
+}
+
+test fn the_footer_shows_the_checks_of_the_pull_request_it_links() Void!Str {
+  let effects = mut Effects{
+    toasts: [],
+    drafts: [],
+    alerts: [],
+  }
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1", CWD: "/repo"}},
+  )
+  subject.location = "~/repo"
+  let status = mut branch_status("/repo", "feature", false)
+  status.Status.PullRequest = mut protocol::GitHubPullRequest{Number: 8, URL: "https://github.com/akonwi/kit/pull/8"}
+  subject.apply_vcs(status.@)
+  subject.apply_pull_request(pull_request_status("/repo", "feature", 2))
+  let checks = subject.footer_location().Checks
+  try testing::assert(
+    not unsafe::is_nil(checks) and checks.@.Text() == "✗ 10/12",
+    "the pull request's checks follow its label",
+  )
+
+  // A late result for another session or directory is ignored, and checks
+  // observed for another branch are not shown.
+  let elsewhere = mut pull_request_status("/repo", "feature", 0)
+  elsewhere.SessionID = "session-2"
+  subject.apply_pull_request(elsewhere.@)
+  subject.apply_pull_request(pull_request_status("/other", "feature", 0))
+  try testing::assert(
+    subject.footer_location().Checks.@.Text() == "✗ 10/12",
+    "another session or directory is ignored",
+  )
+  subject.apply_pull_request(pull_request_status("/repo", "main", 1))
+  testing::assert(
+    unsafe::is_nil(subject.footer_location().Checks),
+    "checks for another branch are hidden",
   )
 }
 

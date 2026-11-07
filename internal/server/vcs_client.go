@@ -15,3 +15,9 @@ type StreamError = httpapi.StreamError
 func ReadSessionVCS(body io.Reader, receive func(protocol.SessionVCSStatus) error) error {
 	return clienttransport.ReadSessionVCS(body, receive)
 }
+
+// ReadSessionPullRequest validates bounded live pull request records and
+// invokes receive in wire order.
+func ReadSessionPullRequest(body io.Reader, receive func(protocol.SessionPullRequestStatus) error) error {
+	return clienttransport.ReadSessionPullRequest(body, receive)
+}

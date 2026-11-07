@@ -8,6 +8,19 @@ public protocol SessionVCSClient: SessionClient {
     func watchVCS(_ session: String, receive: @escaping @Sendable (WireSessionVCSStatus) async -> Void) async throws
 }
 
+public protocol SessionPullRequestClient: SessionClient {
+    /// Blocks on the server-pushed pull request stream until cancellation or
+    /// failure. Reconnection starts fresh with the current status. An older
+    /// server fails with `PullRequestStreamNotServed`.
+    func watchPullRequest(_ session: String, receive: @escaping @Sendable (SessionPullRequestUpdate) async -> Void) async throws
+}
+
+extension ServerClient: SessionPullRequestClient {
+    public func watchPullRequest(_ session: String, receive: @escaping @Sendable (SessionPullRequestUpdate) async -> Void) async throws {
+        try await resolve().watchPullRequest(session, receive: receive)
+    }
+}
+
 public protocol SessionDirectoryClient: SessionVCSClient {
     func changeDirectory(_ session: String, input: WireChangeCWDInput) async throws -> SessionExcerpt
 }
