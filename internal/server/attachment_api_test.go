@@ -97,6 +97,15 @@ func TestAttachmentRoutesUploadAndRetrieveImage(t *testing.T) {
 	if response.Code != http.StatusOK || response.Header().Get("X-Kit-Attachment-ID") != info.ID || !bytes.Equal(response.Body.Bytes(), imageBytes.Bytes()) {
 		t.Fatalf("retrieval = %d, headers %#v, bytes %d", response.Code, response.Header(), response.Body.Len())
 	}
+	if got := response.Header().Get("Content-Security-Policy"); got != "sandbox; default-src 'none'" {
+		t.Fatalf("Content-Security-Policy = %q", got)
+	}
+	if got := response.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q", got)
+	}
+	if got := response.Header().Get("Content-Disposition"); got != `inline; filename=photo.png` {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
 }
 
 func TestAttachmentRouteResolvesMetadataAndReportsMissingIDs(t *testing.T) {

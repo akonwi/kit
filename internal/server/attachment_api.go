@@ -191,10 +191,19 @@ func registerAttachmentRoutes(mux *http.ServeMux, service attachmentService) {
 		writer.Header().Set("X-Kit-Image-Width", strconv.Itoa(info.Width))
 		writer.Header().Set("X-Kit-Image-Height", strconv.Itoa(info.Height))
 		writer.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": info.Filename}))
+		// Attachment bytes are user content. A browser that opens one
+		// directly must neither sniff another type nor run it with the
+		// server's origin (ADR 0059).
+		writer.Header().Set("Content-Security-Policy", attachmentContentSecurityPolicy)
+		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		writer.WriteHeader(http.StatusOK)
 		_, _ = io.Copy(writer, content)
 	})
 }
+
+// attachmentContentSecurityPolicy sandboxes attachment content in a unique
+// origin and lets it load nothing.
+const attachmentContentSecurityPolicy = "sandbox; default-src 'none'"
 
 func inspectAttachment(filename string, content io.Reader) (attachment.PutInput, error) {
 	reader := bufio.NewReader(content)
