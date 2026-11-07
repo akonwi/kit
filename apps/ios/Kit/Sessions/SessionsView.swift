@@ -129,7 +129,13 @@ struct SessionsView: View {
                 .padding(.bottom, 4)
             }
             if rows.isEmpty {
-                if store.loaded { empty } else { ProgressView().padding(.top, 120) }
+                if store.loaded {
+                    empty
+                } else {
+                    ProgressView()
+                        .padding(.top, 120)
+                        .frame(maxWidth: .infinity)
+                }
             } else {
                 TimelineView(.periodic(from: .now, by: 30)) { context in
                     LazyVStack(spacing: 0) {
