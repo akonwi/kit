@@ -60,6 +60,16 @@ final class SessionReplica {
     @ObservationIgnored var vcsReconnectDelay: Duration = .seconds(1)
     /// Whether the current stream connection delivered at least one frame.
     private var vcsStreamDelivered = false
+    /// The pull request stream, open only while the repository stream shows a
+    /// pull request. It shares the repository stream's generation.
+    @ObservationIgnored private var pullRequestTask: Task<Void, Never>?
+    /// The attachment whose server doesn't serve the pull request stream.
+    @ObservationIgnored private var pullRequestStreamNotServed: UUID?
+    /// Whether the current pull request connection delivered a record.
+    @ObservationIgnored private var pullRequestStreamDelivered = false
+    /// The latest pull request delivery. The two streams arrive independently,
+    /// so each one re-pairs it with the branch the session shows.
+    @ObservationIgnored private var pullRequestUpdate: SessionPullRequestUpdate?
 
     init(sessions: [SessionExcerpt], client: any SessionClient) {
         self.sessions = sessions
@@ -74,6 +84,7 @@ final class SessionReplica {
         watchTask?.cancel()
         historyTask?.cancel()
         vcsTask?.cancel()
+        pullRequestTask?.cancel()
     }
 
     func select(_ id: String) {
@@ -196,6 +207,76 @@ final class SessionReplica {
         let pull = status?.head.kind == .value0 ? status?.pullRequest : nil
         value.pullRequestNumber = pull?.number
         value.pullRequestURL = pull?.url
+        value.pullRequestStatus = pull == nil ? nil : Self.presented(pullRequestUpdate, in: value)
+        current = value
+        onReceive?(value)
+        if pull == nil { stopPullRequestStream() } else { startPullRequestStream() }
+    }
+
+    /// Opens the pull request stream once a pull request shows, so a session
+    /// without one holds no extra connection. The server observes checks
+    /// whether or not anyone watches; this stream only reads that state.
+    private func startPullRequestStream() {
+        guard pullRequestTask == nil, pullRequestStreamNotServed != attachmentGeneration,
+              let client = client as? any SessionPullRequestClient, let cwd = current?.cwd else { return }
+        let id = selectedID, generation = attachmentGeneration, read = vcsGeneration
+        let floorDelay = vcsReconnectDelay
+        pullRequestTask = Task { [weak self] in
+            var delay = floorDelay
+            while !Task.isCancelled {
+                self?.pullRequestStreamDelivered = false
+                do {
+                    try await client.watchPullRequest(id) { [weak self] update in
+                        await self?.applyPullRequest(update, id: id, cwd: cwd, generation: generation, read: read)
+                    }
+                } catch is CancellationError {
+                    return
+                } catch is PullRequestStreamNotServed {
+                    // An older server: show no check status until reattaching.
+                    if let self, self.attachmentGeneration == generation { self.pullRequestStreamNotServed = generation }
+                    return
+                } catch ClientError.http(let code) where code == 401 || code == 403 || code == 404 || code == 410 {
+                    return
+                } catch is DecodingError {
+                    return
+                } catch ClientError.invalidPayload, ClientError.oversized, ClientError.incompatible,
+                        ClientError.incompatibleDaemon {
+                    return
+                } catch {
+                    // Transient (including ClientError.disconnected): reconnect fresh.
+                }
+                guard !Task.isCancelled, let self, self.attachmentGeneration == generation,
+                      self.vcsGeneration == read else { return }
+                if self.pullRequestStreamDelivered { delay = floorDelay }
+                do { try await Task.sleep(for: delay) } catch { return }
+                delay = min(delay * 2, .seconds(15))
+            }
+        }
+    }
+
+    private func stopPullRequestStream() {
+        pullRequestTask?.cancel(); pullRequestTask = nil
+        pullRequestUpdate = nil
+    }
+
+    /// The delivered pull request when it belongs to the branch and pull
+    /// request the session shows.
+    nonisolated static func presented(_ update: SessionPullRequestUpdate?, in session: SessionExcerpt) -> PullRequestStatus? {
+        guard let update, session.gitHeadKind == "branch", let branch = session.gitHead, update.branch == branch,
+              let status = update.pullRequest, status.number == session.pullRequestNumber else { return nil }
+        return status
+    }
+
+    /// Applies one pull request delivery under the same gates as repository
+    /// status. The status is kept only for the branch the session shows.
+    private func applyPullRequest(_ update: SessionPullRequestUpdate, id: String, cwd: String, generation: UUID, read: UUID) {
+        guard attachmentGeneration == generation, vcsGeneration == read, selectedID == id,
+              current?.cwd == cwd, update.sessionID == id, update.cwd == cwd, var value = current else { return }
+        pullRequestStreamDelivered = true
+        pullRequestUpdate = update
+        let status = Self.presented(update, in: value)
+        guard value.pullRequestStatus != status else { return }
+        value.pullRequestStatus = status
         current = value
         onReceive?(value)
     }
@@ -302,6 +383,7 @@ final class SessionReplica {
 
     func detach() {
         vcsTask?.cancel(); vcsTask = nil
+        stopPullRequestStream()
         vcsGeneration = UUID()
         cancelHistory()
         attachmentGeneration = UUID()
@@ -444,6 +526,7 @@ final class SessionReplica {
             // deliveries must not erase the presented pull request.
             merged.pullRequestNumber = self.current?.pullRequestNumber
             merged.pullRequestURL = self.current?.pullRequestURL
+            merged.pullRequestStatus = self.current?.pullRequestStatus
         } else {
             workspaceFiles = []
             // A cwd transition obsoletes any in-flight repository read. Cancel
@@ -451,6 +534,7 @@ final class SessionReplica {
             // later, even if the session returns to that cwd (A→B→A).
             vcsGeneration = UUID()
             vcsTask?.cancel(); vcsTask = nil
+            stopPullRequestStream()
             }
         if resetHistoryOnReceive || historyBoundary != snapshot.historyStart {
             cancelHistory()

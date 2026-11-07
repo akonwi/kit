@@ -275,7 +275,13 @@ func TestObserverSeparatesRichPullRequestTransitionsFromFooterUpdates(t *testing
 		t.Fatal(err)
 	}
 	defer rich.Close()
+	latest, err := o.SubscribeRich()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer latest.Close()
 	_ = nextObserved(t, footer)
+	_ = nextObserved(t, latest)
 	if _, err := rich.Next(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -292,11 +298,21 @@ func TestObserverSeparatesRichPullRequestTransitionsFromFooterUpdates(t *testing
 	}
 	passed := pullrequest.Clone(initial)
 	passed.Checks[0].State = pullrequest.CheckPassed
+	drainUpdates(o)
 	o.mu.Lock()
 	o.publishLocked(Snapshot{CWD: "/repo", Git: git, PullRequest: passed})
 	o.mu.Unlock()
 	if value, err := rich.Next(t.Context()); err != nil || value.Status.Checks[0].State != pullrequest.CheckPassed {
 		t.Fatalf("rich transition=%+v err=%v", value, err)
+	}
+	select {
+	case <-o.Updates():
+	default:
+		t.Fatal("a check-only transition did not invalidate the plugin adapter")
+	}
+	// The latest-only rich stream coalesced both publications to the newest.
+	if value := nextObserved(t, latest); value.PullRequest == nil || value.PullRequest.Checks[0].State != pullrequest.CheckPassed {
+		t.Fatalf("rich latest=%+v", value)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
@@ -379,5 +395,12 @@ func TestObserverBoundsSubscriptionsAndCloseBeforeStart(t *testing.T) {
 	o.Start()
 	if _, err := o.Subscribe(); err == nil {
 		t.Fatal("closed observer accepted subscriber")
+	}
+}
+
+func drainUpdates(o *Observer) {
+	select {
+	case <-o.Updates():
+	default:
 	}
 }

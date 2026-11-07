@@ -30,6 +30,9 @@ public struct SessionExcerpt: Decodable, Identifiable, Sendable, Equatable {
     public var gitHeadKind: String? = nil
     public var pullRequestNumber: Int? = nil
     public var pullRequestURL: String? = nil
+    /// The branch pull request's checks from the pull request stream. It
+    /// describes the presented pull request only when its number matches.
+    public var pullRequestStatus: PullRequestStatus? = nil
     /// Local attachment identity, renewed when the event stream resynchronizes.
     public var watchGeneration: String? = nil
     public let date: String
@@ -64,7 +67,7 @@ public struct SessionExcerpt: Decodable, Identifiable, Sendable, Equatable {
     /// stream, oldest first and bounded. Never part of a snapshot.
     public var requestedPages: [RequestedPage]? = nil
 
-    public init(id: String, isTemporary: Bool? = nil, title: String, parentSessionID: String? = nil, parentSessionName: String? = nil, sourceNotice: String? = nil, sourceTitle: String, model: String, thinking: String, workspace: String, cwd: String? = nil, usage: SessionUsage? = nil, contextTokens: Int? = nil, contextWindow: Int? = nil, gitHead: String? = nil, gitDirty: Bool? = nil, gitHeadKind: String? = nil, pullRequestNumber: Int? = nil, pullRequestURL: String? = nil, watchGeneration: String? = nil, date: String, lastActivity: String? = nil, activity: String? = nil, tabStatus: SessionTabStatus? = nil, messages: [TranscriptMessage], historyCursor: String? = nil, historyStart: Int64? = nil, subagents: SubagentRoster? = nil, subagentDiagnostics: [WireSubagentDiagnostic]? = nil, promptCommands: [PromptCommand]? = nil, pluginCommands: [PluginCommand]? = nil, pluginFooter: WirePluginFooter? = nil, activeCompactionID: String? = nil, compactionOutcome: CompactionOutcome? = nil, activeBashID: String? = nil, activeRunID: String? = nil, observedTurns: [String]? = nil, followUps: FollowUpState? = nil, providerRetryAt: String? = nil, providerRetryCount: Int? = nil, configurationRevision: UInt64? = nil, inputs: [String]? = nil, annotations: [FileAnnotation]? = nil, pendingInteractions: [WireInteractionRequest]? = nil, scratchpad: ScratchpadRecord? = nil, mcpServers: [MCPServerStatus]? = nil, mcpWarnings: [String]? = nil, requestedPages: [RequestedPage]? = nil) {
+    public init(id: String, isTemporary: Bool? = nil, title: String, parentSessionID: String? = nil, parentSessionName: String? = nil, sourceNotice: String? = nil, sourceTitle: String, model: String, thinking: String, workspace: String, cwd: String? = nil, usage: SessionUsage? = nil, contextTokens: Int? = nil, contextWindow: Int? = nil, gitHead: String? = nil, gitDirty: Bool? = nil, gitHeadKind: String? = nil, pullRequestNumber: Int? = nil, pullRequestURL: String? = nil, pullRequestStatus: PullRequestStatus? = nil, watchGeneration: String? = nil, date: String, lastActivity: String? = nil, activity: String? = nil, tabStatus: SessionTabStatus? = nil, messages: [TranscriptMessage], historyCursor: String? = nil, historyStart: Int64? = nil, subagents: SubagentRoster? = nil, subagentDiagnostics: [WireSubagentDiagnostic]? = nil, promptCommands: [PromptCommand]? = nil, pluginCommands: [PluginCommand]? = nil, pluginFooter: WirePluginFooter? = nil, activeCompactionID: String? = nil, compactionOutcome: CompactionOutcome? = nil, activeBashID: String? = nil, activeRunID: String? = nil, observedTurns: [String]? = nil, followUps: FollowUpState? = nil, providerRetryAt: String? = nil, providerRetryCount: Int? = nil, configurationRevision: UInt64? = nil, inputs: [String]? = nil, annotations: [FileAnnotation]? = nil, pendingInteractions: [WireInteractionRequest]? = nil, scratchpad: ScratchpadRecord? = nil, mcpServers: [MCPServerStatus]? = nil, mcpWarnings: [String]? = nil, requestedPages: [RequestedPage]? = nil) {
         self.id = id
         self.isTemporary = isTemporary
         self.title = title
@@ -84,6 +87,7 @@ public struct SessionExcerpt: Decodable, Identifiable, Sendable, Equatable {
         self.gitHeadKind = gitHeadKind
         self.pullRequestNumber = pullRequestNumber
         self.pullRequestURL = pullRequestURL
+        self.pullRequestStatus = pullRequestStatus
         self.watchGeneration = watchGeneration
         self.date = date
         self.lastActivity = lastActivity

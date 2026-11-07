@@ -30,7 +30,11 @@ func TestVCSPushSharesPRCompletionWithPluginsAndReconnect(t *testing.T) {
 	t.Setenv("PATH", fixture+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if err := os.WriteFile(filepath.Join(fixture, "gh"), []byte(`#!/bin/sh
 while [ ! -f "$KIT_PR_RELEASE" ]; do sleep 0.01; done
-printf '%s' '{"number":42,"url":"https://github.com/a/b/pull/42","headRefName":"main"}'
+if [ "$2" = "checks" ]; then
+  printf '%s' '[{"bucket":"fail","name":"test","state":"FAILURE","workflow":"CI"}]'
+  exit 1
+fi
+printf '%s' '{"number":42,"url":"https://github.com/a/b/pull/42","headRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"test","workflowName":"CI","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","name":"lint","workflowName":"CI","status":"IN_PROGRESS"},{"__typename":"StatusContext","context":"docs","state":"SUCCESS"}]}'
 `), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -169,6 +173,29 @@ for line in sys.stdin:
 	pr := pluginGit["pullRequest"].(map[string]any)
 	if pr["number"] != float64(42) || pr["url"] != remote.Status.PullRequest.URL {
 		t.Fatalf("plugin/client disagree: %v %+v", pluginGit, remote.Status.PullRequest)
+	}
+	checks, _ := json.Marshal(pr["checks"])
+	wantChecks := `{"counts":{"canceled":0,"failed":1,"passed":1,"pending":1,"skipped":0,"unknown":0},"items":[{"name":"test","required":true,"state":"failed","workflow":"CI"},{"name":"lint","required":false,"state":"pending","workflow":"CI"},{"name":"docs","required":false,"state":"passed"}],"omitted":0,"required":"unsatisfied","state":"failing"}`
+	if string(checks) != wantChecks {
+		t.Fatalf("plugin PR checks=%s\nwant %s", checks, wantChecks)
+	}
+	// Clients see the same summary through the pull request stream.
+	prCtx, prCancel := context.WithCancel(t.Context())
+	prBody, err := client.StreamSessionPullRequest(prCtx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var clientStatus protocol.SessionPullRequestStatus
+	_ = ReadSessionPullRequest(prBody, func(value protocol.SessionPullRequestStatus) error {
+		clientStatus = value
+		prCancel()
+		return context.Canceled
+	})
+	prBody.Close()
+	prCancel()
+	clientChecks, _ := json.Marshal(clientStatus.PullRequest.Checks)
+	if clientStatus.Branch != "main" || clientStatus.PullRequest.Number != 42 || clientStatus.PullRequest.State != protocol.PullRequestOpen || string(clientChecks) != `{"state":"failing","required":"unsatisfied","counts":{"passed":1,"failed":1,"pending":1,"skipped":0,"canceled":0,"unknown":0},"items":[{"name":"test","workflow":"CI","state":"failed","required":true},{"name":"lint","workflow":"CI","state":"pending","required":false},{"name":"docs","state":"passed","required":false}],"omitted":0}` {
+		t.Fatalf("client PR status=%+v checks=%s", clientStatus, clientChecks)
 	}
 	reconnectCtx, reconnectCancel := context.WithCancel(t.Context())
 	reconnected, err := client.StreamSessionVCS(reconnectCtx, created.ID)

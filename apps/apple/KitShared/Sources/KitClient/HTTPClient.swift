@@ -907,6 +907,52 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         throw ClientError.disconnected
     }
 
+    /// Blocks on the server-pushed pull request stream: the current status
+    /// first, then deduplicated latest-only `pullRequest.status` records,
+    /// with comment heartbeats. Reconnection is the caller's policy. Every
+    /// record is strictly decoded and validated at this boundary. A server
+    /// that predates the stream fails with `PullRequestStreamNotServed`.
+    public func watchPullRequest(_ id: String, receive: @escaping @Sendable (SessionPullRequestUpdate) async -> Void) async throws {
+        guard Self.validScratchpadSession(id) else { throw ClientError.invalidPayload }
+        guard let protocolVersion = Operations.StreamSessionPullRequest.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else {
+            throw ClientError.incompatible
+        }
+        let output: Operations.StreamSessionPullRequest.Output
+        do {
+            output = try await api.streamSessionPullRequest(
+                path: .init(sessionID: id),
+                headers: .init(xKitInstanceID: instance, xKitProtocolVersion: protocolVersion)
+            )
+        } catch let error as OpenAPIRuntime.ClientError {
+            if let failure = error.underlyingError as? ClientError { throw failure }
+            // A declared not_found decodes; an older server's unrouted 404 doesn't.
+            if error.response?.status.code == 404 { throw PullRequestStreamNotServed() }
+            if error.response != nil { throw ClientError.invalidPayload }
+            throw error
+        }
+        let body: HTTPBody
+        switch output {
+        case .ok(let response): body = try response.body.textEventStream
+        case .badRequest: throw ClientError.http(400)
+        case .unauthorized: throw ClientError.http(401)
+        case .forbidden: throw ClientError.http(403)
+        case .notFound: throw ClientError.http(404)
+        case .conflict: throw ClientError.http(409)
+        case .misdirectedRequest: throw ClientError.http(421)
+        case .upgradeRequired: throw ClientError.http(426)
+        case .tooManyRequests: throw ClientError.http(429)
+        case .internalServerError: throw ClientError.http(500)
+        case .serviceUnavailable: throw ClientError.http(503)
+        case .undocumented: throw ClientError.invalidPayload
+        }
+        for try await event in body.asDecodedServerSentEvents() {
+            try Task.checkCancellation()
+            if let status = try PullRequestStatusRecords.decode(event, session: id) { await receive(status) }
+        }
+        try Task.checkCancellation()
+        throw ClientError.disconnected
+    }
+
     public func watchPluginNotifications(_ id: String, receive: @escaping @Sendable (PluginNotification) async -> Void) async throws {
         guard Self.validScratchpadSession(id) else { throw ClientError.invalidPayload }
         guard let protocolVersion = Operations.StreamPluginToasts.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else {

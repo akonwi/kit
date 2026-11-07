@@ -79,6 +79,13 @@ func registerVCSRoutes(mux *http.ServeMux, options httpapi.ServeOptions, service
 		}
 		return vcsStreamSource{source}, nil
 	})
+	httpapi.HandleStream(mux, options, httpapi.StreamSessionPullRequest, func(ctx context.Context, params httpapi.SessionPath) (httpapi.StreamSource[protocol.SessionPullRequestStatus], error) {
+		source, err := service.WatchPullRequest(ctx, params.SessionID)
+		if err != nil {
+			return nil, vcsAPIError(err)
+		}
+		return pullRequestStreamSource{source}, nil
+	})
 }
 
 // vcsAPIError maps repository-status failures to the declared ADR 0034 codes.

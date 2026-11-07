@@ -47,6 +47,7 @@ type Observer struct {
 	probeCancel            context.CancelFunc
 	probeFailed            bool
 	subscribers            map[chan Snapshot]struct{}
+	richSubscribers        map[chan Snapshot]struct{}
 	pullRequestSubscribers map[*PullRequestStatusSubscription]struct{}
 	pullRequests           *githubpr.Cache
 	probe                  func(context.Context, string) (*Status, error)
@@ -56,7 +57,7 @@ type Observer struct {
 // NewObserver constructs an unstarted session-owned observer.
 func NewObserver(ctx context.Context, cwd string, cache *githubpr.Cache) *Observer {
 	ctx, cancel := context.WithCancel(ctx)
-	return &Observer{ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), updates: make(chan struct{}, 1), snapshot: Snapshot{CWD: cwd}, ready: make(chan struct{}), subscribers: make(map[chan Snapshot]struct{}), pullRequestSubscribers: make(map[*PullRequestStatusSubscription]struct{}), pullRequests: cache, probe: Probe, interval: observeInterval}
+	return &Observer{ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), updates: make(chan struct{}, 1), snapshot: Snapshot{CWD: cwd}, ready: make(chan struct{}), subscribers: make(map[chan Snapshot]struct{}), richSubscribers: make(map[chan Snapshot]struct{}), pullRequestSubscribers: make(map[*PullRequestStatusSubscription]struct{}), pullRequests: cache, probe: Probe, interval: observeInterval}
 }
 
 // Start begins background observation without waiting for Git or GitHub.
@@ -70,7 +71,8 @@ func (o *Observer) Start() {
 	go o.run()
 }
 
-// Updates coalesces invalidations for the plugin adapter. Consumers read Current.
+// Updates coalesces invalidations for the plugin adapter, including changes
+// to rich PR status that the visible snapshot stream omits. Consumers read Current.
 func (o *Observer) Updates() <-chan struct{} { return o.updates }
 
 // Current returns a detached latest snapshot, including pending/unavailable state.
@@ -142,6 +144,10 @@ func (o *Observer) Close(ctx context.Context) error {
 			delete(o.subscribers, c)
 			close(c)
 		}
+		for c := range o.richSubscribers {
+			delete(o.richSubscribers, c)
+			close(c)
+		}
 		for subscription := range o.pullRequestSubscribers {
 			delete(o.pullRequestSubscribers, subscription)
 			subscription.setError(context.Canceled)
@@ -164,6 +170,7 @@ func (o *Observer) Close(ctx context.Context) error {
 type Subscription struct {
 	observer *Observer
 	values   chan Snapshot
+	rich     bool
 }
 
 // Subscribe snapshots atomically with admission. Slow readers coalesce updates.
@@ -179,7 +186,24 @@ func (o *Observer) Subscribe() (*Subscription, error) {
 	c := make(chan Snapshot, 1)
 	c <- cloneSnapshot(o.snapshot)
 	o.subscribers[c] = struct{}{}
-	return &Subscription{o, c}, nil
+	return &Subscription{observer: o, values: c}, nil
+}
+
+// SubscribeRich is a latest-state stream like Subscribe that also delivers
+// changes to rich PR status, such as check states, which Subscribe omits.
+func (o *Observer) SubscribeRich() (*Subscription, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.closed {
+		return nil, context.Canceled
+	}
+	if len(o.richSubscribers) >= maxSubscribers {
+		return nil, ErrSubscriberLimit
+	}
+	c := make(chan Snapshot, 1)
+	c <- cloneSnapshot(o.snapshot)
+	o.richSubscribers[c] = struct{}{}
+	return &Subscription{observer: o, values: c, rich: true}, nil
 }
 
 // PullRequestStatusUpdate is one canonical pull-request observation tied to
@@ -286,8 +310,12 @@ func (s *Subscription) Close() {
 	o := s.observer
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if _, ok := o.subscribers[s.values]; ok {
-		delete(o.subscribers, s.values)
+	subscribers := o.subscribers
+	if s.rich {
+		subscribers = o.richSubscribers
+	}
+	if _, ok := subscribers[s.values]; ok {
+		delete(subscribers, s.values)
 		close(s.values)
 	}
 }
@@ -320,19 +348,30 @@ func (o *Observer) publishLocked(value Snapshot) {
 			}
 		}
 	}
-	if sameVisibleSnapshot(previous, value) {
+	visible := !sameVisibleSnapshot(previous, value)
+	if !visible && !pullRequestChanged {
 		return
 	}
-	for c := range o.subscribers {
+	if visible {
+		replaceLatest(o.subscribers, value)
+	}
+	replaceLatest(o.richSubscribers, value)
+	// Plugins project PR checks too, so any PR change invalidates them.
+	select {
+	case o.updates <- struct{}{}:
+	default:
+	}
+}
+
+// replaceLatest gives each latest-only subscriber value in place of any
+// value it has not read yet.
+func replaceLatest(subscribers map[chan Snapshot]struct{}, value Snapshot) {
+	for c := range subscribers {
 		select {
 		case <-c:
 		default:
 		}
 		c <- cloneSnapshot(value)
-	}
-	select {
-	case o.updates <- struct{}{}:
-	default:
 	}
 }
 

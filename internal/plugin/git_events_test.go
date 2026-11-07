@@ -311,7 +311,14 @@ func TestGitEventsIncludePRChangesAndCloneInitializationContext(t *testing.T) {
 	if initial.Context.Project.Git == nil || initial.Context.Project.Git.PullRequest == nil || initial.Context.Project.Git.PullRequest.Number != 12 {
 		t.Fatalf("initial PR context=%s", raw)
 	}
-	for index, pr := range []*PullRequestContext{{Number: 13, URL: "https://github.com/a/b/pull/13"}, nil} {
+	pending := &PullRequestChecks{State: "pending", Required: "pending", Counts: PullRequestCheckCounts{Pending: 1}, Items: []PullRequestCheck{{Name: "test", Workflow: "CI", State: "pending", Required: true}}}
+	failing := &PullRequestChecks{State: "failing", Required: "unsatisfied", Counts: PullRequestCheckCounts{Failed: 1}, Items: []PullRequestCheck{{Name: "test", Workflow: "CI", State: "failed", Required: true}}}
+	for index, pr := range []*PullRequestContext{
+		{Number: 13, URL: "https://github.com/a/b/pull/13"},
+		{Number: 13, URL: "https://github.com/a/b/pull/13", Checks: pending},
+		{Number: 13, URL: "https://github.com/a/b/pull/13", Checks: failing},
+		nil,
+	} {
 		mu.Lock()
 		state.PullRequest = pr
 		mu.Unlock()
@@ -325,10 +332,25 @@ func TestGitEventsIncludePRChangesAndCloneInitializationContext(t *testing.T) {
 			t.Fatalf("PR-only events=%v want %s", events, expected)
 		}
 	}
-	original := &GitContext{Root: cwd, PullRequest: &PullRequestContext{Number: 42}}
+	events := gitEvents(t, h, root)
+	if want := `{"git":{"pullRequest":{"number":13,"url":"https://github.com/a/b/pull/13","checks":{"state":"failing","required":"unsatisfied","counts":{"passed":0,"failed":1,"pending":0,"skipped":0,"canceled":0,"unknown":0},"items":[{"name":"test","workflow":"CI","state":"failed","required":true}],"omitted":0}},"root":` + mustJSONString(t, cwd) + `,"branch":"main","dirty":false}}`; events[2] != want {
+		t.Fatalf("check-change event=%s\nwant %s", events[2], want)
+	}
+	original := &GitContext{Root: cwd, PullRequest: &PullRequestContext{Number: 42, Checks: failing}}
 	copy := cloneGitContext(original)
 	copy.PullRequest.Number = 99
-	if original.PullRequest.Number != 42 {
+	copy.PullRequest.Checks.State = "passing"
+	copy.PullRequest.Checks.Items[0].State = "passed"
+	if original.PullRequest.Number != 42 || original.PullRequest.Checks.State != "failing" || original.PullRequest.Checks.Items[0].State != "failed" {
 		t.Fatal("Git context clone aliases PR metadata")
 	}
+}
+
+func mustJSONString(t *testing.T, value string) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
 }

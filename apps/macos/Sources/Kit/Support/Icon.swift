@@ -26,6 +26,7 @@ enum Icon: String, CaseIterable, Sendable {
     case check
     case checkCircle = "check-circle"
     case circleHalf = "circle-half"
+    case clock
     case copy
     case cornersIn = "corners-in"
     case cornersOut = "corners-out"
@@ -49,6 +50,7 @@ enum Icon: String, CaseIterable, Sendable {
     case key
     case lightbulb
     case magnifyingGlass = "magnifying-glass"
+    case minusCircle = "minus-circle"
     case moon
     case note
     case notePencil = "note-pencil"

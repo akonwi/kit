@@ -4318,6 +4318,137 @@
         ],
         "type": "object"
       },
+      "PullRequestCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string"
+          },
+          "workflow": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "state",
+          "required"
+        ],
+        "type": "object"
+      },
+      "PullRequestCheckCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "canceled": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          },
+          "passed": {
+            "type": "integer"
+          },
+          "pending": {
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "integer"
+          },
+          "unknown": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "passed",
+          "failed",
+          "pending",
+          "skipped",
+          "canceled",
+          "unknown"
+        ],
+        "type": "object"
+      },
+      "PullRequestChecks": {
+        "additionalProperties": false,
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/PullRequestCheckCounts"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PullRequestCheck"
+            },
+            "type": "array"
+          },
+          "omitted": {
+            "type": "integer"
+          },
+          "required": {
+            "enum": [
+              "unknown",
+              "pending",
+              "satisfied",
+              "unsatisfied"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "passing",
+              "failing",
+              "pending",
+              "none"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "required",
+          "counts",
+          "items",
+          "omitted"
+        ],
+        "type": "object"
+      },
+      "PullRequestStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "$ref": "#/components/schemas/PullRequestChecks"
+          },
+          "draft": {
+            "type": "boolean"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "closed",
+              "merged"
+            ],
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "url",
+          "state",
+          "draft",
+          "checks"
+        ],
+        "type": "object"
+      },
       "ReadFileDiffInput": {
         "additionalProperties": false,
         "properties": {
@@ -5270,6 +5401,28 @@
           "sessionId",
           "sessionName",
           "kind"
+        ],
+        "type": "object"
+      },
+      "SessionPullRequestStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "pullRequest": {
+            "$ref": "#/components/schemas/PullRequestStatus"
+          },
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "cwd"
         ],
         "type": "object"
       },
@@ -26443,6 +26596,369 @@
           "maxRecordBytes": 32768,
           "records": [
             "plugin.toast"
+          ],
+          "resumable": false
+        }
+      }
+    },
+    "/v1/sessions/{sessionID}/pull-request/events": {
+      "get": {
+        "operationId": "streamSessionPullRequest",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Kit-Protocol-Version",
+            "required": true,
+            "schema": {
+              "enum": [
+                50
+              ],
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionPullRequestStatus"
+                }
+              }
+            },
+            "description": "Server-sent event stream; each record's data is one payload object"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_request": "#/components/schemas/InvalidRequestError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidRequestError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "credential_expired": "#/components/schemas/VcsCredentialExpiredError",
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/VcsCredentialExpiredError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "not_found": "#/components/schemas/NotFoundError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/NotFoundError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "capacity_exceeded": "#/components/schemas/CapacityExceededError",
+                          "rate_limited": "#/components/schemas/VcsRateLimitedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/CapacityExceededError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/VcsRateLimitedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "vcs"
+        ],
+        "x-kit-stream": {
+          "maxRecordBytes": 65536,
+          "records": [
+            "pullRequest.status"
           ],
           "resumable": false
         }

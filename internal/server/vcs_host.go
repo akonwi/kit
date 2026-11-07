@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/akonwi/kit/internal/plugin"
+	"github.com/akonwi/kit/internal/pullrequest"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/vcs"
 )
@@ -40,9 +41,25 @@ func (h *sessionPluginHost) projectContext(ctx context.Context, cwd string) (plu
 	}
 	result.Git = &plugin.GitContext{Root: status.Root, Branch: branch, Dirty: status.Dirty}
 	if value.PullRequest != nil {
-		result.Git.PullRequest = &plugin.PullRequestContext{Number: value.PullRequest.Number, URL: value.PullRequest.URL}
+		result.Git.PullRequest = &plugin.PullRequestContext{Number: value.PullRequest.Number, URL: value.PullRequest.URL, Checks: pluginPullRequestChecks(value.PullRequest)}
 	}
 	return result, nil
+}
+
+// pluginPullRequestChecks projects the bounded check summary into the public
+// plugin Git context.
+func pluginPullRequestChecks(status *pullrequest.Status) *plugin.PullRequestChecks {
+	summary := pullrequest.SummarizeChecks(status)
+	counts := summary.Counts
+	result := &plugin.PullRequestChecks{
+		State: string(summary.State), Required: string(summary.Required),
+		Counts: plugin.PullRequestCheckCounts{Passed: counts.Passed, Failed: counts.Failed, Pending: counts.Pending, Skipped: counts.Skipped, Canceled: counts.Canceled, Unknown: counts.Unknown},
+		Items:  make([]plugin.PullRequestCheck, 0, len(summary.Checks)), Omitted: summary.Omitted,
+	}
+	for _, check := range summary.Checks {
+		result.Items = append(result.Items, plugin.PullRequestCheck{Name: check.Name, Workflow: check.Workflow, State: string(check.State), Required: check.Required})
+	}
+	return result
 }
 func (h *sessionPluginHost) VCS(ctx context.Context) (session.VCSUpdate, error) {
 	value, err := h.vcs.Read(ctx)
@@ -57,6 +74,23 @@ func (h *sessionPluginHost) SubscribePullRequestStatus() (session.PullRequestSta
 		return nil, err
 	}
 	return sessionPullRequestStatusSubscription{source}, nil
+}
+
+// WatchPullRequestStatus serves clients the latest rich PR status only.
+func (h *sessionPluginHost) WatchPullRequestStatus() (session.PullRequestStatusSubscription, error) {
+	source, err := h.vcs.SubscribeRich()
+	if err != nil {
+		return nil, err
+	}
+	return sessionLatestPullRequestStatus{source}, nil
+}
+
+type sessionLatestPullRequestStatus struct{ source *vcs.Subscription }
+
+func (s sessionLatestPullRequestStatus) Close() { s.source.Close() }
+func (s sessionLatestPullRequestStatus) Next(ctx context.Context) (session.PullRequestStatusUpdate, error) {
+	value, err := s.source.Next(ctx)
+	return projectPullRequestStatusUpdate(value), err
 }
 
 func (h *sessionPluginHost) SubscribeVCS() (session.VCSSubscription, error) {
