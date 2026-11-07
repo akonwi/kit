@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 import OpenAPIRuntime
 import Testing
 @testable import Kit
@@ -301,5 +303,28 @@ private actor ChecksClient: SessionVCSClient, SessionPullRequestClient {
         #expect(await client.pullRequestOpens == 1)
         #expect(PullRequestChecksPresentation.make(replica.snapshot) == nil)
         #expect(WorkspaceLocation.pullRequestNumber(replica.snapshot) == 43)
+    }
+}
+
+@MainActor struct PullRequestChecksListTests {
+    /// The list is the app's anchored popover card: a 32 pt header, a rule,
+    /// 26 pt rows inside 4 pt of padding, and a rule over the GitHub link
+    /// when the server omitted checks. Past ~10 rows it scrolls.
+    @Test func theListIsAnAnchoredCardSizedToItsRows() throws {
+        let theme = ThemeConfiguration.decode("").theme(dark: true)
+        func size(rows: Int, omitted: Int) throws -> CGSize {
+            let checks = (0..<rows).map { PullRequestChecks.Check(name: "check \($0)", workflow: "CI", state: .passed) }
+            let presentation = try #require(PullRequestChecksPresentation.make(checksExcerpt(
+                status: status(.passing, counts: .init(passed: rows + omitted), items: checks, omitted: omitted))))
+            let listed = PullRequestChecksListed()
+            listed.presentation = presentation
+            return NSHostingView(rootView: PullRequestChecksList(listed: listed, theme: theme)).fittingSize
+        }
+        #expect(try size(rows: 3, omitted: 0) == CGSize(width: 360, height: 32 + 1 + 3 * 26 + 8))
+        #expect(try size(rows: 3, omitted: 4) == CGSize(width: 360, height: 32 + 1 + 3 * 26 + 8 + 1 + 28))
+        #expect(try size(rows: 50, omitted: 0) == CGSize(width: 360, height: 32 + 1 + 280))
+        #expect(AnchoredPopover.frame(anchor: NSRect(x: 400, y: 800, width: 64, height: 20),
+                                      size: CGSize(width: 360, height: 119), screen: nil, edge: .below)
+            == NSRect(x: 400, y: 675, width: 360, height: 119))
     }
 }

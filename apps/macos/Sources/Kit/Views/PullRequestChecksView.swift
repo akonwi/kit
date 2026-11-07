@@ -90,14 +90,19 @@ extension MicaTheme {
 }
 
 /// The checks chip beside the pull request chip. Clicking it lists the
-/// checks in a popover; the pull request chip still opens the pull request.
+/// checks in the app's anchored popover card, below the chip; the pull
+/// request chip still opens the pull request.
 struct PullRequestChecksChip: View {
     @Environment(\.mica) private var theme
+    @Environment(\.openURL) private var openURL
     let presentation: PullRequestChecksPresentation
-    @State private var showingChecks = false
+    @State private var popover = AnchoredPopover()
+    @State private var anchor = ComposerPickerAnchor()
+    @State private var listed = PullRequestChecksListed()
+    @State private var open = false
 
     var body: some View {
-        Button { showingChecks.toggle() } label: {
+        Button(action: toggle) {
             HStack(spacing: 5) {
                 IconView(presentation.icon, size: 12)
                 Text(presentation.count)
@@ -105,46 +110,82 @@ struct PullRequestChecksChip: View {
             .foregroundStyle(theme.color(presentation.tone))
             .padding(.horizontal, 6)
             .frame(height: 20)
-            .background(theme.frameHover, in: RoundedRectangle(cornerRadius: 3))
+            .background(open ? theme.hover : theme.frameHover, in: RoundedRectangle(cornerRadius: 3))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .fixedSize()
+        .background(ComposerPickerAnchorView(anchor: anchor))
         .help(presentation.spokenSummary)
         .accessibilityLabel(presentation.spokenSummary)
         .accessibilityHint("Shows the pull request's checks")
-        .popover(isPresented: $showingChecks, arrowEdge: .bottom) {
-            PullRequestChecksList(presentation: presentation)
+        .onAppear { listed.presentation = presentation }
+        // An open list follows the stream.
+        .onChange(of: presentation) { listed.presentation = presentation }
+        .onDisappear { popover.dismiss() }
+    }
+
+    private func toggle() {
+        if popover.isOpen { popover.dismiss(); return }
+        // The click that reached the chip already closed the list.
+        if let closedAt = popover.closedAt, Date().timeIntervalSince(closedAt) < 0.3 { return }
+        guard let frame = anchor.screenFrame, let window = anchor.view?.window else { return }
+        listed.presentation = presentation
+        let content = PullRequestChecksList(listed: listed, theme: theme)
+            .environment(\.openURL, openURL)
+        open = true
+        popover.show(anchor: frame, parent: window, edge: .below, alignment: .leading, content: content) {
+            open = false
         }
     }
 }
 
-/// The popover listing a pull request's checks, most urgent first.
+/// The checks an open list shows, updated while it is open.
+@MainActor @Observable final class PullRequestChecksListed {
+    var presentation: PullRequestChecksPresentation?
+}
+
+/// The popover card listing a pull request's checks, most urgent first: a
+/// header with the counts and the required checks' state, then the checks.
 struct PullRequestChecksList: View {
-    @Environment(\.mica) private var theme
-    let presentation: PullRequestChecksPresentation
+    let listed: PullRequestChecksListed
+    let theme: MicaTheme
+
+    static let width: CGFloat = 360
+    static let rowHeight: CGFloat = 26
+    static let maxListHeight: CGFloat = 280
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(presentation.summary).font(.kit(size: 12, weight: .semibold)).foregroundStyle(theme.text)
-                if let requirement = presentation.requirement {
-                    Text(requirement).font(.kit(size: 11)).foregroundStyle(theme.muted)
+        VStack(alignment: .leading, spacing: 0) {
+            if let presentation = listed.presentation {
+                HStack(spacing: 8) {
+                    Text(presentation.summary).font(.kit(size: 12)).foregroundStyle(theme.text)
+                        .lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 8)
+                    if let requirement = presentation.requirement {
+                        Text(requirement).font(.kit(size: 11)).foregroundStyle(theme.muted).fixedSize()
+                    }
+                }
+                .padding(.horizontal, 10).frame(height: 32)
+                Rule()
+                ScrollView {
+                    PullRequestChecksRows(rows: presentation.rows).padding(4)
+                }
+                .frame(height: min(Self.maxListHeight, CGFloat(presentation.rows.count) * Self.rowHeight + 8))
+                if presentation.omitted > 0 {
+                    Rule()
+                    Link("\(presentation.omitted) more on GitHub", destination: presentation.checksURL)
+                        .font(.kit(size: 11)).foregroundStyle(theme.accent)
+                        .padding(.horizontal, 12).frame(height: 28)
                 }
             }
-            ScrollView {
-                PullRequestChecksRows(rows: presentation.rows)
-            }
-            .frame(maxHeight: 240)
-            .fixedSize(horizontal: false, vertical: true)
-            if presentation.omitted > 0 {
-                Link("\(presentation.omitted) more on GitHub", destination: presentation.checksURL)
-                    .font(.kit(size: 11)).foregroundStyle(theme.accent)
-            }
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
-        .frame(width: 360, alignment: .leading)
+        .frame(width: Self.width, alignment: .leading)
+        .foregroundStyle(theme.text)
         .background(theme.raised)
+        .popoverCard(theme)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Pull request checks")
     }
 }
 
@@ -155,22 +196,23 @@ struct PullRequestChecksRows: View {
     let rows: [PullRequestChecksPresentation.Row]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: 8) {
-                    IconView(row.icon, size: 12).foregroundStyle(theme.color(row.tone))
-                    Text(row.name).foregroundStyle(theme.text).lineLimit(1).truncationMode(.middle)
-                        .layoutPriority(1)
+                    IconView(row.icon, size: 12).foregroundStyle(theme.color(row.tone)).frame(width: 12)
+                    Text(row.name).font(.kit(size: 12)).foregroundStyle(theme.text)
+                        .lineLimit(1).truncationMode(.middle).layoutPriority(1)
                     if let workflow = row.workflow {
-                        Text(workflow).foregroundStyle(theme.muted).lineLimit(1).truncationMode(.tail)
+                        Text(workflow).font(.kit(size: 11)).foregroundStyle(theme.muted)
+                            .lineLimit(1).truncationMode(.tail)
                     }
                     Spacer(minLength: 8)
                     if row.required {
-                        Text("Required").font(.kit(size: 10)).foregroundStyle(theme.muted)
+                        Text("Required").font(.kit(size: 11)).foregroundStyle(theme.muted).fixedSize()
                     }
                 }
-                .font(.kit(size: 11, design: .monospaced))
-                .frame(height: 18)
+                .padding(.horizontal, 8)
+                .frame(height: PullRequestChecksList.rowHeight)
                 .accessibilityElement(children: .combine)
             }
         }
