@@ -228,3 +228,88 @@ struct FilePathsTests {
         #expect(FileMentionPicker.typedPathDetail == "Opens on the session’s server · Open File on This Mac… (⇧⌘O) opens a file here")
     }
 }
+
+@MainActor struct ExternalFileLoaderTests {
+    private typealias Version = ExternalFileLoader.Version
+    private func text(_ source: String) -> ViewedFile {
+        ViewedFile(path: "/tmp/notes.md", size: Int64(source.utf8.count), content: .text(source, truncated: false))
+    }
+
+    @Test func theFirstReadShowsLoadingThenTheFile() async {
+        let loader = ExternalFileLoader()
+        let first = Version(attempt: 0, activity: 0)
+        #expect(loader.phase == .loading)
+        #expect(loader.needsRead(first, visible: true))
+        #expect(loader.waitsForActivityToSettle(first) == false)
+        await loader.load(first) { self.text("one") }
+        #expect(loader.phase == .loaded(text("one"), nil))
+        #expect(loader.reading == false)
+        #expect(loader.needsRead(first, visible: true) == false)
+    }
+
+    @Test func activityRereadsTheFileWhileTheOldOneStaysOnScreen() async {
+        let loader = ExternalFileLoader()
+        await loader.load(Version(attempt: 0, activity: 0)) { self.text("one") }
+        let afterActivity = Version(attempt: 0, activity: 1)
+        #expect(loader.needsRead(afterActivity, visible: true))
+        #expect(loader.waitsForActivityToSettle(afterActivity))
+        await loader.load(afterActivity) {
+            #expect(loader.phase == .loaded(self.text("one"), nil))
+            #expect(loader.reading)
+            return self.text("two")
+        }
+        #expect(loader.phase == .loaded(text("two"), nil))
+        #expect(loader.reading == false)
+    }
+
+    @Test func refreshRereadsAtOnceAndKeepsTheFileOnScreen() async {
+        let loader = ExternalFileLoader()
+        await loader.load(Version(attempt: 0, activity: 0)) { self.text("one") }
+        let refresh = Version(attempt: 1, activity: 0)
+        #expect(loader.needsRead(refresh, visible: true))
+        #expect(loader.waitsForActivityToSettle(refresh) == false)
+        await loader.load(refresh) {
+            #expect(loader.phase == .loaded(self.text("one"), nil))
+            return self.text("two")
+        }
+        #expect(loader.phase == .loaded(text("two"), nil))
+    }
+
+    @Test func aHiddenTabRereadsWhenItShowsAgain() async {
+        let loader = ExternalFileLoader()
+        await loader.load(Version(attempt: 0, activity: 0)) { self.text("one") }
+        let afterActivity = Version(attempt: 0, activity: 1)
+        #expect(loader.needsRead(afterActivity, visible: false) == false)
+        #expect(loader.needsRead(afterActivity, visible: true))
+    }
+
+    @Test func aFailedReloadKeepsTheFileAndSaysWhy() async {
+        let loader = ExternalFileLoader()
+        await loader.load(Version(attempt: 0, activity: 0)) { self.text("one") }
+        await loader.load(Version(attempt: 0, activity: 1)) { throw ViewedFileError.notFound }
+        #expect(loader.phase == .loaded(text("one"), nil))
+        #expect(loader.note == "This file doesn’t exist.")
+        #expect(loader.needsRead(Version(attempt: 0, activity: 1), visible: true) == false)
+        await loader.load(Version(attempt: 1, activity: 1)) { self.text("two") }
+        #expect(loader.phase == .loaded(text("two"), nil))
+        #expect(loader.note == nil)
+    }
+
+    @Test func aFirstReadThatFailsShowsTheFailure() async {
+        let loader = ExternalFileLoader()
+        await loader.load(Version(attempt: 0, activity: 0)) { throw ViewedFileError.permissionDenied }
+        #expect(loader.phase == .failed("Kit doesn’t have permission to read this file."))
+        #expect(loader.note == nil)
+    }
+
+    @Test func aCancelledReadLeavesTheFileAndTheVersionUnread() async {
+        let loader = ExternalFileLoader()
+        await loader.load(Version(attempt: 0, activity: 0)) { self.text("one") }
+        let afterActivity = Version(attempt: 0, activity: 1)
+        await loader.load(afterActivity) { throw CancellationError() }
+        #expect(loader.phase == .loaded(text("one"), nil))
+        #expect(loader.note == nil)
+        #expect(loader.reading == false)
+        #expect(loader.needsRead(afterActivity, visible: true))
+    }
+}

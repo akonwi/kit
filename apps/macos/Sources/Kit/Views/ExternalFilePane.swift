@@ -37,17 +37,16 @@ enum ViewedFileLocation: Equatable {
 /// host file on the session's server, or a file on this Mac. Text shows in
 /// the read-only editor; a supported image shows in the image viewer. The
 /// header names the file's machine so the two never read alike. The file
-/// loads when the tab first shows and again on Refresh. A Markdown file
+/// loads when the tab first shows, again on Refresh, and again after the
+/// session's activity changes, as a workspace file's preview does; a reload
+/// keeps the file on screen until the new read arrives. A Markdown file
 /// shows rendered until its header's toggle switches it to source.
 struct ExternalFilePane: View {
     @Environment(\.mica) private var theme
     let state: SessionStore
     let pane: WorkspacePane
-    @State private var phase = ExternalFilePhase.loading
+    @State private var loader = ExternalFileLoader()
     @State private var attempt = 0
-    /// The attempt last read to completion, so showing the tab again doesn't
-    /// reload it.
-    @State private var loadedAttempt: Int?
 
     private var workspace: WorkspaceState { state.ui.workspace }
     private var location: ViewedFileLocation { if case .localFile = pane { .thisMac } else { .server } }
@@ -58,51 +57,78 @@ struct ExternalFilePane: View {
         }
     }
     private var active: Bool { workspace.isVisible(pane) }
-    private struct Request: Equatable { let server: String; let session: String; let attempt: Int; let active: Bool }
+    /// The version of the file the tab should show: a Refresh, or activity
+    /// that may have changed the file.
+    private var version: ExternalFileLoader.Version {
+        .init(attempt: attempt, activity: workspace.filePreviews.revision)
+    }
+    private struct Request: Equatable {
+        let server: String; let session: String; let version: ExternalFileLoader.Version; let active: Bool
+    }
 
     var body: some View {
         Group {
-            if case .loaded(let file, .some(let image)) = phase {
+            if case .loaded(let file, .some(let image)) = loader.phase {
                 ImageViewer(workspace: workspace, pane: pane, image: image, title: file.path) { LocationTag(location: location) }
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     header
                     Rule()
+                    if let note = loader.note {
+                        Text("Showing an older preview. " + note)
+                            .font(.kit(size: 12)).foregroundStyle(theme.muted).padding(12)
+                        Rule()
+                    }
                     content
                 }
             }
         }
-        .task(id: Request(server: state.serverID, session: state.selectedID, attempt: attempt, active: active)) {
-            // A tab loads when it's first shown; Refresh and Retry reload it.
-            guard active, loadedAttempt != attempt else { return }
-            await load()
-            if !Task.isCancelled { loadedAttempt = attempt }
+        .task(id: Request(server: state.serverID, session: state.selectedID, version: version, active: active)) {
+            let version = version
+            guard loader.needsRead(version, visible: active) else { return }
+            if loader.waitsForActivityToSettle(version) {
+                do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            }
+            await loader.load(version, read: reader())
         }
+    }
+
+    /// Reads the tab's file from its machine.
+    private func reader() -> @MainActor () async throws -> ViewedFile {
+        let path = path
+        if case .localFile = pane {
+            return { try await Task.detached(priority: .userInitiated) { try ViewedFile.readLocal(path: path) }.value }
+        }
+        guard !state.isDemo, let client = state.catalogClient as? any HostFileClient else {
+            return { throw ExternalFileUnavailable() }
+        }
+        let session = state.selectedID
+        return { try await client.readHostFile(session, path: path) }
     }
 
     private var header: some View {
         HStack(spacing: 12) {
             LocationTag(location: location)
-            Text(phase.file?.path ?? path).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
+            Text(loader.phase.file?.path ?? path).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted)
                 .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
             Spacer()
-            if case .loading = phase { KitSpinner() }
+            if loader.reading { KitSpinner() }
             if pane.isMarkdown { MarkdownModeToggle(workspace: workspace, pane: pane) }
             Button { attempt += 1 } label: { IconView(.arrowClockwise, size: 12) }
                 .buttonStyle(.plain).accessibilityLabel("Refresh file").help("Refresh file")
-                .disabled(phase == .loading)
+                .disabled(loader.reading)
         }
         .padding(.horizontal, 20).padding(.vertical, 10)
     }
 
     @ViewBuilder private var content: some View {
-        switch phase {
+        switch loader.phase {
         case .loading:
             Text("Loading file…").foregroundStyle(theme.muted).frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
             VStack(spacing: 10) {
                 Text(message).foregroundStyle(theme.muted).multilineTextAlignment(.center)
-                Button("Retry") { attempt += 1 }.buttonStyle(FormButtonStyle())
+                Button("Retry") { attempt += 1 }.buttonStyle(FormButtonStyle()).disabled(loader.reading)
             }
             .font(.kit(size: 12)).padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -121,27 +147,73 @@ struct ExternalFilePane: View {
             }
         }
     }
+}
 
-    private func load() async {
-        phase = .loading
-        let pane = pane, path = path
+/// Why a host file can't be read over this connection.
+private struct ExternalFileUnavailable: LocalizedError {
+    var errorDescription: String? { "Files outside the working directory are unavailable for this connection." }
+}
+
+/// What an external file tab shows, and when it reads its file again.
+///
+/// The first read shows "Loading file…"; later reads, after a Refresh or
+/// session activity, keep the file (or its failure) on screen with a
+/// spinner until the new read arrives, so a reload neither flickers nor
+/// loses the reader's place. A reload that fails while a file shows keeps
+/// the file and says why in `note`.
+@MainActor @Observable
+final class ExternalFileLoader {
+    /// A version of the file the tab should show: the Refresh count and the
+    /// session activity the read follows.
+    struct Version: Equatable {
+        var attempt: Int
+        var activity: Int
+    }
+
+    private(set) var phase = ExternalFilePhase.loading
+    /// Why the latest reload failed while an earlier read still shows.
+    private(set) var note: String?
+    /// Whether a read is under way.
+    private(set) var reading = false
+    /// The version last read to completion, so showing the tab again
+    /// doesn't reread it.
+    private var completed: Version?
+    private var generation = 0
+
+    /// Whether the tab should read `version`: it shows, and hasn't read it.
+    func needsRead(_ version: Version, visible: Bool) -> Bool { visible && completed != version }
+
+    /// Whether a read of `version` follows only session activity on a file
+    /// already read, so it waits out a burst of activity first.
+    func waitsForActivityToSettle(_ version: Version) -> Bool {
+        guard let completed else { return false }
+        return completed.attempt == version.attempt
+    }
+
+    /// Reads `version` with `read`, unless a later read starts or the task
+    /// is cancelled first.
+    func load(_ version: Version, read: @MainActor () async throws -> ViewedFile) async {
+        generation += 1
+        let generation = generation
+        reading = true
+        defer { if self.generation == generation { reading = false } }
+        let next: ExternalFilePhase
         do {
-            let file: ViewedFile
-            switch pane {
-            case .localFile:
-                file = try await Task.detached(priority: .userInitiated) { try ViewedFile.readLocal(path: path) }.value
-            default:
-                guard !state.isDemo, let client = state.catalogClient as? any HostFileClient else {
-                    phase = .failed("Files outside the working directory are unavailable for this connection."); return
-                }
-                file = try await client.readHostFile(state.selectedID, path: path)
-            }
-            try Task.checkCancellation()
-            phase = await ExternalFilePhase.loaded(file)
+            let file = try await read()
+            next = await ExternalFilePhase.loaded(file)
         } catch is CancellationError {
+            return
         } catch {
-            phase = .failed(error.localizedDescription)
+            next = .failed(error.localizedDescription)
         }
+        guard !Task.isCancelled, self.generation == generation else { return }
+        if case .failed(let message) = next, phase.file != nil {
+            note = message
+        } else {
+            phase = next
+            note = nil
+        }
+        completed = version
     }
 }
 
