@@ -31,7 +31,8 @@ let package = Package(
             .product(name: "KitMermaidScene", package: "KitShared"),
             .product(name: "KitFigures", package: "KitShared"),
             .product(name: "KitTranscript", package: "KitShared"),
-            .product(name: "KitHighlighting", package: "KitShared")
+            .product(name: "KitHighlighting", package: "KitShared"),
+            .product(name: "KitArdGrammar", package: "KitShared")
         ], resources: [.process("Resources")],
         linkerSettings: [
             .linkedFramework("Carbon"),

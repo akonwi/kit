@@ -34,6 +34,7 @@ private struct FileEditorDocument: View {
     let path: String
     let source: String
     @Binding var editorState: SourceEditorState
+    @State private var ardHighlighter = ArdHighlightProvider()
 
     static func clamped(_ state: SourceEditorState, source: String) -> SourceEditorState {
         var result = state
@@ -49,7 +50,9 @@ private struct FileEditorDocument: View {
         SourceEditor(
             .constant(source), language: ReadOnlyFileEditor.language(for: path),
             configuration: FileEditorTheme.configuration(theme), state: Binding(
-                get: { Self.clamped(editorState, source: source) }, set: { editorState = $0 })
+                get: { Self.clamped(editorState, source: source) }, set: { editorState = $0 }),
+            // One provider for the document's life; nil keeps the editor's own.
+            highlightProviders: ArdHighlightProvider.colors(path) ? [ardHighlighter] : nil
         )
         .accessibilityLabel("Read-only file: \(path)")
     }

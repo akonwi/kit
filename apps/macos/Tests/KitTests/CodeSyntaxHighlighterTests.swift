@@ -21,7 +21,8 @@ struct CodeSyntaxHighlighterTests {
         ("typescript", "const count: number = 42;"),
         ("tsx", "const view = <Button title=\"hello\" />;"),
         ("ruby", "def greet\n  puts \"hello\" # comment\nend"),
-        ("css", ".card { color: #fff; } /* comment */")
+        ("css", ".card { color: #fff; } /* comment */"),
+        ("ard", "fn greet() Int { 42 } // comment")
     ])
     func bundledGrammarsHighlightCode(sample: (String, String)) async throws {
         let spans = try await CodeSyntaxHighlighter().spans(for: .init(source: sample.1, language: sample.0))
@@ -51,9 +52,11 @@ struct CodeSyntaxHighlighterTests {
         let ruby = "def greet; end"
         #expect(try await highlighter.spans(for: .init(source: ruby, language: "rb"))
                 == highlighter.spans(for: .init(source: ruby, language: "ruby")))
-        // Ard has a name but no grammar on the Mac, so it stays plain.
+        // Ard's grammar comes from tree-sitter-ard, beside CodeEditLanguages'.
         #expect(CodeSyntaxHighlighter.canonicalLanguage("ard") == "ard")
-        #expect(try await highlighter.spans(for: .init(source: "let x = 1", language: "ard")) == [])
+        let ard = "let x = 1"
+        #expect(try await highlighter.spans(for: .init(source: ard, language: "ard"))
+                .first { $0.range == (ard as NSString).range(of: "let") }?.role == "keyword")
         for label in ["", "text", "plaintext", "unknown"] {
             let spans = try await highlighter.spans(for: .init(source: source, language: label))
             #expect(spans == [])

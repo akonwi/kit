@@ -36,7 +36,9 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
             return CursorPosition(range: NSRange(location: start, length: min(value.range.length, length - start)))
         }
         let controller = TextViewController(string: document.content, language: ReadOnlyFileEditor.language(for: document.path),
-            configuration: FileEditorTheme.configuration(theme, wrapLines: wrapLines), cursorPositions: cursors, coordinators: [context.coordinator])
+            configuration: FileEditorTheme.configuration(theme, wrapLines: wrapLines), cursorPositions: cursors,
+            highlightProviders: [ArdHighlightProvider.colors(document.path) ? ArdHighlightProvider() : TreeSitterClient()],
+            coordinators: [context.coordinator])
         _ = controller.view
         // Unified: two 30 pt number columns and a 16 pt sign column. Side by
         // side: one 34 pt number column and the sign column.

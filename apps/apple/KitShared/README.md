@@ -44,6 +44,8 @@ iOS app. It holds no AppKit or UIKit code.
   capture-to-role mapping, and a bounded span cache. Each app supplies the
   grammars it bundles through `SyntaxGrammars`; the macOS app uses the ones in
   CodeEditLanguages, which its editors also use.
+- `KitArdGrammar` is Ard's grammar and highlight query from tree-sitter-ard,
+  which both apps bundle because CodeEditLanguages has no Ard.
 
 The macOS app's tests cover these modules (client, Mermaid, figure, Markdown, tool presentation, and highlighting tests);
 run them as the macOS README describes. Check that the package still builds

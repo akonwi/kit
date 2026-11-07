@@ -1,12 +1,15 @@
 import Foundation
 import SwiftTreeSitter
 import CodeEditLanguages
+import KitArdGrammar
 import KitHighlighting
 
 /// The grammars and highlight queries bundled with CodeEditLanguages, which
-/// the file and scratchpad editors also use.
+/// the file and scratchpad editors also use, and Ard's from tree-sitter-ard,
+/// which CodeEditLanguages lacks.
 struct CodeEditSyntaxGrammars: SyntaxGrammars {
     func grammar(named name: String) throws -> SyntaxGrammar {
+        if name == "ard" { return try ArdSyntaxGrammar.grammar() }
         let grammar: CodeLanguage
         switch name {
         case "bash": grammar = .bash
@@ -18,8 +21,6 @@ struct CodeEditSyntaxGrammars: SyntaxGrammars {
         case "typescript": grammar = .typescript
         case "ruby": grammar = .ruby
         case "css": grammar = .css
-        // CodeEditLanguages has no Ard grammar: Ard code stays plain.
-        case "ard": throw SyntaxGrammarError.unavailable
         default: grammar = .tsx
         }
         guard let language = grammar.language, let queryURL = grammar.queryURL else {
