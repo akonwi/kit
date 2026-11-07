@@ -16,7 +16,7 @@ import (
 // Git context projection, at its bounds, against the published protocol schema.
 func TestPluginPullRequestChecksConformToThePublicSchema(t *testing.T) {
 	const location = "https://kit.invalid/protocol.schema.json"
-	raw, err := os.ReadFile("../../apps/web/docs/plugin-protocol/protocol.schema.json")
+	raw, err := os.ReadFile("../../docs/plugin-protocol/protocol.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}

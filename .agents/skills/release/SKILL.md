@@ -9,9 +9,8 @@ Kit's Go executable and native macOS app are **independent releases**. For an
 ambiguous "release Kit" request, ask whether to release the CLI, the macOS app,
 or both before tagging or publishing. For both, follow each path separately;
 do not force matching product versions or let one release implicitly publish the
-other. Do not build `apps/web` or change its package version or release notes.
-Never tag, push, publish, or access signing credentials without authorization
-for the relevant release.
+other. Never tag, push, publish, or access signing credentials without
+authorization for the relevant release.
 
 ## Go CLI release (`vX.Y.Z`)
 

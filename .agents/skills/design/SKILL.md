@@ -7,7 +7,7 @@ description: Kit's UI design language and visual standards. Use when building or
 
 Kit's UI is **utilitarian, pleasant, and intuitive**. It should communicate state and available actions clearly without drawing attention to decoration. Every visual choice should improve comprehension, navigation, or feedback.
 
-The legacy reference UI lives in `apps/web/src/`; the native TUI in `apps/cli` implements the same semantic language in Ard with Cooper. Browser-specific presentations may reuse the principles while using renderer-appropriate primitives.
+The native TUI in `apps/cli` implements this semantic language in Ard with Cooper; the macOS and iOS apps implement it in SwiftUI. Browser presentations ([ADR 0059](../../../docs/adrs/0059-serve-a-browser-client-from-the-kit-server.md)) reuse the principles while using renderer-appropriate primitives.
 
 ## Root Shell Boundary
 
@@ -114,9 +114,8 @@ Kit does not have a fixed application palette. The system theme is derived at ru
 
 The relevant sources are:
 
-- `apps/web/src/shell/themes/types.ts` — `ThemeTokens`, `SyntaxPalette`, and user-theme shapes
-- `apps/web/src/shell/themes/system.ts` — terminal-derived system theme and fallback palette
-- `apps/web/src/shell/theme.ts` — reactive `theme` store, `syntaxStyle()`, and `scrollbarStyle()`
+- `internal/theme` — user-theme definitions and their semantic token names
+- `apps/cli/tui/theme.ard` — the terminal client's `Theme`, the terminal-derived system theme, and token resolution
 
 ### Semantic token roles
 
@@ -289,9 +288,7 @@ tmux, or another native terminal workflow.
 ## Workspace Tabs and Panes
 
 Native v2 workspace architecture is documented in
-`docs/adrs/0018-retained-native-workspace-shell.md`. The main-worktree
-`apps/web/docs/features/workspace-panes.md` remains a feature reference, not the v2
-host-layout contract.
+`docs/adrs/0018-retained-native-workspace-shell.md`.
 
 ### Registry contract
 
@@ -530,17 +527,17 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 
 ## Glyphs
 
-All reusable UI glyphs live in `apps/web/src/shell/glyphs.ts`. Import named constants rather than scattering inline Unicode literals. The source file is the complete inventory; this list records important semantics, not every available glyph.
+Reuse a glyph for the meaning listed here rather than introducing a new symbol for the same state. This list records important semantics, not every glyph in use.
 
-- `CHECK` — success or current selection
-- `CROSS` — error or failure
-- `CIRCLE_SLASH` — aborted or cancelled
-- `CIRCLE_FILLED` / `CIRCLE_EMPTY` — active/dirty versus inactive/clean state
-- `TRIANGLE_UP` — warning status
-- `TRIANGLE_RIGHT` / `TRIANGLE_DOWN` — inline collapsed/expanded state
-- `CHEVRON_LEFT` / `CHEVRON_RIGHT` — directional navigation or opening/closing adjacent detail
-- `TIMES` — close or dismiss
-- `MIDDLE_DOT` — inline metadata separator
+- `CHECK` `✓` — success or current selection
+- `CROSS` `✗` — error or failure
+- `CIRCLE_SLASH` `⊘` — aborted or cancelled
+- `CIRCLE_FILLED` `●` / `CIRCLE_EMPTY` `○` — active/dirty versus inactive/clean state
+- `TRIANGLE_UP` `▲` — warning status
+- `TRIANGLE_RIGHT` `▸` / `TRIANGLE_DOWN` `▾` — inline collapsed/expanded state
+- `CHEVRON_LEFT` `‹` / `CHEVRON_RIGHT` `›` — directional navigation or opening/closing adjacent detail
+- `TIMES` `×` — close or dismiss
+- `MIDDLE_DOT` `·` — inline metadata separator
 - `SPINNER_FRAMES` — standard 80ms loading spinner. Native loading surfaces mount the shared spinner widget; feature-specific state must not own or duplicate its frames, cadence, or lifecycle.
 
 ## Empty States
@@ -550,7 +547,7 @@ Distinguish prominent application empty states from local list empties.
 ### Primary or first-run empty state
 
 - Center vertically and horizontally in the available content area.
-- Use `k i t` in `textPrimary` with `HEAVY_LINE.repeat(11)` in `borderAccent` when the Kit wordmark is appropriate.
+- Use `k i t` in `textPrimary` with `HEAVY_LINE` (`━`) repeated 11 times in `borderAccent` when the Kit wordmark is appropriate.
 - Put instruction text in `textSecondary` and command guidance in `textPlaceholder`.
 
 ### Local empty state

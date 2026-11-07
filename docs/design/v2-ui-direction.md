@@ -18,7 +18,8 @@ main-branch source and feature documentation. Captured states included:
 - settings and login dialogs;
 - wide transcript plus Code Review workspace.
 
-Primary source references:
+Primary source references, in the TypeScript client as of commit `b12dfc7c`
+(since removed from the tree):
 
 - `apps/web/src/shell/AppShell.tsx`
 - `apps/web/src/shell/HeaderBar.tsx`

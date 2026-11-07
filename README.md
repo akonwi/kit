@@ -137,6 +137,6 @@ go vet ./...
 go test ./...
 ```
 
-The macOS client lives in [`apps/macos/`](apps/macos/). TypeScript application
-code in `apps/web/` and shared packages in `packages/` use Bun for development.
-The web client is not yet integrated with the Go daemon.
+The macOS client lives in [`apps/macos/`](apps/macos/). A browser client served
+by the Go server is planned in
+[ADR 0059](docs/adrs/0059-serve-a-browser-client-from-the-kit-server.md).

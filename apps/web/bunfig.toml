@@ -1,4 +1,0 @@
-# OpenTUI Solid JSX transformation is handled via:
-# - --preload flag for dev/start scripts (see package.json)
-# - plugins option passed to Bun.build in script/build.ts
-# No preload needed in this file.

@@ -39,10 +39,9 @@ Based on what the changes touch, activate the corresponding skills for context:
 
 Check for these common issues, organized by category:
 
-#### TypeScript & Correctness
-- Type errors (run `bun run typecheck`)
-- `any` types that could be narrowed
-- Non-null assertions (`!`) that could be avoided with proper narrowing
+#### Correctness
+- Build, type-check, and vet errors in the changed languages
+- Unchecked casts, force unwraps, or ignored errors that proper handling would avoid
 - Unused imports, variables, or parameters
 - Missing error handling or edge cases
 
@@ -55,15 +54,13 @@ Check for these common issues, organized by category:
 
 #### UI/TUI (when relevant)
 - Follows the design language in `design` skill
-- Colors sourced from `src/shell/theme.ts`, no hardcoded hex
-- Glyphs from `src/shell/glyphs.ts`, no inline Unicode
-- Proper use of `ScreenLayout`, `ScreenHeader`, `HintBar`
+- Colors from semantic theme tokens, no hardcoded colors
+- Glyphs used with the meanings the design skill lists
 - Correct overlay tier (Transient / Dialog / Screen)
 - Consistent text hierarchy (`textPrimary`, `textSecondary`, `textMuted`)
-- HintBar usage over bare keyboard hint text
 
 #### Architecture (when relevant)
-- Follows modular layers: `runtime/`, `shell/`, `features/`
+- Follows the ownership rules in AGENTS.md's Architecture rules
 - Renderer-specific assumptions isolated from domain logic
 - Changes follow established interfaces and abstractions
 - Design decisions captured in `docs/` when appropriate
@@ -88,12 +85,8 @@ After presenting the review, ask the user if they want you to address the issues
 
 If they confirm:
 1. Fix each issue, keeping changes focused
-2. Run pre-commit checks:
-   - `bun run typecheck` — zero TypeScript errors
-   - `bun run check` — auto-fix formatting and safe lint fixes (run from the `apps/web/` directory)
-   - Address remaining Biome warnings (suppress with `// biome-ignore <rule>: <reason>`)
-   - Re-run `bun run typecheck` after Biome changes
-   - For print mode/headless changes: `bun run smoke:print-mode` from repo root
+2. Run the validation AGENTS.md lists for each area changed (Go, `apps/cli`,
+   the macOS and iOS apps)
 3. Prepare a summary of what was changed
 
 ## References

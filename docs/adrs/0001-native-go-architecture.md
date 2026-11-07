@@ -442,4 +442,4 @@ tracks them:
 - [0003: Provider credential storage](./0003-provider-credential-storage.md)
 - Historical implementation and ADRs at Git commit `5c6e112`
 - External plugin v1 specification at
-  [`../../apps/web/docs/plugin-protocol/v1.md`](../../apps/web/docs/plugin-protocol/v1.md)
+  [`../plugin-protocol/v1.md`](../plugin-protocol/v1.md)

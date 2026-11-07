@@ -70,7 +70,7 @@ import Testing
 
     @Test func tokenValidationMatchesThePublicSchema() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .appendingPathComponent("../../../../apps/web/docs/plugin-protocol/protocol.schema.json")
+            .appendingPathComponent("../../../../docs/plugin-protocol/protocol.schema.json")
         let data = try Data(contentsOf: url)
         let decoded = try JSONSerialization.jsonObject(with: data)
         let root = try #require(decoded as? [String: Any])
