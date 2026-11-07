@@ -209,6 +209,46 @@ test fn the_footer_shows_git_status_and_links_only_the_pull_request() Void!Str {
   )
 }
 
+test fn pull_request_checks_follow_the_location_in_their_state_color() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let terminal = headless::new(60, 1)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let location = mut pull_request_location()
+  location.Checks = mut footerlayout::Checks{
+    Glyph: "✗",
+    Count: "10/12",
+    Tone: footerlayout::ToneDanger,
+    URL: "https://github.com/akonwi/kit/pull/8/checks",
+  }
+  let renderer = cui::mount(
+    app,
+    chrome::footer(
+      themes,
+      "",
+      "",
+      chrome::Right{location: location.@, plugin: plugin_items(["Ready"])},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(rows(terminal), ["                    …t (feature* · PR #8) · ✗ 10/12 · Ready"])
+  let checks = terminal.frame().cell(column_of(terminal, "✗"), 0).expect("checks cell")
+  let color = checks.style.foreground.expect("checks color")
+  let danger = themes.current().danger_text
+  try testing::assert(
+    color.red == danger.red and color.green == danger.green and color.blue == danger.blue,
+    "failing checks are drawn in the danger color",
+  )
+  terminal.click(column_of(terminal, "✗") + 2, 0)
+  terminal.flush()
+  let opened = terminal.opened_urls()
+  testing::assert(
+    opened.size() == 1 and opened.at(0).or("") == "https://github.com/akonwi/kit/pull/8/checks",
+    "the checks open the pull request's checks page: {opened.size()}",
+  )
+}
+
 test fn plugin_items_follow_the_location_in_their_theme_roles() Void!Str {
   let themes = theme::context(theme::store(theme::system()))
   let terminal = headless::new(60, 1)

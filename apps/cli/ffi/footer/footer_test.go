@@ -250,3 +250,87 @@ func TestTheServerLeadsTheLocation(t *testing.T) {
 		})
 	}
 }
+
+// pullRequestOn is the observed pull request #8 of branch with checks.
+func pullRequestOn(branch string, number int, checks protocol.PullRequestChecks) protocol.SessionPullRequestStatus {
+	return protocol.SessionPullRequestStatus{
+		SessionID: "session_0123456789abcdef0123456789abcdef", CWD: "/repo", Branch: branch,
+		PullRequest: &protocol.PullRequestStatus{Number: number, URL: "https://github.com/a/b/pull/8", State: protocol.PullRequestOpen, Checks: checks},
+	}
+}
+
+func TestChecksSummarizeThePullRequestTheLocationLinks(t *testing.T) {
+	status := &protocol.VCSStatus{
+		Head:        protocol.VCSHead{Kind: protocol.VCSHeadBranch, Name: "feature"},
+		PullRequest: &protocol.GitHubPullRequest{Number: 8, URL: "https://github.com/a/b/pull/8"},
+	}
+	location := VCSLocation("~/repo", status)
+	for _, test := range []struct {
+		name   string
+		checks protocol.PullRequestChecks
+		want   *Checks
+	}{
+		{name: "passing", checks: protocol.PullRequestChecks{State: protocol.PullRequestChecksPassing, Counts: protocol.PullRequestCheckCounts{Passed: 11, Skipped: 1}},
+			want: &Checks{Glyph: "✓", Count: "11/11", Tone: ToneSuccess, URL: "https://github.com/a/b/pull/8/checks"}},
+		{name: "failing", checks: protocol.PullRequestChecks{State: protocol.PullRequestChecksFailing, Counts: protocol.PullRequestCheckCounts{Passed: 9, Failed: 2, Pending: 1}},
+			want: &Checks{Glyph: "✗", Count: "9/12", Tone: ToneDanger, URL: "https://github.com/a/b/pull/8/checks"}},
+		{name: "running", checks: protocol.PullRequestChecks{State: protocol.PullRequestChecksPending, Counts: protocol.PullRequestCheckCounts{Passed: 2, Pending: 6}},
+			want: &Checks{Glyph: "●", Count: "2/8", Tone: ToneWarning, URL: "https://github.com/a/b/pull/8/checks"}},
+		{name: "no checks", checks: protocol.PullRequestChecks{State: protocol.PullRequestChecksNone}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := WithChecks(location, status, pullRequestOn("feature", 8, test.checks)).Checks
+			if (got == nil) != (test.want == nil) || (got != nil && *got != *test.want) {
+				t.Fatalf("checks = %+v, want %+v", got, test.want)
+			}
+		})
+	}
+
+	failing := protocol.PullRequestChecks{State: protocol.PullRequestChecksFailing, Counts: protocol.PullRequestCheckCounts{Failed: 1}}
+	for name, pull := range map[string]protocol.SessionPullRequestStatus{
+		"another branch":       pullRequestOn("main", 8, failing),
+		"another pull request": pullRequestOn("feature", 9, failing),
+		"no pull request":      {SessionID: "session_0123456789abcdef0123456789abcdef", CWD: "/repo", Branch: "feature"},
+	} {
+		if checks := WithChecks(location, status, pull).Checks; checks != nil {
+			t.Fatalf("%s: checks = %+v", name, checks)
+		}
+	}
+	if checks := WithChecks(VCSLocation("~/repo", nil), nil, pullRequestOn("feature", 8, failing)).Checks; checks != nil {
+		t.Fatalf("checks without Git status = %+v", checks)
+	}
+}
+
+func TestChecksFollowTheLocationAndKeepTheirGlyphWhenNarrow(t *testing.T) {
+	const directory = "~/very/long/project"
+	checks := &Checks{Glyph: "✗", Count: "10/12", Tone: ToneDanger, URL: "https://github.com/a/b/pull/8/checks"}
+	location := Location{Text: directory + " (feature* · PR #8)", Base: directory, LinkText: "PR #8", URL: "https://github.com/a/b/pull/8", Checks: checks}
+	for _, test := range []struct {
+		name   string
+		width  int
+		footer protocol.PluginFooter
+		want   string
+	}{
+		{name: "wide", width: 60, want: "~/very/long/project (feature* · PR #8) · ✗ 10/12"},
+		{name: "directory shortens first", width: 40, want: "…ng/project (feature* · PR #8) · ✗ 10/12"},
+		{name: "then the count goes", width: 25, want: "…t (feature* · PR #8) · ✗"},
+		{name: "then the directory", width: 22, want: "(feature* · PR #8) · ✗"},
+		{name: "then the branch", width: 12, want: "(PR #8) · ✗"},
+		{name: "then the checks", width: 8, want: "(PR #8)"},
+		{name: "before plugin items", width: 60, footer: items("Ready"), want: "~/very/long/project (feature* · PR #8) · ✗ 10/12 · Ready"},
+		{name: "items overflow first", width: 40, footer: items("Very long status", "Second"), want: "(feature* · PR #8) · ✗ 10/12 · … 2 more"},
+		{name: "hidden with the location", width: 60, footer: protocol.PluginFooter{LocationHidden: true}, want: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			spans := Spans(test.footer, location, test.width)
+			if text, _ := shown(spans); text != test.want {
+				t.Fatalf("footer = %q, want %q", text, test.want)
+			}
+			for _, span := range spans {
+				if strings.HasPrefix(span.Text, "✗") && (span.Tone != ToneDanger || span.URL != checks.URL) {
+					t.Fatalf("checks span = %+v", span)
+				}
+			}
+		})
+	}
+}

@@ -178,5 +178,10 @@ already keeps for its agent. The macOS app opens the stream only while the VCS
 stream reports a pull request. It shows a checks chip beside the PR chip, with
 a glyph and passed/total (skipped checks excluded) in the state's color, hidden
 when there are no checks; clicking it lists the checks in a popover, while the
-PR chip still opens the pull request. The terminal and iOS clients don't show
-checks yet.
+PR chip still opens the pull request. The terminal client watches the stream
+with the VCS stream and shows the checks after the footer's location, before
+plugin items, as `~/kit (feature* · PR #74) · ✗ 10/12`: `✓` passing, `✗`
+failing, or `●` running, in the state's color, linking to the pull request's
+checks page. When the footer narrows, the directory shortens first, then the
+count is dropped and the glyph stays after the PR label. It has no check list.
+The iOS client doesn't show checks yet.
