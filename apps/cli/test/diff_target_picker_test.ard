@@ -12,11 +12,11 @@ use go:strings
 use go:time
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn row_of(terminal: headless::TestApp, text: Str) Int {
@@ -47,8 +47,8 @@ fn slow_list(input: protocol::ListDiffTargetsInput) protocol::DiffTargetCatalog!
 test fn cached_targets_show_at_once_and_a_pick_waits_for_fresh_ones() Void!Str {
   let terminal = headless::new(100, 32)
   defer terminal.destroy()
-  let chosen = mut List::new<Str>()
-  let remembered = mut List::new<Str>()
+  let chosen = &mut List::new<Str>()
+  let remembered = &mut List::new<Str>()
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     diff_target_picker::view(
@@ -80,11 +80,11 @@ test fn cached_targets_show_at_once_and_a_pick_waits_for_fresh_ones() Void!Str {
   let row = row_of(terminal, "db99f1d")
   try testing::assert(
     row >= 0,
-    "the cached target shows at once:\n{strings::Join(mut rows(terminal), "|\n")}",
+    "the cached target shows at once:\n{strings::Join(&mut rows(terminal), "|\n")}",
   )
   try testing::assert(
     row_of(terminal, "Refreshing targets…") > row,
-    "while the list refreshes:\n{strings::Join(mut rows(terminal), "|\n")}",
+    "while the list refreshes:\n{strings::Join(&mut rows(terminal), "|\n")}",
   )
   terminal.click(30, row)
   terminal.flush()
@@ -98,7 +98,7 @@ test fn cached_targets_show_at_once_and_a_pick_waits_for_fresh_ones() Void!Str {
   }
   try testing::assert(
     chosen.size() == 1 and chosen.at(0).or("") == "difftargetref_fresh",
-    "then opens the fresh entry: {strings::Join(mut chosen.@, ",")}",
+    "then opens the fresh entry: {strings::Join(chosen.*, ",")}",
   )
   testing::assert(
     remembered.size() == 1 and remembered.at(0).or("") == "difftargetref_fresh",

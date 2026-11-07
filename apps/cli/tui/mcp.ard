@@ -16,11 +16,11 @@ struct Props {
 struct Status {
   // Server status is parent-owned and may change while the retained picker is
   // open. The nested palette retains its own query, selection, and scrolling.
-  props: mut Props,
+  props: &mut Props,
 }
 
-fn new(props: mut Props) mut Status {
-  (mut Status{props: props})
+fn new(props: &mut Props) &mut Status {
+  &mut Status{props: props}
 }
 
 private fn status_label(state: Str) Str {
@@ -42,7 +42,7 @@ private fn source_label(source: Str) Str {
 }
 
 private fn catalog(servers: [protocol::MCPServerStatus]) [palette::Item] {
-  let result = mut List::new<palette::Item>()
+  let result = &mut List::new<palette::Item>()
   for server in servers {
     let tools = match server.ToolCount == 1 {
       true => "tool",
@@ -60,7 +60,7 @@ private fn catalog(servers: [protocol::MCPServerStatus]) [palette::Item] {
       },
     )
   }
-  result.@
+  result.*
 }
 
 impl cui::Component for Status {

@@ -77,12 +77,12 @@ fn ratio(text: Str) Float64!Str {
 private fn single(info: grammar::Info, text: Str) model::Figure!Str {
   let each = grammar::line(text)
   let share = try ratio(each.text)
-  let made = mut model::item("", each.text)
+  let made = &mut model::item("", each.text)
   made.note = each.note
   made.accent = true
   made.scale = grammar::permille(share, 1.0)
   made.over = share > 1.0
-  Result::ok(model::figure("meter", grammar::attribute(info, "title"), [made.@]))
+  Result::ok(model::figure("meter", grammar::attribute(info, "title"), [made.*]))
 }
 
 private fn row(each: grammar::Item) model::Item!Str {
@@ -94,7 +94,7 @@ private fn row(each: grammar::Item) model::Item!Str {
           let numbers = try against(pair.at(0).or(""), pair.at(1).or(""))
           let amount = numbers.at(0).or(0.0)
           let whole = numbers.at(1).or(1.0)
-          let made = mut model::item(parts.at(0).or(""), pair.at(0).or(""))
+          let made = &mut model::item(parts.at(0).or(""), pair.at(0).or(""))
           made.target = pair.at(1).or("")
           made.note = each.note
           made.accent = each.bold
@@ -103,7 +103,7 @@ private fn row(each: grammar::Item) model::Item!Str {
           made.over = amount > whole
           match each.details.size() > 0 {
             true => Result::err("a meter row takes no indented lines"),
-            false => Result::ok(made.@),
+            false => Result::ok(made.*),
           }
         },
         _ => {
@@ -120,20 +120,20 @@ private fn row(each: grammar::Item) model::Item!Str {
 private fn rows(info: grammar::Info, body: Str) model::Figure!Str {
   let items = try grammar::items(body)
   try grammar::check_one_bold(items)
-  let made = mut List::new<model::Item>()
+  let made = &mut List::new<model::Item>()
   for each in items {
     made.push(try row(each))
   }
   match {
     made.size() == 0 => Result::err("the figure has no rows"),
     made.size() > max_rows => Result::err("a meter figure has at most {max_rows} rows"),
-    _ => Result::ok(model::figure("meter", grammar::attribute(info, "title"), made.@)),
+    _ => Result::ok(model::figure("meter", grammar::attribute(info, "title"), made.*)),
   }
 }
 
 fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   try grammar::check_attributes(info, ["title"])
-  let lines = mut List::new<Str>()
+  let lines = &mut List::new<Str>()
   for each in strings::Split(body, "\n") {
     if strings::TrimSpace(each) != "" {
       lines.push(strings::TrimSpace(each))
@@ -190,7 +190,7 @@ fn segments(scale: Int, width: Int, mark: Int, fill: drawing::Role) [drawing::Se
     true => whole_bar(scale, width, mark),
     false => drawing::bar(scale, width),
   }
-  let cells = mut List::new<Str>()
+  let cells = &mut List::new<Str>()
   for each in ui::graphemes(lengths.at(0).or("")) {
     cells.push(each.text)
   }
@@ -198,7 +198,7 @@ fn segments(scale: Int, width: Int, mark: Int, fill: drawing::Role) [drawing::Se
   for each in ui::graphemes(lengths.at(1).or("")) {
     cells.push(each.text)
   }
-  let result = mut List::new<drawing::Segment>()
+  let result = &mut List::new<drawing::Segment>()
   mut index = 0
   mut run = ""
   mut role = fill
@@ -223,7 +223,7 @@ fn segments(scale: Int, width: Int, mark: Int, fill: drawing::Role) [drawing::Se
   if run != "" {
     result.push(drawing::segment(run, role))
   }
-  result.@
+  result.*
 }
 
 private fn draw_single(figure: model::Figure) drawing::Drawing {
@@ -232,13 +232,13 @@ private fn draw_single(figure: model::Figure) drawing::Drawing {
     true => drawing::Role::warning,
     false => drawing::Role::accent,
   }
-  let line = mut segments(each.scale, track, -1, fill)
+  let line = &mut segments(each.scale, track, -1, fill)
   line.push(drawing::bold("  {each.value}", fill_text(each.over)))
-  let rows = mut [line.@]
+  let rows = &mut [line.*]
   if each.note != "" {
     rows.push([drawing::segment(each.note, drawing::Role::muted)])
   }
-  drawing::framed(figure.title, rows.@)
+  drawing::framed(figure.title, rows.*)
 }
 
 // Text beside a bar over its target is warning; any other is text.
@@ -258,9 +258,9 @@ fn draw(figure: model::Figure) drawing::Drawing {
 }
 
 private fn draw_rows(figure: model::Figure) drawing::Drawing {
-  let labels = mut List::new<Str>()
-  let values = mut List::new<Str>()
-  let targets = mut List::new<Str>()
+  let labels = &mut List::new<Str>()
+  let values = &mut List::new<Str>()
+  let targets = &mut List::new<Str>()
   mut emphasized = false
   for each in figure.items {
     labels.push(format::truncate_cells(each.label, max_label))
@@ -270,15 +270,15 @@ private fn draw_rows(figure: model::Figure) drawing::Drawing {
       emphasized = true
     }
   }
-  let label_lane = widest(labels.@)
-  let value_lane = widest(values.@)
-  let target_lane = widest(targets.@)
-  let rows = mut List::new<[drawing::Segment]>()
+  let label_lane = widest(labels.*)
+  let value_lane = widest(values.*)
+  let target_lane = widest(targets.*)
+  let rows = &mut List::new<[drawing::Segment]>()
   mut index = 0
   for each in figure.items {
     let quiet = each.muted or emphasized and (not each.accent)
     let label = drawing::pad(labels.at(index).or(""), label_lane, false)
-    let line = mut List::new<drawing::Segment>()
+    let line = &mut List::new<drawing::Segment>()
     line.push(
       match {
         each.accent => drawing::bold(label, drawing::Role::text),
@@ -311,10 +311,10 @@ private fn draw_rows(figure: model::Figure) drawing::Drawing {
     if each.note != "" {
       line.push(drawing::segment("  {each.note}", drawing::Role::muted))
     }
-    rows.push(line.@)
+    rows.push(line.*)
     index =+ 1
   }
-  drawing::framed(figure.title, rows.@)
+  drawing::framed(figure.title, rows.*)
 }
 
 test fn single_meters_read_percents_fractions_and_ratios() Void!Str {
@@ -334,13 +334,13 @@ test fn single_meters_read_percents_fractions_and_ratios() Void!Str {
 
 test fn a_target_tick_takes_its_column_inside_the_bar() Void!Str {
   let parts = segments(1000, 10, 8, drawing::Role::accent)
-  let texts = mut List::new<Str>()
+  let texts = &mut List::new<Str>()
   for each in parts {
     texts.push(each.text)
   }
   let got = strings::Join(texts, "|")
   try testing::assert(got == "████████|│|█", "got {got}")
-  let past = mut List::new<Str>()
+  let past = &mut List::new<Str>()
   for each in segments(840, 30, 24, drawing::Role::warning) {
     past.push(each.text)
   }
@@ -350,7 +350,7 @@ test fn a_target_tick_takes_its_column_inside_the_bar() Void!Str {
     "a bar past its tick fills whole cells: {over}",
   )
   let short = segments(200, 10, 8, drawing::Role::accent)
-  let shown = mut List::new<Str>()
+  let shown = &mut List::new<Str>()
   for each in short {
     shown.push(each.text)
   }

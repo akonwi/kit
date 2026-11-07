@@ -11,15 +11,15 @@ use kit/tui/transcript
 use go:strings
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {
@@ -39,17 +39,17 @@ fn same_color(left: ui::Color?, right: ui::Color) Bool {
 }
 
 fn call(name: Str, arguments: Str) transcript::ToolCall {
-  let made = mut transcript::tool_call("c1", name)
+  let made = &mut transcript::tool_call("c1", name)
   made.arguments = arguments
-  made.@
+  made.*
 }
 
 fn result(state: transcript::ToolState, text: Str) transcript::Message {
-  let made = mut transcript::message("r1", "t1", transcript::Role::tool)
+  let made = &mut transcript::message("r1", "t1", transcript::Role::tool)
   made.tool_call_id = "c1"
   made.tool_state = state
   made.text = text
-  made.@
+  made.*
 }
 
 struct Shown {
@@ -175,7 +175,7 @@ struct Opened {
 }
 
 test fn a_read_summary_opens_its_file_at_the_first_line_read() Void!Str {
-  let opened = mut Opened{targets: [], selections: 0}
+  let opened = &mut Opened{targets: [], selections: 0}
   let terminal = headless::new(64, 2)
   defer terminal.destroy()
   let renderer = cui::mount(
@@ -192,12 +192,12 @@ test fn a_read_summary_opens_its_file_at_the_first_line_read() Void!Str {
         servers: [],
         title_width: tool_row::min_title_width,
         open_file: Maybe::new(fn(target: toolpresentation::FileTarget) {
-          let next = mut List::new<toolpresentation::FileTarget>()
+          let next = &mut List::new<toolpresentation::FileTarget>()
           for earlier in opened.targets {
             next.push(earlier)
           }
           next.push(target)
-          opened.targets = next.@
+          opened.targets = next.*
         }),
       },
     ),
@@ -232,8 +232,8 @@ test fn a_read_summary_opens_its_file_at_the_first_line_read() Void!Str {
 }
 
 test fn a_subagent_summary_opens_the_agents_conversation() Void!Str {
-  let opened = mut Opened{targets: [], selections: 0}
-  let agents = mut List::new<Str>()
+  let opened = &mut Opened{targets: [], selections: 0}
+  let agents = &mut List::new<Str>()
   let terminal = headless::new(64, 2)
   defer terminal.destroy()
   let renderer = cui::mount(
@@ -264,8 +264,8 @@ test fn a_subagent_summary_opens_the_agents_conversation() Void!Str {
   terminal.click(25, 0)
   terminal.flush()
   try testing::assert(
-    strings::Join(mut agents, ",") == "code-reviewer",
-    "clicking the agent opens its conversation: {strings::Join(mut agents, ",")}",
+    strings::Join(agents, ",") == "code-reviewer",
+    "clicking the agent opens its conversation: {strings::Join(agents, ",")}",
   )
   testing::assert(opened.selections == 0, "the summary's click doesn't select the row")
 }

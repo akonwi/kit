@@ -71,15 +71,15 @@ struct ButtonProps {
   hover_label: Str?,
   // Whether the button's fill spans its whole width.
   stretch: Bool,
-  control: mut cui::BoxRef,
+  control: &mut cui::BoxRef,
 }
 
 struct Button {
-  props: mut ButtonProps,
+  props: &mut ButtonProps,
   hovered: Bool,
   pressed: Bool,
   focused: Bool,
-  control: mut cui::BoxRef,
+  control: &mut cui::BoxRef,
 }
 
 // button renders a Kit-styled, focusable action. It owns activation feedback:
@@ -97,7 +97,7 @@ fn button(
   foreground: ui::Color?,
   hover_label: Str?,
   stretch: Bool?,
-  ref: (mut cui::BoxRef)?,
+  ref: (&mut cui::BoxRef)?,
 ) cui::View {
   cui::child(
     new,
@@ -119,14 +119,14 @@ fn button(
   )
 }
 
-private fn new(props: mut ButtonProps) mut Button {
-  (mut Button{
+private fn new(props: &mut ButtonProps) &mut Button {
+  &mut Button{
     props: props,
     hovered: false,
     pressed: false,
     focused: false,
     control: props.control,
-  })
+  }
 }
 
 impl cui::Lifecycle for Button {
@@ -191,7 +191,7 @@ impl Button {
     self.props.foreground.or(self.props.themes.current().foreground)
   }
 
-  private fn mut mouse(received: mut event::MouseEvent) {
+  private fn mut mouse(received: &mut event::MouseEvent) {
     if received.event_type == event::MouseEventType::over or received.event_type == event::MouseEventType::move {
       self.hovered = true
     } else if received.event_type == event::MouseEventType::out {
@@ -224,8 +224,8 @@ impl cui::Component for Button {
       false => 2,
     }
     let trailing = self.props.trailing_padding.or(horizontal)
-    let commands = mut List::new<keymap::Command>()
-    let bindings = mut List::new<keymap::Binding>()
+    let commands = &mut List::new<keymap::Command>()
+    let bindings = &mut List::new<keymap::Binding>()
     if self.props.focusable {
       commands.push(self.props.command)
       bindings.push(keymap::binding(keymap::key("return"), self.props.command.with()))
@@ -258,11 +258,11 @@ impl cui::Component for Button {
       focused: self.focused_state(),
       autofocus: self.props.autofocus and self.props.focusable,
       ref: self.control,
-      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+      on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
         self.mouse(received)
       },
-      commands: commands.@,
-      bindings: bindings.@,
+      commands: commands.*,
+      bindings: bindings.*,
     )
   }
 }

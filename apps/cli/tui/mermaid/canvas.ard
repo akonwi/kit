@@ -53,14 +53,14 @@ struct Canvas {
 }
 
 // A blank canvas. Its cells start empty in a single allocation each.
-fn new(width: Int, height: Int) mut Canvas {
+fn new(width: Int, height: Int) &mut Canvas {
   let size = maximum(width * height, 0)
-  (mut Canvas{
+  &mut Canvas{
     width: width,
     height: height,
     texts: List::new<Str>(size),
     cells: List::new<Int>(size),
-  })
+  }
 }
 
 private fn maximum(a: Int, b: Int) Int {
@@ -71,7 +71,7 @@ private fn maximum(a: Int, b: Int) Int {
 }
 
 // parts drawn one under another, a blank row apart.
-fn stack(parts: [Canvas]) mut Canvas {
+fn stack(parts: [Canvas]) &mut Canvas {
   mut width = 0
   mut height = 0
   for part in parts {
@@ -386,10 +386,10 @@ impl Canvas {
 
   // The drawing as plain rows, with trailing spaces removed.
   fn lines() [Str] {
-    let rows = mut List::new<Str>()
+    let rows = &mut List::new<Str>()
     mut y = 0
     while y < self.height {
-      let row = mut List::new<Str>()
+      let row = &mut List::new<Str>()
       mut x = 0
       while x < self.width {
         row.push(self.shown(x, y))
@@ -398,7 +398,7 @@ impl Canvas {
       rows.push(strings::TrimRight(strings::Join(row, ""), " "))
       y =+ 1
     }
-    rows.@
+    rows.*
   }
 }
 
@@ -408,7 +408,7 @@ test fn crossing_lines_resolve_to_junctions() Void!Str {
   canvas.horizontal(1, 0, 4, Role::arrow, false)
   canvas.outline(0, 0, 4, 2, Role::frame, false)
   let rows = canvas.lines()
-  let shown = strings::Join(mut rows, "|")
+  let shown = strings::Join(rows, "|")
   testing::assert(shown == "┌─┬─┐|├─┼─┤|└─┴─┘", "got {shown}")
 }
 
@@ -417,7 +417,7 @@ test fn dashed_lines_stay_dashed_only_when_straight() Void!Str {
   canvas.horizontal(1, 0, 4, Role::arrow, true)
   canvas.vertical(2, 0, 2, Role::frame, false)
   let rows = canvas.lines()
-  let shown = strings::Join(mut rows, "|")
+  let shown = strings::Join(rows, "|")
   testing::assert(shown == "  │|┈┈┼┈┈|  │", "got {shown}")
 }
 
@@ -425,7 +425,7 @@ test fn rounded_outline_keeps_rounded_corners() Void!Str {
   let canvas = new(4, 3)
   canvas.outline(0, 0, 3, 2, Role::frame, true)
   let rows = canvas.lines()
-  let shown = strings::Join(mut rows, "|")
+  let shown = strings::Join(rows, "|")
   testing::assert(shown == "╭──╮|│  │|╰──╯", "got {shown}")
 }
 
@@ -435,7 +435,7 @@ test fn text_replaces_lines_and_wide_characters_cover_two_cells() Void!Str {
   canvas.write(1, 0, "你a", Role::label, false)
   canvas.connect(2, 0, left + right, Role::arrow, false, false)
   let rows = canvas.lines()
-  let shown = strings::Join(mut rows, "|")
+  let shown = strings::Join(rows, "|")
   try testing::assert(shown == "─你a──", "got {shown}")
   testing::assert(canvas.shown(2, 0) == "", "trailing half of a wide character shows nothing")
 }
@@ -447,7 +447,7 @@ test fn writing_over_half_a_wide_character_blanks_the_other_half() Void!Str {
   canvas.write(2, 0, "好", Role::label, false)
   canvas.write(2, 0, "b", Role::label, false)
   let rows = canvas.lines()
-  let shown = strings::Join(mut rows, "|")
+  let shown = strings::Join(rows, "|")
   testing::assert(shown == " ab", "got {shown}|")
 }
 
@@ -459,6 +459,6 @@ test fn heavy_lines_join_heavily_only_with_heavy_lines() Void!Str {
   canvas.vertical(2, 0, 2, Role::frame, false)
   canvas.vertical_styled(4, 0, 1, Role::arrow, false, true)
   let rows = canvas.lines()
-  let shown = strings::Join(mut rows, "|")
+  let shown = strings::Join(rows, "|")
   testing::assert(shown == "  │ ┃|━━┼━┛|  │", "got {shown}")
 }

@@ -18,7 +18,7 @@ struct Model {
   active: Bool,
   submitting: Bool,
   responses: [protocol::InteractionResponse],
-  control: mut interaction_dock::Ref,
+  control: &mut interaction_dock::Ref,
   // URLs the dock opened, and why opening fails, if it should.
   opened: [Str],
   open_failure: Str,
@@ -31,17 +31,17 @@ struct Model {
 }
 
 struct HostProps {
-  model: mut Model,
+  model: &mut Model,
   themes: theme::Context,
 }
 
 struct Host {
-  model: mut Model,
+  model: &mut Model,
   themes: theme::Context,
 }
 
-fn host(props: mut HostProps) mut Host {
-  (mut Host{model: props.model, themes: props.themes})
+fn host(props: &mut HostProps) &mut Host {
+  &mut Host{model: props.model, themes: props.themes}
 }
 
 // Hosts the dock beneath a transcript stand-in that keeps three rows, the way
@@ -101,8 +101,8 @@ impl cui::Component for Host {
   }
 }
 
-fn model(request: protocol::InteractionRequest) mut Model {
-  (mut Model{
+fn model(request: protocol::InteractionRequest) &mut Model {
+  &mut Model{
     request: request,
     queue_length: 1,
     active: true,
@@ -115,10 +115,10 @@ fn model(request: protocol::InteractionRequest) mut Model {
     listening: [],
     redirect: Maybe::new<fn(Str)>(),
     stopped: 0,
-  })
+  }
 }
 
-fn mount(terminal: headless::TestApp, state: mut Model) cui::Renderer {
+fn mount(terminal: headless::TestApp, state: &mut Model) cui::Renderer {
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let themes = theme::context(theme::store(theme::system()))
   let renderer = cui::mount(app, cui::child(host, HostProps{model: state, themes: themes}))
@@ -169,7 +169,7 @@ fn type_text(terminal: headless::TestApp, text: Str) {
   settle(terminal)
 }
 
-fn only_response(state: mut Model) protocol::InteractionResponse!Str {
+fn only_response(state: &mut Model) protocol::InteractionResponse!Str {
   match state.responses.size() == 1 {
     true => Result::ok(state.responses.at(0).expect("response")),
     false => Result::err("{state.responses.size()} responses"),
@@ -177,15 +177,15 @@ fn only_response(state: mut Model) protocol::InteractionResponse!Str {
 }
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {
@@ -197,7 +197,7 @@ fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
   testing::pass()
 }
 
-fn key(name: Str, shift: Bool?) mut event::KeyEvent {
+fn key(name: Str, shift: Bool?) &mut event::KeyEvent {
   event::key(
     name,
     "",
@@ -423,17 +423,17 @@ test fn a_confirmation_answers_from_letters_and_buttons() Void!Str {
   try testing::assert(same(body, theme::system().foreground), "the detail uses the normal text color")
   press(terminal, "n", shift: true)
   let declined = try only_response(state)
-  try testing::assert((not unsafe::is_nil(declined.Confirmed)) and not declined.Confirmed.@, "N declines")
+  try testing::assert((not unsafe::is_nil(declined.Confirmed)) and not declined.Confirmed.*, "N declines")
   state.responses = []
   press(terminal, "y")
   let accepted = try only_response(state)
-  try testing::assert((not unsafe::is_nil(accepted.Confirmed)) and accepted.Confirmed.@, "y accepts")
+  try testing::assert((not unsafe::is_nil(accepted.Confirmed)) and accepted.Confirmed.*, "y accepts")
   state.responses = []
   terminal.click(4, 8)
   settle(terminal)
   let clicked = try only_response(state)
   testing::assert(
-    (not unsafe::is_nil(clicked.Confirmed)) and clicked.Confirmed.@,
+    (not unsafe::is_nil(clicked.Confirmed)) and clicked.Confirmed.*,
     "clicking Yes accepts",
   )
 }
@@ -490,7 +490,7 @@ test fn a_text_request_submits_a_non_empty_answer() Void!Str {
   press(terminal, "return")
   let response = try only_response(state)
   testing::assert(
-    (not unsafe::is_nil(response.Value)) and response.Value.@ == "main",
+    (not unsafe::is_nil(response.Value)) and response.Value.* == "main",
     "Return submits the typed answer",
   )
 }
@@ -651,7 +651,7 @@ test fn guided_questions_collect_every_answer_into_one_response() Void!Str {
   let name = try answer(response, "name")
   let location = try answer(response, "location")
   let jobs = try answer(response, "jobs")
-  try testing::assert((not unsafe::is_nil(name.Text)) and name.Text.@ == "test", "the text answer")
+  try testing::assert((not unsafe::is_nil(name.Text)) and name.Text.* == "test", "the text answer")
   try testing::assert(
     location.OptionIDs.size() == 1 and location.OptionIDs.at(0).or("") == "folder",
     "the chosen option",
@@ -758,11 +758,11 @@ test fn a_yes_no_question_answers_only_from_a_choice() Void!Str {
   press(terminal, "n")
   let response = try only_response(state)
   let enable = try answer(response, "enable")
-  testing::assert((not unsafe::is_nil(enable.Boolean)) and not enable.Boolean.@, "n answers no")
+  testing::assert((not unsafe::is_nil(enable.Boolean)) and not enable.Boolean.*, "n answers no")
 }
 
 test fn long_questionnaires_compact_the_step_trail() Void!Str {
-  let questions = mut List::new<protocol::InteractionQuestion>()
+  let questions = &mut List::new<protocol::InteractionQuestion>()
   mut index = 0
   while index < 10 {
     questions.push(
@@ -784,7 +784,7 @@ test fn long_questionnaires_compact_the_step_trail() Void!Str {
       ToolCallID: "call-1",
       Kind: protocol::InteractionGuided,
       Title: "Survey",
-      Questions: questions.@,
+      Questions: questions.*,
     },
   )
   let renderer = mount(terminal, state)
@@ -818,8 +818,8 @@ test fn pasted_text_fills_a_text_answer_without_submitting_it() Void!Str {
   press(terminal, "return")
   let response = try only_response(state)
   testing::assert(
-    (not unsafe::is_nil(response.Value)) and response.Value.@ == "release/2.0",
-    "the pasted text is the answer: {response.Value.@}",
+    (not unsafe::is_nil(response.Value)) and response.Value.* == "release/2.0",
+    "the pasted text is the answer: {response.Value.*}",
   )
 }
 
@@ -834,12 +834,13 @@ test fn a_paste_does_not_answer_a_choice() Void!Str {
   testing::assert(state.responses.size() == 0, "pasted text is not a key press")
 }
 
-fn owner() mut protocol::PluginInteractionOwner {
-  (mut protocol::PluginInteractionOwner{PluginID: "ui-api-demo", Instance: "owner:1"})
+fn owner() &mut protocol::PluginInteractionOwner {
+  &mut protocol::PluginInteractionOwner{PluginID: "ui-api-demo", Instance: "owner:1"}
 }
 
 fn plugin_confirmation(default_value: Bool) protocol::InteractionRequest {
-  let preferred = mut default_value
+  mut default_value = default_value
+  let preferred = &mut default_value
   protocol::InteractionRequest{
     ID: "interaction_confirm",
     Plugin: owner(),
@@ -915,7 +916,7 @@ test fn return_chooses_the_highlighted_plugin_answer() Void!Str {
       terminal.destroy()
       let answer = try response
       try testing::assert(
-        (not unsafe::is_nil(answer.Confirmed)) and answer.Confirmed.@ == want,
+        (not unsafe::is_nil(answer.Confirmed)) and answer.Confirmed.* == want,
         "default {default_value}, switched {switched}",
       )
     }
@@ -939,7 +940,7 @@ test fn a_plugin_confirmation_without_a_default_highlights_declining() Void!Str 
   press(terminal, "return")
   let declined = try only_response(state)
   try testing::assert(
-    (not unsafe::is_nil(declined.Confirmed)) and not declined.Confirmed.@,
+    (not unsafe::is_nil(declined.Confirmed)) and not declined.Confirmed.*,
     "Return declines when nothing is preferred",
   )
   state.responses = []
@@ -970,7 +971,7 @@ test fn a_plugin_text_request_starts_from_its_initial_value_and_accepts_an_empty
   press(terminal, "return")
   let initial = try only_response(state)
   try testing::assert(
-    (not unsafe::is_nil(initial.Value)) and initial.Value.@ == "draft note",
+    (not unsafe::is_nil(initial.Value)) and initial.Value.* == "draft note",
     "the initial value is the answer",
   )
   let empty_terminal = headless::new(60, 10)
@@ -989,7 +990,7 @@ test fn a_plugin_text_request_starts_from_its_initial_value_and_accepts_an_empty
   press(empty_terminal, "return")
   let empty = try only_response(empty_state)
   testing::assert(
-    (not unsafe::is_nil(empty.Value)) and empty.Value.@ == "" and (not empty.Cancelled),
+    (not unsafe::is_nil(empty.Value)) and empty.Value.* == "" and (not empty.Cancelled),
     "an empty answer is still an answer",
   )
 }
@@ -997,7 +998,7 @@ test fn a_plugin_text_request_starts_from_its_initial_value_and_accepts_an_empty
 test fn a_filterable_plugin_select_is_a_plain_list() Void!Str {
   let terminal = headless::new(60, 12)
   defer terminal.destroy()
-  let filterable = mut true
+  let filterable = &mut true
   let state = model(
     protocol::InteractionRequest{
       ID: "interaction_select",
@@ -1108,7 +1109,7 @@ test fn option_labels_truncate_at_the_edge_of_a_narrow_row() Void!Str {
 }
 
 fn detailed() protocol::InteractionRequest {
-  let request = mut proceed()
+  let request = &mut proceed()
   request.Options = [
     protocol::InteractionOption{
       ID: "both",
@@ -1121,7 +1122,7 @@ fn detailed() protocol::InteractionRequest {
       Detail: "Leaves the fork alone",
     },
   ]
-  request.@
+  request.*
 }
 
 test fn labels_and_details_show_in_full_when_the_row_fits_them() Void!Str {
@@ -1214,7 +1215,7 @@ test fn an_authorization_opens_its_page_and_answers_with_the_redirect() Void!Str
   settle(terminal)
   let response = try only_response(state)
   try testing::assert(
-    (not unsafe::is_nil(response.Value)) and response.Value.@ == "http://127.0.0.1:53173/mcp/callback?code=c&state=s",
+    (not unsafe::is_nil(response.Value)) and response.Value.* == "http://127.0.0.1:53173/mcp/callback?code=c&state=s",
     "the received redirect answers the request",
   )
   renderer.destroy()
@@ -1262,7 +1263,7 @@ test fn an_authorization_takes_a_pasted_redirect_when_it_cannot_listen() Void!St
   press(terminal, "return")
   let response = try only_response(state)
   testing::assert(
-    (not unsafe::is_nil(response.Value)) and response.Value.@ == "code=c&state=s",
+    (not unsafe::is_nil(response.Value)) and response.Value.* == "code=c&state=s",
     "Return submits the pasted redirect",
   )
 }

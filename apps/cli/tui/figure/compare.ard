@@ -25,11 +25,11 @@ private fn cells(line: Str) [Str] {
   if strings::HasSuffix(inner, "|") {
     inner = inner.slice(end: inner.size() - 1).or("")
   }
-  let result = mut List::new<Str>()
+  let result = &mut List::new<Str>()
   for each in strings::Split(inner, "|") {
     result.push(strings::TrimSpace(grammar::clean(each)))
   }
-  result.@
+  result.*
 }
 
 private fn is_divider(row: [Str]) Bool {
@@ -50,14 +50,14 @@ private struct Table {
 }
 
 private fn table(body: Str) Table {
-  let lines = mut List::new<Str>()
+  let lines = &mut List::new<Str>()
   for raw in strings::Split(strings::ReplaceAll(body, "\r\n", "\n"), "\n") {
     let trimmed = strings::TrimSpace(raw)
     if trimmed != "" {
       lines.push(trimmed)
     }
   }
-  let rows = mut List::new<[Str]>()
+  let rows = &mut List::new<[Str]>()
   mut failure = ""
   for line in lines {
     if failure == "" and not strings::HasPrefix(line, "|") {
@@ -67,7 +67,7 @@ private fn table(body: Str) Table {
   }
   let none: [Str] = []
   let heading = rows.at(0).or(none)
-  let body_rows = mut List::new<[Str]>()
+  let body_rows = &mut List::new<[Str]>()
   mut index = 0
   for row in rows {
     if index >= 2 {
@@ -83,7 +83,7 @@ private fn table(body: Str) Table {
   }
   Table{
     heading: heading,
-    rows: body_rows.@,
+    rows: body_rows.*,
     failure: failure,
   }
 }
@@ -100,7 +100,7 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     },
     false => table(body),
   }
-  let options = mut List::new<Str>()
+  let options = &mut List::new<Str>()
   mut pick = -1
   mut picks = 0
   mut unnamed = false
@@ -119,10 +119,10 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     }
     index =+ 1
   }
-  let made = mut List::new<model::Item>()
+  let made = &mut List::new<model::Item>()
   for row in parsed.rows {
-    let item = mut model::item(row.at(0).or(""), "")
-    let values = mut List::new<Str>()
+    let item = &mut model::item(row.at(0).or(""), "")
+    let values = &mut List::new<Str>()
     mut column = 0
     for each in row {
       if column > 0 {
@@ -130,8 +130,8 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
       }
       column =+ 1
     }
-    item.cells = values.@
-    made.push(item.@)
+    item.cells = values.*
+    made.push(item.*)
   }
   match {
     parsed.failure != "" => Result::err(parsed.failure),
@@ -143,10 +143,10 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     made.size() == 0 => Result::err("the figure has no rows"),
     made.size() > max_rows => Result::err("a compare table has at most {max_rows} rows"),
     _ => {
-      let figure = mut model::figure("compare", grammar::attribute(info, "title"), made.@)
-      figure.headings = options.@
+      let figure = &mut model::figure("compare", grammar::attribute(info, "title"), made.*)
+      figure.headings = options.*
       figure.pick = pick
-      Result::ok(figure.@)
+      Result::ok(figure.*)
     },
   }
 }
@@ -168,7 +168,7 @@ fn draw(figure: model::Figure) drawing::Drawing {
       label_lane = width
     }
   }
-  let lanes = mut List::new<Int>()
+  let lanes = &mut List::new<Int>()
   mut column = 0
   for heading in figure.headings {
     mut width = ui::text_width(format::truncate_cells(heading, max_label))
@@ -181,8 +181,8 @@ fn draw(figure: model::Figure) drawing::Drawing {
     lanes.push(width)
     column =+ 1
   }
-  let rows = mut List::new<[drawing::Segment]>()
-  let heading = mut [drawing::segment(strings::Repeat(" ", label_lane), drawing::Role::text)]
+  let rows = &mut List::new<[drawing::Segment]>()
+  let heading = &mut [drawing::segment(strings::Repeat(" ", label_lane), drawing::Role::text)]
   column = 0
   for each in figure.headings {
     let name = drawing::pad(format::truncate_cells(each, max_label), lanes.at(column).or(0), false)
@@ -196,10 +196,10 @@ fn draw(figure: model::Figure) drawing::Drawing {
     column =+ 1
   }
   rows.push(
-    [drawing::segment(strings::Repeat("─", drawing::row_width(heading.@)), drawing::Role::frame)],
+    [drawing::segment(strings::Repeat("─", drawing::row_width(heading.*)), drawing::Role::frame)],
   )
   for each in figure.items {
-    let line = mut [
+    let line = &mut [
       drawing::segment(
         drawing::pad(format::truncate_cells(each.label, max_label), label_lane, false),
         drawing::Role::text,
@@ -221,13 +221,13 @@ fn draw(figure: model::Figure) drawing::Drawing {
       )
       column =+ 1
     }
-    rows.push(line.@)
+    rows.push(line.*)
   }
-  let ordered = mut [heading.@]
+  let ordered = &mut [heading.*]
   for each in rows {
     ordered.push(each)
   }
-  drawing::framed(figure.title, ordered.@)
+  drawing::framed(figure.title, ordered.*)
 }
 
 test fn yes_and_no_are_glyphs() Void!Str {

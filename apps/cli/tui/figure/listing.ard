@@ -55,7 +55,7 @@ fn states(bold: [Bool]) [Str] {
     }
     index =+ 1
   }
-  let result = mut List::new<Str>()
+  let result = &mut List::new<Str>()
   mut at = 0
   while at < bold.size() {
     result.push(
@@ -68,5 +68,5 @@ fn states(bold: [Bool]) [Str] {
     )
     at =+ 1
   }
-  result.@
+  result.*
 }

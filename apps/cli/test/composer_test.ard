@@ -43,21 +43,21 @@ struct Model {
   sessions: session_mentions::Source,
   session_loads: Int,
   context: cui::Context?,
-  control: mut composer::Ref,
-  other_input: mut cui::InputRef,
+  control: &mut composer::Ref,
+  other_input: &mut cui::InputRef,
 }
 
 struct Props {
-  model: mut Model,
+  model: &mut Model,
   themes: theme::Context,
 }
 
 struct Host {
-  props: mut Props,
+  props: &mut Props,
 }
 
-fn host(props: mut Props) mut Host {
-  (mut Host{props: props})
+fn host(props: &mut Props) &mut Host {
+  &mut Host{props: props}
 }
 
 impl cui::Lifecycle for Host {
@@ -169,8 +169,8 @@ impl cui::Component for Host {
   }
 }
 
-fn model() mut Model {
-  (mut Model{
+fn model() &mut Model {
+  &mut Model{
     enabled: true,
     focus_eligible: true,
     submitted: "",
@@ -200,17 +200,17 @@ fn model() mut Model {
     context: Maybe::new<cui::Context>(),
     control: composer::ref(),
     other_input: cui::input_ref(),
-  })
+  }
 }
 
-fn mount(terminal: headless::TestApp, value: mut Model) cui::Renderer {
+fn mount(terminal: headless::TestApp, value: &mut Model) cui::Renderer {
   cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     cui::child(host, Props{model: value, themes: theme::context(theme::store(theme::system()))}),
   )
 }
 
-fn key(name: Str, text: Str?, kind: event::KeyEventType?) mut event::KeyEvent {
+fn key(name: Str, text: Str?, kind: event::KeyEventType?) &mut event::KeyEvent {
   event::key(
     name,
     text.or(""),
@@ -224,11 +224,11 @@ fn key(name: Str, text: Str?, kind: event::KeyEventType?) mut event::KeyEvent {
   )
 }
 
-fn character(value: Str) mut event::KeyEvent {
+fn character(value: Str) &mut event::KeyEvent {
   key(value, text: value)
 }
 
-fn chord(name: Str, shift: Bool, ctrl: Bool) mut event::KeyEvent {
+fn chord(name: Str, shift: Bool, ctrl: Bool) &mut event::KeyEvent {
   event::key(
     name,
     "",
@@ -716,15 +716,15 @@ test fn a_path_completed_across_changes_is_attached() Void!Str {
 }
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {
@@ -1386,7 +1386,7 @@ fn indexed(paths: [Str]) file_index::Index {
   }
 }
 
-fn set_files(value: mut Model, files: file_index::Index) {
+fn set_files(value: &mut Model, files: file_index::Index) {
   let context = value.context.expect("mounted host")
   let _ = context.dispatch(fn() {
     value.files = files
@@ -1578,7 +1578,7 @@ test fn the_index_reports_failures_and_partial_lists() Void!Str {
 }
 
 // Lists sessions as a finished load does, with the attached one excluded.
-fn list_sessions(value: mut Model, listed: [protocol::SessionInfo]!Str) {
+fn list_sessions(value: &mut Model, listed: [protocol::SessionInfo]!Str) {
   let context = value.context.expect("mounted host")
   let _ = context.dispatch(fn() {
     value.sessions = session_mentions::finish(

@@ -173,7 +173,7 @@ fn view(
 }
 
 private struct Figure {
-  props: mut Props,
+  props: &mut Props,
   rendered_info: Str,
   rendered_source: Str,
   result: model::Figure!Str,
@@ -185,9 +185,9 @@ private struct Figure {
   painted_semantic: Bool,
 }
 
-private fn new(props: mut Props) mut Figure {
+private fn new(props: &mut Props) &mut Figure {
   let result = parse(props.info, props.source)
-  (mut Figure{
+  &mut Figure{
     rendered_info: props.info,
     rendered_source: props.source,
     result: result,
@@ -196,7 +196,7 @@ private fn new(props: mut Props) mut Figure {
     painted_revision: -1,
     painted_semantic: props.semantic,
     props: props,
-  })
+  }
 }
 
 impl cui::Component for Figure {
@@ -217,7 +217,7 @@ impl cui::Component for Figure {
           _ => listing_view(colors, self.props.id, self.props.base, self.props.semantic, parsed),
         }
       },
-      err(reason) => source_view(self.props.@, reason),
+      err(reason) => source_view(self.props.*, reason),
     }
   }
 }
@@ -236,8 +236,9 @@ impl Figure {
 }
 
 private fn source_view(props: Props, reason: Str) cui::View {
+  mut props = props
   let colors = props.themes.current()
-  let note = mut props.base
+  let note = &mut props.base
   note.foreground = colors.muted
   note.italic = true
   cui::box(
@@ -260,7 +261,7 @@ private fn source_view(props: Props, reason: Str) cui::View {
       ),
       cui::text(
         "Figure not drawn: {reason}",
-        text_style: note.@,
+        text_style: note.*,
         selectable: true,
         selection_style: theme::selection_style(colors),
       ),
@@ -286,7 +287,7 @@ private fn role_color(colors: theme::Theme, role: drawing::Role) ui::Color? {
 
 // The drawing as styled text, one span per run.
 fn styled(colors: theme::Theme, semantic: Bool, picture: drawing::Drawing) ui::StyledText {
-  let spans = mut List::new<ui::Span>()
+  let spans = &mut List::new<ui::Span>()
   mut first = true
   for row in picture.rows {
     if not first {
@@ -314,7 +315,7 @@ fn styled(colors: theme::Theme, semantic: Bool, picture: drawing::Drawing) ui::S
       }
     }
   }
-  ui::styled_text(spans.@)
+  ui::styled_text(spans.*)
 }
 
 // A run's text style: the base, colored for its role and bold when it is.
@@ -325,7 +326,8 @@ private fn run_style(
   role: drawing::Role,
   bold: Bool,
 ) ui::TextStyle {
-  let style = mut base
+  mut base = base
+  let style = &mut base
   if semantic {
     match role_color(colors, role) {
       color => { style.foreground = Maybe::new(color) },
@@ -335,7 +337,7 @@ private fn run_style(
   if bold {
     style.bold = true
   }
-  style.@
+  style.*
 }
 
 // One run of a listing, unwrapped.
@@ -394,7 +396,7 @@ private fn edge(
   corner: Str,
   width: Int,
 ) cui::View {
-  let children = mut List::new<cui::View>()
+  let children = &mut List::new<cui::View>()
   for part in lead {
     children.push(run(colors, semantic, base, part))
   }
@@ -415,7 +417,7 @@ private fn edge(
   )
   children.push(run(colors, semantic, base, drawing::segment(corner, drawing::Role::frame)))
   cui::box(
-    children.@,
+    children.*,
     styles: ui::style(flex_direction: ui::FlexDirection::row, height: ui::cells(1)),
   )
 }
@@ -438,11 +440,11 @@ private fn runs(
   base: ui::TextStyle,
   parts: [drawing::Segment],
 ) cui::View {
-  let children = mut List::new<cui::View>()
+  let children = &mut List::new<cui::View>()
   for part in parts {
     children.push(run(colors, semantic, base, part))
   }
-  cui::box(children.@, styles: ui::style(flex_direction: ui::FlexDirection::row))
+  cui::box(children.*, styles: ui::style(flex_direction: ui::FlexDirection::row))
 }
 
 private fn blank_row() cui::View {
@@ -460,9 +462,9 @@ fn listing_view(
 ) cui::View {
   let laid = layout(figure)
   let rows = laid.entries
-  let markers = mut List::new<Str>()
-  let lanes = mut List::new<Str>()
-  let texts = mut List::new<Str>()
+  let markers = &mut List::new<Str>()
+  let lanes = &mut List::new<Str>()
+  let texts = &mut List::new<Str>()
   for each in rows {
     markers.push(each.marker.text)
     lanes.push(each.lane.text)
@@ -470,17 +472,17 @@ fn listing_view(
     texts.push(each.note)
     texts.push(each.body)
   }
-  let marker_lane = widest_text(markers.@)
+  let marker_lane = widest_text(markers.*)
   let marker_span = match marker_lane > 0 {
     true => marker_lane + listing::gap,
     false => 0,
   }
-  let lane = widest_text(lanes.@)
+  let lane = widest_text(lanes.*)
   let lane_span = match lane > 0 {
     true => lane + listing::gap,
     false => 0,
   }
-  let measure = minimum(widest_text(texts.@), max_measure)
+  let measure = minimum(widest_text(texts.*), max_measure)
   // The widest an entry's text reaches, inset included.
   mut reach = measure
   for each in rows {
@@ -505,7 +507,7 @@ fn listing_view(
   if laid.closing != "" {
     tallest =+ ui::text_width(laid.closing) + 1
   }
-  let items = mut List::new<cui::View>()
+  let items = &mut List::new<cui::View>()
   if lead_width > 0 {
     items.push(runs(colors, semantic, base, laid.lead))
     items.push(blank_row())
@@ -513,7 +515,7 @@ fn listing_view(
   mut index = 0
   for each in rows {
     let last = index == rows.size() - 1
-    let text_children = mut [prose(colors, semantic, base, each.heading)]
+    let text_children = &mut [prose(colors, semantic, base, each.heading)]
     if each.note != "" {
       text_children.push(
         prose(colors, semantic, base, drawing::segment(each.note, drawing::Role::muted)),
@@ -527,9 +529,9 @@ fn listing_view(
     if laid.spaced and not last {
       text_children.push(blank_row())
     }
-    let columns = mut List::new<cui::View>()
+    let columns = &mut List::new<cui::View>()
     if marker_lane > 0 {
-      let marker_children = mut [run(colors, semantic, base, each.marker)]
+      let marker_children = &mut [run(colors, semantic, base, each.marker)]
       if laid.spaced and not last {
         marker_children.push(
           rule(
@@ -550,7 +552,7 @@ fn listing_view(
       }
       columns.push(
         cui::box(
-          marker_children.@,
+          marker_children.*,
           styles: ui::style(
             flex_direction: ui::FlexDirection::column,
             position: ui::Position::relative,
@@ -593,7 +595,7 @@ fn listing_view(
     }
     columns.push(
       cui::box(
-        text_children.@,
+        text_children.*,
         styles: ui::style(
           flex_direction: ui::FlexDirection::column,
           flex_grow: 1.0,
@@ -604,7 +606,7 @@ fn listing_view(
     )
     items.push(
       cui::box(
-        columns.@,
+        columns.*,
         styles: ui::style(
           flex_direction: ui::FlexDirection::row,
           padding: ui::Edges{
@@ -655,7 +657,7 @@ fn listing_view(
         [
           rule(colors, semantic, base, tallest, sides),
           cui::box(
-            items.@,
+            items.*,
             styles: ui::style(
               flex_direction: ui::FlexDirection::column,
               padding: ui::Edges{
@@ -772,10 +774,10 @@ test fn drawn_figures_color_each_role() Void!Str {
   terminal.flush()
   let colors = themes.current()
   let frame = terminal.frame()
-  let rows = mut List::new<Str>()
+  let rows = &mut List::new<Str>()
   mut y = 0
   while y < 6 {
-    let cells = mut List::new<Str>()
+    let cells = &mut List::new<Str>()
     mut x = 0
     while x < 44 {
       cells.push(frame.cell(x, y).expect("cell").grapheme)
@@ -828,10 +830,10 @@ test fn listings_color_now_in_the_accent_and_join_markers_with_a_rule() Void!Str
   terminal.flush()
   let colors = themes.current()
   let frame = terminal.frame()
-  let rows = mut List::new<Str>()
+  let rows = &mut List::new<Str>()
   mut y = 0
   while y < 7 {
-    let cells = mut List::new<Str>()
+    let cells = &mut List::new<Str>()
     mut x = 0
     while x < 40 {
       cells.push(frame.cell(x, y).expect("cell").grapheme)
@@ -880,10 +882,10 @@ test fn a_narrow_pane_clips_a_listings_lane_before_its_text() Void!Str {
   defer renderer.destroy()
   terminal.flush()
   let frame = terminal.frame()
-  let rows = mut List::new<Str>()
+  let rows = &mut List::new<Str>()
   mut y = 0
   while y < 9 {
-    let cells = mut List::new<Str>()
+    let cells = &mut List::new<Str>()
     mut x = 0
     while x < 30 {
       cells.push(frame.cell(x, y).expect("cell").grapheme)
@@ -925,10 +927,10 @@ test fn decisions_color_their_status_and_choice_and_specs_their_bold_value() Voi
   terminal.flush()
   let colors = themes.current()
   let frame = terminal.frame()
-  let rows = mut List::new<Str>()
+  let rows = &mut List::new<Str>()
   mut y = 0
   while y < 16 {
-    let cells = mut List::new<Str>()
+    let cells = &mut List::new<Str>()
     mut x = 0
     while x < 40 {
       cells.push(frame.cell(x, y).expect("cell").grapheme)

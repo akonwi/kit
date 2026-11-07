@@ -31,12 +31,12 @@ struct PaneRef {
   close_action: (fn(Bool) Bool)?,
 }
 
-fn pane_ref() mut PaneRef {
-  (mut PaneRef{
+fn pane_ref() &mut PaneRef {
+  &mut PaneRef{
     focus_action: Maybe::new<fn() Bool>(),
     save_action: Maybe::new<fn() Bool>(),
     close_action: Maybe::new<fn(Bool) Bool>(),
-  })
+  }
 }
 
 impl PaneRef {
@@ -73,7 +73,7 @@ struct Props {
   saved: fn(protocol::Scratchpad),
   closed: fn(Bool),
   notice: fn(Str, Str),
-  control: mut PaneRef,
+  control: &mut PaneRef,
 }
 
 struct EditorProps {
@@ -84,13 +84,13 @@ struct EditorProps {
   saved: fn(protocol::Scratchpad),
   closed: fn(Bool),
   notice: fn(Str, Str),
-  control: mut PaneRef,
+  control: &mut PaneRef,
 }
 
 struct Editor {
-  props: mut EditorProps,
+  props: &mut EditorProps,
   context: cui::Context?,
-  editor: mut cui::TextAreaRef,
+  editor: &mut cui::TextAreaRef,
   draft: Str,
   record: protocol::Scratchpad,
   generation: Int,
@@ -157,7 +157,7 @@ private fn failure_view(props: Props, colors: theme::Theme) cui::View {
       cui::text("Retry", text_style: ui::text_style(foreground: colors.foreground, bold: true)),
     ],
     styles: padded(),
-    on_mouse: fn(mouse: mut event::MouseEvent, context: cui::Context) {
+    on_mouse: fn(mouse: &mut event::MouseEvent, context: cui::Context) {
       if mouse.event_type == event::MouseEventType::up and mouse.button == event::MouseButton::left {
         let _ = props.retry_load()
         mouse.prevent_default()
@@ -166,8 +166,8 @@ private fn failure_view(props: Props, colors: theme::Theme) cui::View {
   )
 }
 
-private fn new_editor(props: mut EditorProps) mut Editor {
-  (mut Editor{
+private fn new_editor(props: &mut EditorProps) &mut Editor {
+  &mut Editor{
     props: props,
     context: Maybe::new<cui::Context>(),
     editor: cui::text_area_ref(),
@@ -181,7 +181,7 @@ private fn new_editor(props: mut EditorProps) mut Editor {
     edits: Chan::new<Edit>(1),
     flushes: Chan::new<Flush>(1),
     remotes: Chan::new<protocol::Scratchpad>(1),
-  })
+  }
 }
 
 impl cui::Lifecycle for Editor {
@@ -472,7 +472,7 @@ impl cui::Component for Editor {
     let save = keymap::simple_command("scratchpad.save", "Save Scratchpad", fn() Bool {
       self.request_save()
     })
-    let children = mut List::new<cui::View>()
+    let children = &mut List::new<cui::View>()
     children.push(
       cui::text_area(
         self.draft,
@@ -524,7 +524,7 @@ impl cui::Component for Editor {
               left: ui::cells(1),
             },
           ),
-          on_mouse: fn(mouse: mut event::MouseEvent, context: cui::Context) {
+          on_mouse: fn(mouse: &mut event::MouseEvent, context: cui::Context) {
             if mouse.event_type == event::MouseEventType::up and mouse.button == event::MouseButton::left {
               let _ = self.request_save()
               mouse.prevent_default()
@@ -534,7 +534,7 @@ impl cui::Component for Editor {
       )
     }
     cui::box(
-      children.@,
+      children.*,
       styles: ui::style(
         width: ui::percent(100.0),
         flex_grow: 1.0,
@@ -594,13 +594,13 @@ private fn offer_flush(channel: Chan<Flush>, flush: Flush) {
 }
 
 private fn conflict_record(failure: Error) protocol::Scratchpad? {
-  match unsafe::cast<mut api::ServerError>(failure) {
+  match unsafe::cast<&mut api::ServerError>(failure) {
     server_error => {
       match unsafe::cast<protocol::ScratchpadErrorDetails>(server_error.Details) {
         details => {
           match unsafe::is_nil(details.Scratchpad) {
             true => Maybe::new<protocol::Scratchpad>(),
-            false => Maybe::new(details.Scratchpad.@),
+            false => Maybe::new(details.Scratchpad.*),
           }
         },
         _ => Maybe::new<protocol::Scratchpad>(),

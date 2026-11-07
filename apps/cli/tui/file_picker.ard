@@ -82,7 +82,7 @@ private fn path_item(query: Str) palette::Item {
 }
 
 private fn indexed(index: file_index::Index) [palette::Item] {
-  let items = mut List::new<palette::Item>()
+  let items = &mut List::new<palette::Item>()
   for indexed in index.paths {
     if not strings::HasSuffix(indexed, "/") {
       items.push(
@@ -98,7 +98,7 @@ private fn indexed(index: file_index::Index) [palette::Item] {
       )
     }
   }
-  items.@
+  items.*
 }
 
 fn footer(index: file_index::Index) Str {

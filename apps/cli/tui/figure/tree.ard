@@ -37,7 +37,7 @@ private fn node_line(line: Str) Line? {
 private fn node(text: Str, line: Line, previous: Int) model::Item!Str {
   let level = line.indent.size() / 2 + 1
   let each = grammar::line(line.text)
-  let made = mut model::item(each.text, "")
+  let made = &mut model::item(each.text, "")
   made.note = each.note
   made.accent = each.bold
   made.muted = each.italic
@@ -53,12 +53,12 @@ private fn node(text: Str, line: Line, previous: Int) model::Item!Str {
     },
     level > max_depth => Result::err("a tree is at most {max_depth} levels deep"),
     each.text == "" => Result::err("a tree node needs a name, got `{grammar::clip(text)}`"),
-    _ => Result::ok(made.@),
+    _ => Result::ok(made.*),
   }
 }
 
 private fn nodes(body: Str) [model::Item]!Str {
-  let made = mut List::new<model::Item>()
+  let made = &mut List::new<model::Item>()
   mut failure = ""
   mut previous = 0
   for raw in strings::Split(strings::ReplaceAll(body, "\r\n", "\n"), "\n") {
@@ -80,7 +80,7 @@ private fn nodes(body: Str) [model::Item]!Str {
     }
   }
   match failure == "" {
-    true => Result::ok(made.@),
+    true => Result::ok(made.*),
     false => Result::err(failure),
   }
 }
@@ -135,10 +135,10 @@ private fn ancestor(items: [model::Item], index: Int, level: Int) Int {
 // ancestor has a later sibling, then `├─` or `└─` to the node itself. A
 // top-level node has none.
 fn guides(items: [model::Item]) [Str] {
-  let result = mut List::new<Str>()
+  let result = &mut List::new<Str>()
   mut index = 0
   for each in items {
-    let parts = mut List::new<Str>()
+    let parts = &mut List::new<Str>()
     mut level = 2
     while level < each.level {
       let open = continues(items, ancestor(items, index, level), level)
@@ -161,12 +161,12 @@ fn guides(items: [model::Item]) [Str] {
     result.push(strings::Join(parts, ""))
     index =+ 1
   }
-  result.@
+  result.*
 }
 
 fn draw(figure: model::Figure) drawing::Drawing {
   let prefixes = guides(figure.items)
-  let names = mut List::new<Str>()
+  let names = &mut List::new<Str>()
   mut widest = 0
   mut index = 0
   for each in figure.items {
@@ -178,12 +178,12 @@ fn draw(figure: model::Figure) drawing::Drawing {
     }
     index =+ 1
   }
-  let rows = mut List::new<[drawing::Segment]>()
+  let rows = &mut List::new<[drawing::Segment]>()
   index = 0
   for each in figure.items {
     let prefix = prefixes.at(index).or("")
     let name = names.at(index).or("")
-    let line = mut [drawing::segment(prefix, drawing::Role::frame)]
+    let line = &mut [drawing::segment(prefix, drawing::Role::frame)]
     line.push(
       match {
         each.accent => drawing::bold(name, drawing::Role::accent),
@@ -195,15 +195,15 @@ fn draw(figure: model::Figure) drawing::Drawing {
       let room = widest - ui::text_width(prefix) - ui::text_width(name)
       line.push(drawing::segment("{strings::Repeat(" ", room)}  {each.note}", drawing::Role::muted))
     }
-    rows.push(line.@)
+    rows.push(line.*)
     index =+ 1
   }
-  drawing::framed(figure.title, rows.@)
+  drawing::framed(figure.title, rows.*)
 }
 
 test fn guides_follow_each_ancestor_with_a_later_sibling() Void!Str {
   let info = try grammar::parse_info("tree")
   let figure = try parse(info, "- root\n  - a\n    - a1\n    - a2\n  - b\n    - b1\n- other")
-  let got = strings::Join(mut guides(figure.items), "|")
+  let got = strings::Join(&mut guides(figure.items), "|")
   testing::assert(got == "|├─ |│  ├─ |│  └─ |└─ |   └─ |", "got {got}")
 }

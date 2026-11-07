@@ -64,7 +64,7 @@ private fn failed(reason: Str) Preview {
 // Downloads, decodes, and scales an attachment's image. Transparent pixels
 // are composited over `matte` where the terminal cannot draw images natively.
 // It blocks, so call it off the UI thread.
-fn load(session: mut api::Session, ctx: context::Context, attachment_id: Str, matte: ui::Color) Preview {
+fn load(session: &mut api::Session, ctx: context::Context, attachment_id: Str, matte: ui::Color) Preview {
   match attachmentbridge::Open(session, ctx, attachment_id) {
     ok(download) => {
       let decoded = attachmentbridge::Decode(download.Content, max_width, max_height)
@@ -136,7 +136,7 @@ fn view(themes: theme::Context, attachment_id: Str, preview: Preview, open: fn()
             ),
           ),
         ],
-        on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+        on_mouse: fn(received: &mut cooper::MouseEvent, ctx: cui::Context) {
           if received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
             open()
             received.prevent_default()
@@ -203,7 +203,7 @@ fn materialize(download: attachmentbridge::Download) Str!Error {
 }
 
 private fn solid(width: Int, height: Int) ui::ImageData {
-  let bytes = mut List::new<Byte>()
+  let bytes = &mut List::new<Byte>()
   mut index = 0
   while index < width * height {
     bytes.push(Byte::from(255))
@@ -212,7 +212,7 @@ private fn solid(width: Int, height: Int) ui::ImageData {
     bytes.push(Byte::from(255))
     index =+ 1
   }
-  ui::image_rgba(width, height, bytes.@, Maybe::new(ui::rgb(0, 0, 0)))
+  ui::image_rgba(width, height, bytes.*, Maybe::new(ui::rgb(0, 0, 0)))
 }
 
 test fn previews_keep_proportions_within_their_rows() Void!Str {
@@ -230,11 +230,11 @@ private fn rendered(width: Int, view: cui::View) [Str] {
   let renderer = cui::mount(app, view)
   defer renderer.destroy()
   terminal.flush()
-  let shown = mut List::new<Str>()
+  let shown = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     shown.push(strings::TrimSpace(row))
   }
-  shown.@
+  shown.*
 }
 
 test fn a_preview_reserves_its_rows_while_loading_and_after_failing() Void!Str {
@@ -258,7 +258,7 @@ test fn a_ready_preview_paints_its_image_across_the_reserved_rows() Void!Str {
   let terminal = headless::new(60, rows)
   defer terminal.destroy()
   let app = cooper::App{context: terminal.context, root: terminal.root}
-  let opened = mut List::new<Int>()
+  let opened = &mut List::new<Int>()
   let renderer = cui::mount(
     app,
     view(themes, "a", ready, fn() {

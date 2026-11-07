@@ -18,7 +18,7 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   try grammar::check_attributes(info, ["title"])
   let items = try grammar::items(body)
   try grammar::check_one_bold(items)
-  let bold = mut List::new<Bool>()
+  let bold = &mut List::new<Bool>()
   mut unordered = ""
   mut boxed = false
   for each in items {
@@ -30,21 +30,21 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
       boxed = true
     }
   }
-  let states = listing::states(bold.@)
+  let states = listing::states(bold.*)
   let first = match items.at(0) {
     each => each.ordinal,
     _ => 1,
   }
-  let made = mut List::new<model::Item>()
+  let made = &mut List::new<model::Item>()
   mut index = 0
   for each in items {
-    let item = mut model::item(strconv::Itoa(first + index), each.text)
+    let item = &mut model::item(strconv::Itoa(first + index), each.text)
     item.note = each.note
     item.accent = each.bold
     item.muted = each.italic
-    item.body = strings::Join(mut each.details, " ")
+    item.body = strings::Join(each.details, " ")
     item.state = states.at(index).or("")
-    made.push(item.@)
+    made.push(item.*)
     index =+ 1
   }
   match {
@@ -52,14 +52,14 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     unordered != "" => Result::err("steps are an ordered list, as in `1. {grammar::clip(unordered)}`"),
     made.size() == 0 => Result::err("the figure has no steps"),
     made.size() > max_items => Result::err("a steps figure has at most {max_items} steps"),
-    _ => Result::ok(model::figure("steps", grammar::attribute(info, "title"), made.@)),
+    _ => Result::ok(model::figure("steps", grammar::attribute(info, "title"), made.*)),
   }
 }
 
 // Each step as the listing lays it out: a done step is checked and recedes;
 // the current one has its number in the accent and its title in bold.
 fn entries(figure: model::Figure) [listing::Entry] {
-  let result = mut List::new<listing::Entry>()
+  let result = &mut List::new<listing::Entry>()
   for each in figure.items {
     let marker = match each.state {
       "done" => drawing::segment("✓", drawing::Role::muted),
@@ -82,19 +82,19 @@ fn entries(figure: model::Figure) [listing::Entry] {
       },
     )
   }
-  result.@
+  result.*
 }
 
 test fn steps_are_numbered_from_the_first() Void!Str {
   let info = try grammar::parse_info("steps")
   let figure = try parse(info, "3. one\n7. **two**\n\n   waiting\n\n1. three")
-  let shown = mut List::new<Str>()
+  let shown = &mut List::new<Str>()
   for each in figure.items {
     shown.push("{each.label}:{each.value}:{each.state}")
   }
   try testing::assert(
-    strings::Join(mut shown.@, ",") == "3:one:done,4:two:now,5:three:next",
-    "got {strings::Join(mut shown.@, ",")}",
+    strings::Join(shown.*, ",") == "3:one:done,4:two:now,5:three:next",
+    "got {strings::Join(shown.*, ",")}",
   )
   testing::assert(
     figure.items.at(1).expect("second").body == "waiting",

@@ -110,7 +110,7 @@ fn content_width(blocks: [toolpresentation::Block]) Int {
 // The footer's note, or empty when there is nothing to note. Output that
 // overflows the well is counted.
 fn footer(rows: Int, truncated: Bool, omitted: Bool, note: Str) Str {
-  let notes = mut List::new<Str>()
+  let notes = &mut List::new<Str>()
   if rows > max_rows {
     notes.push(
       match rows == 1 {
@@ -132,8 +132,8 @@ fn footer(rows: Int, truncated: Bool, omitted: Bool, note: Str) Str {
 }
 
 private struct Well {
-  props: mut Props,
-  scroll: mut cui::ScrollBoxRef,
+  props: &mut Props,
+  scroll: &mut cui::ScrollBoxRef,
   // The output's height in rows, as last laid out; until then, its line
   // count.
   rows: Int,
@@ -145,14 +145,14 @@ private struct Well {
   wide: Bool,
 }
 
-private fn new(props: mut Props) mut Well {
-  (mut Well{
+private fn new(props: &mut Props) &mut Well {
+  &mut Well{
     props: props,
     scroll: cui::scroll_box_ref(),
     rows: row_count(output(props.call, props.result).Blocks),
     bottom: 0,
     wide: false,
-  })
+  }
 }
 
 impl cui::Lifecycle for Well {
@@ -346,7 +346,7 @@ impl cui::Component for Well {
   fn mut render() cui::View {
     let colors = self.props.themes.current()
     let shown = output(self.props.call, self.props.result)
-    let blocks = mut List::new<cui::View>()
+    let blocks = &mut List::new<cui::View>()
     for block, index in shown.Blocks {
       blocks.push(self.block(colors, block, index))
     }
@@ -360,12 +360,12 @@ impl cui::Component for Well {
       _ => self.rows,
     }
     let height = shown_rows + bar
-    let children = mut List::new<cui::View>()
+    let children = &mut List::new<cui::View>()
     children.push(
       cui::scroll_box(
         [
           cui::box(
-            blocks.@,
+            blocks.*,
             styles: ui::style(
               flex_direction: ui::FlexDirection::column,
               flex_shrink: 0.0,
@@ -413,7 +413,7 @@ impl cui::Component for Well {
       )
     }
     cui::box(
-      children.@,
+      children.*,
       styles: ui::style(
         flex_direction: ui::FlexDirection::column,
         flex_shrink: 0.0,

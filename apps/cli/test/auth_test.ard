@@ -34,23 +34,23 @@ struct Model {
 }
 
 struct HostProps {
-  model: mut Model,
+  model: &mut Model,
   themes: theme::Context,
   lifetime: contextbridge::Cancellation,
 }
 
 struct Host {
-  props: mut HostProps,
+  props: &mut HostProps,
 }
 
-fn host(props: mut HostProps) mut Host {
-  (mut Host{props: props})
+fn host(props: &mut HostProps) &mut Host {
+  &mut Host{props: props}
 }
 
 impl cui::Component for Host {
   fn mut render() cui::View {
     let model = self.props.model
-    let children = mut List::new<cui::View>()
+    let children = &mut List::new<cui::View>()
     if model.open {
       children.push(
         auth::flow(
@@ -122,7 +122,7 @@ impl cui::Component for Host {
       )
     }
     cui::box(
-      children.@,
+      children.*,
       styles: ui::style(
         width: ui::percent(100.0),
         height: ui::percent(100.0),
@@ -141,11 +141,11 @@ fn modifiers() event::Modifiers {
   }
 }
 
-fn key(name: Str) mut event::KeyEvent {
+fn key(name: Str) &mut event::KeyEvent {
   event::key(name, "", event::KeyEventType::press, modifiers())
 }
 
-fn ctrl(name: Str) mut event::KeyEvent {
+fn ctrl(name: Str) &mut event::KeyEvent {
   event::key(
     name,
     "",
@@ -197,8 +197,8 @@ fn selected_row(terminal: headless::TestApp) Str {
   result
 }
 
-fn new_model() mut Model {
-  (mut Model{
+fn new_model() &mut Model {
+  &mut Model{
     open: true,
     dismissed: 0,
     authenticated: 0,
@@ -213,10 +213,10 @@ fn new_model() mut Model {
     logout_failure: "",
     logout_gate: Chan::new<Str>(1),
     logged_out: [],
-  })
+  }
 }
 
-fn mount(terminal: headless::TestApp, model: mut Model) cui::Renderer {
+fn mount(terminal: headless::TestApp, model: &mut Model) cui::Renderer {
   let app = cooper::App{context: terminal.context, root: terminal.root}
   cui::mount(
     app,
@@ -430,7 +430,7 @@ test fn a_browser_login_without_the_redirect_takes_one_pasted_code() Void!Str {
 }
 
 // Waits for the logout service to receive a provider; it runs on a worker.
-fn wait_for_logout_provider(terminal: headless::TestApp, model: mut Model) Str {
+fn wait_for_logout_provider(terminal: headless::TestApp, model: &mut Model) Str {
   mut attempts = 0
   while model.logout_provider == "" and attempts < 200 {
     terminal.flush()
@@ -441,7 +441,7 @@ fn wait_for_logout_provider(terminal: headless::TestApp, model: mut Model) Str {
 }
 
 // Waits for a logout outcome; the flow reports it from its worker.
-fn wait_for_logout_report(terminal: headless::TestApp, model: mut Model) Str {
+fn wait_for_logout_report(terminal: headless::TestApp, model: &mut Model) Str {
   mut attempts = 0
   while model.logged_out.size() == 0 and attempts < 200 {
     terminal.flush()

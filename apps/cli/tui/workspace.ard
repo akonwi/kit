@@ -125,12 +125,12 @@ struct Tabs {
   openings: Int,
 }
 
-fn tabs() mut Tabs {
-  (mut Tabs{
+fn tabs() &mut Tabs {
+  &mut Tabs{
     open: [],
     selected: agent,
     openings: 0,
-  })
+  }
 }
 
 impl Tabs {
@@ -176,24 +176,25 @@ impl Tabs {
   // Appends `tab`, or updates the open tab with its id in place. Returns
   // false, changing nothing, when the tab is new and `limit` tabs are open.
   fn mut add(tab: Tab) Bool {
+    mut tab = tab
     let present = self.has(tab.id)
     if (not present) and self.open.size() >= limit {
       false
     } else {
       self.openings = self.openings + 1
-      let added = mut tab
+      let added = &mut tab
       added.opening = self.openings
-      let next = mut List::new<Tab>()
+      let next = &mut List::new<Tab>()
       for existing in self.open {
         match existing.id == tab.id {
-          true => next.push(added.@),
+          true => next.push(added.*),
           false => next.push(existing),
         }
       }
       if not present {
-        next.push(added.@)
+        next.push(added.*)
       }
-      self.open = next.@
+      self.open = next.*
       true
     }
   }
@@ -234,7 +235,7 @@ impl Tabs {
   // Each open tab's label: its own, or for File tabs sharing a name, the
   // path.
   fn labels() [Str] {
-    let labels = mut List::new<Str>()
+    let labels = &mut List::new<Str>()
     for tab in self.open {
       mut shared = false
       for other in self.open {
@@ -250,7 +251,7 @@ impl Tabs {
         },
       )
     }
-    labels.@
+    labels.*
   }
 
   // Closes a secondary tab. Closing the selected tab selects the one that
@@ -260,13 +261,13 @@ impl Tabs {
     if place < 1 {
       false
     } else {
-      let next = mut List::new<Tab>()
+      let next = &mut List::new<Tab>()
       for tab in self.open {
         if tab.id != id {
           next.push(tab)
         }
       }
-      self.open = next.@
+      self.open = next.*
       if self.selected == id {
         let neighbor = match place > self.open.size() {
           true => self.open.size(),
@@ -288,10 +289,10 @@ fn is_file(kind: Kind) Bool {
 }
 
 private fn named(name: Str) Tab {
-  let made = mut scratchpad()
+  let made = &mut scratchpad()
   made.id = name
   made.label = name
-  made.@
+  made.*
 }
 
 test fn opening_appends_selects_and_deduplicates() Void!Str {

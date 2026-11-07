@@ -105,7 +105,7 @@ struct PickerProps {
 struct Picker {
   // source remains linked to cui::child's mutable props slot so parent
   // rerenders can replace the catalog without remounting picker-owned state.
-  source: mut PickerProps,
+  source: &mut PickerProps,
   props: Props,
   title: Str,
   footer: Str,
@@ -114,15 +114,15 @@ struct Picker {
   remove: fn(Str)?,
   rename: fn(Str)?,
   toggle: fn(Str, Bool)?,
-  list: mut cui::VirtualListRef,
+  list: &mut cui::VirtualListRef,
   context: cui::Context?,
   viewport: Int,
   hidden_above: Bool,
   hidden_below: Bool,
 }
 
-fn new_picker(props: mut PickerProps) mut Picker {
-  (mut Picker{
+fn new_picker(props: &mut PickerProps) &mut Picker {
+  &mut Picker{
     source: props,
     props: Props{
       themes: props.themes,
@@ -152,11 +152,11 @@ fn new_picker(props: mut PickerProps) mut Picker {
     viewport: 0,
     hidden_above: false,
     hidden_below: false,
-  })
+  }
 }
 
 struct Viewport {
-  list: mut cui::VirtualListRef,
+  list: &mut cui::VirtualListRef,
   on_update: fn(cui::VirtualListUpdate, cui::Context),
   on_page: fn(Int),
 }
@@ -172,7 +172,7 @@ fn items(props: Props) [Item] {
     match props.tree {
       tree => tree_items(tree, query),
       _ => {
-        let ranked = mut List::new<Ranked>()
+        let ranked = &mut List::new<Ranked>()
         mut position = 0
         for item in props.catalog {
           let score = item_score(item, query)
@@ -188,11 +188,11 @@ fn items(props: Props) [Item] {
           position =+ 1
         }
         ranked.sort(ranks_before)
-        let result = mut List::new<Item>()
+        let result = &mut List::new<Item>()
         for entry in ranked {
           result.push(entry.item)
         }
-        result.@
+        result.*
       },
     }
   }
@@ -210,7 +210,7 @@ private fn search_query(props: Props) Str {
 // ranked_branches scores every branch by its name, description, and search
 // terms, best first with ties in tree order.
 private fn ranked_branches(tree: [Branch], query: Str) [Ranked] {
-  let ranked = mut List::new<Ranked>()
+  let ranked = &mut List::new<Ranked>()
   mut position = 0
   for branch in tree {
     let score = fields_score(branch.name, branch.item, query)
@@ -226,7 +226,7 @@ private fn ranked_branches(tree: [Branch], query: Str) [Ranked] {
     position =+ 1
   }
   ranked.sort(ranks_before)
-  ranked.@
+  ranked.*
 }
 
 // tree_items shows each match with its ancestors, ignoring collapsed state.
@@ -234,9 +234,9 @@ private fn ranked_branches(tree: [Branch], query: Str) [Ranked] {
 // and families are ordered by their best-ranked match.
 private fn tree_items(tree: [Branch], query: Str) [Item] {
   let parents = parent_map(tree)
-  let shown = mut Map::new<Bool>()
-  let families = mut List::new<Str>()
-  let grouped = mut Map::new<Bool>()
+  let shown = &mut Map::new<Bool>()
+  let families = &mut List::new<Str>()
+  let grouped = &mut Map::new<Bool>()
   for entry in ranked_branches(tree, query) {
     // Mark the match and each ancestor until reaching one already shown.
     mut key = entry.item.key
@@ -257,13 +257,13 @@ private fn tree_items(tree: [Branch], query: Str) [Item] {
       families.push(family)
     }
   }
-  let roots = mut Map::new<Str>()
+  let roots = &mut Map::new<Str>()
   for branch in tree {
     if shown.get(branch.item.key).or(false) {
       roots.set(branch.item.key, root_of(parents, branch.item.key))
     }
   }
-  let result = mut List::new<Item>()
+  let result = &mut List::new<Item>()
   for family in families {
     for branch in tree {
       if roots.get(branch.item.key).or("") == family {
@@ -271,17 +271,17 @@ private fn tree_items(tree: [Branch], query: Str) [Item] {
       }
     }
   }
-  result.@
+  result.*
 }
 
 // parent_map maps each key to its parent, or to empty when the row is a root
 // or its parent is not in the tree.
 private fn parent_map(tree: [Branch]) [Str: Str] {
-  let present = mut Map::new<Bool>()
+  let present = &mut Map::new<Bool>()
   for branch in tree {
     present.set(branch.item.key, true)
   }
-  let parents = mut Map::new<Str>()
+  let parents = &mut Map::new<Str>()
   for branch in tree {
     parents.set(
       branch.item.key,
@@ -291,7 +291,7 @@ private fn parent_map(tree: [Branch]) [Str: Str] {
       },
     )
   }
-  parents.@
+  parents.*
 }
 
 // root_of follows parents to the top of key's family. The step bound guards
@@ -555,7 +555,7 @@ struct Columns {
 }
 
 fn columns(catalog: [Item]) Columns {
-  let columns = mut Columns{
+  let columns = &mut Columns{
     label: 1,
     hint: 0,
     meta: 0,
@@ -576,7 +576,7 @@ fn columns(catalog: [Item]) Columns {
   if columns.meta > meta_limit {
     columns.meta = meta_limit
   }
-  columns.@
+  columns.*
 }
 
 private fn widest(current: Int, text: Str) Int {
@@ -670,7 +670,7 @@ fn meta_column(columns: Columns, trailing: Int) ui::Style {
   )
 }
 
-fn header(props: Props, focused: Bool?, input_ref: (mut cui::InputRef)?) [cui::View] {
+fn header(props: Props, focused: Bool?, input_ref: (&mut cui::InputRef)?) [cui::View] {
   [
     // A one-cell leading spacer puts the field's text in the label column,
     // aligned with the result rows.
@@ -749,7 +749,7 @@ fn body(props: Props, viewport: Viewport) cui::View {
     // Marker slots are always present; a transparent spacer keeps the
     // virtual list at a stable child position so scrolling survives
     // overflow-marker changes.
-    let children = mut List::new<cui::View>()
+    let children = &mut List::new<cui::View>()
     let layout = columns(props.catalog)
     children.push(overflow_slot(props, "above", -1, viewport.on_page))
     children.push(
@@ -773,7 +773,7 @@ fn body(props: Props, viewport: Viewport) cui::View {
     )
     children.push(overflow_slot(props, "below", 1, viewport.on_page))
     cui::box(
-      children.@,
+      children.*,
       styles: ui::style(
         flex_grow: 1.0,
         flex_basis: ui::cells(0),
@@ -929,10 +929,10 @@ impl cui::Component for Picker {
     self.toggle = self.source.toggle
     let props = self.view_props()
     let navigation = navigation(props)
-    let commands = mut List::new<keymap::Command>()
+    let commands = &mut List::new<keymap::Command>()
     commands.push(navigation.up)
     commands.push(navigation.down)
-    let bindings = mut List::new<keymap::Binding>()
+    let bindings = &mut List::new<keymap::Binding>()
     bindings.push(
       keymap::binding(keymap::key("up"), navigation.up.with(), keymap::Trigger::press_or_repeat),
     )
@@ -1040,13 +1040,13 @@ impl cui::Component for Picker {
         placement: self.source.placement.or(modal::Placement::picker),
         title: self.title,
         meta: "",
-        header: header(props, Maybe::new<Bool>(), Maybe::new<mut cui::InputRef>()),
+        header: header(props, Maybe::new<Bool>(), Maybe::new<&mut cui::InputRef>()),
         body: body(props, self.viewport_props()),
         footer: footer,
         autofocus: false,
         dismiss: self.dismiss,
-        commands: Maybe::new(commands.@),
-        bindings: Maybe::new(bindings.@),
+        commands: Maybe::new(commands.*),
+        bindings: Maybe::new(bindings.*),
       },
     )
   }
@@ -1067,7 +1067,7 @@ private fn overflow_row(props: Props, key: Str, direction: Int, on_page: fn(Int)
       },
       background: props.themes.current().background,
     ),
-    on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+    on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
       if received.event_type == event::MouseEventType::up and received.button == event::MouseButton::left {
         on_page(direction)
         received.prevent_default()
@@ -1113,7 +1113,7 @@ private fn row(props: Props, item: Item, columns: Columns) cui::View {
     true => item.description,
     false => "⊘ {item.disabled_reason}",
   }
-  let cells = mut List::new<cui::View>()
+  let cells = &mut List::new<cui::View>()
   cells.push(
     cui::text(
       match active {
@@ -1175,14 +1175,14 @@ private fn row(props: Props, item: Item, columns: Columns) cui::View {
     ),
   )
   cui::box(
-    cells.@,
+    cells.*,
     styles: ui::style(
       background: fill,
       height: ui::cells(1),
       flex_shrink: 0.0,
       flex_direction: ui::FlexDirection::row,
     ),
-    on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+    on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
       match received.event_type {
         event::MouseEventType::over => props.on_hover_change(item.key),
         event::MouseEventType::move => props.on_hover_change(item.key),

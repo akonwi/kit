@@ -12,7 +12,7 @@ use go:strings
 // A session this client is attached to, with the snapshot read at attach time.
 struct Attached {
   info: protocol::SessionInfo,
-  session: mut api::Session,
+  session: &mut api::Session,
   snapshot: protocol::SessionSnapshot,
   // A fork's first message the server could not start on this session.
   failed_first_message: FailedFirstMessage?,

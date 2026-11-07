@@ -82,7 +82,7 @@ private fn render_lines(source: Str) canvas::Canvas!Str {
     index =+ 1
     searching = header == "" and index < lines.size()
   }
-  let body = mut List::new<Str>()
+  let body = &mut List::new<Str>()
   while index < lines.size() {
     body.push(lines.at(index).or(""))
     index =+ 1
@@ -91,9 +91,9 @@ private fn render_lines(source: Str) canvas::Canvas!Str {
   match {
     failure != "" => Result::err(failure),
     header == "" => Result::err("the diagram is empty"),
-    kind == "sequenceDiagram" and header == kind => sequence::render(body.@, title),
+    kind == "sequenceDiagram" and header == kind => sequence::render(body.*, title),
     kind == "sequenceDiagram" => Result::err("unexpected text after `sequenceDiagram`"),
-    kind == "flowchart" or kind == "graph" => flowchart::render(header, body.@, title),
+    kind == "flowchart" or kind == "graph" => flowchart::render(header, body.*, title),
     _ => Result::err("`{kind}` diagrams aren't drawn yet"),
   }
 }
@@ -122,7 +122,7 @@ fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle, seman
 }
 
 private struct Diagram {
-  props: mut Props,
+  props: &mut Props,
   rendered_source: Str,
   result: canvas::Canvas!Str,
   // The drawing's styled text, kept until the source, theme, or semantic
@@ -132,15 +132,15 @@ private struct Diagram {
   painted_semantic: Bool,
 }
 
-private fn new(props: mut Props) mut Diagram {
-  (mut Diagram{
+private fn new(props: &mut Props) &mut Diagram {
+  &mut Diagram{
     rendered_source: props.source,
     result: render(props.source),
     painted: Maybe::new<ui::StyledText>(),
     painted_revision: -1,
     painted_semantic: props.semantic,
     props: props,
-  })
+  }
 }
 
 impl cui::Component for Diagram {
@@ -169,14 +169,15 @@ impl cui::Component for Diagram {
           self.painted.expect("painted diagram"),
         )
       },
-      err(reason) => source_view(self.props.@, reason),
+      err(reason) => source_view(self.props.*, reason),
     }
   }
 }
 
 private fn source_view(props: Props, reason: Str) cui::View {
+  mut props = props
   let colors = props.themes.current()
-  let note = mut props.base
+  let note = &mut props.base
   note.foreground = colors.muted
   note.italic = true
   cui::box(
@@ -199,7 +200,7 @@ private fn source_view(props: Props, reason: Str) cui::View {
       ),
       cui::text(
         "Diagram not drawn: {reason}",
-        text_style: note.@,
+        text_style: note.*,
         selectable: true,
         selection_style: theme::selection_style(colors),
       ),
@@ -223,7 +224,7 @@ private fn role_color(colors: theme::Theme, role: canvas::Role) ui::Color? {
 }
 
 private fn push_run(
-  spans: mut [ui::Span],
+  spans: &mut [ui::Span],
   colors: theme::Theme,
   semantic: Bool,
   text: Str,
@@ -252,7 +253,7 @@ private fn push_run(
 
 // The cells of row y from x0 up to x1, as text.
 private fn cells(drawing: canvas::Canvas, y: Int, x0: Int, x1: Int) Str {
-  let parts = mut List::new<Str>()
+  let parts = &mut List::new<Str>()
   mut x = x0
   while x < x1 {
     parts.push(drawing.shown(x, y))
@@ -264,7 +265,7 @@ private fn cells(drawing: canvas::Canvas, y: Int, x0: Int, x1: Int) Str {
 // The drawing as styled text, one span per run of cells with the same role.
 // Blank cells join whichever run they fall in.
 fn styled(colors: theme::Theme, semantic: Bool, drawing: canvas::Canvas) ui::StyledText {
-  let spans = mut List::new<ui::Span>()
+  let spans = &mut List::new<ui::Span>()
   let rows = drawing.lines()
   mut y = 0
   for row in rows {
@@ -293,7 +294,7 @@ fn styled(colors: theme::Theme, semantic: Bool, drawing: canvas::Canvas) ui::Sty
     push_run(spans, colors, semantic, cells(drawing, y, start, length), role, bold)
     y =+ 1
   }
-  ui::styled_text(spans.@)
+  ui::styled_text(spans.*)
 }
 
 private fn pointer_scroll_bindings() keymap::Bindings<ui::ScrollBoxAction> {
@@ -349,7 +350,7 @@ private fn drawn(
 test fn sequence_diagrams_render_after_frontmatter_and_directives() Void!Str {
   let drawing = try render("---\ntitle: Login\n---\n%%{{init: {{}}}}%%\nsequenceDiagram\n  A->>B: hi")
   let rows = drawing.lines()
-  let shown = strings::Join(mut rows, "|")
+  let shown = strings::Join(rows, "|")
   testing::assert(
     shown == "Login||┌───┐   ┌───┐|│ A │   │ B │|└─┬─┘   └─┬─┘|  │       │|  │  hi   │|  ├──────►│|  │       │",
     "got {shown}",

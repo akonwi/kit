@@ -29,19 +29,19 @@ let kinds = [
 
 test fn every_figure_in_the_skill_draws() Void!Str {
   let content = match os::ReadFile(skill) {
-    ok(data) => bytes::NewBuffer(mut data).String(),
+    ok(data) => bytes::NewBuffer(data).String(),
     err(failure) => try Result::err("{skill}: {failure.error()}"),
   }
   let lines = strings::Split(content, "\n")
-  let failures = mut List::new<Str>()
-  let drawn = mut List::new<Str>()
+  let failures = &mut List::new<Str>()
+  let drawn = &mut List::new<Str>()
   mut index = 0
   while index < lines.size() {
     let line = lines.at(index).or("")
     let info = strings::TrimPrefix(line, "```")
     index =+ 1
     if line != info and figure::is_figure(info) {
-      let body = mut List::new<Str>()
+      let body = &mut List::new<Str>()
       mut open = true
       while open {
         let next = lines.at(index).or("```")

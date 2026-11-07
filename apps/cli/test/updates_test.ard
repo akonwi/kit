@@ -16,15 +16,15 @@ use kit/tui/updates
 use go:strings
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {
@@ -89,7 +89,7 @@ struct Calls {
 
 // subject builds an updater whose work runs synchronously: each check finds
 // update, and installing reports 40% then succeeds, or fails with failure.
-fn subject(update: updatebridge::Update, failure: Str, finish: updates::Finish, calls: mut Calls) mut updates::Updater {
+fn subject(update: updatebridge::Update, failure: Str, finish: updates::Finish, calls: &mut Calls) &mut updates::Updater {
   updates::custom(
     updates::Effects{
       // One check runs; the schedule then ends.
@@ -137,7 +137,7 @@ fn local_finish(active: Int) updates::Finish {
 }
 
 test fn a_newer_release_is_offered_and_installed() Void!Str {
-  let calls = mut Calls{checks: 0, installs: 0}
+  let calls = &mut Calls{checks: 0, installs: 0}
   let updater = subject(release(), "", local_finish(2), calls)
   updater.bind(immediate, lifetime())
   try testing::assert(calls.checks == 1, "checks {calls.checks}")
@@ -153,7 +153,7 @@ test fn a_newer_release_is_offered_and_installed() Void!Str {
 }
 
 test fn an_up_to_date_or_development_build_offers_nothing() Void!Str {
-  let calls = mut Calls{checks: 0, installs: 0}
+  let calls = &mut Calls{checks: 0, installs: 0}
   let current = subject(updatebridge::Update{}, "", local_finish(0), calls)
   current.bind(immediate, lifetime())
   try testing::assert(current.stage == updates::Stage::idle and not current.shown(), "up to date")
@@ -186,7 +186,7 @@ test fn an_up_to_date_or_development_build_offers_nothing() Void!Str {
 }
 
 test fn a_failed_install_can_be_retried() Void!Str {
-  let calls = mut Calls{checks: 0, installs: 0}
+  let calls = &mut Calls{checks: 0, installs: 0}
   let updater = subject(release(), "brew upgrade failed: no space left", local_finish(0), calls)
   updater.bind(immediate, lifetime())
   updater.install()
@@ -207,8 +207,8 @@ struct Activity {
 }
 
 test fn opening_the_restart_dialog_counts_sessions_again() Void!Str {
-  let activity = mut Activity{active: 0, held: false}
-  let pending = mut List::new<fn()>()
+  let activity = &mut Activity{active: 0, held: false}
+  let pending = &mut List::new<fn()>()
   let updater = updates::custom(
     updates::Effects{
       check: fn(ctx: context::Context) updatebridge::Update!Error {
@@ -247,7 +247,7 @@ test fn opening_the_restart_dialog_counts_sessions_again() Void!Str {
   }
   // Restart waits for the count, so the dialog says it is counting.
   try expect_rows(
-    render(60, 18, updates::dialog(themes(), updater.@, actions)),
+    render(60, 18, updates::dialog(themes(), updater.*, actions)),
     [
       "",
       "",
@@ -279,7 +279,7 @@ test fn opening_the_restart_dialog_counts_sessions_again() Void!Str {
 }
 
 test fn the_footer_item_follows_the_update() Void!Str {
-  let calls = mut Calls{checks: 0, installs: 0}
+  let calls = &mut Calls{checks: 0, installs: 0}
   let updater = subject(release(), "", local_finish(0), calls)
   updater.bind(immediate, lifetime())
   let item = fn() cui::View {
@@ -348,7 +348,7 @@ test fn the_footer_item_follows_the_update() Void!Str {
 }
 
 test fn the_dialog_asks_to_update_and_then_to_restart() Void!Str {
-  let calls = mut Calls{checks: 0, installs: 0}
+  let calls = &mut Calls{checks: 0, installs: 0}
   let updater = subject(release(), "", local_finish(1), calls)
   updater.bind(immediate, lifetime())
   let actions = updates::Actions{
@@ -356,7 +356,7 @@ test fn the_dialog_asks_to_update_and_then_to_restart() Void!Str {
     confirm: noop("confirm"),
     open_release: noop("open"),
   }
-  let offered = render(60, 20, updates::dialog(themes(), updater.@, actions))
+  let offered = render(60, 20, updates::dialog(themes(), updater.*, actions))
   try expect_rows(
     offered,
     [
@@ -383,7 +383,7 @@ test fn the_dialog_asks_to_update_and_then_to_restart() Void!Str {
     ],
   )
   updater.install()
-  let finishing = render(60, 20, updates::dialog(themes(), updater.@, actions))
+  let finishing = render(60, 20, updates::dialog(themes(), updater.*, actions))
   expect_rows(
     finishing,
     [

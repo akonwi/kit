@@ -13,7 +13,7 @@ struct SpinnerProps {
 }
 
 struct Indicator {
-  props: mut SpinnerProps,
+  props: &mut SpinnerProps,
   frame: Int,
 }
 
@@ -23,8 +23,8 @@ fn spinner(styles: ui::Style?) cui::View {
   cui::child(new, SpinnerProps{styles: styles})
 }
 
-private fn new(props: mut SpinnerProps) mut Indicator {
-  (mut Indicator{props: props, frame: 0})
+private fn new(props: &mut SpinnerProps) &mut Indicator {
+  &mut Indicator{props: props, frame: 0}
 }
 
 impl cui::Lifecycle for Indicator {

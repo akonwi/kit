@@ -303,7 +303,7 @@ private struct HeaderProps {
 }
 
 private struct Header {
-  props: mut HeaderProps,
+  props: &mut HeaderProps,
   hovered: Bool,
   pressed: Bool,
   link_hovered: Bool,
@@ -314,14 +314,14 @@ private fn file_header(props: HeaderProps, key: Str) cui::View {
   cui::child(new_header, props, key: key)
 }
 
-private fn new_header(props: mut HeaderProps) mut Header {
-  (mut Header{
+private fn new_header(props: &mut HeaderProps) &mut Header {
+  &mut Header{
     props: props,
     hovered: false,
     pressed: false,
     link_hovered: false,
     link_pressed: false,
-  })
+  }
 }
 
 impl cui::Lifecycle for Header {
@@ -331,7 +331,7 @@ impl cui::Lifecycle for Header {
 }
 
 impl Header {
-  private fn mut mouse(received: mut event::MouseEvent) {
+  private fn mut mouse(received: &mut event::MouseEvent) {
     if received.event_type == event::MouseEventType::over or received.event_type == event::MouseEventType::move {
       self.hovered = true
     } else if received.event_type == event::MouseEventType::out {
@@ -354,7 +354,7 @@ impl Header {
   }
 
   // The link handles its own presses, so they don't fold the file.
-  private fn mut link_mouse(open: fn(), received: mut event::MouseEvent) {
+  private fn mut link_mouse(open: fn(), received: &mut event::MouseEvent) {
     if received.event_type == event::MouseEventType::over or received.event_type == event::MouseEventType::move {
       self.link_hovered = true
     } else if received.event_type == event::MouseEventType::out {
@@ -410,7 +410,7 @@ impl cui::Component for Header {
         cui::box(
           [text],
           styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
-          on_mouse: fn(received: mut event::MouseEvent, context: cui::Context) {
+          on_mouse: fn(received: &mut event::MouseEvent, context: cui::Context) {
             self.link_mouse(open, received)
           },
         )
@@ -430,7 +430,7 @@ impl cui::Component for Header {
         },
         background: fill,
       ),
-      on_mouse: fn(received: mut event::MouseEvent, context: cui::Context) {
+      on_mouse: fn(received: &mut event::MouseEvent, context: cui::Context) {
         self.mouse(received)
       },
     )
@@ -450,7 +450,7 @@ fn rows(
   notes: [sessionbridge::Annotation],
   editor: annotations::Draft?,
 ) [Row] {
-  let built = mut List::new<Row>()
+  let built = &mut List::new<Row>()
   for file, index in files {
     let path = file.Path
     if index > 0 {
@@ -506,7 +506,7 @@ fn rows(
                     }
                   } else {
                     for line, line_index in hunk.Lines {
-                      let made = mut row(
+                      let made = &mut row(
                         "l:{path}:{hunk_index}:{line_index}",
                         RowKind::line,
                         index,
@@ -522,7 +522,7 @@ fn rows(
                         made.new_index = new_index
                         new_index =+ 1
                       }
-                      built.push(made.@)
+                      built.push(made.*)
                       follow(
                         built,
                         path,
@@ -550,7 +550,7 @@ fn rows(
       }
     }
   }
-  built.@
+  built.*
 }
 
 // A hunk line's number on the old or new side, or 0 without one.
@@ -563,7 +563,7 @@ fn side_number(hunk: protocol::DiffHunk, line_index: Int, old: Bool) Int {
       }
       match unsafe::is_nil(value) {
         true => 0,
-        false => value.@,
+        false => value.*,
       }
     },
     _ => 0,
@@ -573,7 +573,7 @@ fn side_number(hunk: protocol::DiffHunk, line_index: Int, old: Bool) Int {
 // Pushes the rows that follow a line numbered `old` and `new` (0 without
 // one): the notes ending on it, and the editor.
 private fn follow(
-  built: mut [Row],
+  built: &mut [Row],
   path: Str,
   file: Int,
   old: Int,
@@ -591,14 +591,14 @@ private fn follow(
   mut listed = false
   for note in notes {
     if note.Path == path and ends(note.Side, note.EndLine) {
-      let made = mut row("a:{note.ID}", RowKind::annotation, file, "")
+      let made = &mut row("a:{note.ID}", RowKind::annotation, file, "")
       if note.ID == edited {
         made.key = "e:{path}"
         made.kind = RowKind::editor
       }
       made.annotation = note.ID
       made.side = note.Side
-      built.push(made.@)
+      built.push(made.*)
     }
     listed = listed or note.ID == edited and edited != Uint64::from(0)
   }
@@ -606,9 +606,9 @@ private fn follow(
     // A new note, or one deleted elsewhere while it was edited.
     draft => {
       if (not listed) and draft.path == path and ends(draft.side, draft.end) {
-        let made = mut row("e:{path}", RowKind::editor, file, "")
+        let made = &mut row("e:{path}", RowKind::editor, file, "")
         made.side = draft.side
-        built.push(made.@)
+        built.push(made.*)
       }
     },
     _ => (),
@@ -627,11 +627,11 @@ fn pairs(
   old_index: Int,
   new_index: Int,
 ) [Row] {
-  let built = mut List::new<Row>()
+  let built = &mut List::new<Row>()
   mut old_at = old_index
   mut new_at = new_index
-  mut removed = mut List::new<Int>()
-  mut added = mut List::new<Int>()
+  mut removed = &mut List::new<Int>()
+  mut added = &mut List::new<Int>()
   let lines = hunk.Lines
   mut at = 0
   while at <= lines.size() {
@@ -647,7 +647,7 @@ fn pairs(
       // A context line or the hunk's end closes the run of changes.
       mut paired = 0
       while paired < removed.size() or paired < added.size() {
-        let made = mut row("p:{path}:{hunk_index}:{built.size()}", RowKind::pair, file, "")
+        let made = &mut row("p:{path}:{hunk_index}:{built.size()}", RowKind::pair, file, "")
         made.hunk = hunk_index
         match removed.at(paired) {
           line => {
@@ -665,13 +665,13 @@ fn pairs(
           },
           _ => (),
         }
-        built.push(made.@)
+        built.push(made.*)
         paired =+ 1
       }
-      removed = mut List::new<Int>()
-      added = mut List::new<Int>()
+      removed = &mut List::new<Int>()
+      added = &mut List::new<Int>()
       if kind != "end" {
-        let made = mut row("p:{path}:{hunk_index}:{built.size()}", RowKind::pair, file, "")
+        let made = &mut row("p:{path}:{hunk_index}:{built.size()}", RowKind::pair, file, "")
         made.hunk = hunk_index
         made.old_line = at
         made.new_line = at
@@ -679,19 +679,19 @@ fn pairs(
         made.new_index = new_at
         old_at =+ 1
         new_at =+ 1
-        built.push(made.@)
+        built.push(made.*)
       }
     }
     at =+ 1
   }
-  built.@
+  built.*
 }
 
 // The text of each side of the hunks, a line per old or new line, for
 // highlighting.
 fn sides(hunks: [protocol::DiffHunk]) [Str] {
-  let old = mut List::new<Str>()
-  let new = mut List::new<Str>()
+  let old = &mut List::new<Str>()
+  let new = &mut List::new<Str>()
   for hunk in hunks {
     for line in hunk.Lines {
       if line.Kind != "addition" {
@@ -707,7 +707,7 @@ fn sides(hunks: [protocol::DiffHunk]) [Str] {
 
 // What a failed diff request shows.
 fn failure_text(error: Error) Str {
-  match unsafe::cast<mut protocol::DiffError>(error) {
+  match unsafe::cast<&mut protocol::DiffError>(error) {
     diff_error => {
       match "{diff_error.Code}" {
         "not_repository" => "Not a git repository",
@@ -726,7 +726,7 @@ fn failure_text(error: Error) Str {
 // Whether a failed read means the working tree moved on, so the files
 // should be observed again.
 private fn outdated(error: Error) Bool {
-  match unsafe::cast<mut protocol::DiffError>(error) {
+  match unsafe::cast<&mut protocol::DiffError>(error) {
     diff_error => {
       match "{diff_error.Code}" {
         "stale_target" => true,
@@ -768,10 +768,10 @@ private struct Observed {
 }
 
 private struct Pane {
-  props: mut Props,
+  props: &mut Props,
   context: cui::Context?,
-  list: mut cui::VirtualListRef,
-  frame: mut cui::BoxRef,
+  list: &mut cui::VirtualListRef,
+  frame: &mut cui::BoxRef,
   width: Int,
   workspace_id: Str,
   observation: protocol::DiffObservation?,
@@ -801,14 +801,14 @@ private struct Pane {
   hover: Spot?,
   drag: Spot?,
   drag_to: Int,
-  editing: mut annotations::Drafting,
+  editing: &mut annotations::Drafting,
   // The last reveal acted on, and lines still to scroll to.
   reveal_opening: Int,
   pending: Reveal?,
 }
 
-private fn new(props: mut Props) mut Pane {
-  (mut Pane{
+private fn new(props: &mut Props) &mut Pane {
+  &mut Pane{
     props: props,
     context: Maybe::new<cui::Context>(),
     list: cui::virtual_list_ref(),
@@ -837,7 +837,7 @@ private fn new(props: mut Props) mut Pane {
     editing: annotations::drafting(),
     reveal_opening: 0,
     pending: Maybe::new<Reveal>(),
-  })
+  }
 }
 
 impl cui::Lifecycle for Pane {
@@ -1043,8 +1043,8 @@ impl Pane {
     self.failure = ""
     if not same {
       self.observation = Maybe::new(observed.observation)
-      let empty: [Str: Section] = [:]
-      let kept = mut empty
+      mut empty: [Str: Section] = [:]
+      let kept = &mut empty
       for file in observed.files {
         match self.sections.get(file.Path) {
           previous => {
@@ -1056,7 +1056,7 @@ impl Pane {
         }
       }
       self.files = observed.files
-      self.sections = kept.@
+      self.sections = kept.*
       self.queue = []
     }
   }
@@ -1075,15 +1075,15 @@ impl Pane {
           revision = file.FileRevision
         }
       }
-      let next = mut current.or(section(revision))
+      let next = &mut current.or(section(revision))
       next.reading = true
-      self.sections.set(path, next.@)
-      let waiting = mut List::new<Str>()
+      self.sections.set(path, next.*)
+      let waiting = &mut List::new<Str>()
       for queued in self.queue {
         waiting.push(queued)
       }
       waiting.push(path)
-      self.queue = waiting.@
+      self.queue = waiting.*
       self.pump()
     }
   }
@@ -1092,13 +1092,13 @@ impl Pane {
   private fn mut pump() {
     while self.reads < max_reads and self.queue.size() > 0 {
       let path = self.queue.at(0).expect("a queued path")
-      let rest = mut List::new<Str>()
+      let rest = &mut List::new<Str>()
       for queued, index in self.queue {
         if index > 0 {
           rest.push(queued)
         }
       }
-      self.queue = rest.@
+      self.queue = rest.*
       self.start_read(path)
     }
   }
@@ -1145,23 +1145,24 @@ impl Pane {
   private fn mut read_done(path: Str, result: protocol::FileDiffPage!Error) {
     match self.sections.get(path) {
       current => {
-        let next = mut current
+        mut current = current
+        let next = &mut current
         next.reading = false
         match result {
           ok(page) => {
-            let hunks = mut List::new<protocol::DiffHunk>()
+            let hunks = &mut List::new<protocol::DiffHunk>()
             for hunk in current.hunks {
               hunks.push(hunk)
             }
             for hunk in page.Hunks {
               hunks.push(hunk)
             }
-            next.hunks = hunks.@
+            next.hunks = hunks.*
             next.next = page.NextCursor
             next.loaded = true
             next.failure = ""
             next.generation = next.generation + 1
-            self.sections.set(path, next.@)
+            self.sections.set(path, next.*)
             self.show_lines(path)
           },
           err(error) => {
@@ -1173,7 +1174,7 @@ impl Pane {
               next.loaded = true
               next.next = ""
               next.failure = failure_text(error)
-              self.sections.set(path, next.@)
+              self.sections.set(path, next.*)
             }
           },
         }
@@ -1186,10 +1187,11 @@ impl Pane {
   private fn mut show_lines(path: Str) {
     match self.sections.get(path) {
       current => {
+        mut current = current
         let texts = sides(current.hunks)
         let old_request = code::source_request("", path, texts.at(0).or(""))
         let new_request = code::source_request("", path, texts.at(1).or(""))
-        let next = mut current
+        let next = &mut current
         next.old_lines = file_pane::lines(code::plain(old_request))
         next.new_lines = file_pane::lines(code::plain(new_request))
         mut widest = 0
@@ -1211,20 +1213,20 @@ impl Pane {
         for hunk in current.hunks {
           for line in hunk.Lines {
             if not unsafe::is_nil(line.OldLine) {
-              let digits = "{line.OldLine.@}".size()
+              let digits = "{line.OldLine.*}".size()
               if digits > next.old_digits {
                 next.old_digits = digits
               }
             }
             if not unsafe::is_nil(line.NewLine) {
-              let digits = "{line.NewLine.@}".size()
+              let digits = "{line.NewLine.*}".size()
               if digits > next.new_digits {
                 next.new_digits = digits
               }
             }
           }
         }
-        self.sections.set(path, next.@)
+        self.sections.set(path, next.*)
         match self.context {
           context => {
             let generation = current.generation
@@ -1254,12 +1256,12 @@ impl Pane {
     match self.sections.get(path) {
       current => {
         if current.generation == generation {
-          let next = mut current
+          mut next = current
           match old {
             true => { next.old_lines = file_pane::lines(result) },
             false => { next.new_lines = file_pane::lines(result) },
           }
-          self.sections.set(path, next.@)
+          self.sections.set(path, next)
         }
       },
       _ => (),
@@ -1371,7 +1373,7 @@ impl Pane {
 
   // Shift+wheel or a horizontal swipe scrolls lines sideways, unless they
   // wrap.
-  private fn mut mouse(received: mut event::MouseEvent) {
+  private fn mut mouse(received: &mut event::MouseEvent) {
     if received.event_type == event::MouseEventType::scroll and not self.props.wrap {
       mut delta = received.scroll_x
       if received.modifiers.shift {
@@ -1453,7 +1455,7 @@ impl Pane {
       true => segments,
       false => file_pane::visible(segments, self.column, room),
     }
-    let spans = mut List::new<ui::Span>()
+    let spans = &mut List::new<ui::Span>()
     for segment in shown {
       let foreground = match segment.role == "" {
         true => Maybe::new<ui::Color>(),
@@ -1462,7 +1464,7 @@ impl Pane {
       spans.push(ui::span(segment.text, style: ui::span_style(foreground: foreground)))
     }
     cui::text(
-      ui::styled_text(spans.@),
+      ui::styled_text(spans.*),
       styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
       text_style: ui::text_style(foreground: colors.foreground),
       wrap: match self.props.wrap {
@@ -1567,7 +1569,7 @@ impl Pane {
   private fn notes() [sessionbridge::Annotation] {
     match self.observation {
       observation => {
-        let shown = mut List::new<sessionbridge::Annotation>()
+        let shown = &mut List::new<sessionbridge::Annotation>()
         for note in self.props.annotations {
           let revision = match self.sections.get(note.Path) {
             loaded => loaded.revision,
@@ -1577,7 +1579,7 @@ impl Pane {
             shown.push(note)
           }
         }
-        shown.@
+        shown.*
       },
       _ => [],
     }
@@ -1622,7 +1624,7 @@ impl Pane {
     }
   }
 
-  private fn mut line_mouse(spot: Spot, received: mut event::MouseEvent) {
+  private fn mut line_mouse(spot: Spot, received: &mut event::MouseEvent) {
     let kind = received.event_type
     match self.drag {
       from => {
@@ -1648,7 +1650,7 @@ impl Pane {
     }
   }
 
-  private fn mut gutter_mouse(spot: Spot, received: mut event::MouseEvent) {
+  private fn mut gutter_mouse(spot: Spot, received: &mut event::MouseEvent) {
     let kind = received.event_type
     if kind == event::MouseEventType::down and received.button == event::MouseButton::left {
       if self.can_annotate() and not self.annotating() {
@@ -1756,7 +1758,7 @@ impl Pane {
         cui::box(
           [cui::text(ui::styled_text(spans), wrap: ui::TextWrap::none, selectable: false)],
           styles: ui::style(flex_shrink: 0.0),
-          on_mouse: fn(received: mut event::MouseEvent, context: cui::Context) {
+          on_mouse: fn(received: &mut event::MouseEvent, context: cui::Context) {
             self.gutter_mouse(spot, received)
           },
         ),
@@ -1771,7 +1773,7 @@ impl Pane {
           false => fill,
         },
       ),
-      on_mouse: fn(received: mut event::MouseEvent, context: cui::Context) {
+      on_mouse: fn(received: &mut event::MouseEvent, context: cui::Context) {
         self.line_mouse(spot, received)
       },
     )
@@ -1816,7 +1818,7 @@ impl Pane {
     let hunk = current.hunks.at(item.hunk).expect("a hunk")
     let lines = hunk.Lines
     let path = self.files.at(item.file).expect("a changed file").Path
-    let sides = mut List::new<cui::View>()
+    let sides = &mut List::new<cui::View>()
     match lines.at(item.old_line) {
       line => {
         sides.push(
@@ -1868,7 +1870,7 @@ impl Pane {
       },
       _ => sides.push(blank_side()),
     }
-    cui::box(sides.@, styles: ui::style(flex_direction: ui::FlexDirection::row))
+    cui::box(sides.*, styles: ui::style(flex_direction: ui::FlexDirection::row))
   }
 
   // A note or the editor under its line: across the row, indented past the
@@ -2053,7 +2055,7 @@ impl Pane {
               next => next.kind == RowKind::header,
               _ => false,
             }
-            let rows = mut List::new<cui::View>()
+            let rows = &mut List::new<cui::View>()
             if not arriving {
               rows.push(self.header(file, true))
             }
@@ -2062,7 +2064,7 @@ impl Pane {
               cui::box(
                 // Opaque, so the lines it covers don't show through a ghost
                 // header.
-                rows.@,
+                rows.*,
                 key: "pinned",
                 styles: ui::style(
                   background: colors.background,
@@ -2124,7 +2126,7 @@ impl Pane {
             for item in built {
               measured = measured or item.kind == RowKind::annotation or item.kind == RowKind::editor
             }
-            let children = mut List::new<cui::View>()
+            let children = &mut List::new<cui::View>()
             children.push(
               cui::virtual_list(
                 built,
@@ -2142,7 +2144,7 @@ impl Pane {
                 key: "diff-rows",
                 styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
                 ref: self.list,
-                on_mouse: fn(received: mut event::MouseEvent, context: cui::Context) {
+                on_mouse: fn(received: &mut event::MouseEvent, context: cui::Context) {
                   self.mouse(received)
                 },
                 on_update: fn(update: cui::VirtualListUpdate, context: cui::Context) {
@@ -2155,7 +2157,7 @@ impl Pane {
               _ => (),
             }
             cui::box(
-              children.@,
+              children.*,
               styles: ui::style(
                 flex_grow: 1.0,
                 flex_basis: ui::cells(0),
@@ -2176,10 +2178,10 @@ impl Pane {
   }
 }
 
-private fn number(value: mut Int) Str {
+private fn number(value: &mut Int) Str {
   match unsafe::is_nil(value) {
     true => "",
-    false => "{value.@}",
+    false => "{value.*}",
   }
 }
 
@@ -2267,7 +2269,7 @@ private fn loading(colors: theme::Theme) cui::View {
 // Lists every page of a target's changed files.
 private fn observe_all(fetch: fn(Str) protocol::WorkingTreePage!Error) Observed!Error {
   let first = try fetch("")
-  let files = mut List::new<protocol::DiffFileSummary>()
+  let files = &mut List::new<protocol::DiffFileSummary>()
   for file in first.Files {
     files.push(file)
   }
@@ -2279,7 +2281,7 @@ private fn observe_all(fetch: fn(Str) protocol::WorkingTreePage!Error) Observed!
     }
     cursor = page.NextCursor
   }
-  Result::ok(Observed{observation: first.Observation, files: files.@})
+  Result::ok(Observed{observation: first.Observation, files: files.*})
 }
 
 impl Pane {
@@ -2296,7 +2298,7 @@ impl Pane {
     let set_wrap = self.props.set_wrap
     let split = self.props.split
     let set_split = self.props.set_split
-    let right = mut List::new<cui::View>()
+    let right = &mut List::new<cui::View>()
     right.push(
       controls::button(
         self.props.themes,
@@ -2358,7 +2360,7 @@ impl Pane {
           ),
         ),
         cui::box(
-          right.@,
+          right.*,
           styles: ui::style(flex_shrink: 0.0, flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
         ),
       ],
@@ -2428,11 +2430,11 @@ private fn kinds(built: [Row]) Str {
 }
 
 private fn hunk(kinds: [Str]) protocol::DiffHunk {
-  let lines = mut List::new<protocol::DiffLine>()
+  let lines = &mut List::new<protocol::DiffLine>()
   for kind in kinds {
     lines.push(protocol::DiffLine{Kind: kind, Content: kind})
   }
-  protocol::DiffHunk{Lines: lines.@}
+  protocol::DiffHunk{Lines: lines.*}
 }
 
 test fn rows_follow_each_file_and_its_hunks() Void!Str {
@@ -2442,10 +2444,10 @@ test fn rows_follow_each_file_and_its_hunks() Void!Str {
     summary("c.go", "text"),
     summary("d.go", "text"),
   ]
-  let loaded = mut section("rev")
+  let loaded = &mut section("rev")
   loaded.loaded = true
   loaded.hunks = [hunk(["context", "deletion", "addition"]), hunk(["addition"])]
-  let sections: [Str: Section] = ["a.go": loaded.@]
+  let sections: [Str: Section] = ["a.go": loaded.*]
   let collapsed: [Str: Bool] = ["c.go": true]
   let built = rows(files, sections, collapsed, false, [], Maybe::new<annotations::Draft>())
   try testing::assert(kinds(built) == "hrlllglbhrnbhbhrn", kinds(built))
@@ -2470,24 +2472,24 @@ test fn sides_rebuild_the_old_and_new_text() Void!Str {
 }
 
 test fn the_gutter_fits_each_side_and_drops_an_empty_one() Void!Str {
-  let changed = mut section("rev")
+  let changed = &mut section("rev")
   changed.old_digits = 2
   changed.new_digits = 3
   try testing::assert(
-    gutter(changed.@, "9", "100", "+") == " 9 100 +",
+    gutter(changed.*, "9", "100", "+") == " 9 100 +",
     "each side fits its widest number",
   )
-  let added = mut section("rev")
+  let added = &mut section("rev")
   added.new_digits = 2
-  try testing::assert(gutter(added.@, "", "12", "+") == "12 +", "an added file has no old column")
-  let deleted = mut section("rev")
+  try testing::assert(gutter(added.*, "", "12", "+") == "12 +", "an added file has no old column")
+  let deleted = &mut section("rev")
   deleted.old_digits = 1
-  testing::assert(gutter(deleted.@, "7", "", "−") == "7 −", "a deleted file has no new column")
+  testing::assert(gutter(deleted.*, "7", "", "−") == "7 −", "a deleted file has no new column")
 }
 
 // Each split row as "old/new" hunk line indexes, "-" for a blank side.
 private fn sides_of(built: [Row]) Str {
-  let shown = mut List::new<Str>()
+  let shown = &mut List::new<Str>()
   for item in built {
     if item.kind == RowKind::pair {
       let old = match item.old_line < 0 {
@@ -2505,12 +2507,12 @@ private fn sides_of(built: [Row]) Str {
 }
 
 test fn split_rows_pair_removed_lines_with_added_ones() Void!Str {
-  let loaded = mut section("rev")
+  let loaded = &mut section("rev")
   loaded.loaded = true
   loaded.hunks = [
     hunk(["context", "deletion", "deletion", "addition", "context", "addition", "deletion"]),
   ]
-  let sections: [Str: Section] = ["a.go": loaded.@]
+  let sections: [Str: Section] = ["a.go": loaded.*]
   let collapsed: [Str: Bool] = [:]
   let built = rows(
     [summary("a.go", "text")],
@@ -2528,24 +2530,24 @@ test fn split_rows_pair_removed_lines_with_added_ones() Void!Str {
 
 // A hunk of lines numbered from `old` and `new` on their sides.
 private fn numbered_hunk(kinds: [Str], old: Int, new: Int) protocol::DiffHunk {
-  let lines = mut List::new<protocol::DiffLine>()
+  let lines = &mut List::new<protocol::DiffLine>()
   mut old_at = old
   mut new_at = new
   for kind in kinds {
-    let line = mut protocol::DiffLine{Kind: kind, Content: kind}
+    let line = &mut protocol::DiffLine{Kind: kind, Content: kind}
     if kind != "addition" {
-      let number = old_at
-      line.OldLine = mut number
+      mut number = old_at
+      line.OldLine = &mut number
       old_at =+ 1
     }
     if kind != "deletion" {
-      let number = new_at
-      line.NewLine = mut number
+      mut number = new_at
+      line.NewLine = &mut number
       new_at =+ 1
     }
-    lines.push(line.@)
+    lines.push(line.*)
   }
-  protocol::DiffHunk{Lines: lines.@}
+  protocol::DiffHunk{Lines: lines.*}
 }
 
 private fn diff_note(id: Int, side: Str, start: Int, end: Int) sessionbridge::Annotation {
@@ -2560,11 +2562,11 @@ private fn diff_note(id: Int, side: Str, start: Int, end: Int) sessionbridge::An
 }
 
 test fn notes_follow_the_line_they_end_on_by_side() Void!Str {
-  let loaded = mut section("rev")
+  let loaded = &mut section("rev")
   loaded.loaded = true
   // Old 10 context, old 11 removed, new 11 added, old 12 / new 12 context.
   loaded.hunks = [numbered_hunk(["context", "deletion", "addition", "context"], 10, 10)]
-  let sections: [Str: Section] = ["a.go": loaded.@]
+  let sections: [Str: Section] = ["a.go": loaded.*]
   let collapsed: [Str: Bool] = [:]
   let notes = [diff_note(1, "old", 11, 11), diff_note(2, "new", 10, 11)]
   let unified = rows(
@@ -2585,7 +2587,7 @@ test fn notes_follow_the_line_they_end_on_by_side() Void!Str {
     Maybe::new<annotations::Draft>(),
   )
   try testing::assert(kinds(split) == "hrppaap", kinds(split))
-  let draft = annotations::Draft{
+  mut draft = annotations::Draft{
     path: "a.go",
     side: "new",
     start: 12,
@@ -2609,7 +2611,7 @@ test fn notes_follow_the_line_they_end_on_by_side() Void!Str {
     kinds(editing) == "hrllalale",
     "a new note's editor follows its last line: {kinds(editing)}",
   )
-  let edited = mut draft
+  let edited = &mut draft
   edited.id = Uint64::from(2)
   edited.start = 10
   edited.end = 11
@@ -2619,7 +2621,7 @@ test fn notes_follow_the_line_they_end_on_by_side() Void!Str {
     collapsed,
     false,
     notes,
-    Maybe::new(edited.@),
+    Maybe::new(edited.*),
   )
   testing::assert(
     kinds(replacing) == "hrllalel",

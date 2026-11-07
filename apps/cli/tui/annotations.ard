@@ -41,7 +41,7 @@ struct Service {
 // The annotations with `annotation` added, or replacing the one it updates,
 // in ID order.
 fn upsert(existing: [sessionbridge::Annotation], annotation: sessionbridge::Annotation) [sessionbridge::Annotation] {
-  let merged = mut List::new<sessionbridge::Annotation>()
+  let merged = &mut List::new<sessionbridge::Annotation>()
   mut placed = false
   for current in existing {
     if (not placed) and annotation.ID < current.ID {
@@ -58,18 +58,18 @@ fn upsert(existing: [sessionbridge::Annotation], annotation: sessionbridge::Anno
   if not placed {
     merged.push(annotation)
   }
-  merged.@
+  merged.*
 }
 
 // The annotations except those with the given IDs.
 fn without(existing: [sessionbridge::Annotation], ids: [Uint64]) [sessionbridge::Annotation] {
-  let kept = mut List::new<sessionbridge::Annotation>()
+  let kept = &mut List::new<sessionbridge::Annotation>()
   for current in existing {
     if not includes(ids, current.ID) {
       kept.push(current)
     }
   }
-  kept.@
+  kept.*
 }
 
 fn includes(ids: [Uint64], id: Uint64) Bool {
@@ -83,13 +83,13 @@ fn includes(ids: [Uint64], id: Uint64) Bool {
 // The annotations a file's tab shows inline: current ones on the revision
 // it shows.
 fn on_file(existing: [sessionbridge::Annotation], workspace_id: Str, file_path: Str, revision: Str) [sessionbridge::Annotation] {
-  let shown = mut List::new<sessionbridge::Annotation>()
+  let shown = &mut List::new<sessionbridge::Annotation>()
   for current in existing {
     if current.Kind == "file" and (not current.Stale) and current.WorkspaceID == workspace_id and current.Path == file_path and current.FileRevision == revision {
       shown.push(current)
     }
   }
-  shown.@
+  shown.*
 }
 
 // Lines as a chip names them: one line, or the first and last.
@@ -164,7 +164,7 @@ fn editor(props: EditorProps) cui::View {
     ui::TextAreaAction::insert_newline,
     [keymap::key("return", shift: true)],
   )
-  let children = mut List::new<cui::View>()
+  let children = &mut List::new<cui::View>()
   children.push(
     cui::text_area(
       props.draft,
@@ -221,7 +221,7 @@ fn editor(props: EditorProps) cui::View {
   cui::box(
     [
       cui::box(
-        children.@,
+        children.*,
         styles: ui::style(
           flex_grow: 1.0,
           flex_direction: ui::FlexDirection::column,
@@ -274,8 +274,8 @@ struct Drafting {
   generation: Int,
 }
 
-fn drafting() mut Drafting {
-  (mut Drafting{current: Maybe::new<Draft>(), generation: 0})
+fn drafting() &mut Drafting {
+  &mut Drafting{current: Maybe::new<Draft>(), generation: 0}
 }
 
 impl Drafting {
@@ -337,7 +337,7 @@ impl Drafting {
         let result = service.body(note.ID)
         let _ = dispatch(fn() {
           if generation == self.generation {
-            self.change(fn(draft: mut Draft) {
+            self.change(fn(draft: &mut Draft) {
               draft.loading = false
               match result {
                 ok(body) => {
@@ -355,19 +355,20 @@ impl Drafting {
     }
   }
 
-  private fn mut change(update: fn(mut Draft)) {
+  private fn mut change(update: fn(&mut Draft)) {
     match self.current {
       draft => {
-        let next = mut draft
+        mut draft = draft
+        let next = &mut draft
         update(next)
-        self.current = Maybe::new(next.@)
+        self.current = Maybe::new(next.*)
       },
       _ => (),
     }
   }
 
   fn mut input(value: Str) {
-    self.change(fn(draft: mut Draft) {
+    self.change(fn(draft: &mut Draft) {
       draft.text = value
     })
   }
@@ -379,7 +380,7 @@ impl Drafting {
         let body = strings::TrimSpace(draft.text)
         let busy = draft.loading or draft.saving
         if body != "" and not busy {
-          self.change(fn(next: mut Draft) {
+          self.change(fn(next: &mut Draft) {
             next.saving = true
             next.failure = ""
           })
@@ -398,7 +399,7 @@ impl Drafting {
                     done()
                   },
                   false => {
-                    self.change(fn(next: mut Draft) {
+                    self.change(fn(next: &mut Draft) {
                       next.saving = false
                       next.failure = failure
                     })
@@ -554,23 +555,23 @@ test fn upsert_keeps_id_order_and_replaces_by_id() Void!Str {
 test fn chips_name_the_file_and_lines() Void!Str {
   try testing::assert(label(note(1, 939, 941)) == "main.ard:939–941", "a file range")
   try testing::assert(label(note(1, 12, 12)) == "main.ard:12", "one line")
-  let removed = mut note(1, 941, 941)
+  let removed = &mut note(1, 941, 941)
   removed.Kind = "diff"
   removed.Side = "old"
-  try testing::assert(label(removed.@) == "main.ard −941", "a removed line")
+  try testing::assert(label(removed.*) == "main.ard −941", "a removed line")
   removed.Side = "new"
-  testing::assert(label(removed.@) == "main.ard +941", "an added line")
+  testing::assert(label(removed.*) == "main.ard +941", "an added line")
 }
 
 test fn files_show_their_current_annotations() Void!Str {
-  let stale = mut note(2, 1, 1)
+  let stale = &mut note(2, 1, 1)
   stale.Stale = true
-  let other = mut note(3, 1, 1)
+  let other = &mut note(3, 1, 1)
   other.Path = "other.ard"
-  let older = mut note(4, 1, 1)
+  let older = &mut note(4, 1, 1)
   older.FileRevision = "rev-0"
   let shown = on_file(
-    [note(1, 1, 1), stale.@, other.@, older.@],
+    [note(1, 1, 1), stale.*, other.*, older.*],
     "workspace-a",
     "apps/cli/main.ard",
     "rev-1",

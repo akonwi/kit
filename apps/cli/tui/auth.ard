@@ -73,7 +73,7 @@ enum Step {
 }
 
 struct Flow {
-  props: mut Props,
+  props: &mut Props,
   context: cui::Context?,
   step: Step,
   provider: Str,
@@ -100,8 +100,8 @@ fn flow(props: Props) cui::View {
   cui::child(new, props, key: "auth.flow")
 }
 
-private fn new(props: mut Props) mut Flow {
-  (mut Flow{
+private fn new(props: &mut Props) &mut Flow {
+  &mut Flow{
     props: props,
     context: Maybe::new<cui::Context>(),
     step: Step::picker,
@@ -119,7 +119,7 @@ private fn new(props: mut Props) mut Flow {
     browser_url: "",
     browser_relayed: false,
     logging_out: "",
-  })
+  }
 }
 
 fn provider_catalog() [palette::Item] {
@@ -559,7 +559,7 @@ impl Flow {
   private fn mut device_view() cui::View {
     let colors = self.props.themes.current()
     let muted = ui::text_style(foreground: colors.muted)
-    let body = mut List::new<cui::View>()
+    let body = &mut List::new<cui::View>()
     if self.error != "" {
       body.push(self.error_line())
       body.push(layout::blank())
@@ -599,7 +599,7 @@ impl Flow {
         title: "Connect OpenAI Codex",
         meta: "",
         header: [],
-        body: cui::box(body.@, styles: ui::style(padding: layout::inset(), min_height: ui::cells(8))),
+        body: cui::box(body.*, styles: ui::style(padding: layout::inset(), min_height: ui::cells(8))),
         footer: Maybe::new<cui::View>(),
         autofocus: true,
         dismiss: self.back_command(),
@@ -613,7 +613,7 @@ impl Flow {
   private fn mut browser_view() cui::View {
     let colors = self.props.themes.current()
     let muted = ui::text_style(foreground: colors.muted)
-    let body = mut List::new<cui::View>()
+    let body = &mut List::new<cui::View>()
     if self.error != "" {
       body.push(self.error_line())
     }
@@ -652,7 +652,7 @@ impl Flow {
         title: "Connect Claude",
         meta: "",
         header: [],
-        body: cui::box(body.@, styles: ui::style(padding: layout::inset(), min_height: ui::cells(8))),
+        body: cui::box(body.*, styles: ui::style(padding: layout::inset(), min_height: ui::cells(8))),
         footer: Maybe::new<cui::View>(),
         autofocus: self.browser_url == "",
         dismiss: self.back_command(),
@@ -664,7 +664,7 @@ impl Flow {
 
   private fn mut api_key_view() cui::View {
     let colors = self.props.themes.current()
-    let body = mut List::new<cui::View>()
+    let body = &mut List::new<cui::View>()
     body.push(
       cui::input(
         self.api_key,
@@ -699,7 +699,7 @@ impl Flow {
         title: "Connect {provider_label(self.provider)}",
         meta: "",
         header: [],
-        body: cui::box(body.@, styles: ui::style(flex_grow: 1.0, padding: layout::inset())),
+        body: cui::box(body.*, styles: ui::style(flex_grow: 1.0, padding: layout::inset())),
         footer: Maybe::new<cui::View>(),
         autofocus: false,
         dismiss: self.back_command(),

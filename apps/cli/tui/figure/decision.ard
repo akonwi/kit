@@ -42,14 +42,14 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   try check_status(status)
   let listed = try grammar::items_and_note(body)
   try grammar::check_one_bold(listed.items)
-  let made = mut List::new<model::Item>()
+  let made = &mut List::new<model::Item>()
   mut detailed = false
   for each in listed.items {
-    let item = mut model::item(each.text, "")
+    let item = &mut model::item(each.text, "")
     item.note = each.note
     item.accent = each.bold
     item.muted = each.italic
-    made.push(item.@)
+    made.push(item.*)
     if each.details.size() > 0 {
       detailed = true
     }
@@ -60,11 +60,11 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
       Result::err("a decision has {min_options} to {max_options} options, got {made.size()}")
     },
     _ => {
-      let figure = mut model::figure("decision", grammar::attribute(info, "title"), made.@)
+      let figure = &mut model::figure("decision", grammar::attribute(info, "title"), made.*)
       figure.status = status
       figure.date = grammar::attribute(info, "date")
       figure.note = listed.note
-      Result::ok(figure.@)
+      Result::ok(figure.*)
     },
   }
 }
@@ -84,7 +84,7 @@ private fn status_run(status: Str) drawing::Segment {
 // The status and date row, the options with their reasons, and the
 // closing note.
 fn layout(figure: model::Figure) listing::Listing {
-  let lead = mut List::new<drawing::Segment>()
+  let lead = &mut List::new<drawing::Segment>()
   if figure.status != "" {
     lead.push(status_run(figure.status))
   }
@@ -97,7 +97,7 @@ fn layout(figure: model::Figure) listing::Listing {
       },
     )
   }
-  let entries = mut List::new<listing::Entry>()
+  let entries = &mut List::new<listing::Entry>()
   for each in figure.items {
     let option = format::truncate_cells(each.label, max_label)
     entries.push(
@@ -120,9 +120,9 @@ fn layout(figure: model::Figure) listing::Listing {
     )
   }
   listing::Listing{
-    entries: entries.@,
+    entries: entries.*,
     spaced: false,
-    lead: lead.@,
+    lead: lead.*,
     closing: figure.note,
   }
 }

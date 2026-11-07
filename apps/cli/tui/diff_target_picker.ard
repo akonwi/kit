@@ -28,7 +28,7 @@ fn view(props: Props) cui::View {
 }
 
 private struct Picker {
-  props: mut Props,
+  props: &mut Props,
   targets: [protocol::DiffTargetEntry],
   loading: Bool,
   failure: Str,
@@ -36,14 +36,14 @@ private struct Picker {
   waiting: Str,
 }
 
-private fn new(props: mut Props) mut Picker {
-  (mut Picker{
+private fn new(props: &mut Props) &mut Picker {
+  &mut Picker{
     props: props,
     targets: props.request.cached,
     loading: true,
     failure: "",
     waiting: "",
-  })
+  }
 }
 
 impl cui::Lifecycle for Picker {
@@ -119,7 +119,7 @@ fn footer(loading: Bool, cached: Bool, waiting: Bool) Str {
 // The catalog as picker rows, keyed by target id. Each row names its kind,
 // and the current target is marked.
 fn catalog(targets: [protocol::DiffTargetEntry], current: Str) [palette::Item] {
-  let items = mut List::new<palette::Item>()
+  let items = &mut List::new<palette::Item>()
   for target in targets {
     let marker = match target.TargetID == current {
       true => "__palette_current__",
@@ -148,7 +148,7 @@ fn catalog(targets: [protocol::DiffTargetEntry], current: Str) [palette::Item] {
       },
     )
   }
-  items.@
+  items.*
 }
 
 impl cui::Component for Picker {

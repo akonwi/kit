@@ -6,7 +6,7 @@ description: >-
 inputs:
   version:
     description: Ard release tag. Bump it here to move every workflow together.
-    default: v0.44.0
+    default: v0.45.0
   project:
     description: Ard project whose locked dependencies are restored.
     default: apps/cli

@@ -24,15 +24,15 @@ struct Model {
 }
 
 struct Props {
-  model: mut Model,
+  model: &mut Model,
   catalog: [palette::Item],
   height: Int,
   themes: theme::Context,
 }
 
 struct Host {
-  props: mut Props,
-  list: mut cui::VirtualListRef,
+  props: &mut Props,
+  list: &mut cui::VirtualListRef,
 }
 
 struct TreeModel {
@@ -40,22 +40,22 @@ struct TreeModel {
 }
 
 struct TreeProps {
-  model: mut TreeModel,
+  model: &mut TreeModel,
   themes: theme::Context,
 }
 
 struct TreeHost {
-  props: mut TreeProps,
+  props: &mut TreeProps,
   collapsed: Bool,
   context: cui::Context?,
 }
 
-fn tree_host(props: mut TreeProps) mut TreeHost {
-  (mut TreeHost{
+fn tree_host(props: &mut TreeProps) &mut TreeHost {
+  &mut TreeHost{
     props: props,
     collapsed: false,
     context: Maybe::new<cui::Context>(),
-  })
+  }
 }
 
 impl cui::Lifecycle for TreeHost {
@@ -69,7 +69,7 @@ impl cui::Lifecycle for TreeHost {
 impl cui::Component for TreeHost {
   fn mut render() cui::View {
     let model = self.props.model
-    let catalog = mut List::new<palette::Item>()
+    let catalog = &mut List::new<palette::Item>()
     catalog.push(
       palette::Item{
         key: "parent",
@@ -102,7 +102,7 @@ impl cui::Component for TreeHost {
       palette::PickerProps{
         // Searches ignore the collapsed state and show matches with ancestors.
         themes: self.props.themes,
-        catalog: catalog.@,
+        catalog: catalog.*,
         placeholder: "Search sessions…",
         initial_selection: "parent",
         title: "Sessions",
@@ -114,12 +114,12 @@ impl cui::Component for TreeHost {
         override: Maybe::new<fn(Str)>(),
         remove: Maybe::new<fn(Str)>(),
         toggle: Maybe::new(fn(selection: Str, expand: Bool) {
-          let actions = mut List::new<Str>()
+          let actions = &mut List::new<Str>()
           for action in model.actions {
             actions.push(action)
           }
           actions.push("{selection}:{expand}")
-          model.actions = actions.@
+          model.actions = actions.*
           let context = self.context.expect("mounted tree host")
           let _ = context.dispatch(fn() {
             self.collapsed = not expand
@@ -156,20 +156,20 @@ impl cui::Component for TreeHost {
           ],
         ),
         on_query_change: fn(query: Str) {
-          let actions = mut List::new<Str>()
+          let actions = &mut List::new<Str>()
           for action in model.actions {
             actions.push(action)
           }
           actions.push("query:{query}")
-          model.actions = actions.@
+          model.actions = actions.*
         },
         on_selection_change: fn(selected: Str) {
-          let actions = mut List::new<Str>()
+          let actions = &mut List::new<Str>()
           for action in model.actions {
             actions.push(action)
           }
           actions.push("select:{selected}")
-          model.actions = actions.@
+          model.actions = actions.*
         },
         on_activate: fn(item: palette::Item) {},
       },
@@ -177,8 +177,8 @@ impl cui::Component for TreeHost {
   }
 }
 
-fn host(props: mut Props) mut Host {
-  (mut Host{props: props, list: cui::virtual_list_ref()})
+fn host(props: &mut Props) &mut Host {
+  &mut Host{props: props, list: cui::virtual_list_ref()}
 }
 
 impl cui::Component for Host {
@@ -236,26 +236,26 @@ impl cui::Component for Host {
         model.hovered = hovered
       },
       on_activate: fn(item: palette::Item) {
-        let activated = mut List::new<Str>()
+        let activated = &mut List::new<Str>()
         for prior in model.activated {
           activated.push(prior)
         }
         if item.disabled_reason == "" {
           activated.push(item.key)
         }
-        model.activated = activated.@
+        model.activated = activated.*
       },
     }
     let navigation = palette::navigation(picker)
-    let children = mut List::new<cui::View>()
-    for view in palette::header(picker, Maybe::new<Bool>(), Maybe::new<mut cui::InputRef>()) {
+    let children = &mut List::new<cui::View>()
+    for view in palette::header(picker, Maybe::new<Bool>(), Maybe::new<&mut cui::InputRef>()) {
       children.push(view)
     }
     children.push(palette::body(picker, self.viewport()))
     // Navigation bindings sit on the panel-like root so they apply while
     // focus rests in the header search input, as the modal shell arranges.
     cui::box(
-      children.@,
+      children.*,
       styles: ui::style(
         width: ui::cells(40),
         height: ui::cells(self.props.height),
@@ -313,7 +313,7 @@ impl Host {
 }
 
 fn catalog() [palette::Item] {
-  let items = mut List::new<palette::Item>()
+  let items = &mut List::new<palette::Item>()
   let labels = [
     "Alpha",
     "Beta",
@@ -350,18 +350,18 @@ fn catalog() [palette::Item] {
       disabled_reason: "unavailable",
     },
   )
-  items.@
+  items.*
 }
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
-fn mount_tree(terminal: headless::TestApp, model: mut TreeModel) cui::Renderer {
+fn mount_tree(terminal: headless::TestApp, model: &mut TreeModel) cui::Renderer {
   let app = cooper::App{context: terminal.context, root: terminal.root}
   cui::mount(
     app,
@@ -374,7 +374,7 @@ fn mount_tree(terminal: headless::TestApp, model: mut TreeModel) cui::Renderer {
 
 fn mount_stateful(terminal: headless::TestApp) cui::Renderer {
   let app = cooper::App{context: terminal.context, root: terminal.root}
-  let items = mut List::new<palette::Item>()
+  let items = &mut List::new<palette::Item>()
   mut index = 0
   while index < 30 {
     items.push(
@@ -396,7 +396,7 @@ fn mount_stateful(terminal: headless::TestApp) cui::Renderer {
       palette::new_picker,
       palette::PickerProps{
         themes: theme::context(theme::store(theme::system())),
-        catalog: items.@,
+        catalog: items.*,
         placeholder: "Search items…",
         initial_selection: "item-0",
         title: "Items",
@@ -417,7 +417,7 @@ fn mount_stateful(terminal: headless::TestApp) cui::Renderer {
   )
 }
 
-fn mount(terminal: headless::TestApp, model: mut Model, height: Int) cui::Renderer {
+fn mount(terminal: headless::TestApp, model: &mut Model, height: Int) cui::Renderer {
   let app = cooper::App{context: terminal.context, root: terminal.root}
   cui::mount(
     app,
@@ -433,7 +433,7 @@ fn mount(terminal: headless::TestApp, model: mut Model, height: Int) cui::Render
   )
 }
 
-fn key(name: Str, text: Str?) mut event::KeyEvent {
+fn key(name: Str, text: Str?) &mut event::KeyEvent {
   event::key(
     name,
     text.or(""),
@@ -448,14 +448,14 @@ fn key(name: Str, text: Str?) mut event::KeyEvent {
 }
 
 // Sends one plain character as a keypress with its text payload.
-fn character(value: Str) mut event::KeyEvent {
+fn character(value: Str) &mut event::KeyEvent {
   key(value, text: value)
 }
 
 test fn stateful_picker_routes_tree_keys_without_moving_selection() Void!Str {
   let terminal = headless::new(60, 12)
   defer terminal.destroy()
-  let model = mut TreeModel{actions: []}
+  let model = &mut TreeModel{actions: []}
   let renderer = mount_tree(terminal, model)
   defer renderer.destroy()
   terminal.flush()
@@ -482,7 +482,7 @@ test fn stateful_picker_routes_tree_keys_without_moving_selection() Void!Str {
 test fn stateful_picker_reports_queries_with_no_selection() Void!Str {
   let terminal = headless::new(60, 12)
   defer terminal.destroy()
-  let model = mut TreeModel{actions: []}
+  let model = &mut TreeModel{actions: []}
   let renderer = mount_tree(terminal, model)
   defer renderer.destroy()
   terminal.flush()
@@ -499,7 +499,7 @@ test fn stateful_picker_reports_queries_with_no_selection() Void!Str {
 test fn stateful_tree_search_finds_collapsed_rows_and_restores_their_parent() Void!Str {
   let terminal = headless::new(60, 12)
   defer terminal.destroy()
-  let model = mut TreeModel{actions: []}
+  let model = &mut TreeModel{actions: []}
   let renderer = mount_tree(terminal, model)
   defer renderer.destroy()
   terminal.flush()
@@ -550,7 +550,7 @@ test fn stateful_picker_navigation_reveals_each_selected_row() Void!Str {
 test fn filtering_and_enter_activation_work_end_to_end() Void!Str {
   let terminal = headless::new(40, 12)
   defer terminal.destroy()
-  let model = mut Model{
+  let model = &mut Model{
     activated: [],
     query: "",
     selection: "alpha",
@@ -605,7 +605,7 @@ test fn filtering_and_enter_activation_work_end_to_end() Void!Str {
 test fn selected_picker_rows_use_the_picker_focus_tint() Void!Str {
   let terminal = headless::new(40, 12)
   defer terminal.destroy()
-  let model = mut Model{
+  let model = &mut Model{
     activated: [],
     query: "",
     selection: "alpha",
@@ -631,7 +631,7 @@ test fn selected_picker_rows_use_the_picker_focus_tint() Void!Str {
 test fn navigation_wraps_and_pointer_selection_activates() Void!Str {
   let terminal = headless::new(40, 12)
   defer terminal.destroy()
-  let model = mut Model{
+  let model = &mut Model{
     activated: [],
     query: "",
     selection: "alpha",
@@ -661,7 +661,7 @@ test fn navigation_wraps_and_pointer_selection_activates() Void!Str {
   )
   try testing::assert(
     model.activated.size() == 1 and model.activated.at(0).or("") == "beta",
-    "pointer release activates the row: activated={strings::Join(mut model.activated, ",")}",
+    "pointer release activates the row: activated={strings::Join(&mut model.activated, ",")}",
   )
   testing::pass()
 }
@@ -670,7 +670,7 @@ test fn long_catalogs_virtualize_with_overflow_rows_and_paging() Void!Str {
   // Viewport fits only some of the 11-item catalog.
   let terminal = headless::new(40, 8)
   defer terminal.destroy()
-  let model = mut Model{
+  let model = &mut Model{
     activated: [],
     query: "",
     selection: "alpha",
@@ -692,7 +692,7 @@ test fn long_catalogs_virtualize_with_overflow_rows_and_paging() Void!Str {
   }
   try testing::assert(
     bottom_marker > 0,
-    "a bottom overflow row appears when items extend below: rows={strings::Join(mut rendered, "|")}",
+    "a bottom overflow row appears when items extend below: rows={strings::Join(rendered, "|")}",
   )
   mut shows_theta = false
   for row in rendered {
@@ -720,7 +720,7 @@ test fn long_catalogs_virtualize_with_overflow_rows_and_paging() Void!Str {
   }
   try testing::assert(
     shows_delta_after,
-    "wheel scrolling reveals later items: rows={strings::Join(mut paged, "|")}",
+    "wheel scrolling reveals later items: rows={strings::Join(paged, "|")}",
   )
   try testing::assert(not shows_alpha_after, "wheel scrolling moves early items out of the viewport")
   mut top_marker = false
@@ -736,7 +736,7 @@ test fn long_catalogs_virtualize_with_overflow_rows_and_paging() Void!Str {
 test fn selection_keystrokes_reveal_scrolled_items() Void!Str {
   let terminal = headless::new(40, 8)
   defer terminal.destroy()
-  let model = mut Model{
+  let model = &mut Model{
     activated: [],
     query: "",
     selection: "alpha",
@@ -765,7 +765,7 @@ test fn selection_keystrokes_reveal_scrolled_items() Void!Str {
   }
   try testing::assert(
     shows_omega,
-    "Down navigation reveals the selected far item: rows={strings::Join(mut rendered, "|")} sel={model.selection}",
+    "Down navigation reveals the selected far item: rows={strings::Join(rendered, "|")} sel={model.selection}",
   )
   try testing::assert(gutter_omega, "the revealed row carries the selection gutter")
   testing::pass()
@@ -777,17 +777,17 @@ struct ReseedModel {
 }
 
 struct ReseedProps {
-  model: mut ReseedModel,
+  model: &mut ReseedModel,
   themes: theme::Context,
 }
 
 struct ReseedHost {
-  props: mut ReseedProps,
+  props: &mut ReseedProps,
   context: cui::Context?,
 }
 
-fn reseed_host(props: mut ReseedProps) mut ReseedHost {
-  (mut ReseedHost{props: props, context: Maybe::new<cui::Context>()})
+fn reseed_host(props: &mut ReseedProps) &mut ReseedHost {
+  &mut ReseedHost{props: props, context: Maybe::new<cui::Context>()}
 }
 
 impl cui::Lifecycle for ReseedHost {
@@ -866,7 +866,7 @@ impl cui::Component for ReseedHost {
   }
 }
 
-fn ctrl_key(name: Str) mut event::KeyEvent {
+fn ctrl_key(name: Str) &mut event::KeyEvent {
   event::key(
     name,
     "",
@@ -883,7 +883,7 @@ fn ctrl_key(name: Str) mut event::KeyEvent {
 test fn retained_picker_uses_refreshed_initial_selection_when_its_row_disappears() Void!Str {
   let terminal = headless::new(40, 12)
   defer terminal.destroy()
-  let model = mut ReseedModel{updated: false, activated: ""}
+  let model = &mut ReseedModel{updated: false, activated: ""}
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let renderer = cui::mount(
     app,
@@ -948,7 +948,7 @@ fn search_props(catalog: [palette::Item], tree: [palette::Branch]?, query: Str) 
 }
 
 fn keys_of(props: palette::Props) Str {
-  let keys = mut List::new<Str>()
+  let keys = &mut List::new<Str>()
   for item in palette::items(props) {
     keys.push(item.key)
   }
@@ -1003,13 +1003,13 @@ fn session_tree() [palette::Branch] {
 
 // The browsing catalog with the auth child collapsed, hiding the OAuth leaf.
 fn collapsed_catalog() [palette::Item] {
-  let catalog = mut List::new<palette::Item>()
+  let catalog = &mut List::new<palette::Item>()
   for branch in session_tree() {
     if branch.item.key != "leaf" {
       catalog.push(branch.item)
     }
   }
-  catalog.@
+  catalog.*
 }
 
 test fn tree_search_shows_collapsed_matches_beneath_their_ancestors() Void!Str {
@@ -1086,7 +1086,7 @@ test fn labels_without_other_columns_fill_the_row() Void!Str {
       found = true
     }
   }
-  testing::assert(found, "the whole path shows:\n{strings::Join(mut rows(terminal), "|\n")}")
+  testing::assert(found, "the whole path shows:\n{strings::Join(&mut rows(terminal), "|\n")}")
 }
 
 test fn labels_without_descriptions_fill_the_row_beside_their_meta() Void!Str {
@@ -1134,7 +1134,7 @@ test fn labels_without_descriptions_fill_the_row_beside_their_meta() Void!Str {
   }
   testing::assert(
     found,
-    "the whole label shows, then its meta:\n{strings::Join(mut rows(terminal), "|\n")}",
+    "the whole label shows, then its meta:\n{strings::Join(&mut rows(terminal), "|\n")}",
   )
 }
 
@@ -1213,7 +1213,7 @@ test fn descriptions_keep_a_third_of_the_row_from_long_labels() Void!Str {
 }
 
 // A stateful picker over `catalog` that records activated keys.
-fn status_picker(catalog: [palette::Item], activated: mut [Str]) cui::View {
+fn status_picker(catalog: [palette::Item], activated: &mut [Str]) cui::View {
   cui::child(
     palette::new_picker,
     palette::PickerProps{
@@ -1264,7 +1264,7 @@ test fn status_icons_take_a_column_before_every_label() Void!Str {
   defer terminal.destroy()
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    status_picker(agents(), mut List::new<Str>()),
+    status_picker(agents(), &mut List::new<Str>()),
   )
   defer renderer.destroy()
   terminal.flush()
@@ -1301,7 +1301,7 @@ test fn status_icons_take_a_column_before_every_label() Void!Str {
 test fn clicking_a_disabled_row_selects_it_without_activating() Void!Str {
   let terminal = headless::new(80, 11)
   defer terminal.destroy()
-  let activated = mut List::new<Str>()
+  let activated = &mut List::new<Str>()
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     status_picker(agents(), activated),
@@ -1321,12 +1321,12 @@ test fn clicking_a_disabled_row_selects_it_without_activating() Void!Str {
   terminal.mouse_down(14, 9)
   terminal.mouse_up(14, 9)
   terminal.flush()
-  let keys = strings::Join(mut activated, ",")
+  let keys = strings::Join(activated, ",")
   testing::assert(keys == "code-reviewer", "an enabled row activates: {keys}")
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {

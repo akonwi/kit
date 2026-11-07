@@ -97,13 +97,13 @@ private fn includes(values: [Str], value: Str) Bool {
 
 // The IDs a prompt sends for staged rows.
 fn prompt_ids(items: [Staged]) [Str] {
-  let ids = mut List::new<Str>()
+  let ids = &mut List::new<Str>()
   for item in items {
     if item.sendable() {
       ids.push(item.id)
     }
   }
-  ids.@
+  ids.*
 }
 
 // Whether the session's model may receive images. A server that omits the
@@ -120,22 +120,22 @@ fn accepts_images(inputs: [protocol::ModelInputKind]) Bool {
 
 // The attachment IDs queued messages carry, without duplicates.
 fn restored_ids(messages: [protocol::PromptInput]) [Str] {
-  let ids = mut List::new<Str>()
+  let ids = &mut List::new<Str>()
   for message in messages {
     for id in message.AttachmentIDs {
-      if not includes(ids.@, id) {
+      if not includes(ids.*, id) {
         ids.push(id)
       }
     }
   }
-  ids.@
+  ids.*
 }
 
 // Rows for restored attachments, in order. Missing attachments are reported
 // and dropped from the prompt; when their details could not be fetched at
 // all, the IDs are still sent.
 fn restored(ids: [Str], resolution: protocol::AttachmentResolution!Str) [Staged] {
-  let rows = mut List::new<Staged>()
+  let rows = &mut List::new<Staged>()
   for id in ids {
     let row = match resolution {
       ok(resolved) => {
@@ -151,14 +151,14 @@ fn restored(ids: [Str], resolution: protocol::AttachmentResolution!Str) [Staged]
     }
     rows.push(row)
   }
-  rows.@
+  rows.*
 }
 
 // The files a paste names, when every non-blank line of it names attachable
 // files. Anything else is ordinary text.
 fn pasted_paths(text: Str) [Str]? {
   let lines = strings::Split(strings::ReplaceAll(text, "\r\n", "\n"), "\n")
-  let paths = mut List::new<Str>()
+  let paths = &mut List::new<Str>()
   mut valid = true
   for line in lines {
     let trimmed = strings::TrimSpace(line)
@@ -174,7 +174,7 @@ fn pasted_paths(text: Str) [Str]? {
     }
   }
   match valid and paths.size() > 0 {
-    true => Maybe::new(paths.@),
+    true => Maybe::new(paths.*),
     false => Maybe::new<[Str]>(),
   }
 }
@@ -254,7 +254,7 @@ private fn paths_in_line(line: Str) [Str]? {
     _ => {
       match split_tokens(line) {
         tokens => {
-          let paths = mut List::new<Str>()
+          let paths = &mut List::new<Str>()
           mut valid = tokens.size() > 0
           for token in tokens {
             if valid {
@@ -265,7 +265,7 @@ private fn paths_in_line(line: Str) [Str]? {
             }
           }
           match valid {
-            true => Maybe::new(paths.@),
+            true => Maybe::new(paths.*),
             false => Maybe::new<[Str]>(),
           }
         },
@@ -279,7 +279,7 @@ private fn paths_in_line(line: Str) [Str]? {
 // quotes, and backslash escapes. Unterminated quoting or a trailing escape is
 // not a well-formed path list.
 private fn split_tokens(line: Str) [Str]? {
-  let tokens = mut List::new<Str>()
+  let tokens = &mut List::new<Str>()
   mut token = ""
   mut quote = ""
   mut escaped = false
@@ -318,7 +318,7 @@ private fn split_tokens(line: Str) [Str]? {
       if started {
         tokens.push(token)
       }
-      Maybe::new(tokens.@)
+      Maybe::new(tokens.*)
     },
   }
 }
@@ -362,10 +362,7 @@ fn media_type(path: Str) Str? {
               let _ = file.Close()
               match header {
                 ok(bytes) => {
-                  let detected = strings::Split(
-                    http::DetectContentType(mut bytes),
-                    ";",
-                  ).at(0).or("")
+                  let detected = strings::Split(http::DetectContentType(bytes), ";").at(0).or("")
                   let supported = [
                     "text/plain",
                     "image/png",
@@ -420,13 +417,14 @@ fn fixtures() Str {
 }
 
 private fn write(path: Str, content: [Byte]) {
-  let bytes = mut content
+  mut content = content
+  let bytes = &mut content
   os::WriteFile(path, bytes, os::FileMode(Uint32::from(384))).expect("fixture file")
 }
 
 private fn joined(paths: [Str]?) Str {
   match paths {
-    found => strings::Join(mut found, "|"),
+    found => strings::Join(found, "|"),
     _ => "none",
   }
 }

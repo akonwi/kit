@@ -32,8 +32,8 @@ struct Server {
   themes_opened: Int,
 }
 
-fn server() mut Server {
-  (mut Server{
+fn server() &mut Server {
+  &mut Server{
     settings: protocol::ServerSettings{
       DefaultModel: "",
       CompactionModel: "",
@@ -51,7 +51,7 @@ fn server() mut Server {
     diff_wrap: false,
     dismissed: 0,
     themes_opened: 0,
-  })
+  }
 }
 
 fn models() [protocol::ModelCapability] {
@@ -79,12 +79,12 @@ fn models() [protocol::ModelCapability] {
 
 impl Server {
   fn mut record(save: Str) {
-    let saves = mut List::new<Str>()
+    let saves = &mut List::new<Str>()
     for previous in self.saves {
       saves.push(previous)
     }
     saves.push(save)
-    self.saves = saves.@
+    self.saves = saves.*
   }
 
   // Waits for a release when holding, then fails or succeeds.
@@ -109,7 +109,7 @@ fn failed(message: Str) protocol::ServerSettings!Error {
   }
 }
 
-fn services(fake: mut Server) settings::Services {
+fn services(fake: &mut Server) settings::Services {
   let update = fn(save: Str, change: fn()) protocol::ServerSettings!Error {
     try fake.finish(save)
     change()
@@ -159,7 +159,7 @@ fn services(fake: mut Server) settings::Services {
 }
 
 struct HostProps {
-  fake: mut Server,
+  fake: &mut Server,
   server: Str,
   selection: Str,
   themes: theme::Context,
@@ -169,12 +169,12 @@ struct HostProps {
 // Host plays the shell: it owns the terminal preferences and applies the
 // values the dialog reports saved.
 struct Host {
-  props: mut HostProps,
+  props: &mut HostProps,
   context: cui::Context?,
 }
 
-fn host(props: mut HostProps) mut Host {
-  (mut Host{props: props, context: Maybe::new<cui::Context>()})
+fn host(props: &mut HostProps) &mut Host {
+  &mut Host{props: props, context: Maybe::new<cui::Context>()}
 }
 
 impl cui::Lifecycle for Host {
@@ -241,11 +241,11 @@ impl cui::Component for Host {
   }
 }
 
-fn mount(terminal: headless::TestApp, fake: mut Server, server_name: Str) cui::Renderer {
+fn mount(terminal: headless::TestApp, fake: &mut Server, server_name: Str) cui::Renderer {
   mount_at(terminal, fake, server_name, "")
 }
 
-fn mount_at(terminal: headless::TestApp, fake: mut Server, server_name: Str, selection: Str) cui::Renderer {
+fn mount_at(terminal: headless::TestApp, fake: &mut Server, server_name: Str, selection: Str) cui::Renderer {
   cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     cui::child(
@@ -296,16 +296,16 @@ fn wait_for(terminal: headless::TestApp, text: Str) Bool {
 }
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let result = mut List::new<Str>()
+  let result = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     result.push(strings::TrimRight(row, " "))
   }
-  result.@
+  result.*
 }
 
 // The dialog's rows, from its top border through its bottom border.
 fn dialog(terminal: headless::TestApp) [Str] {
-  let result = mut List::new<Str>()
+  let result = &mut List::new<Str>()
   mut inside = false
   for row in rows(terminal) {
     if strings::Contains(row, "┌") {
@@ -318,13 +318,13 @@ fn dialog(terminal: headless::TestApp) [Str] {
       inside = false
     }
   }
-  result.@
+  result.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
   testing::assert(
-    strings::Join(mut actual, "\n") == strings::Join(mut expected, "\n"),
-    "rows:\n{strings::Join(mut actual, "\n")}\n\nwant:\n{strings::Join(mut expected, "\n")}",
+    strings::Join(actual, "\n") == strings::Join(expected, "\n"),
+    "rows:\n{strings::Join(actual, "\n")}\n\nwant:\n{strings::Join(expected, "\n")}",
   )
 }
 
@@ -339,19 +339,19 @@ fn row_of(terminal: headless::TestApp, text: Str) Int {
   found
 }
 
-fn saves(fake: mut Server) Str {
-  strings::Join(mut fake.saves, ", ")
+fn saves(fake: &mut Server) Str {
+  strings::Join(&mut fake.saves, ", ")
 }
 
 // The first count rows of shown.
 fn first(shown: [Str], count: Int) [Str] {
-  let result = mut List::new<Str>()
+  let result = &mut List::new<Str>()
   for row, index in shown {
     if index < count {
       result.push(row)
     }
   }
-  result.@
+  result.*
 }
 
 test fn the_dialog_shows_the_servers_settings_and_this_terminals() Void!Str {

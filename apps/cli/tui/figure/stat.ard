@@ -40,7 +40,7 @@ private fn spark(details: [Str]) [Int]!Str {
           high = value
         }
       }
-      let points = mut List::new<Int>()
+      let points = &mut List::new<Int>()
       for value in values {
         points.push(
           match high > low {
@@ -51,7 +51,7 @@ private fn spark(details: [Str]) [Int]!Str {
       }
       match values.size() < 2 {
         true => Result::err("a sparkline needs at least 2 values"),
-        false => Result::ok(points.@),
+        false => Result::ok(points.*),
       }
     },
     _ => Result::err("a stat item takes one line of numbers under it"),
@@ -71,7 +71,7 @@ private fn stat(each: grammar::Item) model::Item!Str {
     true => strings::TrimSpace(text.slice(start: close + 4).or("")),
     false => strings::TrimSpace(text.slice(start: first.size()).or("")),
   }
-  let made = mut model::item(label, value)
+  let made = &mut model::item(label, value)
   made.note = each.note
   made.accent = each.bold or leading
   made.muted = each.italic
@@ -83,14 +83,14 @@ private fn stat(each: grammar::Item) model::Item!Str {
     utf8::RuneCountInString(value) > max_value => {
       Result::err("a stat value is at most {max_value} characters, got `{grammar::clip(value)}`")
     },
-    _ => Result::ok(made.@),
+    _ => Result::ok(made.*),
   }
 }
 
 fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   try grammar::check_attributes(info, ["title"])
   let items = try grammar::items(body)
-  let made = mut List::new<model::Item>()
+  let made = &mut List::new<model::Item>()
   mut accents = 0
   for each in items {
     let item = try stat(each)
@@ -103,14 +103,14 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     items.size() == 0 => Result::err("the figure has no items"),
     items.size() > max_items => Result::err("a stat figure has at most {max_items} items"),
     accents > 1 => Result::err("only one item can be bold"),
-    _ => Result::ok(model::figure("stat", grammar::attribute(info, "title"), made.@)),
+    _ => Result::ok(model::figure("stat", grammar::attribute(info, "title"), made.*)),
   }
 }
 
 // A sparkline's points as block characters, from ▁ to █.
 fn sparkline(points: [Int]) Str {
   let levels = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
-  let parts = mut List::new<Str>()
+  let parts = &mut List::new<Str>()
   for point in points {
     let level = point * 8 / 1000
     parts.push(
@@ -137,10 +137,10 @@ private fn cell(text: Str, width: Int, role: drawing::Role, bold: Bool, last: Bo
 }
 
 fn draw(figure: model::Figure) drawing::Drawing {
-  let values = mut List::new<drawing::Segment>()
-  let labels = mut List::new<drawing::Segment>()
-  let notes = mut List::new<drawing::Segment>()
-  let sparks = mut List::new<drawing::Segment>()
+  let values = &mut List::new<drawing::Segment>()
+  let labels = &mut List::new<drawing::Segment>()
+  let notes = &mut List::new<drawing::Segment>()
+  let sparks = &mut List::new<drawing::Segment>()
   mut noted = false
   mut sparked = false
   let count = figure.items.size()
@@ -191,14 +191,14 @@ fn draw(figure: model::Figure) drawing::Drawing {
     }
     index =+ 1
   }
-  let rows = mut [values.@, labels.@]
+  let rows = &mut [values.*, labels.*]
   if sparked {
-    rows.push(sparks.@)
+    rows.push(sparks.*)
   }
   if noted {
-    rows.push(notes.@)
+    rows.push(notes.*)
   }
-  drawing::framed(figure.title, rows.@)
+  drawing::framed(figure.title, rows.*)
 }
 
 test fn sparklines_step_through_eight_levels() Void!Str {

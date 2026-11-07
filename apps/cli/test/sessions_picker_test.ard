@@ -16,7 +16,7 @@ use kit/tui/sessions
 use kit/tui/theme
 use go:strings
 
-fn key(name: Str) mut event::KeyEvent {
+fn key(name: Str) &mut event::KeyEvent {
   event::key(
     name,
     "",
@@ -31,15 +31,15 @@ fn key(name: Str) mut event::KeyEvent {
 }
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {
@@ -75,7 +75,7 @@ fn listed() [protocol::SessionInfo] {
 // a session by ID.
 fn mount(
   terminal: headless::TestApp,
-  outcome: mut Outcome,
+  outcome: &mut Outcome,
   activity: [protocol::SessionActivityEntry],
 ) cui::Renderer {
   let dismiss = keymap::simple_command("sessions.dismiss", "Close", fn() Bool {
@@ -91,13 +91,13 @@ fn mount(
           sessions::Props{
             // Directories under the server's home are shown relative to it.
             themes: theme::context(theme::store(theme::system())),
-            client: mut api::Client{},
+            client: &mut api::Client{},
             lifetime: contextbridge::WithCancel(context::Background()),
             current_session_id: "",
             home: "/home/me",
             dismiss: dismiss,
             renamed: fn(session: protocol::SessionInfo) {},
-            applied: fn(session: mut api::Session, snapshot: protocol::SessionSnapshot) {},
+            applied: fn(session: &mut api::Session, snapshot: protocol::SessionSnapshot) {},
             choose: fn(id: Str) {
               outcome.chosen = id
             },
@@ -116,7 +116,7 @@ test fn the_session_picker_fills_its_rows_and_returns_the_chosen_session() Void!
   let height = tui::picker_height(Maybe::new(listed()))
   let terminal = headless::new(60, height)
   defer terminal.destroy()
-  let outcome = mut Outcome{chosen: "", dismissed: 0}
+  let outcome = &mut Outcome{chosen: "", dismissed: 0}
   let renderer = mount(terminal, outcome, [])
   defer renderer.destroy()
   terminal.flush()
@@ -147,7 +147,7 @@ test fn the_session_picker_fills_its_rows_and_returns_the_chosen_session() Void!
 test fn session_rows_show_whether_each_session_is_working_or_waiting() Void!Str {
   let terminal = headless::new(60, 10)
   defer terminal.destroy()
-  let outcome = mut Outcome{chosen: "", dismissed: 0}
+  let outcome = &mut Outcome{chosen: "", dismissed: 0}
   let renderer = mount(
     terminal,
     outcome,
@@ -189,22 +189,22 @@ test fn session_rows_show_whether_each_session_is_working_or_waiting() Void!Str 
 test fn the_session_picker_is_between_ten_and_twenty_rows() Void!Str {
   try testing::assert(tui::picker_height(Maybe::new<[protocol::SessionInfo]>()) == 10, "a failed list")
   try testing::assert(tui::picker_height(Maybe::new(listed())) == 10, "two sessions")
-  let eleven = mut List::new<protocol::SessionInfo>()
+  let eleven = &mut List::new<protocol::SessionInfo>()
   for index in 0..10 {
     eleven.push(protocol::SessionInfo{ID: "session_{index}"})
   }
-  try testing::assert(tui::picker_height(Maybe::new(eleven.@)) == 19, "eleven sessions and the frame")
-  let many = mut List::new<protocol::SessionInfo>()
+  try testing::assert(tui::picker_height(Maybe::new(eleven.*)) == 19, "eleven sessions and the frame")
+  let many = &mut List::new<protocol::SessionInfo>()
   for index in 0..30 {
     many.push(protocol::SessionInfo{ID: "session_{index}"})
   }
-  testing::assert(tui::picker_height(Maybe::new(many.@)) == 20, "many sessions")
+  testing::assert(tui::picker_height(Maybe::new(many.*)) == 20, "many sessions")
 }
 
 test fn escape_dismisses_the_session_picker() Void!Str {
   let terminal = headless::new(60, 10)
   defer terminal.destroy()
-  let outcome = mut Outcome{chosen: "", dismissed: 0}
+  let outcome = &mut Outcome{chosen: "", dismissed: 0}
   let renderer = mount(terminal, outcome, [])
   defer renderer.destroy()
   terminal.flush()

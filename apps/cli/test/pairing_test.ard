@@ -14,11 +14,11 @@ struct Props {
 }
 
 struct Host {
-  props: mut Props,
+  props: &mut Props,
 }
 
-fn host(props: mut Props) mut Host {
-  (mut Host{props: props})
+fn host(props: &mut Props) &mut Host {
+  &mut Host{props: props}
 }
 
 impl cui::Component for Host {
@@ -45,11 +45,11 @@ fn rows(links: [Str], error: Str) [Str] {
   let renderer = cui::mount(app, cui::child(host, Props{links: links, error: error}))
   defer renderer.destroy()
   terminal.flush()
-  let result = mut List::new<Str>()
+  let result = &mut List::new<Str>()
   for line in strings::Split(terminal.frame().text(), "\n") {
     result.push(strings::TrimRight(line, " "))
   }
-  result.@
+  result.*
 }
 
 // shown is rows up to the last non-blank one, one per line.
@@ -60,7 +60,7 @@ fn shown(lines: [Str]) Str {
       last = index + 1
     }
   }
-  strings::Join(mut lines.slice(start: 0, end: last).expect("rows"), "\n")
+  strings::Join(&mut lines.slice(start: 0, end: last).expect("rows"), "\n")
 }
 
 test fn the_dialog_lists_a_link_per_url_and_how_to_use_it() Void!Str {
@@ -83,7 +83,7 @@ test fn the_dialog_lists_a_link_per_url_and_how_to_use_it() Void!Str {
     "",
     "The links share one code, which works once, until 14:05.",
   ]
-  testing::assert(actual == strings::Join(mut expected, "\n"), actual)
+  testing::assert(actual == strings::Join(expected, "\n"), actual)
 }
 
 test fn a_single_link_needs_no_choice() Void!Str {
@@ -96,7 +96,7 @@ test fn a_single_link_needs_no_choice() Void!Str {
     "",
     "The link works once, until 14:05.",
   ]
-  testing::assert(actual == strings::Join(mut expected, "\n"), actual)
+  testing::assert(actual == strings::Join(expected, "\n"), actual)
 }
 
 test fn a_failed_request_shows_why() Void!Str {

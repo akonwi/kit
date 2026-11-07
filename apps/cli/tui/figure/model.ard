@@ -123,7 +123,7 @@ private fn flag(value: Bool) Str {
 }
 
 private fn quoted_list(texts: [Str]) Str {
-  let parts = mut List::new<Str>()
+  let parts = &mut List::new<Str>()
   for text in texts {
     parts.push(quoted(text))
   }
@@ -131,7 +131,7 @@ private fn quoted_list(texts: [Str]) Str {
 }
 
 private fn numbers(values: [Int]) Str {
-  let parts = mut List::new<Str>()
+  let parts = &mut List::new<Str>()
   for value in values {
     parts.push(strconv::Itoa(value))
   }
@@ -142,7 +142,7 @@ private fn numbers(values: [Int]) Str {
 // each figure field a kind sets, then a line per item. Fields only some
 // kinds use follow the shared ones when set.
 fn record(figure: Figure) Str {
-  let lines = mut ["figure {figure.kind}", "title {quoted(figure.title)}"]
+  let lines = &mut ["figure {figure.kind}", "title {quoted(figure.title)}"]
   if figure.status != "" {
     lines.push("status {figure.status}")
   }
@@ -159,11 +159,11 @@ fn record(figure: Figure) Str {
     lines.push("pick {figure.pick}")
   }
   for each in figure.items {
-    let points = mut List::new<Str>()
+    let points = &mut List::new<Str>()
     for point in each.spark {
       points.push(strconv::Itoa(point))
     }
-    let extra = mut List::new<Str>()
+    let extra = &mut List::new<Str>()
     if each.target != "" {
       extra.push(" target={quoted(each.target)}")
     }
@@ -208,12 +208,12 @@ fn record(figure: Figure) Str {
 }
 
 test fn records_add_the_fields_a_kind_sets() Void!Str {
-  let row = mut item("Docs", "9")
+  let row = &mut item("Docs", "9")
   row.target = "12"
   row.over = true
   row.state = "now"
   row.body = "a b"
-  let got = record(figure("meter", "", [row.@]))
+  let got = record(figure("meter", "", [row.*]))
   testing::assert(
     got == "figure meter\ntitle \"\"\nitem label=\"Docs\" value=\"9\" note=\"\" accent=false muted=false scale=0 share=\"\" spark= target=\"12\" over=true state=now body=\"a b\"\n",
     "got {got}",
@@ -221,10 +221,10 @@ test fn records_add_the_fields_a_kind_sets() Void!Str {
 }
 
 test fn records_quote_text_and_list_each_field() Void!Str {
-  let row = mut item("a \"b\"", "1")
+  let row = &mut item("a \"b\"", "1")
   row.accent = true
   row.spark = [0, 1000]
-  let got = record(figure("stat", "x\\y", [row.@]))
+  let got = record(figure("stat", "x\\y", [row.*]))
   testing::assert(
     got == "figure stat\ntitle \"x\\\\y\"\nitem label=\"a \\\"b\\\"\" value=\"1\" note=\"\" accent=true muted=false scale=0 share=\"\" spark=0,1000\n",
     "got {got}",

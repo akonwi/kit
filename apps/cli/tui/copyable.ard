@@ -12,7 +12,7 @@ struct ValueProps {
 }
 
 struct Value {
-  props: mut ValueProps,
+  props: &mut ValueProps,
   context: cui::Context?,
 }
 
@@ -28,8 +28,8 @@ fn value(themes: theme::Context, text: Str, on_copied: fn()) cui::View {
   )
 }
 
-private fn new(props: mut ValueProps) mut Value {
-  (mut Value{props: props, context: Maybe::new<cui::Context>()})
+private fn new(props: &mut ValueProps) &mut Value {
+  &mut Value{props: props, context: Maybe::new<cui::Context>()}
 }
 
 impl cui::Lifecycle for Value {

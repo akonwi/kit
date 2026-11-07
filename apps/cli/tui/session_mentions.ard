@@ -49,7 +49,7 @@ fn finish(previous: Source, generation: Int, listed: [protocol::SessionInfo]!Str
     true => {
       match listed {
         ok(sessions) => {
-          let mentionable = mut List::new<protocol::SessionInfo>()
+          let mentionable = &mut List::new<protocol::SessionInfo>()
           for session in sessions {
             if session.ID != attached {
               mentionable.push(session)
@@ -57,7 +57,7 @@ fn finish(previous: Source, generation: Int, listed: [protocol::SessionInfo]!Str
           }
           Source{
             home: previous.home,
-            sessions: mentionable.@,
+            sessions: mentionable.*,
             loading: false,
             failure: "",
             generation: generation + 1,
@@ -80,7 +80,7 @@ fn finish(previous: Source, generation: Int, listed: [protocol::SessionInfo]!Str
 // catalog lists sessions by name, then working directory and age. Their IDs
 // and full working directories are matched too.
 fn catalog(source: Source, now: time::Time) [inline_picker::Item] {
-  let items = mut List::new<inline_picker::Item>()
+  let items = &mut List::new<inline_picker::Item>()
   for session in source.sessions {
     items.push(
       inline_picker::item(
@@ -92,7 +92,7 @@ fn catalog(source: Source, now: time::Time) [inline_picker::Item] {
       ),
     )
   }
-  items.@
+  items.*
 }
 
 // The row shown while no session is listed.

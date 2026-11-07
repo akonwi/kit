@@ -98,7 +98,7 @@ private fn still_running(info: protocol::TurnInfo) Bool {
 // successor, until the turn finishes or the attachment ends.
 fn follow(follower: Follower, first: Str) {
   mut run_id = first
-  let progress = mut Progress{failures: 0}
+  let progress = &mut Progress{failures: 0}
   mut final_failures = 0
   mut finished = protocol::TurnInfo{}
   mut step = Step::stream
@@ -230,8 +230,8 @@ private struct Script {
   log: [Str],
 }
 
-private fn script(streams: [Str], snapshots: [Str], statuses: [Str]) mut Script {
-  (mut Script{
+private fn script(streams: [Str], snapshots: [Str], statuses: [Str]) &mut Script {
+  &mut Script{
     streams: streams,
     snapshots: snapshots,
     statuses: statuses,
@@ -240,7 +240,7 @@ private fn script(streams: [Str], snapshots: [Str], statuses: [Str]) mut Script 
     status_calls: 0,
     ended: false,
     log: [],
-  })
+  }
 }
 
 // Snapshot scripts: "running:<turn>", "replayable:<turn>", "idle",
@@ -283,7 +283,7 @@ private fn scripted_status(entry: Str) protocol::TurnStatus {
   }
 }
 
-private fn scripted_follower(server: mut Script) Follower {
+private fn scripted_follower(server: &mut Script) Follower {
   Follower{
     stream: fn(run_id: Str, received: fn()) Void!Error {
       let entry = server.streams.at(server.stream_calls).or("down")
@@ -337,7 +337,7 @@ private fn scripted_follower(server: mut Script) Follower {
   }
 }
 
-private fn transcript_of(server: mut Script) Str {
+private fn transcript_of(server: &mut Script) Str {
   let lines = server.log
   mut joined = ""
   for line in lines {

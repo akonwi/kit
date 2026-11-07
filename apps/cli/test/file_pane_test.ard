@@ -17,15 +17,15 @@ use go:strings
 use go:time
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {
@@ -139,7 +139,7 @@ test fn long_lines_scroll_sideways_beside_fixed_numbers() Void!Str {
   defer shown.renderer.destroy()
   try testing::assert(
     rows(shown.terminal).at(2).or("") == "   1 0123456789abcdefgh",
-    "a long line is cut at the edge: {strings::Join(mut rows(shown.terminal), "|\n")}",
+    "a long line is cut at the edge: {strings::Join(&mut rows(shown.terminal), "|\n")}",
   )
   shown.terminal.scroll(10, 2, 0, delta_x: 1)
   shown.terminal.flush()
@@ -163,7 +163,7 @@ fn annotated(
   height: Int,
   content: Str,
   notes: [sessionbridge::Annotation],
-  calls: mut Calls,
+  calls: &mut Calls,
   full_body: Str,
 ) Shown {
   annotated_file(width, height, "notes.txt", content, notes, calls, full_body)
@@ -177,7 +177,7 @@ fn annotated_file(
   file_path: Str,
   content: Str,
   notes: [sessionbridge::Annotation],
-  calls: mut Calls,
+  calls: &mut Calls,
   full_body: Str,
 ) Shown {
   annotated_tab(
@@ -198,7 +198,7 @@ fn annotated_tab(
   tab: workspace::Tab,
   content: Str,
   notes: [sessionbridge::Annotation],
-  calls: mut Calls,
+  calls: &mut Calls,
   full_body: Str,
 ) Shown {
   let terminal = headless::new(width, height)
@@ -227,7 +227,7 @@ fn annotated_tab(
         annotate: Maybe::new(
           annotations::Service{
             create: fn(anchor: protocol::AnnotationAnchor, body: Str) Str {
-              let file = anchor.WorkspaceFile.@
+              let file = anchor.WorkspaceFile.*
               calls.saved.push(
                 "create {file.WorkspaceID} {file.Path}@{file.FileRevision} {file.StartLine}-{file.EndLine}: {body}",
               )
@@ -283,13 +283,13 @@ fn wait_until(terminal: headless::TestApp, done: fn() Bool) {
   terminal.flush()
 }
 
-fn calls() mut Calls {
-  (mut Calls{
+fn calls() &mut Calls {
+  &mut Calls{
     saved: [],
     removed: [],
     bodies: 0,
     released: 0,
-  })
+  }
 }
 
 fn note(id: Int, start: Int, end: Int, body: Str) sessionbridge::Annotation {
@@ -405,7 +405,7 @@ test fn the_hovered_line_offers_a_plus_that_annotates_it() Void!Str {
   })
   testing::assert(
     rows(shown.terminal).at(4).or("") == "   3 gamma",
-    "saving closes the editor: {strings::Join(mut rows(shown.terminal), "|\n")}",
+    "saving closes the editor: {strings::Join(&mut rows(shown.terminal), "|\n")}",
   )
 }
 
@@ -456,7 +456,7 @@ test fn dragging_down_the_gutter_annotates_a_range() Void!Str {
   shown.terminal.flush()
   try testing::assert(
     rows(shown.terminal).at(5).or("") == "     ┌───────────────────────────────┐",
-    "release opens the editor under the lines: {strings::Join(mut rows(shown.terminal), "|\n")}",
+    "release opens the editor under the lines: {strings::Join(&mut rows(shown.terminal), "|\n")}",
   )
   let first = shown.terminal.frame().cell(20, 2).expect("the first line")
   try testing::assert(same_color(first.style.background, colors.surface_hovered), "the lines stay filled")
@@ -574,7 +574,7 @@ test fn editing_a_long_note_loads_its_whole_body() Void!Str {
   })
   testing::assert(
     strings::Contains(shown.terminal.frame().text(), "│ the whole note"),
-    "the editor holds the whole body: {strings::Join(mut rows(shown.terminal), "|\n")}",
+    "the editor holds the whole body: {strings::Join(&mut rows(shown.terminal), "|\n")}",
   )
 }
 
@@ -665,7 +665,7 @@ test fn a_host_image_fills_the_pane_keeping_its_proportions() Void!Str {
     8,
     "/Users/me/shot.png",
     fn(file_path: Str, width: Int, height: Int) hostfilebridge::File!Error {
-      let pixels = mut List::new<Byte>()
+      let pixels = &mut List::new<Byte>()
       for index in 1..32 {
         pixels.push(Byte::from(255))
         pixels.push(Byte::from(0))
@@ -682,7 +682,7 @@ test fn a_host_image_fills_the_pane_keeping_its_proportions() Void!Str {
           Pixels: attachmentbridge::Pixels{
             Width: 8,
             Height: 4,
-            RGBA: pixels.@,
+            RGBA: pixels.*,
           },
         },
       )
@@ -878,9 +878,9 @@ test fn markdown_past_the_parser_budget_shows_its_source() Void!Str {
 
 // A note on PLAN.md's lines `start` to `end`.
 fn plan_note(id: Int, start: Int, end: Int, body: Str) sessionbridge::Annotation {
-  let made = mut note(id, start, end, body)
+  let made = &mut note(id, start, end, body)
   made.Path = "PLAN.md"
-  made.@
+  made.*
 }
 
 let plan = "# Plan\n\nShip it.\n\n- one\n- two\n"
@@ -1013,9 +1013,9 @@ test fn a_revealed_note_shows_in_the_preview() Void!Str {
     steps = "{steps}Step {step}.\n\n"
   }
   // Step 20 is on line 41.
-  let tab = mut workspace::file("workspace_a", "PLAN.md", 41)
+  let tab = &mut workspace::file("workspace_a", "PLAN.md", 41)
   tab.reveals_note = true
-  let shown = annotated_tab(48, 9, tab.@, steps, [plan_note(1, 41, 41, "last?")], recorded, "")
+  let shown = annotated_tab(48, 9, tab.*, steps, [plan_note(1, 41, 41, "last?")], recorded, "")
   defer shown.terminal.destroy()
   defer shown.renderer.destroy()
   expect_rows(
@@ -1036,12 +1036,12 @@ test fn a_revealed_note_shows_in_the_preview() Void!Str {
 
 test fn a_revealed_note_in_markdown_past_the_parser_budget_shows_in_the_source() Void!Str {
   let recorded = calls()
-  let tab = mut workspace::file("workspace_a", "PLAN.md", 9000)
+  let tab = &mut workspace::file("workspace_a", "PLAN.md", 9000)
   tab.reveals_note = true
   let shown = annotated_tab(
     48,
     7,
-    tab.@,
+    tab.*,
     strings::Repeat("line\n", 10001),
     [plan_note(1, 9000, 9000, "here?")],
     recorded,

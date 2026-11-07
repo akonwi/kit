@@ -47,8 +47,8 @@ struct Control {
   pending: [Request],
 }
 
-fn control() mut Control {
-  (mut Control{deliver: Maybe::new<fn(Request)>(), pending: []})
+fn control() &mut Control {
+  &mut Control{deliver: Maybe::new<fn(Request)>(), pending: []}
 }
 
 impl Control {
@@ -100,14 +100,14 @@ impl Control {
 
 struct HostProps {
   themes: theme::Context,
-  control: mut Control,
+  control: &mut Control,
   expiry: time::Duration,
 }
 
 // Host owns the application's notifications: their order, bound, expiry, and
 // dismissal. It must stay mounted for the application's lifetime.
 struct Host {
-  props: mut HostProps,
+  props: &mut HostProps,
   context: cui::Context?,
   lifetime: contextbridge::Cancellation?,
   items: [Item],
@@ -115,7 +115,7 @@ struct Host {
 }
 
 // host mounts the notification overlay. expiry defaults to ten seconds.
-fn host(themes: theme::Context, control: mut Control, expiry: time::Duration?) cui::View {
+fn host(themes: theme::Context, control: &mut Control, expiry: time::Duration?) cui::View {
   cui::child(
     new_host,
     HostProps{
@@ -127,14 +127,14 @@ fn host(themes: theme::Context, control: mut Control, expiry: time::Duration?) c
   )
 }
 
-private fn new_host(props: mut HostProps) mut Host {
-  (mut Host{
+private fn new_host(props: &mut HostProps) &mut Host {
+  &mut Host{
     props: props,
     context: Maybe::new<cui::Context>(),
     lifetime: Maybe::new<contextbridge::Cancellation>(),
     items: [],
     next_id: 0,
-  })
+  }
 }
 
 impl cui::Lifecycle for Host {
@@ -227,13 +227,13 @@ impl Host {
   }
 
   private fn mut dismiss(id: Int) {
-    let retained = mut List::new<Item>()
+    let retained = &mut List::new<Item>()
     for item in self.items {
       if item.id != id {
         retained.push(item)
       }
     }
-    self.items = retained.@
+    self.items = retained.*
   }
 
   private fn mut request_dismissal(id: Int) {
@@ -258,7 +258,7 @@ impl cui::Component for Host {
 
 // stack renders the application's non-modal notification overlay.
 fn stack(themes: theme::Context, items: [Item], dismiss: fn(Int)) cui::View {
-  let cards = mut List::new<cui::View>()
+  let cards = &mut List::new<cui::View>()
   for item in items {
     cards.push(
       cui::child(
@@ -272,7 +272,7 @@ fn stack(themes: theme::Context, items: [Item], dismiss: fn(Int)) cui::View {
     )
   }
   cui::box(
-    cards.@,
+    cards.*,
     key: "toast.stack",
     styles: ui::style(
       position: ui::Position::absolute,
@@ -294,12 +294,12 @@ struct ToastProps {
 }
 
 struct Toast {
-  props: mut ToastProps,
+  props: &mut ToastProps,
   offset: Int,
 }
 
-private fn new_toast(props: mut ToastProps) mut Toast {
-  (mut Toast{props: props, offset: 20})
+private fn new_toast(props: &mut ToastProps) &mut Toast {
+  &mut Toast{props: props, offset: 20}
 }
 
 impl cui::Lifecycle for Toast {
@@ -337,7 +337,7 @@ private fn card(colors: theme::Theme, item: Item, offset: Int, dismiss: fn(Int))
     Variant::warning => "▲",
     Variant::error => "×",
   }
-  let text = mut List::new<cui::View>()
+  let text = &mut List::new<cui::View>()
   text.push(cui::text(item.title, text_style: ui::text_style(foreground: color)))
   if item.detail != "" {
     text.push(
@@ -348,11 +348,11 @@ private fn card(colors: theme::Theme, item: Item, offset: Int, dismiss: fn(Int))
       ),
     )
   }
-  let content = mut List::new<cui::View>()
+  let content = &mut List::new<cui::View>()
   content.push(cui::text(icon, text_style: ui::text_style(foreground: color)))
   let text_box = match item.detail != "" {
-    true => cui::box(text.@, styles: ui::style(flex_direction: ui::FlexDirection::column)),
-    false => cui::box(text.@, styles: ui::style(flex_direction: ui::FlexDirection::column)),
+    true => cui::box(text.*, styles: ui::style(flex_direction: ui::FlexDirection::column)),
+    false => cui::box(text.*, styles: ui::style(flex_direction: ui::FlexDirection::column)),
   }
   content.push(text_box)
   if item.persistent {
@@ -367,7 +367,7 @@ private fn card(colors: theme::Theme, item: Item, offset: Int, dismiss: fn(Int))
             left: ui::cells(1),
           },
         ),
-        on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+        on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
           received.prevent_default()
           dismiss(item.id)
         },
@@ -375,7 +375,7 @@ private fn card(colors: theme::Theme, item: Item, offset: Int, dismiss: fn(Int))
     )
   }
   cui::box(
-    content.@,
+    content.*,
     key: "toast.{item.id}",
     styles: ui::style(
       position: ui::Position::relative,
@@ -393,7 +393,7 @@ private fn card(colors: theme::Theme, item: Item, offset: Int, dismiss: fn(Int))
       border: ui::Border::single,
       border_color: color,
     ),
-    on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+    on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
       received.prevent_default()
     },
   )

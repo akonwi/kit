@@ -18,7 +18,7 @@ fn is_diff(language: Str) Bool {
 
 fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle) cui::View {
   let colors = themes.current()
-  let rows = mut List::new<cui::View>()
+  let rows = &mut List::new<cui::View>()
   for block in toolpresentation::FencedDiff(source) {
     for line in strings::Split(block.Text, "\n") {
       rows.push(
@@ -26,7 +26,7 @@ fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle) cui::
       )
     }
   }
-  cui::box(rows.@, key: "diff:{id}", styles: ui::style(flex_direction: ui::FlexDirection::column))
+  cui::box(rows.*, key: "diff:{id}", styles: ui::style(flex_direction: ui::FlexDirection::column))
 }
 
 // One source line: header and hunk lines start at the inset, and diff lines
@@ -38,13 +38,14 @@ private fn row(
   text: Str,
   base: ui::TextStyle,
 ) cui::View {
+  mut base = base
   // Kinds are toolpresentation's Block* constants.
   let fill = match block.Kind {
     "removed" => colors.diff_removed,
     "added" => colors.diff_added,
     _ => colors.surface,
   }
-  let style = mut base
+  let style = &mut base
   style.background = fill
   match block.Kind {
     "header" => {
@@ -62,15 +63,15 @@ private fn row(
     "added" => Maybe::new(colors.success_text),
     _ => Maybe::new<ui::Color>(),
   }
-  let children = mut List::new<cui::View>()
+  let children = &mut List::new<cui::View>()
   if block.Marker != "" {
-    let marker = mut base
+    let marker = &mut base
     marker.background = fill
     marker.foreground = marker_color
     children.push(
       cui::text(
         "{block.Marker} ",
-        text_style: marker.@,
+        text_style: marker.*,
         wrap: ui::TextWrap::none,
         styles: ui::style(flex_shrink: 0.0),
       ),
@@ -82,7 +83,7 @@ private fn row(
         true => " ",
         false => text,
       },
-      text_style: style.@,
+      text_style: style.*,
       wrap: ui::TextWrap::word,
       selectable: true,
       selection_style: theme::selection_style(colors),
@@ -90,7 +91,7 @@ private fn row(
     ),
   )
   cui::box(
-    children.@,
+    children.*,
     key: key,
     styles: ui::style(
       flex_direction: ui::FlexDirection::row,

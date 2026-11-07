@@ -12,15 +12,15 @@ use go:strings
 use go:time
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {
@@ -68,18 +68,18 @@ fn wait_for_color(terminal: headless::TestApp, x: Int, y: Int, expected: ui::Col
 }
 
 fn call(name: Str, arguments: Str) transcript::ToolCall {
-  let made = mut transcript::tool_call("c1", name)
+  let made = &mut transcript::tool_call("c1", name)
   made.arguments = arguments
-  made.@
+  made.*
 }
 
 fn result(text: Str, details: Str) transcript::Message {
-  let made = mut transcript::message("r1", "t1", transcript::Role::tool)
+  let made = &mut transcript::message("r1", "t1", transcript::Role::tool)
   made.tool_call_id = "c1"
   made.tool_state = transcript::ToolState::completed
   made.text = text
   made.details = details
-  made.@
+  made.*
 }
 
 struct Shown {
@@ -191,9 +191,9 @@ test fn a_unified_diff_from_a_command_shows_its_changes() Void!Str {
 }
 
 test fn a_write_whose_content_was_cut_shows_its_result() Void!Str {
-  let truncated = mut transcript::tool_call("c1", "write")
+  let truncated = &mut transcript::tool_call("c1", "write")
   truncated.arguments_truncated = true
-  let shown = show(40, 3, truncated.@, result("Wrote 4210 lines to huge.md", ""))
+  let shown = show(40, 3, truncated.*, result("Wrote 4210 lines to huge.md", ""))
   defer shown.terminal.destroy()
   defer shown.renderer.destroy()
   expect_rows(

@@ -21,7 +21,7 @@ struct Request {
 // completion callback.
 struct Props {
   themes: theme::Context,
-  client: mut api::Client,
+  client: &mut api::Client,
   lifetime: contextbridge::Cancellation,
   session: protocol::SessionInfo,
   request: Request,
@@ -32,21 +32,21 @@ struct Props {
 struct Dialog {
   // Keep services, session identity, and callbacks current without replacing
   // the child-owned edit buffer below.
-  props: mut Props,
+  props: &mut Props,
   name: Str,
   pending: Bool,
   error: Str,
   context: cui::Context?,
 }
 
-fn new(props: mut Props) mut Dialog {
-  (mut Dialog{
+fn new(props: &mut Props) &mut Dialog {
+  &mut Dialog{
     props: props,
     name: props.request.initial_name,
     pending: false,
     error: "",
     context: Maybe::new<cui::Context>(),
-  })
+  }
 }
 
 impl cui::Lifecycle for Dialog {

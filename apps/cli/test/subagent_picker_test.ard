@@ -13,15 +13,15 @@ use go:strings
 use go:time
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {
@@ -69,13 +69,13 @@ fn from(shown: [Str], needle: Str, count: Int) [Str] {
       start = index
     }
   }
-  let result = mut List::new<Str>()
+  let result = &mut List::new<Str>()
   mut index = start
   while start >= 0 and index < start + count {
     result.push(shown.at(index).or(""))
     index =+ 1
   }
-  result.@
+  result.*
 }
 
 struct Calls {
@@ -103,7 +103,7 @@ fn roster() subagents::Roster {
   }
 }
 
-fn mount(terminal: headless::TestApp, calls: mut Calls, confirm: Str) cui::Renderer {
+fn mount(terminal: headless::TestApp, calls: &mut Calls, confirm: Str) cui::Renderer {
   cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     subagent_picker::view(
@@ -132,7 +132,7 @@ fn mount(terminal: headless::TestApp, calls: mut Calls, confirm: Str) cui::Rende
 test fn the_picker_lists_agents_and_opens_a_started_one() Void!Str {
   let terminal = headless::new(100, 12)
   defer terminal.destroy()
-  let calls = mut Calls{
+  let calls = &mut Calls{
     opened: [],
     removed: [],
     closed: 0,
@@ -150,15 +150,15 @@ test fn the_picker_lists_agents_and_opens_a_started_one() Void!Str {
   )
   press(terminal, "return", false)
   testing::assert(
-    strings::Join(mut calls.opened, ",") == "subagent_r",
-    "Enter opens the conversation: {strings::Join(mut calls.opened, ",")}",
+    strings::Join(&mut calls.opened, ",") == "subagent_r",
+    "Enter opens the conversation: {strings::Join(&mut calls.opened, ",")}",
   )
 }
 
 test fn ctrl_d_asks_before_dismissing_and_returns_to_the_list() Void!Str {
   let terminal = headless::new(100, 12)
   defer terminal.destroy()
-  let calls = mut Calls{
+  let calls = &mut Calls{
     opened: [],
     removed: [],
     closed: 0,
@@ -172,15 +172,15 @@ test fn ctrl_d_asks_before_dismissing_and_returns_to_the_list() Void!Str {
       terminal.frame().text(),
       "Dismiss \"code-reviewer\"? Active and queued work will be",
     ),
-    "the question names the agent:\n{strings::Join(mut rows(terminal), "|\n")}",
+    "the question names the agent:\n{strings::Join(&mut rows(terminal), "|\n")}",
   )
   press(terminal, "return", false)
   wait_until(terminal, fn() Bool {
     strings::Contains(terminal.frame().text(), "enter open")
   })
   try testing::assert(
-    strings::Join(mut calls.removed, ",") == "subagent_r@4",
-    "the conversation is dismissed at its generation: {strings::Join(mut calls.removed, ",")}",
+    strings::Join(&mut calls.removed, ",") == "subagent_r@4",
+    "the conversation is dismissed at its generation: {strings::Join(&mut calls.removed, ",")}",
   )
   testing::assert(calls.closed == 0, "the picker stays open")
 }
@@ -188,7 +188,7 @@ test fn ctrl_d_asks_before_dismissing_and_returns_to_the_list() Void!Str {
 test fn a_tab_asks_alone_and_escape_closes_the_picker() Void!Str {
   let terminal = headless::new(100, 12)
   defer terminal.destroy()
-  let calls = mut Calls{
+  let calls = &mut Calls{
     opened: [],
     removed: [],
     closed: 0,
@@ -198,7 +198,7 @@ test fn a_tab_asks_alone_and_escape_closes_the_picker() Void!Str {
   terminal.flush()
   try testing::assert(
     strings::Contains(terminal.frame().text(), "Dismiss \"code-reviewer\"?"),
-    "the question shows at once:\n{strings::Join(mut rows(terminal), "|\n")}",
+    "the question shows at once:\n{strings::Join(&mut rows(terminal), "|\n")}",
   )
   press(terminal, "escape", false)
   testing::assert(

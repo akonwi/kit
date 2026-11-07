@@ -20,22 +20,22 @@ struct Model {
   closed: Bool,
   close_tab: Bool,
   other: Str,
-  other_input: mut cui::InputRef,
-  control: mut scratchpad::PaneRef,
+  other_input: &mut cui::InputRef,
+  control: &mut scratchpad::PaneRef,
   context: cui::Context?,
 }
 
 struct Props {
-  model: mut Model,
+  model: &mut Model,
   themes: theme::Context,
 }
 
 struct Host {
-  props: mut Props,
+  props: &mut Props,
 }
 
-fn host(props: mut Props) mut Host {
-  (mut Host{props: props})
+fn host(props: &mut Props) &mut Host {
+  &mut Host{props: props}
 }
 
 impl cui::Lifecycle for Host {
@@ -98,7 +98,7 @@ impl cui::Component for Host {
   }
 }
 
-fn character(value: Str) mut event::KeyEvent {
+fn character(value: Str) &mut event::KeyEvent {
   event::key(
     value,
     value,
@@ -112,8 +112,8 @@ fn character(value: Str) mut event::KeyEvent {
   )
 }
 
-fn model(record: protocol::Scratchpad?) mut Model {
-  (mut Model{
+fn model(record: protocol::Scratchpad?) &mut Model {
+  &mut Model{
     record: record,
     loading: false,
     failure: "",
@@ -125,17 +125,17 @@ fn model(record: protocol::Scratchpad?) mut Model {
     other_input: cui::input_ref(),
     control: scratchpad::pane_ref(),
     context: Maybe::new<cui::Context>(),
-  })
+  }
 }
 
-fn mount(terminal: headless::TestApp, value: mut Model) cui::Renderer {
+fn mount(terminal: headless::TestApp, value: &mut Model) cui::Renderer {
   cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     cui::child(host, Props{model: value, themes: theme::context(theme::store(theme::system()))}),
   )
 }
 
-fn wait_for_update(terminal: headless::TestApp, value: mut Model) {
+fn wait_for_update(terminal: headless::TestApp, value: &mut Model) {
   mut attempts = 0
   mut saved = false
   while (not saved) and attempts < 100 {

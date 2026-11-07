@@ -12,15 +12,15 @@ use go:strings
 use go:time
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {
@@ -91,7 +91,7 @@ fn show(
             Result::ok(protocol::SubagentTranscript{ConversationID: subject.ID, Messages: history})
           },
           events: fn(stream: Str, after: Int64) sessionbridge::SubagentPage!Error {
-            let fresh = mut List::new<sessionbridge::Event>()
+            let fresh = &mut List::new<sessionbridge::Event>()
             for event in live {
               if event.Sequence > after {
                 fresh.push(event)
@@ -101,7 +101,7 @@ fn show(
               sessionbridge::SubagentPage{
                 StreamID: "substream_a",
                 LastSequence: Int64::from(live.size()),
-                Events: fresh.@,
+                Events: fresh.*,
               },
             )
           },
@@ -129,25 +129,25 @@ fn event(sequence: Int, kind: Str) sessionbridge::Event {
 }
 
 test fn a_running_conversation_shows_its_history_live_run_and_activity() Void!Str {
-  let thinking = mut event(1, "assistant.thinking.delta")
+  let thinking = &mut event(1, "assistant.thinking.delta")
   thinking.MessageID = "m1"
   thinking.Delta = "Read the tokenizer first."
-  let planned = mut event(2, "tool.planned")
+  let planned = &mut event(2, "tool.planned")
   planned.ToolCallID = "c1"
   planned.ToolName = "read"
-  let started = mut event(3, "tool.started")
+  let started = &mut event(3, "tool.started")
   started.ToolCallID = "c1"
   started.ToolName = "read"
-  let subject = mut conversation("running")
+  let subject = &mut conversation("running")
   subject.QueuedTasks = 1
   subject.ActiveTaskID = "task_a"
   subject.Tasks = [protocol::SubagentTask{ID: "task_a", State: "running"}]
   let shown = show(
     72,
     12,
-    subject.@,
+    subject.*,
     [user("u1", "Review the parser change")],
-    [thinking.@, planned.@, started.@],
+    [thinking.*, planned.*, started.*],
   )
   defer shown.terminal.destroy()
   defer shown.renderer.destroy()
@@ -186,7 +186,7 @@ test fn a_finished_conversation_offers_no_cancel() Void!Str {
 }
 
 test fn a_failed_conversation_says_why() Void!Str {
-  let subject = mut conversation("failed")
+  let subject = &mut conversation("failed")
   subject.Tasks = [
     protocol::SubagentTask{
       ID: "task_a",
@@ -201,7 +201,7 @@ test fn a_failed_conversation_says_why() Void!Str {
       Error: "provider returned\n529 overloaded",
     },
   ]
-  let shown = show(100, 3, subject.@, [user("u1", "Review")], [])
+  let shown = show(100, 3, subject.*, [user("u1", "Review")], [])
   defer shown.terminal.destroy()
   defer shown.renderer.destroy()
   wait_for(shown.terminal, "failed")
@@ -216,7 +216,7 @@ test fn a_failed_conversation_says_why() Void!Str {
 // The rows with every spinner frame shown as the first, so a frame that
 // advanced while waiting does not matter.
 fn steady(shown: [Str]) [Str] {
-  let result = mut List::new<Str>()
+  let result = &mut List::new<Str>()
   for row in shown {
     mut steadied = row
     for frame in ["⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] {
@@ -224,5 +224,5 @@ fn steady(shown: [Str]) [Str] {
     }
     result.push(steadied)
   }
-  result.@
+  result.*
 }

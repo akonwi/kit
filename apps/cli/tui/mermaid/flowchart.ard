@@ -62,7 +62,7 @@ fn clean(value: Str) Str {
   match ui::text_width(text) <= max_text {
     true => text,
     false => {
-      let kept = mut List::new<Str>()
+      let kept = &mut List::new<Str>()
       mut width = 0
       for part in ui::graphemes(text) {
         if width + part.width <= max_text - 1 {
@@ -301,9 +301,9 @@ impl Parser {
     }
     let current = self.open.at(self.open.size() - 1).or(-1)
     if current >= 0 {
-      let mentioned = mut self.mentions.at(current).or([])
+      let mentioned = &mut self.mentions.at(current).or([])
       mentioned.push(index)
-      let _ = self.mentions.set(current, mentioned.@)
+      let _ = self.mentions.set(current, mentioned.*)
     }
     match text {
       given => {
@@ -430,7 +430,7 @@ impl Parser {
 
   // Nodes joined by `&`.
   fn mut group(line: Str, start: Int) Scan!Str {
-    let found = mut List::new<Int>()
+    let found = &mut List::new<Int>()
     mut at = skip_space(line, start)
     mut more = true
     mut failure = ""
@@ -462,7 +462,7 @@ impl Parser {
         Result::ok(
           Scan{
             next: at,
-            nodes: found.@,
+            nodes: found.*,
             link: no_link(),
           },
         )
@@ -502,13 +502,13 @@ impl Parser {
             let token = run + line.slice(start: close_start, end: close_end).or("")
             match classify(token) {
               ok(link) => {
-                let labeled = mut link
+                mut labeled = link
                 labeled.label = label_text(label)
                 Result::ok(
                   Scan{
                     next: close_end,
                     nodes: [],
-                    link: labeled.@,
+                    link: labeled,
                   },
                 )
               },
@@ -530,7 +530,7 @@ impl Parser {
                 match close < 0 {
                   true => Result::err("unclosed `|` in `{line}`"),
                   false => {
-                    let labeled = mut link
+                    mut labeled = link
                     labeled.label = label_text(
                       line.slice(start: bar + 1, end: bar + 1 + close).or(""),
                     )
@@ -538,7 +538,7 @@ impl Parser {
                       Scan{
                         next: bar + 1 + close + 1,
                         nodes: [],
-                        link: labeled.@,
+                        link: labeled,
                       },
                     )
                   },
@@ -669,9 +669,9 @@ impl Parser {
           current < 0 => Result::err("`direction` is only drawn inside a subgraph"),
           flow(direction).is_none() => Result::err("unknown direction `{direction}`"),
           _ => {
-            let group = mut self.groups.at(current).expect("group")
+            let group = &mut self.groups.at(current).expect("group")
             group.flow = flow(direction)
-            let _ = self.groups.set(current, group.@)
+            let _ = self.groups.set(current, group.*)
             Result::ok(())
           },
         }
@@ -751,13 +751,13 @@ impl Parser {
 }
 
 private fn all_but_last(values: [Int]) [Int] {
-  let kept = mut List::new<Int>()
+  let kept = &mut List::new<Int>()
   mut index = 0
   while index + 1 < values.size() {
     kept.push(values.at(index).or(0))
     index =+ 1
   }
-  kept.@
+  kept.*
 }
 
 // The flow a header's direction names.
@@ -777,7 +777,7 @@ fn parse(header: Str, lines: [Str]) Flowchart!Str {
   let fields = strings::Fields(header)
   // `graph TD;` ends its header with a `;`.
   let direction = strings::ToUpper(strings::TrimSuffix(fields.at(1).or("TD"), ";"))
-  let parser = mut Parser{
+  let parser = &mut Parser{
     nodes: [],
     indexes: [:],
     edges: [],
@@ -807,7 +807,7 @@ fn parse(header: Str, lines: [Str]) Flowchart!Str {
     failure = "subgraph `{open.id}` isn't closed with `end`"
   }
   // A node whose id names a subgraph stands for it.
-  let alias = mut List::new<Int>()
+  let alias = &mut List::new<Int>()
   mut aliases = 0
   mut index = 0
   for node in parser.nodes {
@@ -841,7 +841,7 @@ fn parse(header: Str, lines: [Str]) Flowchart!Str {
           flow: flow(direction).or(layers::Flow::down),
           groups: parser.groups,
           member: parser.member,
-          alias: alias.@,
+          alias: alias.*,
         },
       )
     },
@@ -866,7 +866,7 @@ private fn sections(chart: Flowchart, title: Str) canvas::Canvas!Str {
   // bounded together. Layout grows faster than a graph's size, so each
   // section counts as the square of its nodes and edges, and together they
   // may cost what the largest flowchart without subgraphs does.
-  let graphs = mut List::new<layers::Graph>()
+  let graphs = &mut List::new<layers::Graph>()
   mut work = 0
   mut group = -1
   while group < chart.groups.size() {
@@ -876,7 +876,7 @@ private fn sections(chart: Flowchart, title: Str) canvas::Canvas!Str {
     graphs.push(graph)
     group =+ 1
   }
-  let parts = mut List::new<canvas::Canvas>()
+  let parts = &mut List::new<canvas::Canvas>()
   mut height = 0
   mut failure = match work > (max_nodes + max_edges) * (max_nodes + max_edges) {
     true => "the subgraphs repeat too many nodes and edges to draw",
@@ -909,7 +909,7 @@ private fn sections(chart: Flowchart, title: Str) canvas::Canvas!Str {
     group =+ 1
   }
   match failure == "" {
-    true => Result::ok(canvas::stack(parts.@).@),
+    true => Result::ok(canvas::stack(parts.*).*),
     false => Result::err(failure),
   }
 }
@@ -1027,8 +1027,8 @@ private fn node_end(chart: Flowchart, node: Int, outer: Int) End {
 // it that its edges reach. Edges within one inner subgraph are left to that
 // subgraph's drawing, and repeated edges are drawn once.
 private fn section(chart: Flowchart, outer: Int) layers::Graph {
-  let nodes = mut List::new<layers::Node>()
-  let keys = mut Map::new<Int>()
+  let nodes = &mut List::new<layers::Node>()
+  let keys = &mut Map::new<Int>()
   let add = fn(end: End) Int {
     match keys.get(end.key) {
       found => found,
@@ -1055,7 +1055,7 @@ private fn section(chart: Flowchart, outer: Int) layers::Graph {
     }
     index =+ 1
   }
-  let edges = mut List::new<layers::Edge>()
+  let edges = &mut List::new<layers::Edge>()
   for edge in chart.edges {
     let from = node_end(chart, edge.from, outer)
     let to = node_end(chart, edge.to, outer)
@@ -1069,25 +1069,25 @@ private fn section(chart: Flowchart, outer: Int) layers::Graph {
         head: edge.head,
         label: edge.label,
       }
-      if not has_edge(edges.@, mapped) {
+      if not has_edge(edges.*, mapped) {
         edges.push(mapped)
       }
     }
   }
-  layers::Graph{nodes: nodes.@, edges: edges.@}
+  layers::Graph{nodes: nodes.*, edges: edges.*}
 }
 
 fn expect_drawing(source: Str, expected: [Str]) Void!Str {
   let lines = strings::Split(source, "\n")
-  let body = mut List::new<Str>()
+  let body = &mut List::new<Str>()
   mut index = 1
   while index < lines.size() {
     body.push(lines.at(index).or(""))
     index =+ 1
   }
-  let drawing = try render(lines.at(0).or(""), body.@, "")
+  let drawing = try render(lines.at(0).or(""), body.*, "")
   let actual = drawing.lines()
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(
     actual.size() == expected.size(),
     "row count {actual.size()}, want {expected.size()}:\n{shown}|",
@@ -1104,13 +1104,13 @@ fn expect_drawing(source: Str, expected: [Str]) Void!Str {
 
 fn expect_rejected(source: Str, reason: Str) Void!Str {
   let lines = strings::Split(source, "\n")
-  let body = mut List::new<Str>()
+  let body = &mut List::new<Str>()
   mut index = 1
   while index < lines.size() {
     body.push(lines.at(index).or(""))
     index =+ 1
   }
-  match render(lines.at(0).or(""), body.@, "") {
+  match render(lines.at(0).or(""), body.*, "") {
     ok(_) => Result::err("rendered, want rejection: {reason}"),
     err(got) => testing::assert(got == reason, "got reason {got}, want {reason}"),
   }
@@ -2062,14 +2062,14 @@ test fn unsupported_flowchart_syntax_is_rejected() Void!Str {
 }
 
 test fn flowcharts_past_the_limits_are_rejected() Void!Str {
-  let nodes = mut ["flowchart TD"]
+  let nodes = &mut ["flowchart TD"]
   mut index = 0
   while index <= max_nodes {
     nodes.push("N{index}")
     index =+ 1
   }
   try expect_rejected(strings::Join(nodes, "\n"), "more than {max_nodes} nodes")
-  let edges = mut ["flowchart TD"]
+  let edges = &mut ["flowchart TD"]
   index = 0
   while index <= max_edges {
     edges.push("N{index % 12} --> M{index / 12}")
@@ -2079,7 +2079,7 @@ test fn flowcharts_past_the_limits_are_rejected() Void!Str {
   // `&` groups are checked before their edges are made.
   let many = strings::Repeat("a&", 2000) + "a"
   try expect_rejected("flowchart TD\n{many} --> {many}", "more than {max_edges} edges")
-  let names = mut List::new<Str>()
+  let names = &mut List::new<Str>()
   index = 0
   while index <= max_nodes {
     names.push("N{index}")
@@ -2091,7 +2091,7 @@ test fn flowcharts_past_the_limits_are_rejected() Void!Str {
     "flowchart TD\n{strings::Repeat("A --> B;", max_statements + 1)}",
     "more than {max_statements} statements",
   )
-  let wide = mut ["flowchart TD"]
+  let wide = &mut ["flowchart TD"]
   index = 0
   while index < 12 {
     wide.push("N{index}[{strings::Repeat("w", 40)}]")

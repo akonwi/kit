@@ -59,9 +59,9 @@ struct Props {
 }
 
 struct Pane {
-  props: mut Props,
+  props: &mut Props,
   context: cui::Context?,
-  control: mut transcript_pane::Control,
+  control: &mut transcript_pane::Control,
   durable: [transcript::Message],
   // The cursor before the oldest loaded message, while more remains.
   cursor: Str,
@@ -94,8 +94,8 @@ fn view(props: Props) cui::View {
   cui::child(new, props, key: "subagent-pane:{props.conversation.ID}")
 }
 
-private fn new(props: mut Props) mut Pane {
-  (mut Pane{
+private fn new(props: &mut Props) &mut Pane {
+  &mut Pane{
     props: props,
     context: Maybe::new<cui::Context>(),
     control: transcript_pane::control(),
@@ -120,7 +120,7 @@ private fn new(props: mut Props) mut Pane {
     folded_bash: [:],
     expanded_notes: [:],
     expanded_plugins: [:],
-  })
+  }
 }
 
 // report identifies what the roster last said about the conversation.
@@ -131,9 +131,9 @@ private fn report(conversation: protocol::SubagentConversation) Str {
 // merged is the durable history followed by the live run's messages that
 // history does not have yet.
 fn merged(durable: [transcript::Message], live: [transcript::Message]) [transcript::Message] {
-  let ids = mut Map::new<Bool>()
-  let calls = mut Map::new<Bool>()
-  let results = mut Map::new<Bool>()
+  let ids = &mut Map::new<Bool>()
+  let calls = &mut Map::new<Bool>()
+  let results = &mut Map::new<Bool>()
   for message in durable {
     ids.set(message.id, true)
     for call in message.tool_calls {
@@ -143,30 +143,32 @@ fn merged(durable: [transcript::Message], live: [transcript::Message]) [transcri
       results.set(message.tool_call_id, true)
     }
   }
-  let result = mut List::new<transcript::Message>()
+  let result = &mut List::new<transcript::Message>()
   for message in durable {
     result.push(message)
   }
   for message in live {
+    mut message = message
     match message.role {
       transcript::Role::assistant => {
         if not ids.get(message.id).or(false) {
-          let kept = mut List::new<transcript::ToolCall>()
+          let kept = &mut List::new<transcript::ToolCall>()
           for call in message.tool_calls {
+            mut call = call
             if not calls.get(call.id).or(false) {
               // Live events name a call without its arguments.
-              let shown = mut call
+              let shown = &mut call
               shown.arguments_unknown = Maybe::new(
                 call.arguments == "" and not call.arguments_truncated,
               )
-              kept.push(shown.@)
+              kept.push(shown.*)
             }
           }
           let empty = message.text == "" and message.thinking == "" and kept.size() == 0
           if not empty {
-            let shown = mut message
-            shown.tool_calls = kept.@
-            result.push(shown.@)
+            let shown = &mut message
+            shown.tool_calls = kept.*
+            result.push(shown.*)
           }
         }
       },
@@ -182,7 +184,7 @@ fn merged(durable: [transcript::Message], live: [transcript::Message]) [transcri
       },
     }
   }
-  result.@
+  result.*
 }
 
 // with_result adds a settled conversation's result summary as its reply when
@@ -201,18 +203,18 @@ fn with_result(conversation: protocol::SubagentConversation, messages: [transcri
   match conversation.State == "running" or summary == "" or answered {
     true => messages,
     false => {
-      let result = mut List::new<transcript::Message>()
+      let result = &mut List::new<transcript::Message>()
       for message in messages {
         result.push(message)
       }
-      let reply = mut transcript::message(
+      let reply = &mut transcript::message(
         "subagent-result:{conversation.ID}",
         "",
         transcript::Role::assistant,
       )
       reply.text = summary
-      result.push(reply.@)
-      result.@
+      result.push(reply.*)
+      result.*
     },
   }
 }
@@ -234,7 +236,7 @@ fn refreshed(existing: [transcript::Message], page: [transcript::Message]) [tran
     message => message.sequence,
     _ => 0,
   }
-  let paged = mut Map::new<Bool>()
+  let paged = &mut Map::new<Bool>()
   for message in page {
     paged.set(message.id, true)
   }
@@ -244,7 +246,7 @@ fn refreshed(existing: [transcript::Message], page: [transcript::Message]) [tran
       continued = true
     }
   }
-  let result = mut List::new<transcript::Message>()
+  let result = &mut List::new<transcript::Message>()
   if first > 0 and continued {
     for message in existing {
       if message.sequence > 0 and message.sequence < first {
@@ -255,7 +257,7 @@ fn refreshed(existing: [transcript::Message], page: [transcript::Message]) [tran
   for message in page {
     result.push(message)
   }
-  result.@
+  result.*
 }
 
 impl cui::Lifecycle for Pane {
@@ -534,7 +536,7 @@ impl Pane {
     let choose_thinking = self.props.choose_thinking
     let cancel = self.props.cancel
     let dismiss = self.props.dismiss
-    let actions = mut List::new<cui::View>()
+    let actions = &mut List::new<cui::View>()
     actions.push(
       controls::button(
         self.props.themes,
@@ -634,7 +636,7 @@ impl Pane {
           ),
         ),
         cui::box(
-          actions.@,
+          actions.*,
           styles: ui::style(flex_shrink: 0.0, flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
         ),
       ],
@@ -754,7 +756,7 @@ impl cui::Component for Pane {
   fn mut render() cui::View {
     self.sync()
     let colors = self.props.themes.current()
-    let children = mut List::new<cui::View>()
+    let children = &mut List::new<cui::View>()
     children.push(self.header())
     children.push(layout::divider(colors.border))
     children.push(
@@ -781,7 +783,7 @@ impl cui::Component for Pane {
       )
     }
     cui::box(
-      children.@,
+      children.*,
       styles: ui::style(
         flex_grow: 1.0,
         flex_basis: ui::cells(0),
@@ -792,21 +794,21 @@ impl cui::Component for Pane {
 }
 
 private fn reply(id: Str, calls: [transcript::ToolCall]) transcript::Message {
-  let made = mut transcript::message(id, "turn_a", transcript::Role::assistant)
+  let made = &mut transcript::message(id, "turn_a", transcript::Role::assistant)
   made.tool_calls = calls
-  made.@
+  made.*
 }
 
 private fn result(call: Str) transcript::Message {
-  let made = mut transcript::message("result:{call}", "turn_a", transcript::Role::tool)
+  let made = &mut transcript::message("result:{call}", "turn_a", transcript::Role::tool)
   made.tool_call_id = call
-  made.@
+  made.*
 }
 
 private fn ids(messages: [transcript::Message]) Str {
-  let shown = mut List::new<Str>()
+  let shown = &mut List::new<Str>()
   for message in messages {
-    let calls = mut List::new<Str>()
+    let calls = &mut List::new<Str>()
     for call in message.tool_calls {
       calls.push(
         match call.arguments_unknown.or(false) {
@@ -844,25 +846,25 @@ test fn a_settled_conversation_without_a_reply_shows_its_result() Void!Str {
     State: "idle",
     LastResultSummary: " Looks sound. ",
   }
-  let prompt = mut transcript::message("u1", "turn_a", transcript::Role::user)
+  let prompt = &mut transcript::message("u1", "turn_a", transcript::Role::user)
   prompt.text = "Review"
-  let shown = with_result(conversation, [prompt.@])
+  let shown = with_result(conversation, [prompt.*])
   try testing::assert(
     shown.size() == 2 and shown.at(1).expect("result").text == "Looks sound.",
     "the summary stands in for the reply",
   )
-  let answer = mut transcript::message("m1", "turn_a", transcript::Role::assistant)
+  let answer = &mut transcript::message("m1", "turn_a", transcript::Role::assistant)
   answer.text = "It is sound."
   testing::assert(
-    with_result(conversation, [prompt.@, answer.@]).size() == 2,
+    with_result(conversation, [prompt.*, answer.*]).size() == 2,
     "a reply with text needs no summary",
   )
 }
 
 private fn numbered(id: Str, sequence: Int) transcript::Message {
-  let made = mut transcript::message(id, "turn_a", transcript::Role::assistant)
+  let made = &mut transcript::message(id, "turn_a", transcript::Role::assistant)
   made.sequence = sequence
-  made.@
+  made.*
 }
 
 test fn a_refreshed_page_keeps_earlier_history_only_when_it_continues_it() Void!Str {

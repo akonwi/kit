@@ -102,7 +102,7 @@ private struct Choice {
 // inline app keeps its height, so the sessions are listed first to size it.
 fn pick_session(
   ctx: context::Context,
-  client: mut api::Client,
+  client: &mut api::Client,
   home: Str,
   definition: kittheme::Definition,
 ) Str!Error {
@@ -125,7 +125,7 @@ fn pick_session(
   let themes = theme::context(theme::store(theme::resolve(definition, application.theme())))
   let lifetime = contextbridge::WithCancel(ctx)
   defer lifetime.Cancel()
-  let choice = mut Choice{id: ""}
+  let choice = &mut Choice{id: ""}
   let close = keymap::simple_command("sessions.dismiss", "Close", fn() Bool {
     application.context.destroy_live()
     true
@@ -138,7 +138,7 @@ fn pick_session(
     home: home,
     dismiss: close,
     renamed: fn(session: protocol::SessionInfo) {},
-    applied: fn(session: mut api::Session, snapshot: protocol::SessionSnapshot) {},
+    applied: fn(session: &mut api::Session, snapshot: protocol::SessionSnapshot) {},
     choose: fn(id: Str) {
       choice.id = id
       application.context.destroy_live()
@@ -170,7 +170,7 @@ let server_picker_chrome_rows = 8
 // attached. This home's own server and an SSH server are started when needed;
 // another saved server that is not running cannot be picked, and shows why.
 fn server_items(servers: [cli::ServerChoice]) [palette::Item] {
-  let items = mut List::new<palette::Item>()
+  let items = &mut List::new<palette::Item>()
   for server in servers {
     let attachable = server.Status == "running" or server.Starts and server.Status == "not running"
     items.push(
@@ -191,7 +191,7 @@ fn server_items(servers: [cli::ServerChoice]) [palette::Item] {
       },
     )
   }
-  items.@
+  items.*
 }
 
 // Presents the servers `kit attach` can attach to in a picker drawn below the
@@ -213,7 +213,7 @@ fn pick_server(servers: [cli::ServerChoice], definition: kittheme::Definition) S
   )
   defer application.destroy()
   let themes = theme::context(theme::store(theme::resolve(definition, application.theme())))
-  let choice = mut Choice{id: ""}
+  let choice = &mut Choice{id: ""}
   let close = keymap::simple_command("servers.dismiss", "Close", fn() Bool {
     application.context.destroy_live()
     true

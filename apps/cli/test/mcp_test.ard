@@ -15,17 +15,17 @@ struct Model {
 }
 
 struct Props {
-  model: mut Model,
+  model: &mut Model,
   themes: theme::Context,
 }
 
 struct Host {
-  props: mut Props,
+  props: &mut Props,
   context: cui::Context?,
 }
 
-fn host(props: mut Props) mut Host {
-  (mut Host{props: props, context: Maybe::new<cui::Context>()})
+fn host(props: &mut Props) &mut Host {
+  &mut Host{props: props, context: Maybe::new<cui::Context>()}
 }
 
 impl cui::Lifecycle for Host {
@@ -85,7 +85,7 @@ impl cui::Component for Host {
   }
 }
 
-fn character(value: Str) mut event::KeyEvent {
+fn character(value: Str) &mut event::KeyEvent {
   event::key(
     value,
     value,
@@ -99,7 +99,7 @@ fn character(value: Str) mut event::KeyEvent {
   )
 }
 
-fn ctrl(value: Str) mut event::KeyEvent {
+fn ctrl(value: Str) &mut event::KeyEvent {
   event::key(
     value,
     "",
@@ -116,7 +116,7 @@ fn ctrl(value: Str) mut event::KeyEvent {
 test fn retained_mcp_picker_adopts_parent_updates_without_losing_its_query() Void!Str {
   let terminal = headless::new(60, 20)
   defer terminal.destroy()
-  let model = mut Model{updated: false}
+  let model = &mut Model{updated: false}
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let renderer = cui::mount(
     app,

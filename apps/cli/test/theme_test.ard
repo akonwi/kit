@@ -70,7 +70,7 @@ test fn selection_copy_pulse_fades_from_selection_to_terminal_background() Void!
 
 test fn shared_theme_context_updates_one_store_and_revision() Void!Str {
   let shared = theme::store(theme::system())
-  let first = mut theme::context(shared)
+  let first = &mut theme::context(shared)
   let second = theme::context(shared)
   let next = theme::resolve(kittheme::Definition{}, dark())
   first.replace(next)
@@ -79,7 +79,7 @@ test fn shared_theme_context_updates_one_store_and_revision() Void!Str {
 }
 
 test fn dark_primary_hover_lifts_a_custom_picker_fill() Void!Str {
-  let tokens = mut Map::new<kittheme::Color>()
+  let tokens = &mut Map::new<kittheme::Color>()
   tokens.set(
     kittheme::TokenPickerFocusedBackground,
     kittheme::Color{
@@ -89,7 +89,7 @@ test fn dark_primary_hover_lifts_a_custom_picker_fill() Void!Str {
       A: 255,
     },
   )
-  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.*}, dark())
   try check("primary", colors.primary, ui::rgb(40, 80, 120))
   check("primary hovered", colors.primary_hovered, ui::rgb(68, 103, 138))
 }
@@ -102,7 +102,7 @@ test fn accent_text_is_the_terminal_magenta_unless_the_theme_sets_its_accent() V
     theme::resolve(kittheme::Definition{}, dark()).accent_text,
     ui::rgb(209, 139, 230),
   )
-  let tokens = mut Map::new<kittheme::Color>()
+  let tokens = &mut Map::new<kittheme::Color>()
   tokens.set(
     kittheme::TokenBorderAccent,
     kittheme::Color{
@@ -113,13 +113,13 @@ test fn accent_text_is_the_terminal_magenta_unless_the_theme_sets_its_accent() V
     },
   )
   // The theme's accent sets both accent-colored and primary text.
-  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.*}, dark())
   try check("accent_text", colors.accent_text, ui::rgb(230, 150, 60))
   check("primary_text", colors.primary_text, ui::rgb(230, 150, 60))
 }
 
 test fn translucent_tokens_blend_over_the_background() Void!Str {
-  let tokens = mut Map::new<kittheme::Color>()
+  let tokens = &mut Map::new<kittheme::Color>()
   tokens.set(
     kittheme::TokenBorderDefault,
     kittheme::Color{
@@ -138,7 +138,7 @@ test fn translucent_tokens_blend_over_the_background() Void!Str {
       A: 255,
     },
   )
-  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.*}, dark())
   try check("border", colors.border, ui::rgb(148, 150, 154))
   try check("muted", colors.muted, ui::rgb(10, 20, 30))
   check("disabled", colors.disabled, ui::rgb(96, 101, 110))
@@ -185,12 +185,12 @@ fn warm() kittheme::Color {
 
 // A user theme that overrides only the muted text color.
 fn muted_override(muted: kittheme::Color) kittheme::Definition {
-  let tokens = mut Map::new<kittheme::Color>()
+  let tokens = &mut Map::new<kittheme::Color>()
   tokens.set(kittheme::TokenTextMuted, muted)
-  kittheme::Definition{Tokens: tokens.@}
+  kittheme::Definition{Tokens: tokens.*}
 }
 
-fn bound_owner(themes: theme::Context, terminal: ctheme::Theme) mut theme::Owner {
+fn bound_owner(themes: theme::Context, terminal: ctheme::Theme) &mut theme::Owner {
   let owner = theme::owner(themes, "committed", muted_override(cool()))
   owner.bind(
     fn(action: fn()) Void!event::DispatchError {
@@ -242,7 +242,7 @@ struct Queue {
 
 test fn theme_requests_wait_for_the_bound_dispatch() Void!Str {
   let themes = theme::context(theme::store(theme::system()))
-  let queue = mut Queue{actions: []}
+  let queue = &mut Queue{actions: []}
   let owner = theme::owner(themes, "committed", muted_override(cool()))
   owner.bind(
     fn(action: fn()) Void!event::DispatchError {
@@ -277,7 +277,7 @@ test fn every_token_role_resolves_from_the_terminal_theme() Void!Str {
 }
 
 test fn user_tokens_replace_roles_and_blend_over_their_backdrop() Void!Str {
-  let tokens = mut Map::new<kittheme::Color>()
+  let tokens = &mut Map::new<kittheme::Color>()
   tokens.set(kittheme::TokenToolText, cool())
   tokens.set(
     kittheme::TokenPickerBackground,
@@ -299,7 +299,7 @@ test fn user_tokens_replace_roles_and_blend_over_their_backdrop() Void!Str {
     },
   )
   tokens.set("brandText", warm())
-  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.*}, dark())
   try check("toolText", token(colors, kittheme::TokenToolText), ui::rgb(10, 20, 30))
   try check("pickerItemText", token(colors, kittheme::TokenPickerItemText), ui::rgb(128, 128, 128))
   check("brandText", token(colors, "brandText"), ui::rgb(200, 100, 50))

@@ -15,7 +15,7 @@ struct Model {
   outside: [Str],
 }
 
-fn mount(terminal: headless::TestApp, model: mut Model) cui::Renderer {
+fn mount(terminal: headless::TestApp, model: &mut Model) cui::Renderer {
   let app = cooper::App{context: terminal.context, root: terminal.root}
   cui::mount(
     app,
@@ -51,15 +51,15 @@ fn mount(terminal: headless::TestApp, model: mut Model) cui::Renderer {
   )
 }
 
-fn model() mut Model {
-  (mut Model{
+fn model() &mut Model {
+  &mut Model{
     activated: [],
     dismissed: 0,
     outside: [],
-  })
+  }
 }
 
-fn key(name: Str) mut event::KeyEvent {
+fn key(name: Str) &mut event::KeyEvent {
   event::key(
     name,
     "",
@@ -74,15 +74,15 @@ fn key(name: Str) mut event::KeyEvent {
 }
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   for want, index in expected {
     let got = actual.at(index).or("")
@@ -187,7 +187,7 @@ test fn keys_move_the_highlight_and_run_or_dismiss() Void!Str {
   terminal.flush()
   try testing::assert(
     value.activated.size() == 1 and value.activated.at(0).or("") == "copy",
-    "activated: {strings::Join(mut value.activated, ",")}",
+    "activated: {strings::Join(&mut value.activated, ",")}",
   )
   terminal.key(key("escape"))
   terminal.flush()
@@ -207,7 +207,7 @@ test fn presses_outside_the_menu_are_reported_with_their_button() Void!Str {
   terminal.click(2, 2)
   terminal.flush()
   testing::assert(
-    strings::Join(mut value.outside, " ") == "right@20,7 other@0,0",
-    "outside: {strings::Join(mut value.outside, " ")}",
+    strings::Join(&mut value.outside, " ") == "right@20,7 other@0,0",
+    "outside: {strings::Join(&mut value.outside, " ")}",
   )
 }

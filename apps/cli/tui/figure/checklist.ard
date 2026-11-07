@@ -47,8 +47,8 @@ private struct Under {
 // share one indent. A box line deeper than that is a second level, and
 // prose after a subtask is a subtask's body; neither is drawn.
 private fn under(each: grammar::Item) Under!Str {
-  let body = mut List::new<Str>()
-  let subtasks = mut List::new<grammar::Item>()
+  let body = &mut List::new<Str>()
+  let subtasks = &mut List::new<grammar::Item>()
   // The indent the task's subtasks share, once one is read.
   mut depth = -1
   mut failure = ""
@@ -81,7 +81,7 @@ private fn under(each: grammar::Item) Under!Str {
     }
   }
   match failure == "" {
-    true => Result::ok(Under{body: body.@, subtasks: subtasks.@}),
+    true => Result::ok(Under{body: body.*, subtasks: subtasks.*}),
     false => Result::err(failure),
   }
 }
@@ -97,11 +97,11 @@ private fn entry(each: grammar::Item, level: Int, body: [Str]) model::Item!Str {
         true => found.title,
         false => inner.text,
       }
-      let made = mut model::item("", title)
+      let made = &mut model::item("", title)
       made.note = each.note
       made.accent = each.bold or (not marked) and inner.bold
       made.muted = each.italic or (not marked) and inner.italic
-      made.body = strings::Join(mut body, " ")
+      made.body = strings::Join(body, " ")
       made.level = level
       made.state = match {
         found.done => "done",
@@ -115,7 +115,7 @@ private fn entry(each: grammar::Item, level: Int, body: [Str]) model::Item!Str {
             "the bold task is the one in hand, so it can't be checked: `{grammar::clip(title)}`",
           )
         },
-        _ => Result::ok(made.@),
+        _ => Result::ok(made.*),
       }
     },
     _ => Result::err("a checklist item starts with `[ ]` or `[x]`, got `{grammar::clip(each.text)}`"),
@@ -125,7 +125,7 @@ private fn entry(each: grammar::Item, level: Int, body: [Str]) model::Item!Str {
 fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   try grammar::check_attributes(info, ["title"])
   let items = try grammar::items(body)
-  let made = mut List::new<model::Item>()
+  let made = &mut List::new<model::Item>()
   mut bold = 0
   for each in items {
     let split = try under(each)
@@ -143,7 +143,7 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     bold > 1 => Result::err("only one item can be bold"),
     made.size() == 0 => Result::err("the figure has no tasks"),
     made.size() > max_items => Result::err("a checklist has at most {max_items} tasks"),
-    _ => Result::ok(model::figure("checklist", grammar::attribute(info, "title"), made.@)),
+    _ => Result::ok(model::figure("checklist", grammar::attribute(info, "title"), made.*)),
   }
 }
 
@@ -151,7 +151,7 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
 // recedes; the one in hand has its box in the accent and its title in
 // bold; an open task has an empty box.
 fn entries(figure: model::Figure) [listing::Entry] {
-  let result = mut List::new<listing::Entry>()
+  let result = &mut List::new<listing::Entry>()
   for each in figure.items {
     let marker = match each.state {
       "done" => drawing::segment("✓", drawing::Role::muted),
@@ -177,7 +177,7 @@ fn entries(figure: model::Figure) [listing::Entry] {
       },
     )
   }
-  result.@
+  result.*
 }
 
 // A checklist's tasks, one per row with no rail between them, each

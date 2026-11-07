@@ -174,11 +174,11 @@ fn message(id: Str, turn_id: Str, role: Role) Message {
 
 // A bash message showing run, keyed by its execution.
 fn bash_message(run: sessionbridge::Bash) Message {
-  let shown = mut message(run.ID, "", Role::bash)
+  let shown = &mut message(run.ID, "", Role::bash)
   shown.text = run.Command
   shown.pending = run.Running()
   shown.bash = Maybe::new(run)
-  shown.@
+  shown.*
 }
 
 // Whether message is the bash row of execution id. A run keeps its execution
@@ -194,13 +194,13 @@ fn shows_bash(message: Message, id: Str) Bool {
 // Projects persisted transcript messages into displayable messages, skipping
 // messages with no displayable content.
 fn project(messages: [protocol::TranscriptMessage]) [Message] {
-  let result = mut List::new<Message>()
-  for source in sessionbridge::Messages(mut messages) {
-    let text_parts = mut List::new<Str>()
-    let thinking_parts = mut List::new<Str>()
-    let calls = mut List::new<ToolCall>()
-    let attached = mut List::new<Attachment>()
-    let noted = mut List::new<sessionbridge::Annotation>()
+  let result = &mut List::new<Message>()
+  for source in sessionbridge::Messages(messages) {
+    let text_parts = &mut List::new<Str>()
+    let thinking_parts = &mut List::new<Str>()
+    let calls = &mut List::new<ToolCall>()
+    let attached = &mut List::new<Attachment>()
+    let noted = &mut List::new<sessionbridge::Annotation>()
     let user = source.Role == "user"
     for block in source.Content {
       match {
@@ -251,12 +251,12 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
     let empty = strings::TrimSpace(text) == "" and strings::TrimSpace(thinking) == "" and source.ToolName == "" and calls.size() == 0 and source.Content.size() == 0 and attached.size() == 0
     if not empty {
       let kind = role(source.Role)
-      let projected = mut message(source.ID, source.TurnID, kind)
+      let projected = &mut message(source.ID, source.TurnID, kind)
       projected.text = text
       projected.thinking = thinking
       projected.tool_call_id = source.ToolCallID
       projected.tool_name = source.ToolName
-      projected.tool_calls = calls.@
+      projected.tool_calls = calls.*
       projected.tool_state = match kind == Role::tool {
         true => {
           match source.IsError {
@@ -270,19 +270,19 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
       projected.is_error = source.IsError
       projected.aborted = source.StopReason == "aborted"
       projected.sequence = source.Sequence
-      projected.attachments = attached.@
-      projected.annotations = noted.@
+      projected.attachments = attached.*
+      projected.annotations = noted.*
       projected.plugin_id = source.PluginID
       projected.details = source.Details
       if not unsafe::is_nil(source.Bash) {
-        let run = source.Bash.@
+        let run = source.Bash.*
         projected.text = run.Command
         projected.bash = Maybe::new(run)
       }
-      result.push(projected.@)
+      result.push(projected.*)
     }
   }
-  result.@
+  result.*
 }
 
 // Merged is a snapshot transcript combined with already loaded history.
@@ -317,7 +317,7 @@ fn merge_snapshot(existing: [Message], snapshot: [Message]) Merged {
         }
         match overlaps and consistent {
           true => {
-            let merged = mut List::new<Message>()
+            let merged = &mut List::new<Message>()
             for current in existing {
               if current.sequence > 0 and current.sequence < first.sequence {
                 merged.push(current)
@@ -326,7 +326,7 @@ fn merge_snapshot(existing: [Message], snapshot: [Message]) Merged {
             for message in snapshot {
               merged.push(message)
             }
-            Merged{messages: merged.@, preserved: true}
+            Merged{messages: merged.*, preserved: true}
           },
           false => replaced,
         }
@@ -351,14 +351,14 @@ fn prepend_history(older: [Message], existing: [Message]) [Message]!Str {
   }
   match failure == "" {
     true => {
-      let merged = mut List::new<Message>()
+      let merged = &mut List::new<Message>()
       for message in older {
         merged.push(message)
       }
       for current in existing {
         merged.push(current)
       }
-      Result::ok(merged.@)
+      Result::ok(merged.*)
     },
     false => Result::err(failure),
   }
@@ -414,15 +414,15 @@ private struct Batch {
   aborted: Bool,
 }
 
-private fn batch(turn_id: Str) mut Batch {
-  (mut Batch{
+private fn batch(turn_id: Str) &mut Batch {
+  &mut Batch{
     turn_id: turn_id,
     first_call: "",
     calls: [:],
     tools: [],
     steps: [],
     aborted: false,
-  })
+  }
 }
 
 impl Batch {
@@ -459,18 +459,18 @@ impl Batch {
   // The steps with each call's result, or a placeholder for a call without
   // one.
   private fn resolved() [Step] {
-    let results = mut Map::new<Message>()
+    let results = &mut Map::new<Message>()
     for tool in self.tools {
       results.set(tool.tool_call_id, tool)
     }
-    let steps = mut List::new<Step>()
+    let steps = &mut List::new<Step>()
     for step in self.steps {
       match step.call {
         call => {
           let result = match results.get(call.id) {
             found => found,
             _ => {
-              let placeholder = mut message("", self.turn_id, Role::tool)
+              let placeholder = &mut message("", self.turn_id, Role::tool)
               placeholder.tool_call_id = call.id
               placeholder.tool_name = call.name
               placeholder.pending = true
@@ -478,7 +478,7 @@ impl Batch {
                 true => ToolState::not_run,
                 false => ToolState::planned,
               }
-              placeholder.@
+              placeholder.*
             },
           }
           steps.push(
@@ -493,7 +493,7 @@ impl Batch {
         _ => steps.push(step),
       }
     }
-    steps.@
+    steps.*
   }
 
   fn work() Work {
@@ -525,7 +525,7 @@ impl Batch {
 // another turn ends it. Messages that show nothing outside a run, such as
 // thinking alone, do not end it; their thinking is one of its steps.
 fn rows(messages: [Message]) [Row] {
-  let result = mut List::new<Row>()
+  let result = &mut List::new<Row>()
   mut current = batch("")
   mut open = false
   // A finished reply that only thinks, kept for the run it may start.
@@ -550,7 +550,7 @@ fn rows(messages: [Message]) [Row] {
       current.aborted = true
     }
     if open and (ends or joins and message.turn_id != current.turn_id) {
-      result.push(Row{message: message_for(current.@), work: Maybe::new(current.work())})
+      result.push(Row{message: message_for(current.*), work: Maybe::new(current.work())})
       open = false
     }
     if ends {
@@ -585,13 +585,13 @@ fn rows(messages: [Message]) [Row] {
     }
   }
   if open {
-    result.push(Row{message: message_for(current.@), work: Maybe::new(current.work())})
+    result.push(Row{message: message_for(current.*), work: Maybe::new(current.work())})
   }
   match held {
     thought => result.push(Row{message: thought, work: Maybe::new<Work>()}),
     _ => (),
   }
-  result.@
+  result.*
 }
 
 // Whether a finished reply has thinking and nothing else. A streaming one's
@@ -645,7 +645,7 @@ fn live() Live {
 
 // The text of a tool result's content blocks.
 fn content_text(content: [sessionbridge::Content]) Str {
-  let parts = mut List::new<Str>()
+  let parts = &mut List::new<Str>()
   for block in content {
     match {
       block.Kind == "text" => parts.push(block.Text),
@@ -691,7 +691,7 @@ impl Live {
   fn mut settle() {
     mut index = 0
     while index < self.messages.size() {
-      self.edit(index, fn(current: mut Message) {
+      self.edit(index, fn(current: &mut Message) {
         current.pending = false
         current.tool_state = match current.tool_state {
           ToolState::planned => ToolState::not_run,
@@ -736,27 +736,28 @@ impl Live {
   fn mut submit(text: Str, attachments: [Attachment], annotations: [sessionbridge::Annotation]?) {
     self.reset()
     self.activity = "Working…"
-    let user = mut message("", "", Role::user)
+    let user = &mut message("", "", Role::user)
     user.text = text
     user.attachments = attachments
     user.annotations = annotations.or([])
-    self.messages.push(user.@)
+    self.messages.push(user.*)
     self.has_user = true
   }
 
-  private fn mut edit(index: Int, change: fn(mut Message)) {
+  private fn mut edit(index: Int, change: fn(&mut Message)) {
     match self.messages.at(index) {
       current => {
-        let edited = mut current
+        mut current = current
+        let edited = &mut current
         change(edited)
-        self.messages.set(index, edited.@)
+        self.messages.set(index, edited.*)
       },
       _ => (),
     }
   }
 
   private fn mut remove(index: Int) {
-    let kept = mut List::new<Message>()
+    let kept = &mut List::new<Message>()
     mut position = 0
     for current in self.messages {
       if position != index {
@@ -764,7 +765,7 @@ impl Live {
       }
       position =+ 1
     }
-    self.messages = kept.@
+    self.messages = kept.*
     for call_id in self.tools.keys() {
       let tool = self.tools.get(call_id).or(-1)
       if tool > index {
@@ -796,7 +797,7 @@ impl Live {
     match found >= 0 {
       true => {
         self.assistant = found
-        self.edit(found, fn(current: mut Message) {
+        self.edit(found, fn(current: &mut Message) {
           if current.turn_id == "" {
             current.turn_id = turn_id
           }
@@ -806,21 +807,21 @@ impl Live {
       false => {
         self.assistant = self.messages.size()
         self.content = [:]
-        let created = mut message(message_id, turn_id, Role::assistant)
+        let created = &mut message(message_id, turn_id, Role::assistant)
         created.pending = true
-        self.messages.push(created.@)
+        self.messages.push(created.*)
         self.assistant
       },
     }
   }
 
   private fn mut sync_assistant(index: Int) {
-    let keys = mut self.content.keys()
+    let keys = &mut self.content.keys()
     keys.sort(fn(left: Int, right: Int) Bool {
       left < right
     })
-    let text = mut List::new<Str>()
-    let thinking = mut List::new<Str>()
+    let text = &mut List::new<Str>()
+    let thinking = &mut List::new<Str>()
     for key in keys {
       let block = self.content.get(key).expect("content block")
       match block.thinking {
@@ -830,7 +831,7 @@ impl Live {
     }
     let joined_text = strings::Join(text, "\n")
     let joined_thinking = strings::Join(thinking, "\n")
-    self.edit(index, fn(current: mut Message) {
+    self.edit(index, fn(current: &mut Message) {
       current.text = joined_text
       current.thinking = joined_thinking
     })
@@ -842,10 +843,10 @@ impl Live {
       _ => {
         let index = self.messages.size()
         self.tools.set(call_id, index)
-        let created = mut message("live-tool:{call_id}", turn_id, Role::tool)
+        let created = &mut message("live-tool:{call_id}", turn_id, Role::tool)
         created.tool_call_id = call_id
         created.tool_name = name
-        self.messages.push(created.@)
+        self.messages.push(created.*)
         index
       },
     }
@@ -859,15 +860,16 @@ impl Live {
     for current, index in self.messages {
       if current.role == Role::assistant and current.turn_id == event.TurnID {
         for call, position in current.tool_calls {
+          mut call = call
           if call.id == event.ToolCallID {
             known = true
             // A started call can bring arguments its plan did not have.
             if informed {
-              self.edit(index, fn(owner: mut Message) {
-                let updated = mut call
+              self.edit(index, fn(owner: &mut Message) {
+                let updated = &mut call
                 updated.arguments = event.Arguments
                 updated.arguments_truncated = event.ArgumentsTruncated
-                owner.tool_calls.set(position, updated.@)
+                owner.tool_calls.set(position, updated.*)
               })
             }
           }
@@ -892,7 +894,7 @@ impl Live {
       }
       match owner >= 0 {
         true => {
-          self.edit(owner, fn(current: mut Message) {
+          self.edit(owner, fn(current: &mut Message) {
             current.tool_calls.push(call)
           })
         },
@@ -901,9 +903,9 @@ impl Live {
             true => "live-assistant:{event.ToolCallID}",
             false => event.MessageID,
           }
-          let created = mut message(id, event.TurnID, Role::assistant)
+          let created = &mut message(id, event.TurnID, Role::assistant)
           created.tool_calls = [call]
-          self.messages.push(created.@)
+          self.messages.push(created.*)
         },
       }
     }
@@ -962,9 +964,9 @@ impl Live {
         }
         match self.has_user {
           false => {
-            let user = mut message("live-user:{event.TurnID}", event.TurnID, Role::user)
+            let user = &mut message("live-user:{event.TurnID}", event.TurnID, Role::user)
             user.text = event.Text
-            self.messages.push(user.@)
+            self.messages.push(user.*)
             self.has_user = true
           },
           true => {
@@ -976,7 +978,7 @@ impl Live {
               }
               index =+ 1
             }
-            self.edit(pending, fn(current: mut Message) {
+            self.edit(pending, fn(current: &mut Message) {
               current.id = "live-user:{event.TurnID}"
               current.turn_id = event.TurnID
               current.text = event.Text
@@ -998,10 +1000,10 @@ impl Live {
           }
         }
         if not present {
-          let row = mut message(id, event.TurnID, Role::plugin)
+          let row = &mut message(id, event.TurnID, Role::plugin)
           row.text = event.Text
           row.plugin_id = event.PluginID
-          self.messages.push(row.@)
+          self.messages.push(row.*)
         }
         true
       },
@@ -1019,18 +1021,18 @@ impl Live {
         if event.Text != "" {
           self.content.set(-1, Block{thinking: false, text: event.Text})
         }
-        let started = mut message(event.MessageID, event.TurnID, Role::assistant)
+        let started = &mut message(event.MessageID, event.TurnID, Role::assistant)
         started.text = event.Text
         started.thinking = event.Thinking
         started.pending = true
-        self.messages.push(started.@)
+        self.messages.push(started.*)
         event.Thinking != ""
       },
       Event::text_delta => self.delta(event, false),
       Event::thinking_delta => self.delta(event, true),
       Event::assistant_completed => {
         let index = self.ensure_assistant(event.MessageID, event.TurnID)
-        self.edit(index, fn(current: mut Message) {
+        self.edit(index, fn(current: &mut Message) {
           if event.Text != "" {
             current.text = event.Text
           }
@@ -1057,7 +1059,7 @@ impl Live {
         self.ensure_tool_call(event)
         let index = self.ensure_tool(event.TurnID, event.ToolCallID, event.ToolName)
         let delta = content_text(event.Content)
-        self.edit(index, fn(current: mut Message) {
+        self.edit(index, fn(current: &mut Message) {
           current.is_error = event.IsError
           if not current.output_truncated {
             let room = live_output_limit - current.text.size()
@@ -1077,7 +1079,7 @@ impl Live {
         self.ensure_tool_call(event)
         let index = self.ensure_tool(event.TurnID, event.ToolCallID, event.ToolName)
         let text = content_text(event.Content)
-        self.edit(index, fn(current: mut Message) {
+        self.edit(index, fn(current: &mut Message) {
           current.text = text
           current.output_truncated = event.ContentTruncated
           current.details_omitted = event.DetailsOmitted
@@ -1121,7 +1123,7 @@ impl Live {
       },
       Event::run_finished => {
         for call_id in self.tools.keys() {
-          self.edit(self.tools.get(call_id).or(-1), fn(current: mut Message) {
+          self.edit(self.tools.get(call_id).or(-1), fn(current: &mut Message) {
             if current.tool_state == ToolState::planned {
               current.pending = false
               current.tool_state = ToolState::not_run
@@ -1173,7 +1175,7 @@ impl Live {
     self.activity = "Working…"
     self.ensure_tool_call(event)
     let index = self.ensure_tool(event.TurnID, event.ToolCallID, event.ToolName)
-    self.edit(index, fn(current: mut Message) {
+    self.edit(index, fn(current: &mut Message) {
       current.pending = true
       current.tool_state = state
     })
