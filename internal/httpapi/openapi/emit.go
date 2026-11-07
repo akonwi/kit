@@ -40,10 +40,14 @@ func Emit() ([]byte, error) {
 			}
 		}
 	}
-	// jsonschema discovers transcript content through parent structs and leaves
-	// an empty interface placeholder. Emit its declared discriminated union.
-	if _, err := addTypeSchema(components, reflect.TypeFor[protocol.TranscriptContent]()); err != nil {
-		return nil, err
+	// jsonschema discovers these unions through parent structs and leaves a
+	// placeholder for each: an empty interface for transcript content, and only
+	// the common fields for session events. Emit their declared discriminated
+	// unions instead.
+	for _, union := range []reflect.Type{reflect.TypeFor[protocol.TranscriptContent](), reflect.TypeFor[protocol.SessionEvent]()} {
+		if _, err := addTypeSchema(components, union); err != nil {
+			return nil, err
+		}
 	}
 	for name, schema := range components {
 		components[name] = normalizeSchema(schema)
@@ -332,12 +336,18 @@ func addTypeSchema(components map[string]any, typ reflect.Type) (string, error) 
 	if err := rejectNullPointers(typ, map[reflect.Type]bool{}); err != nil {
 		return "", err
 	}
+	return addCheckedTypeSchema(components, typ)
+}
+
+// addCheckedTypeSchema adds the schema of a non-pointer type whose pointer
+// fields have already been checked.
+func addCheckedTypeSchema(components map[string]any, typ reflect.Type) (string, error) {
 	name := schemaName(typ)
 	// Reflection can add a placeholder definition for a union before it is
 	// encountered directly. Replace that placeholder with its declared union
 	// schema rather than returning the incomplete reflected object.
 	if union, ok := reflect.New(typ).Elem().Interface().(unionVariants); ok {
-		return addUnionSchema(components, name, union.UnionVariants())
+		return addUnionSchema(components, name, typ, union.UnionVariants())
 	}
 	if _, exists := components[name]; exists {
 		return name, nil
@@ -355,6 +365,11 @@ func addTypeSchema(components map[string]any, typ reflect.Type) (string, error) 
 	root = normalizeSchema(root).(map[string]any)
 	definitions, _ := root["$defs"].(map[string]any)
 	for definitionName, definition := range definitions {
+		// A reflected definition of a union is only its placeholder; keep the
+		// declared union already emitted under that name.
+		if existing, ok := components[definitionName].(map[string]any); ok && existing["oneOf"] != nil {
+			continue
+		}
 		components[definitionName] = definition
 	}
 	var schema map[string]any
@@ -375,12 +390,28 @@ func addTypeSchema(components map[string]any, typ reflect.Type) (string, error) 
 	return name, nil
 }
 
-func addUnionSchema(components map[string]any, name string, variants []protocol.UnionVariant) (string, error) {
+// addUnionSchema publishes a discriminated union (ADR 0032) as a oneOf of named
+// variant schemas with a kind discriminator mapping. Each variant is complete:
+// the union's common fields, the kind's payload fields, and kind constrained to
+// the variant's value.
+func addUnionSchema(components map[string]any, name string, union reflect.Type, variants []protocol.UnionVariant) (string, error) {
+	common, commonRequired, err := unionCommonSchema(components, union)
+	if err != nil {
+		return "", err
+	}
 	refs := make([]any, 0, len(variants))
 	mapping := make(map[string]any, len(variants))
 	for _, variant := range variants {
 		typ := reflect.TypeOf(variant.Payload)
-		variantName, err := addTypeSchema(components, typ)
+		var variantName string
+		if _, codec := union.FieldByName("Payload"); codec {
+			if err := rejectUnionPayloadNullPointers(typ); err != nil {
+				return "", err
+			}
+			variantName, err = addCheckedTypeSchema(components, typ)
+		} else {
+			variantName, err = addTypeSchema(components, typ)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -390,17 +421,77 @@ func addUnionSchema(components map[string]any, name string, variants []protocol.
 			properties = map[string]any{}
 			schema["properties"] = properties
 		}
-		properties["kind"] = map[string]any{"type": "string", "enum": []string{variant.Kind}}
-		required := requiredValues(schema)
-		if !contains(required, "kind") {
-			schema["required"] = append(required, "kind")
+		for member, property := range common {
+			if existing, ok := properties[member]; ok && !reflect.DeepEqual(existing, property) {
+				return "", fmt.Errorf("%s variant %s redeclares common member %s", name, variantName, member)
+			}
+			properties[member] = cloneSchema(property)
 		}
+		properties["kind"] = map[string]any{"type": "string", "enum": []string{variant.Kind}}
+		required := append([]string(nil), commonRequired...)
+		for _, member := range append(requiredValues(schema), "kind") {
+			if !contains(required, member) {
+				required = append(required, member)
+			}
+		}
+		schema["required"] = required
 		ref := "#/components/schemas/" + variantName
 		refs = append(refs, map[string]any{"$ref": ref})
 		mapping[variant.Kind] = ref
 	}
 	components[name] = map[string]any{"oneOf": refs, "discriminator": map[string]any{"propertyName": "kind", "mapping": mapping}}
 	return name, nil
+}
+
+// unionCommonSchema returns the property schemas and required members of the
+// fields a union shares across kinds. Only a union that keeps its kind data in
+// an untagged Payload has common fields: every other JSON field of the struct.
+func unionCommonSchema(components map[string]any, union reflect.Type) (map[string]any, []string, error) {
+	payload, ok := union.FieldByName("Payload")
+	if !ok || union.Kind() != reflect.Struct || payload.Tag.Get("json") != "-" {
+		return nil, nil, nil
+	}
+	reflector := jsonschema.Reflector{DoNotReference: true}
+	encoded, err := json.Marshal(reflector.ReflectFromType(union))
+	if err != nil {
+		return nil, nil, err
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(encoded, &schema); err != nil {
+		return nil, nil, err
+	}
+	schema = normalizeSchema(schema).(map[string]any)
+	rewriteRefs(schema)
+	patchSchema(components, schema, union)
+	properties, _ := schema["properties"].(map[string]any)
+	for member, property := range properties {
+		if _, nested := property.(map[string]any)["properties"]; nested {
+			return nil, nil, fmt.Errorf("%s common member %s must be a scalar", union.Name(), member)
+		}
+	}
+	return properties, requiredValues(schema), nil
+}
+
+// cloneSchema deep-copies a JSON schema value so variants do not share nodes.
+func cloneSchema(value any) any {
+	switch value := value.(type) {
+	case map[string]any:
+		copied := make(map[string]any, len(value))
+		for key, child := range value {
+			copied[key] = cloneSchema(child)
+		}
+		return copied
+	case []any:
+		copied := make([]any, len(value))
+		for index, child := range value {
+			copied[index] = cloneSchema(child)
+		}
+		return copied
+	case []string:
+		return append([]string(nil), value...)
+	default:
+		return value
+	}
 }
 
 func requiredValues(schema map[string]any) []string {
@@ -470,6 +561,23 @@ func rejectNullPointers(typ reflect.Type, seen map[reflect.Type]bool) error {
 	return nil
 }
 
+// rejectUnionPayloadNullPointers checks the nested types of a payload of a
+// codec-backed union (one that keeps its kind data in a Payload field) like
+// rejectNullPointers. The payload's own pointer members may be required: the
+// union's codec refuses to encode a nil required member and omits an absent
+// optional one, so neither is ever null.
+func rejectUnionPayloadNullPointers(typ reflect.Type) error {
+	seen := map[reflect.Type]bool{typ: true}
+	for i := 0; i < typ.NumField(); i++ {
+		if field := typ.Field(i); field.IsExported() {
+			if err := rejectNullPointers(field.Type, seen); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func hasTagOption(options, option string) bool {
 	for options != "" {
 		var current string
@@ -515,7 +623,7 @@ func patchSchema(components map[string]any, schema map[string]any, typ reflect.T
 			elem = elem.Elem()
 		}
 		if union, ok := reflect.New(elem).Elem().Interface().(unionVariants); ok && elem.Name() == "SubagentLiveEvent" {
-			name, err := addUnionSchema(components, schemaName(elem), union.UnionVariants())
+			name, err := addUnionSchema(components, schemaName(elem), elem, union.UnionVariants())
 			if err == nil {
 				schema["items"] = map[string]any{"$ref": "#/components/schemas/" + name}
 			}

@@ -214,6 +214,189 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/AnnotationCreatedEvent`.
+        public struct AnnotationCreatedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationCreatedEvent/annotation`.
+            public var annotation: Components.Schemas.Annotation
+            /// - Remark: Generated from `#/components/schemas/AnnotationCreatedEvent/annotationId`.
+            public var annotationId: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AnnotationCreatedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case annotation_created = "annotation.created"
+            }
+            /// - Remark: Generated from `#/components/schemas/AnnotationCreatedEvent/kind`.
+            public var kind: Components.Schemas.AnnotationCreatedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/AnnotationCreatedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AnnotationCreatedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationCreatedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationCreatedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `AnnotationCreatedEvent`.
+            ///
+            /// - Parameters:
+            ///   - annotation:
+            ///   - annotationId:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                annotation: Components.Schemas.Annotation,
+                annotationId: Swift.Int,
+                kind: Components.Schemas.AnnotationCreatedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.annotation = annotation
+                self.annotationId = annotationId
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case annotation
+                case annotationId
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.annotation = try container.decode(
+                    Components.Schemas.Annotation.self,
+                    forKey: .annotation
+                )
+                self.annotationId = try container.decode(
+                    Swift.Int.self,
+                    forKey: .annotationId
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.AnnotationCreatedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "annotation",
+                    "annotationId",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AnnotationDeletedEvent`.
+        public struct AnnotationDeletedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationDeletedEvent/annotationId`.
+            public var annotationId: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AnnotationDeletedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case annotation_deleted = "annotation.deleted"
+            }
+            /// - Remark: Generated from `#/components/schemas/AnnotationDeletedEvent/kind`.
+            public var kind: Components.Schemas.AnnotationDeletedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/AnnotationDeletedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AnnotationDeletedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationDeletedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationDeletedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `AnnotationDeletedEvent`.
+            ///
+            /// - Parameters:
+            ///   - annotationId:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                annotationId: Swift.Int,
+                kind: Components.Schemas.AnnotationDeletedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.annotationId = annotationId
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case annotationId
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.annotationId = try container.decode(
+                    Swift.Int.self,
+                    forKey: .annotationId
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.AnnotationDeletedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "annotationId",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/AnnotationPage`.
         public struct AnnotationPage: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/AnnotationPage/entries`.
@@ -323,6 +506,103 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/AnnotationSubmittedEvent`.
+        public struct AnnotationSubmittedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationSubmittedEvent/acceptedMessageId`.
+            public var acceptedMessageId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationSubmittedEvent/annotationIds`.
+            public var annotationIds: [Swift.Int]
+            /// - Remark: Generated from `#/components/schemas/AnnotationSubmittedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case annotation_submitted = "annotation.submitted"
+            }
+            /// - Remark: Generated from `#/components/schemas/AnnotationSubmittedEvent/kind`.
+            public var kind: Components.Schemas.AnnotationSubmittedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/AnnotationSubmittedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AnnotationSubmittedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationSubmittedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationSubmittedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `AnnotationSubmittedEvent`.
+            ///
+            /// - Parameters:
+            ///   - acceptedMessageId:
+            ///   - annotationIds:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                acceptedMessageId: Swift.String,
+                annotationIds: [Swift.Int],
+                kind: Components.Schemas.AnnotationSubmittedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.acceptedMessageId = acceptedMessageId
+                self.annotationIds = annotationIds
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case acceptedMessageId
+                case annotationIds
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.acceptedMessageId = try container.decode(
+                    Swift.String.self,
+                    forKey: .acceptedMessageId
+                )
+                self.annotationIds = try container.decode(
+                    [Swift.Int].self,
+                    forKey: .annotationIds
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.AnnotationSubmittedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "acceptedMessageId",
+                    "annotationIds",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/AnnotationSummary`.
         public struct AnnotationSummary: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/AnnotationSummary/anchor`.
@@ -424,6 +704,103 @@ extension Components {
                     "stale",
                     "staleReason",
                     "validationDeferred"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AnnotationUpdatedEvent`.
+        public struct AnnotationUpdatedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationUpdatedEvent/annotation`.
+            public var annotation: Components.Schemas.Annotation
+            /// - Remark: Generated from `#/components/schemas/AnnotationUpdatedEvent/annotationId`.
+            public var annotationId: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AnnotationUpdatedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case annotation_updated = "annotation.updated"
+            }
+            /// - Remark: Generated from `#/components/schemas/AnnotationUpdatedEvent/kind`.
+            public var kind: Components.Schemas.AnnotationUpdatedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/AnnotationUpdatedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AnnotationUpdatedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationUpdatedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationUpdatedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `AnnotationUpdatedEvent`.
+            ///
+            /// - Parameters:
+            ///   - annotation:
+            ///   - annotationId:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                annotation: Components.Schemas.Annotation,
+                annotationId: Swift.Int,
+                kind: Components.Schemas.AnnotationUpdatedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.annotation = annotation
+                self.annotationId = annotationId
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case annotation
+                case annotationId
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.annotation = try container.decode(
+                    Components.Schemas.Annotation.self,
+                    forKey: .annotation
+                )
+                self.annotationId = try container.decode(
+                    Swift.Int.self,
+                    forKey: .annotationId
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.AnnotationUpdatedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "annotation",
+                    "annotationId",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
                 ])
             }
         }
@@ -718,6 +1095,330 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AssistantCompletedEvent`.
+        public struct AssistantCompletedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AssistantCompletedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case assistant_completed = "assistant.completed"
+            }
+            /// - Remark: Generated from `#/components/schemas/AssistantCompletedEvent/kind`.
+            public var kind: Components.Schemas.AssistantCompletedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/AssistantCompletedEvent/messageId`.
+            public var messageId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssistantCompletedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AssistantCompletedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssistantCompletedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssistantCompletedEvent/text`.
+            public var text: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AssistantCompletedEvent/thinking`.
+            public var thinking: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AssistantCompletedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `AssistantCompletedEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - messageId:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - text:
+            ///   - thinking:
+            ///   - turnId:
+            public init(
+                kind: Components.Schemas.AssistantCompletedEvent.KindPayload,
+                messageId: Swift.String,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                text: Swift.String? = nil,
+                thinking: Swift.String? = nil,
+                turnId: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.messageId = messageId
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.text = text
+                self.thinking = thinking
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case messageId
+                case sequence
+                case sessionId
+                case streamId
+                case text
+                case thinking
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.AssistantCompletedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.messageId = try container.decode(
+                    Swift.String.self,
+                    forKey: .messageId
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.text = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .text
+                )
+                self.thinking = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .thinking
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "messageId",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "text",
+                    "thinking",
+                    "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AssistantStartedEvent`.
+        public struct AssistantStartedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AssistantStartedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case assistant_started = "assistant.started"
+            }
+            /// - Remark: Generated from `#/components/schemas/AssistantStartedEvent/kind`.
+            public var kind: Components.Schemas.AssistantStartedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/AssistantStartedEvent/messageId`.
+            public var messageId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssistantStartedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AssistantStartedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssistantStartedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssistantStartedEvent/text`.
+            public var text: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AssistantStartedEvent/thinking`.
+            public var thinking: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AssistantStartedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `AssistantStartedEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - messageId:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - text:
+            ///   - thinking:
+            ///   - turnId:
+            public init(
+                kind: Components.Schemas.AssistantStartedEvent.KindPayload,
+                messageId: Swift.String,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                text: Swift.String? = nil,
+                thinking: Swift.String? = nil,
+                turnId: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.messageId = messageId
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.text = text
+                self.thinking = thinking
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case messageId
+                case sequence
+                case sessionId
+                case streamId
+                case text
+                case thinking
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.AssistantStartedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.messageId = try container.decode(
+                    Swift.String.self,
+                    forKey: .messageId
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.text = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .text
+                )
+                self.thinking = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .thinking
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "messageId",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "text",
+                    "thinking",
+                    "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AssistantTextDeltaEvent`.
+        public struct AssistantTextDeltaEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AssistantTextDeltaEvent/contentIndex`.
+            public var contentIndex: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/AssistantTextDeltaEvent/delta`.
+            public var delta: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssistantTextDeltaEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case assistant_text_delta = "assistant.text.delta"
+            }
+            /// - Remark: Generated from `#/components/schemas/AssistantTextDeltaEvent/kind`.
+            public var kind: Components.Schemas.AssistantTextDeltaEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/AssistantTextDeltaEvent/messageId`.
+            public var messageId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssistantTextDeltaEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AssistantTextDeltaEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssistantTextDeltaEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssistantTextDeltaEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `AssistantTextDeltaEvent`.
+            ///
+            /// - Parameters:
+            ///   - contentIndex:
+            ///   - delta:
+            ///   - kind:
+            ///   - messageId:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                contentIndex: Swift.Int? = nil,
+                delta: Swift.String,
+                kind: Components.Schemas.AssistantTextDeltaEvent.KindPayload,
+                messageId: Swift.String,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.contentIndex = contentIndex
+                self.delta = delta
+                self.kind = kind
+                self.messageId = messageId
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case contentIndex
+                case delta
+                case kind
+                case messageId
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.contentIndex = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .contentIndex
+                )
+                self.delta = try container.decode(
+                    Swift.String.self,
+                    forKey: .delta
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.AssistantTextDeltaEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.messageId = try container.decode(
+                    Swift.String.self,
+                    forKey: .messageId
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "contentIndex",
+                    "delta",
+                    "kind",
+                    "messageId",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
                 ])
             }
         }
@@ -1508,6 +2209,169 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent`.
+        public struct BoundaryCreatedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/boundaryId`.
+            public var boundaryId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/boundaryKind`.
+            public var boundaryKind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/boundarySource`.
+            public var boundarySource: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/content`.
+            public var content: Components.Schemas.ContextContent?
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/contentTruncated`.
+            public var contentTruncated: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/createdAt`.
+            public var createdAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/details`.
+            public var details: OpenAPIRuntime.OpenAPIValueContainer?
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/detailsOmitted`.
+            public var detailsOmitted: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case boundary_created = "boundary.created"
+            }
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/kind`.
+            public var kind: Components.Schemas.BoundaryCreatedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BoundaryCreatedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `BoundaryCreatedEvent`.
+            ///
+            /// - Parameters:
+            ///   - boundaryId:
+            ///   - boundaryKind:
+            ///   - boundarySource:
+            ///   - content:
+            ///   - contentTruncated:
+            ///   - createdAt:
+            ///   - details:
+            ///   - detailsOmitted:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                boundaryId: Swift.String,
+                boundaryKind: Swift.String,
+                boundarySource: Swift.String? = nil,
+                content: Components.Schemas.ContextContent? = nil,
+                contentTruncated: Swift.Bool? = nil,
+                createdAt: Swift.String,
+                details: OpenAPIRuntime.OpenAPIValueContainer? = nil,
+                detailsOmitted: Swift.Bool? = nil,
+                kind: Components.Schemas.BoundaryCreatedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.boundaryId = boundaryId
+                self.boundaryKind = boundaryKind
+                self.boundarySource = boundarySource
+                self.content = content
+                self.contentTruncated = contentTruncated
+                self.createdAt = createdAt
+                self.details = details
+                self.detailsOmitted = detailsOmitted
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case boundaryId
+                case boundaryKind
+                case boundarySource
+                case content
+                case contentTruncated
+                case createdAt
+                case details
+                case detailsOmitted
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.boundaryId = try container.decode(
+                    Swift.String.self,
+                    forKey: .boundaryId
+                )
+                self.boundaryKind = try container.decode(
+                    Swift.String.self,
+                    forKey: .boundaryKind
+                )
+                self.boundarySource = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .boundarySource
+                )
+                self.content = try container.decodeIfPresent(
+                    Components.Schemas.ContextContent.self,
+                    forKey: .content
+                )
+                self.contentTruncated = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .contentTruncated
+                )
+                self.createdAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .createdAt
+                )
+                self.details = try container.decodeIfPresent(
+                    OpenAPIRuntime.OpenAPIValueContainer.self,
+                    forKey: .details
+                )
+                self.detailsOmitted = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .detailsOmitted
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.BoundaryCreatedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "boundaryId",
+                    "boundaryKind",
+                    "boundarySource",
+                    "content",
+                    "contentTruncated",
+                    "createdAt",
+                    "details",
+                    "detailsOmitted",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/BrowserLoginInstructions`.
         public struct BrowserLoginInstructions: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/BrowserLoginInstructions/authorizationUrl`.
@@ -1661,6 +2525,312 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "session",
                     "workspace"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ClientPluginCall`.
+        public struct ClientPluginCall: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCall/input`.
+            public var input: OpenAPIRuntime.OpenAPIValueContainer
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCall/pluginId`.
+            public var pluginId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCall/subagentConversationId`.
+            public var subagentConversationId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCall/toolCallId`.
+            public var toolCallId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCall/toolId`.
+            public var toolId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCall/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `ClientPluginCall`.
+            ///
+            /// - Parameters:
+            ///   - input:
+            ///   - pluginId:
+            ///   - subagentConversationId:
+            ///   - toolCallId:
+            ///   - toolId:
+            ///   - turnId:
+            public init(
+                input: OpenAPIRuntime.OpenAPIValueContainer,
+                pluginId: Swift.String,
+                subagentConversationId: Swift.String? = nil,
+                toolCallId: Swift.String,
+                toolId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.input = input
+                self.pluginId = pluginId
+                self.subagentConversationId = subagentConversationId
+                self.toolCallId = toolCallId
+                self.toolId = toolId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case input
+                case pluginId
+                case subagentConversationId
+                case toolCallId
+                case toolId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.input = try container.decode(
+                    OpenAPIRuntime.OpenAPIValueContainer.self,
+                    forKey: .input
+                )
+                self.pluginId = try container.decode(
+                    Swift.String.self,
+                    forKey: .pluginId
+                )
+                self.subagentConversationId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .subagentConversationId
+                )
+                self.toolCallId = try container.decode(
+                    Swift.String.self,
+                    forKey: .toolCallId
+                )
+                self.toolId = try container.decode(
+                    Swift.String.self,
+                    forKey: .toolId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "input",
+                    "pluginId",
+                    "subagentConversationId",
+                    "toolCallId",
+                    "toolId",
+                    "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ClientPluginCallRequestedEvent`.
+        public struct ClientPluginCallRequestedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallRequestedEvent/clientPluginCall`.
+            public var clientPluginCall: Components.Schemas.ClientPluginCall?
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallRequestedEvent/clientPluginCallId`.
+            public var clientPluginCallId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallRequestedEvent/clientPluginInstanceId`.
+            public var clientPluginInstanceId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallRequestedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case clientPlugin_call_requested = "client_plugin.call.requested"
+            }
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallRequestedEvent/kind`.
+            public var kind: Components.Schemas.ClientPluginCallRequestedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallRequestedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallRequestedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallRequestedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallRequestedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `ClientPluginCallRequestedEvent`.
+            ///
+            /// - Parameters:
+            ///   - clientPluginCall:
+            ///   - clientPluginCallId:
+            ///   - clientPluginInstanceId:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                clientPluginCall: Components.Schemas.ClientPluginCall? = nil,
+                clientPluginCallId: Swift.String,
+                clientPluginInstanceId: Swift.String,
+                kind: Components.Schemas.ClientPluginCallRequestedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.clientPluginCall = clientPluginCall
+                self.clientPluginCallId = clientPluginCallId
+                self.clientPluginInstanceId = clientPluginInstanceId
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case clientPluginCall
+                case clientPluginCallId
+                case clientPluginInstanceId
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.clientPluginCall = try container.decodeIfPresent(
+                    Components.Schemas.ClientPluginCall.self,
+                    forKey: .clientPluginCall
+                )
+                self.clientPluginCallId = try container.decode(
+                    Swift.String.self,
+                    forKey: .clientPluginCallId
+                )
+                self.clientPluginInstanceId = try container.decode(
+                    Swift.String.self,
+                    forKey: .clientPluginInstanceId
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.ClientPluginCallRequestedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "clientPluginCall",
+                    "clientPluginCallId",
+                    "clientPluginInstanceId",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ClientPluginCallResolvedEvent`.
+        public struct ClientPluginCallResolvedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallResolvedEvent/clientPluginCallId`.
+            public var clientPluginCallId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallResolvedEvent/clientPluginCallResolution`.
+            @frozen public enum ClientPluginCallResolutionPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case completed = "completed"
+                case failed = "failed"
+                case timedOut = "timed_out"
+                case withdrawn = "withdrawn"
+                case unavailable = "unavailable"
+            }
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallResolvedEvent/clientPluginCallResolution`.
+            public var clientPluginCallResolution: Components.Schemas.ClientPluginCallResolvedEvent.ClientPluginCallResolutionPayload
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallResolvedEvent/clientPluginInstanceId`.
+            public var clientPluginInstanceId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallResolvedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case clientPlugin_call_resolved = "client_plugin.call.resolved"
+            }
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallResolvedEvent/kind`.
+            public var kind: Components.Schemas.ClientPluginCallResolvedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallResolvedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallResolvedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallResolvedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClientPluginCallResolvedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `ClientPluginCallResolvedEvent`.
+            ///
+            /// - Parameters:
+            ///   - clientPluginCallId:
+            ///   - clientPluginCallResolution:
+            ///   - clientPluginInstanceId:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                clientPluginCallId: Swift.String,
+                clientPluginCallResolution: Components.Schemas.ClientPluginCallResolvedEvent.ClientPluginCallResolutionPayload,
+                clientPluginInstanceId: Swift.String,
+                kind: Components.Schemas.ClientPluginCallResolvedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.clientPluginCallId = clientPluginCallId
+                self.clientPluginCallResolution = clientPluginCallResolution
+                self.clientPluginInstanceId = clientPluginInstanceId
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case clientPluginCallId
+                case clientPluginCallResolution
+                case clientPluginInstanceId
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.clientPluginCallId = try container.decode(
+                    Swift.String.self,
+                    forKey: .clientPluginCallId
+                )
+                self.clientPluginCallResolution = try container.decode(
+                    Components.Schemas.ClientPluginCallResolvedEvent.ClientPluginCallResolutionPayload.self,
+                    forKey: .clientPluginCallResolution
+                )
+                self.clientPluginInstanceId = try container.decode(
+                    Swift.String.self,
+                    forKey: .clientPluginInstanceId
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.ClientPluginCallResolvedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "clientPluginCallId",
+                    "clientPluginCallResolution",
+                    "clientPluginInstanceId",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
                 ])
             }
         }
@@ -1902,6 +3072,114 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/CompactionCompletedEvent`.
+        public struct CompactionCompletedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CompactionCompletedEvent/compactionFailureReason`.
+            @frozen public enum CompactionFailureReasonPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case summaryTruncated = "summary_truncated"
+                case summaryInvalid = "summary_invalid"
+                case policyStop = "policy_stop"
+                case providerError = "provider_error"
+                case notAdaptable = "not_adaptable"
+                case canceled = "canceled"
+                case conflict = "conflict"
+                case internalError = "internal_error"
+            }
+            /// - Remark: Generated from `#/components/schemas/CompactionCompletedEvent/compactionFailureReason`.
+            public var compactionFailureReason: Components.Schemas.CompactionCompletedEvent.CompactionFailureReasonPayload?
+            /// - Remark: Generated from `#/components/schemas/CompactionCompletedEvent/compactionId`.
+            public var compactionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CompactionCompletedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case compaction_completed = "compaction.completed"
+            }
+            /// - Remark: Generated from `#/components/schemas/CompactionCompletedEvent/kind`.
+            public var kind: Components.Schemas.CompactionCompletedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/CompactionCompletedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/CompactionCompletedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CompactionCompletedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CompactionCompletedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `CompactionCompletedEvent`.
+            ///
+            /// - Parameters:
+            ///   - compactionFailureReason:
+            ///   - compactionId:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                compactionFailureReason: Components.Schemas.CompactionCompletedEvent.CompactionFailureReasonPayload? = nil,
+                compactionId: Swift.String,
+                kind: Components.Schemas.CompactionCompletedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.compactionFailureReason = compactionFailureReason
+                self.compactionId = compactionId
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case compactionFailureReason
+                case compactionId
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.compactionFailureReason = try container.decodeIfPresent(
+                    Components.Schemas.CompactionCompletedEvent.CompactionFailureReasonPayload.self,
+                    forKey: .compactionFailureReason
+                )
+                self.compactionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .compactionId
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.CompactionCompletedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "compactionFailureReason",
+                    "compactionId",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/CompactionFailedErrorDetails`.
         public struct CompactionFailedErrorDetails: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/CompactionFailedErrorDetails/reason`.
@@ -1935,6 +3213,92 @@ extension Components {
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "reason"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CompactionStartedEvent`.
+        public struct CompactionStartedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CompactionStartedEvent/compactionId`.
+            public var compactionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CompactionStartedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case compaction_started = "compaction.started"
+            }
+            /// - Remark: Generated from `#/components/schemas/CompactionStartedEvent/kind`.
+            public var kind: Components.Schemas.CompactionStartedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/CompactionStartedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/CompactionStartedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CompactionStartedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CompactionStartedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `CompactionStartedEvent`.
+            ///
+            /// - Parameters:
+            ///   - compactionId:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                compactionId: Swift.String,
+                kind: Components.Schemas.CompactionStartedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.compactionId = compactionId
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case compactionId
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.compactionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .compactionId
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.CompactionStartedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "compactionId",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
                 ])
             }
         }
@@ -2258,6 +3622,105 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ContextChangedEvent`.
+        public struct ContextChangedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ContextChangedEvent/contextTokens`.
+            public var contextTokens: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/ContextChangedEvent/contextWindow`.
+            public var contextWindow: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/ContextChangedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case context_changed = "context.changed"
+            }
+            /// - Remark: Generated from `#/components/schemas/ContextChangedEvent/kind`.
+            public var kind: Components.Schemas.ContextChangedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ContextChangedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ContextChangedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ContextChangedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ContextChangedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `ContextChangedEvent`.
+            ///
+            /// - Parameters:
+            ///   - contextTokens:
+            ///   - contextWindow:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                contextTokens: Swift.Int? = nil,
+                contextWindow: Swift.Int,
+                kind: Components.Schemas.ContextChangedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.contextTokens = contextTokens
+                self.contextWindow = contextWindow
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case contextTokens
+                case contextWindow
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.contextTokens = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .contextTokens
+                )
+                self.contextWindow = try container.decode(
+                    Swift.Int.self,
+                    forKey: .contextWindow
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.ContextChangedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "contextTokens",
+                    "contextWindow",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ContextContent`.
+        public typealias ContextContent = [Components.Schemas.TranscriptContent]
         /// - Remark: Generated from `#/components/schemas/CreateAnnotationInput`.
         public struct CreateAnnotationInput: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/CreateAnnotationInput/anchor`.
@@ -4618,6 +6081,92 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/FollowUpsChangedEvent`.
+        public struct FollowUpsChangedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/FollowUpsChangedEvent/followUps`.
+            public var followUps: Components.Schemas.FollowUpQueue
+            /// - Remark: Generated from `#/components/schemas/FollowUpsChangedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case followUps_changed = "follow_ups.changed"
+            }
+            /// - Remark: Generated from `#/components/schemas/FollowUpsChangedEvent/kind`.
+            public var kind: Components.Schemas.FollowUpsChangedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/FollowUpsChangedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/FollowUpsChangedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/FollowUpsChangedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/FollowUpsChangedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `FollowUpsChangedEvent`.
+            ///
+            /// - Parameters:
+            ///   - followUps:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                followUps: Components.Schemas.FollowUpQueue,
+                kind: Components.Schemas.FollowUpsChangedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.followUps = followUps
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case followUps
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.followUps = try container.decode(
+                    Components.Schemas.FollowUpQueue.self,
+                    forKey: .followUps
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.FollowUpsChangedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "followUps",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ForbiddenError`.
         public struct ForbiddenError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ForbiddenError/code`.
@@ -5708,6 +7257,189 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/InteractionRequestedEvent`.
+        public struct InteractionRequestedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InteractionRequestedEvent/interaction`.
+            public var interaction: Components.Schemas.InteractionRequest
+            /// - Remark: Generated from `#/components/schemas/InteractionRequestedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case interaction_requested = "interaction.requested"
+            }
+            /// - Remark: Generated from `#/components/schemas/InteractionRequestedEvent/kind`.
+            public var kind: Components.Schemas.InteractionRequestedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/InteractionRequestedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/InteractionRequestedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionRequestedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionRequestedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `InteractionRequestedEvent`.
+            ///
+            /// - Parameters:
+            ///   - interaction:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                interaction: Components.Schemas.InteractionRequest,
+                kind: Components.Schemas.InteractionRequestedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.interaction = interaction
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case interaction
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.interaction = try container.decode(
+                    Components.Schemas.InteractionRequest.self,
+                    forKey: .interaction
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.InteractionRequestedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "interaction",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/InteractionResolvedEvent`.
+        public struct InteractionResolvedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InteractionResolvedEvent/interactionId`.
+            public var interactionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionResolvedEvent/interactionResolution`.
+            public var interactionResolution: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionResolvedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case interaction_resolved = "interaction.resolved"
+            }
+            /// - Remark: Generated from `#/components/schemas/InteractionResolvedEvent/kind`.
+            public var kind: Components.Schemas.InteractionResolvedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/InteractionResolvedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/InteractionResolvedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionResolvedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionResolvedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `InteractionResolvedEvent`.
+            ///
+            /// - Parameters:
+            ///   - interactionId:
+            ///   - interactionResolution:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                interactionId: Swift.String,
+                interactionResolution: Swift.String,
+                kind: Components.Schemas.InteractionResolvedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.interactionId = interactionId
+                self.interactionResolution = interactionResolution
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case interactionId
+                case interactionResolution
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.interactionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .interactionId
+                )
+                self.interactionResolution = try container.decode(
+                    Swift.String.self,
+                    forKey: .interactionResolution
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.InteractionResolvedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "interactionId",
+                    "interactionResolution",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/InteractionResponse`.
         public struct InteractionResponse: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/InteractionResponse/answers`.
@@ -6697,6 +8429,92 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/PeerQueryChangedEvent`.
+        public struct PeerQueryChangedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PeerQueryChangedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case peerQuery_changed = "peer_query.changed"
+            }
+            /// - Remark: Generated from `#/components/schemas/PeerQueryChangedEvent/kind`.
+            public var kind: Components.Schemas.PeerQueryChangedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/PeerQueryChangedEvent/peerRequestId`.
+            public var peerRequestId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PeerQueryChangedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/PeerQueryChangedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PeerQueryChangedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PeerQueryChangedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `PeerQueryChangedEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - peerRequestId:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                kind: Components.Schemas.PeerQueryChangedEvent.KindPayload,
+                peerRequestId: Swift.String,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.peerRequestId = peerRequestId
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case peerRequestId
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.PeerQueryChangedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.peerRequestId = try container.decode(
+                    Swift.String.self,
+                    forKey: .peerRequestId
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "peerRequestId",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/PinnedDiffTarget`.
         public struct PinnedDiffTarget: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/PinnedDiffTarget/base`.
@@ -7289,6 +9107,103 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "instance",
                     "pluginId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PluginMessageAddedEvent`.
+        public struct PluginMessageAddedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginMessageAddedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case plugin_message_added = "plugin.message.added"
+            }
+            /// - Remark: Generated from `#/components/schemas/PluginMessageAddedEvent/kind`.
+            public var kind: Components.Schemas.PluginMessageAddedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/PluginMessageAddedEvent/pluginId`.
+            public var pluginId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginMessageAddedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/PluginMessageAddedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginMessageAddedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginMessageAddedEvent/text`.
+            public var text: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginMessageAddedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `PluginMessageAddedEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - pluginId:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - text:
+            ///   - turnId:
+            public init(
+                kind: Components.Schemas.PluginMessageAddedEvent.KindPayload,
+                pluginId: Swift.String,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                text: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.pluginId = pluginId
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.text = text
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case pluginId
+                case sequence
+                case sessionId
+                case streamId
+                case text
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.PluginMessageAddedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.pluginId = try container.decode(
+                    Swift.String.self,
+                    forKey: .pluginId
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.text = try container.decode(
+                    Swift.String.self,
+                    forKey: .text
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "pluginId",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "text",
+                    "turnId"
                 ])
             }
         }
@@ -8297,6 +10212,178 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ProviderRetryScheduledEvent`.
+        public struct ProviderRetryScheduledEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryScheduledEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case provider_retry_scheduled = "provider.retry.scheduled"
+            }
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryScheduledEvent/kind`.
+            public var kind: Components.Schemas.ProviderRetryScheduledEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryScheduledEvent/providerRetry`.
+            public var providerRetry: Components.Schemas.ProviderRetry
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryScheduledEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryScheduledEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryScheduledEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryScheduledEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `ProviderRetryScheduledEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - providerRetry:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                kind: Components.Schemas.ProviderRetryScheduledEvent.KindPayload,
+                providerRetry: Components.Schemas.ProviderRetry,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.providerRetry = providerRetry
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case providerRetry
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.ProviderRetryScheduledEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.providerRetry = try container.decode(
+                    Components.Schemas.ProviderRetry.self,
+                    forKey: .providerRetry
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "providerRetry",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ProviderRetryStartedEvent`.
+        public struct ProviderRetryStartedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryStartedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case provider_retry_started = "provider.retry.started"
+            }
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryStartedEvent/kind`.
+            public var kind: Components.Schemas.ProviderRetryStartedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryStartedEvent/providerRetry`.
+            public var providerRetry: Components.Schemas.ProviderRetry
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryStartedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryStartedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryStartedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ProviderRetryStartedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `ProviderRetryStartedEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - providerRetry:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                kind: Components.Schemas.ProviderRetryStartedEvent.KindPayload,
+                providerRetry: Components.Schemas.ProviderRetry,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.providerRetry = providerRetry
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case providerRetry
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.ProviderRetryStartedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.providerRetry = try container.decode(
+                    Components.Schemas.ProviderRetry.self,
+                    forKey: .providerRetry
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "providerRetry",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput`.
         public struct ReadFileDiffInput: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/annotationId`.
@@ -8742,6 +10829,92 @@ extension Components {
                     "ownerSessionId",
                     "revision",
                     "updatedAt"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ScratchpadChangedEvent`.
+        public struct ScratchpadChangedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScratchpadChangedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case scratchpad_changed = "scratchpad.changed"
+            }
+            /// - Remark: Generated from `#/components/schemas/ScratchpadChangedEvent/kind`.
+            public var kind: Components.Schemas.ScratchpadChangedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ScratchpadChangedEvent/scratchpad`.
+            public var scratchpad: Components.Schemas.Scratchpad
+            /// - Remark: Generated from `#/components/schemas/ScratchpadChangedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ScratchpadChangedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ScratchpadChangedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ScratchpadChangedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `ScratchpadChangedEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - scratchpad:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                kind: Components.Schemas.ScratchpadChangedEvent.KindPayload,
+                scratchpad: Components.Schemas.Scratchpad,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.scratchpad = scratchpad
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case scratchpad
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.ScratchpadChangedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.scratchpad = try container.decode(
+                    Components.Schemas.Scratchpad.self,
+                    forKey: .scratchpad
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "scratchpad",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
                 ])
             }
         }
@@ -9404,35 +11577,197 @@ extension Components {
                 ])
             }
         }
-        /// - Remark: Generated from `#/components/schemas/SessionEvent`.
-        public struct SessionEvent: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/SessionEvent/sequence`.
-            public var sequence: Swift.Int
-            /// - Remark: Generated from `#/components/schemas/SessionEvent/sessionId`.
+        /// - Remark: Generated from `#/components/schemas/SessionCWDChangedEvent`.
+        public struct SessionCWDChangedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionCWDChangedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case session_cwd_changed = "session.cwd.changed"
+            }
+            /// - Remark: Generated from `#/components/schemas/SessionCWDChangedEvent/kind`.
+            public var kind: Components.Schemas.SessionCWDChangedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/SessionCWDChangedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/SessionCWDChangedEvent/sessionId`.
             public var sessionId: Swift.String
-            /// - Remark: Generated from `#/components/schemas/SessionEvent/streamId`.
+            /// - Remark: Generated from `#/components/schemas/SessionCWDChangedEvent/streamId`.
             public var streamId: Swift.String
-            /// - Remark: Generated from `#/components/schemas/SessionEvent/turnId`.
+            /// - Remark: Generated from `#/components/schemas/SessionCWDChangedEvent/turnId`.
             public var turnId: Swift.String?
-            /// Creates a new `SessionEvent`.
+            /// - Remark: Generated from `#/components/schemas/SessionCWDChangedEvent/workspace`.
+            public var workspace: Components.Schemas.WorkspaceRef
+            /// Creates a new `SessionCWDChangedEvent`.
             ///
             /// - Parameters:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            ///   - workspace:
+            public init(
+                kind: Components.Schemas.SessionCWDChangedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil,
+                workspace: Components.Schemas.WorkspaceRef
+            ) {
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+                self.workspace = workspace
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+                case workspace
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.SessionCWDChangedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                self.workspace = try container.decode(
+                    Components.Schemas.WorkspaceRef.self,
+                    forKey: .workspace
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId",
+                    "workspace"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SessionConfiguration`.
+        public struct SessionConfiguration: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionConfiguration/configurationRevision`.
+            public var configurationRevision: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/SessionConfiguration/inputs`.
+            public var inputs: [Swift.String]?
+            /// - Remark: Generated from `#/components/schemas/SessionConfiguration/model`.
+            public var model: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionConfiguration/thinkingLevel`.
+            public var thinkingLevel: Swift.String
+            /// Creates a new `SessionConfiguration`.
+            ///
+            /// - Parameters:
+            ///   - configurationRevision:
+            ///   - inputs:
+            ///   - model:
+            ///   - thinkingLevel:
+            public init(
+                configurationRevision: Swift.Int,
+                inputs: [Swift.String]? = nil,
+                model: Swift.String,
+                thinkingLevel: Swift.String
+            ) {
+                self.configurationRevision = configurationRevision
+                self.inputs = inputs
+                self.model = model
+                self.thinkingLevel = thinkingLevel
+            }
+            public enum CodingKeys: String, CodingKey {
+                case configurationRevision
+                case inputs
+                case model
+                case thinkingLevel
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.configurationRevision = try container.decode(
+                    Swift.Int.self,
+                    forKey: .configurationRevision
+                )
+                self.inputs = try container.decodeIfPresent(
+                    [Swift.String].self,
+                    forKey: .inputs
+                )
+                self.model = try container.decode(
+                    Swift.String.self,
+                    forKey: .model
+                )
+                self.thinkingLevel = try container.decode(
+                    Swift.String.self,
+                    forKey: .thinkingLevel
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "configurationRevision",
+                    "inputs",
+                    "model",
+                    "thinkingLevel"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SessionConfigurationChangedEvent`.
+        public struct SessionConfigurationChangedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionConfigurationChangedEvent/configuration`.
+            public var configuration: Components.Schemas.SessionConfiguration
+            /// - Remark: Generated from `#/components/schemas/SessionConfigurationChangedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case session_configuration_changed = "session.configuration.changed"
+            }
+            /// - Remark: Generated from `#/components/schemas/SessionConfigurationChangedEvent/kind`.
+            public var kind: Components.Schemas.SessionConfigurationChangedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/SessionConfigurationChangedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/SessionConfigurationChangedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionConfigurationChangedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionConfigurationChangedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `SessionConfigurationChangedEvent`.
+            ///
+            /// - Parameters:
+            ///   - configuration:
+            ///   - kind:
             ///   - sequence:
             ///   - sessionId:
             ///   - streamId:
             ///   - turnId:
             public init(
-                sequence: Swift.Int,
+                configuration: Components.Schemas.SessionConfiguration,
+                kind: Components.Schemas.SessionConfigurationChangedEvent.KindPayload,
+                sequence: Swift.Int64,
                 sessionId: Swift.String,
                 streamId: Swift.String,
                 turnId: Swift.String? = nil
             ) {
+                self.configuration = configuration
+                self.kind = kind
                 self.sequence = sequence
                 self.sessionId = sessionId
                 self.streamId = streamId
                 self.turnId = turnId
             }
             public enum CodingKeys: String, CodingKey {
+                case configuration
+                case kind
                 case sequence
                 case sessionId
                 case streamId
@@ -9440,8 +11775,16 @@ extension Components {
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.configuration = try container.decode(
+                    Components.Schemas.SessionConfiguration.self,
+                    forKey: .configuration
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.SessionConfigurationChangedEvent.KindPayload.self,
+                    forKey: .kind
+                )
                 self.sequence = try container.decode(
-                    Swift.Int.self,
+                    Swift.Int64.self,
                     forKey: .sequence
                 )
                 self.sessionId = try container.decode(
@@ -9457,11 +11800,248 @@ extension Components {
                     forKey: .turnId
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "configuration",
+                    "kind",
                     "sequence",
                     "sessionId",
                     "streamId",
                     "turnId"
                 ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SessionEvent`.
+        @frozen public enum SessionEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/AnnotationCreatedEvent`.
+            case annotation_created(Components.Schemas.AnnotationCreatedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/AnnotationDeletedEvent`.
+            case annotation_deleted(Components.Schemas.AnnotationDeletedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/AnnotationSubmittedEvent`.
+            case annotation_submitted(Components.Schemas.AnnotationSubmittedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/AnnotationUpdatedEvent`.
+            case annotation_updated(Components.Schemas.AnnotationUpdatedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/AssistantCompletedEvent`.
+            case assistant_completed(Components.Schemas.AssistantCompletedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/AssistantStartedEvent`.
+            case assistant_started(Components.Schemas.AssistantStartedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/AssistantTextDeltaEvent`.
+            case assistant_text_delta(Components.Schemas.AssistantTextDeltaEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/ThinkingDeltaEvent`.
+            case assistant_thinking_delta(Components.Schemas.ThinkingDeltaEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/BoundaryCreatedEvent`.
+            case boundary_created(Components.Schemas.BoundaryCreatedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/ClientPluginCallRequestedEvent`.
+            case clientPlugin_call_requested(Components.Schemas.ClientPluginCallRequestedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/ClientPluginCallResolvedEvent`.
+            case clientPlugin_call_resolved(Components.Schemas.ClientPluginCallResolvedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/CompactionCompletedEvent`.
+            case compaction_completed(Components.Schemas.CompactionCompletedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/CompactionStartedEvent`.
+            case compaction_started(Components.Schemas.CompactionStartedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/ContextChangedEvent`.
+            case context_changed(Components.Schemas.ContextChangedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/FollowUpsChangedEvent`.
+            case followUps_changed(Components.Schemas.FollowUpsChangedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/InteractionRequestedEvent`.
+            case interaction_requested(Components.Schemas.InteractionRequestedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/InteractionResolvedEvent`.
+            case interaction_resolved(Components.Schemas.InteractionResolvedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/PeerQueryChangedEvent`.
+            case peerQuery_changed(Components.Schemas.PeerQueryChangedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/PluginMessageAddedEvent`.
+            case plugin_message_added(Components.Schemas.PluginMessageAddedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/ProviderRetryScheduledEvent`.
+            case provider_retry_scheduled(Components.Schemas.ProviderRetryScheduledEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/ProviderRetryStartedEvent`.
+            case provider_retry_started(Components.Schemas.ProviderRetryStartedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/ScratchpadChangedEvent`.
+            case scratchpad_changed(Components.Schemas.ScratchpadChangedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/SessionConfigurationChangedEvent`.
+            case session_configuration_changed(Components.Schemas.SessionConfigurationChangedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/SessionCWDChangedEvent`.
+            case session_cwd_changed(Components.Schemas.SessionCWDChangedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/SessionNameChangedEvent`.
+            case session_name_changed(Components.Schemas.SessionNameChangedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/SubagentChangedEvent`.
+            case subagent_changed(Components.Schemas.SubagentChangedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/ToolCompletedEvent`.
+            case tool_completed(Components.Schemas.ToolCompletedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/ToolOutputDeltaEvent`.
+            case tool_output_delta(Components.Schemas.ToolOutputDeltaEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/ToolPlannedEvent`.
+            case tool_planned(Components.Schemas.ToolPlannedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/ToolStartedEvent`.
+            case tool_started(Components.Schemas.ToolStartedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/TurnCompletedEvent`.
+            case turn_completed(Components.Schemas.TurnCompletedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/TurnStartedEvent`.
+            case turn_started(Components.Schemas.TurnStartedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/URLOpenRequestedEvent`.
+            case url_open_requested(Components.Schemas.URLOpenRequestedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/UsageChangedEvent`.
+            case usage_changed(Components.Schemas.UsageChangedEvent)
+            /// - Remark: Generated from `#/components/schemas/SessionEvent/UserMessageAddedEvent`.
+            case user_message_added(Components.Schemas.UserMessageAddedEvent)
+            public enum CodingKeys: String, CodingKey {
+                case kind
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                let discriminator = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                switch discriminator {
+                case "annotation.created":
+                    self = .annotation_created(try .init(from: decoder))
+                case "annotation.deleted":
+                    self = .annotation_deleted(try .init(from: decoder))
+                case "annotation.submitted":
+                    self = .annotation_submitted(try .init(from: decoder))
+                case "annotation.updated":
+                    self = .annotation_updated(try .init(from: decoder))
+                case "assistant.completed":
+                    self = .assistant_completed(try .init(from: decoder))
+                case "assistant.started":
+                    self = .assistant_started(try .init(from: decoder))
+                case "assistant.text.delta":
+                    self = .assistant_text_delta(try .init(from: decoder))
+                case "assistant.thinking.delta":
+                    self = .assistant_thinking_delta(try .init(from: decoder))
+                case "boundary.created":
+                    self = .boundary_created(try .init(from: decoder))
+                case "client_plugin.call.requested":
+                    self = .clientPlugin_call_requested(try .init(from: decoder))
+                case "client_plugin.call.resolved":
+                    self = .clientPlugin_call_resolved(try .init(from: decoder))
+                case "compaction.completed":
+                    self = .compaction_completed(try .init(from: decoder))
+                case "compaction.started":
+                    self = .compaction_started(try .init(from: decoder))
+                case "context.changed":
+                    self = .context_changed(try .init(from: decoder))
+                case "follow_ups.changed":
+                    self = .followUps_changed(try .init(from: decoder))
+                case "interaction.requested":
+                    self = .interaction_requested(try .init(from: decoder))
+                case "interaction.resolved":
+                    self = .interaction_resolved(try .init(from: decoder))
+                case "peer_query.changed":
+                    self = .peerQuery_changed(try .init(from: decoder))
+                case "plugin.message.added":
+                    self = .plugin_message_added(try .init(from: decoder))
+                case "provider.retry.scheduled":
+                    self = .provider_retry_scheduled(try .init(from: decoder))
+                case "provider.retry.started":
+                    self = .provider_retry_started(try .init(from: decoder))
+                case "scratchpad.changed":
+                    self = .scratchpad_changed(try .init(from: decoder))
+                case "session.configuration.changed":
+                    self = .session_configuration_changed(try .init(from: decoder))
+                case "session.cwd.changed":
+                    self = .session_cwd_changed(try .init(from: decoder))
+                case "session.name.changed":
+                    self = .session_name_changed(try .init(from: decoder))
+                case "subagent.changed":
+                    self = .subagent_changed(try .init(from: decoder))
+                case "tool.completed":
+                    self = .tool_completed(try .init(from: decoder))
+                case "tool.output.delta":
+                    self = .tool_output_delta(try .init(from: decoder))
+                case "tool.planned":
+                    self = .tool_planned(try .init(from: decoder))
+                case "tool.started":
+                    self = .tool_started(try .init(from: decoder))
+                case "turn.completed":
+                    self = .turn_completed(try .init(from: decoder))
+                case "turn.started":
+                    self = .turn_started(try .init(from: decoder))
+                case "url.open.requested":
+                    self = .url_open_requested(try .init(from: decoder))
+                case "usage.changed":
+                    self = .usage_changed(try .init(from: decoder))
+                case "user.message.added":
+                    self = .user_message_added(try .init(from: decoder))
+                default:
+                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                        discriminatorKey: CodingKeys.kind,
+                        discriminatorValue: discriminator,
+                        codingPath: decoder.codingPath
+                    )
+                }
+            }
+            public func encode(to encoder: any Swift.Encoder) throws {
+                switch self {
+                case let .annotation_created(value):
+                    try value.encode(to: encoder)
+                case let .annotation_deleted(value):
+                    try value.encode(to: encoder)
+                case let .annotation_submitted(value):
+                    try value.encode(to: encoder)
+                case let .annotation_updated(value):
+                    try value.encode(to: encoder)
+                case let .assistant_completed(value):
+                    try value.encode(to: encoder)
+                case let .assistant_started(value):
+                    try value.encode(to: encoder)
+                case let .assistant_text_delta(value):
+                    try value.encode(to: encoder)
+                case let .assistant_thinking_delta(value):
+                    try value.encode(to: encoder)
+                case let .boundary_created(value):
+                    try value.encode(to: encoder)
+                case let .clientPlugin_call_requested(value):
+                    try value.encode(to: encoder)
+                case let .clientPlugin_call_resolved(value):
+                    try value.encode(to: encoder)
+                case let .compaction_completed(value):
+                    try value.encode(to: encoder)
+                case let .compaction_started(value):
+                    try value.encode(to: encoder)
+                case let .context_changed(value):
+                    try value.encode(to: encoder)
+                case let .followUps_changed(value):
+                    try value.encode(to: encoder)
+                case let .interaction_requested(value):
+                    try value.encode(to: encoder)
+                case let .interaction_resolved(value):
+                    try value.encode(to: encoder)
+                case let .peerQuery_changed(value):
+                    try value.encode(to: encoder)
+                case let .plugin_message_added(value):
+                    try value.encode(to: encoder)
+                case let .provider_retry_scheduled(value):
+                    try value.encode(to: encoder)
+                case let .provider_retry_started(value):
+                    try value.encode(to: encoder)
+                case let .scratchpad_changed(value):
+                    try value.encode(to: encoder)
+                case let .session_configuration_changed(value):
+                    try value.encode(to: encoder)
+                case let .session_cwd_changed(value):
+                    try value.encode(to: encoder)
+                case let .session_name_changed(value):
+                    try value.encode(to: encoder)
+                case let .subagent_changed(value):
+                    try value.encode(to: encoder)
+                case let .tool_completed(value):
+                    try value.encode(to: encoder)
+                case let .tool_output_delta(value):
+                    try value.encode(to: encoder)
+                case let .tool_planned(value):
+                    try value.encode(to: encoder)
+                case let .tool_started(value):
+                    try value.encode(to: encoder)
+                case let .turn_completed(value):
+                    try value.encode(to: encoder)
+                case let .turn_started(value):
+                    try value.encode(to: encoder)
+                case let .url_open_requested(value):
+                    try value.encode(to: encoder)
+                case let .usage_changed(value):
+                    try value.encode(to: encoder)
+                case let .user_message_added(value):
+                    try value.encode(to: encoder)
+                }
             }
         }
         /// - Remark: Generated from `#/components/schemas/SessionEventBatch`.
@@ -9776,6 +12356,92 @@ extension Components {
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "sessions"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SessionNameChangedEvent`.
+        public struct SessionNameChangedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionNameChangedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case session_name_changed = "session.name.changed"
+            }
+            /// - Remark: Generated from `#/components/schemas/SessionNameChangedEvent/kind`.
+            public var kind: Components.Schemas.SessionNameChangedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/SessionNameChangedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/SessionNameChangedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionNameChangedEvent/sessionName`.
+            public var sessionName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionNameChangedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionNameChangedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `SessionNameChangedEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - sessionName:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                kind: Components.Schemas.SessionNameChangedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                sessionName: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.sessionName = sessionName
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case sequence
+                case sessionId
+                case sessionName
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.SessionNameChangedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.sessionName = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionName
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "sessionName",
+                    "streamId",
+                    "turnId"
                 ])
             }
         }
@@ -10649,6 +13315,103 @@ extension Components {
                     "kind",
                     "sequence",
                     "text"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SubagentChangedEvent`.
+        public struct SubagentChangedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubagentChangedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case subagent_changed = "subagent.changed"
+            }
+            /// - Remark: Generated from `#/components/schemas/SubagentChangedEvent/kind`.
+            public var kind: Components.Schemas.SubagentChangedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/SubagentChangedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/SubagentChangedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentChangedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentChangedEvent/subagentConversationId`.
+            public var subagentConversationId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentChangedEvent/subagentTaskId`.
+            public var subagentTaskId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubagentChangedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `SubagentChangedEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - subagentConversationId:
+            ///   - subagentTaskId:
+            ///   - turnId:
+            public init(
+                kind: Components.Schemas.SubagentChangedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                subagentConversationId: Swift.String,
+                subagentTaskId: Swift.String? = nil,
+                turnId: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.subagentConversationId = subagentConversationId
+                self.subagentTaskId = subagentTaskId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case subagentConversationId
+                case subagentTaskId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.SubagentChangedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.subagentConversationId = try container.decode(
+                    Swift.String.self,
+                    forKey: .subagentConversationId
+                )
+                self.subagentTaskId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .subagentTaskId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "subagentConversationId",
+                    "subagentTaskId",
+                    "turnId"
                 ])
             }
         }
@@ -12548,6 +15311,114 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ThinkingDeltaEvent`.
+        public struct ThinkingDeltaEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ThinkingDeltaEvent/contentIndex`.
+            public var contentIndex: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/ThinkingDeltaEvent/delta`.
+            public var delta: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ThinkingDeltaEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case assistant_thinking_delta = "assistant.thinking.delta"
+            }
+            /// - Remark: Generated from `#/components/schemas/ThinkingDeltaEvent/kind`.
+            public var kind: Components.Schemas.ThinkingDeltaEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ThinkingDeltaEvent/messageId`.
+            public var messageId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ThinkingDeltaEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ThinkingDeltaEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ThinkingDeltaEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ThinkingDeltaEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `ThinkingDeltaEvent`.
+            ///
+            /// - Parameters:
+            ///   - contentIndex:
+            ///   - delta:
+            ///   - kind:
+            ///   - messageId:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                contentIndex: Swift.Int? = nil,
+                delta: Swift.String,
+                kind: Components.Schemas.ThinkingDeltaEvent.KindPayload,
+                messageId: Swift.String,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.contentIndex = contentIndex
+                self.delta = delta
+                self.kind = kind
+                self.messageId = messageId
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case contentIndex
+                case delta
+                case kind
+                case messageId
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.contentIndex = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .contentIndex
+                )
+                self.delta = try container.decode(
+                    Swift.String.self,
+                    forKey: .delta
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.ThinkingDeltaEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.messageId = try container.decode(
+                    Swift.String.self,
+                    forKey: .messageId
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "contentIndex",
+                    "delta",
+                    "kind",
+                    "messageId",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ToolCallContent`.
         public struct ToolCallContent: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ToolCallContent/arguments`.
@@ -12620,6 +15491,539 @@ extension Components {
                     "kind",
                     "toolCallId",
                     "toolName"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent`.
+        public struct ToolCompletedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/content`.
+            public var content: Components.Schemas.ToolResultContent?
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/contentTruncated`.
+            public var contentTruncated: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/details`.
+            public var details: OpenAPIRuntime.OpenAPIValueContainer?
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/detailsOmitted`.
+            public var detailsOmitted: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/isError`.
+            public var isError: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case tool_completed = "tool.completed"
+            }
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/kind`.
+            public var kind: Components.Schemas.ToolCompletedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/toolCallId`.
+            public var toolCallId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/toolName`.
+            public var toolName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolCompletedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `ToolCompletedEvent`.
+            ///
+            /// - Parameters:
+            ///   - content:
+            ///   - contentTruncated:
+            ///   - details:
+            ///   - detailsOmitted:
+            ///   - isError:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - toolCallId:
+            ///   - toolName:
+            ///   - turnId:
+            public init(
+                content: Components.Schemas.ToolResultContent? = nil,
+                contentTruncated: Swift.Bool? = nil,
+                details: OpenAPIRuntime.OpenAPIValueContainer? = nil,
+                detailsOmitted: Swift.Bool? = nil,
+                isError: Swift.Bool? = nil,
+                kind: Components.Schemas.ToolCompletedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                toolCallId: Swift.String,
+                toolName: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.content = content
+                self.contentTruncated = contentTruncated
+                self.details = details
+                self.detailsOmitted = detailsOmitted
+                self.isError = isError
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.toolCallId = toolCallId
+                self.toolName = toolName
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case content
+                case contentTruncated
+                case details
+                case detailsOmitted
+                case isError
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case toolCallId
+                case toolName
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.content = try container.decodeIfPresent(
+                    Components.Schemas.ToolResultContent.self,
+                    forKey: .content
+                )
+                self.contentTruncated = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .contentTruncated
+                )
+                self.details = try container.decodeIfPresent(
+                    OpenAPIRuntime.OpenAPIValueContainer.self,
+                    forKey: .details
+                )
+                self.detailsOmitted = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .detailsOmitted
+                )
+                self.isError = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .isError
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.ToolCompletedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.toolCallId = try container.decode(
+                    Swift.String.self,
+                    forKey: .toolCallId
+                )
+                self.toolName = try container.decode(
+                    Swift.String.self,
+                    forKey: .toolName
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "content",
+                    "contentTruncated",
+                    "details",
+                    "detailsOmitted",
+                    "isError",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "toolCallId",
+                    "toolName",
+                    "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ToolOutputDeltaEvent`.
+        public struct ToolOutputDeltaEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ToolOutputDeltaEvent/content`.
+            public var content: Components.Schemas.ToolResultContent
+            /// - Remark: Generated from `#/components/schemas/ToolOutputDeltaEvent/isError`.
+            public var isError: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ToolOutputDeltaEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case tool_output_delta = "tool.output.delta"
+            }
+            /// - Remark: Generated from `#/components/schemas/ToolOutputDeltaEvent/kind`.
+            public var kind: Components.Schemas.ToolOutputDeltaEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ToolOutputDeltaEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ToolOutputDeltaEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolOutputDeltaEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolOutputDeltaEvent/toolCallId`.
+            public var toolCallId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolOutputDeltaEvent/toolName`.
+            public var toolName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolOutputDeltaEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `ToolOutputDeltaEvent`.
+            ///
+            /// - Parameters:
+            ///   - content:
+            ///   - isError:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - toolCallId:
+            ///   - toolName:
+            ///   - turnId:
+            public init(
+                content: Components.Schemas.ToolResultContent,
+                isError: Swift.Bool? = nil,
+                kind: Components.Schemas.ToolOutputDeltaEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                toolCallId: Swift.String,
+                toolName: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.content = content
+                self.isError = isError
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.toolCallId = toolCallId
+                self.toolName = toolName
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case content
+                case isError
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case toolCallId
+                case toolName
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.content = try container.decode(
+                    Components.Schemas.ToolResultContent.self,
+                    forKey: .content
+                )
+                self.isError = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .isError
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.ToolOutputDeltaEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.toolCallId = try container.decode(
+                    Swift.String.self,
+                    forKey: .toolCallId
+                )
+                self.toolName = try container.decode(
+                    Swift.String.self,
+                    forKey: .toolName
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "content",
+                    "isError",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "toolCallId",
+                    "toolName",
+                    "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent`.
+        public struct ToolPlannedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent/arguments`.
+            public var arguments: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent/argumentsTruncated`.
+            public var argumentsTruncated: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent/contentIndex`.
+            public var contentIndex: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case tool_planned = "tool.planned"
+            }
+            /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent/kind`.
+            public var kind: Components.Schemas.ToolPlannedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent/messageId`.
+            public var messageId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent/toolCallId`.
+            public var toolCallId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent/toolName`.
+            public var toolName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolPlannedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `ToolPlannedEvent`.
+            ///
+            /// - Parameters:
+            ///   - arguments:
+            ///   - argumentsTruncated:
+            ///   - contentIndex:
+            ///   - kind:
+            ///   - messageId:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - toolCallId:
+            ///   - toolName:
+            ///   - turnId:
+            public init(
+                arguments: Swift.String? = nil,
+                argumentsTruncated: Swift.Bool? = nil,
+                contentIndex: Swift.Int? = nil,
+                kind: Components.Schemas.ToolPlannedEvent.KindPayload,
+                messageId: Swift.String,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                toolCallId: Swift.String,
+                toolName: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.arguments = arguments
+                self.argumentsTruncated = argumentsTruncated
+                self.contentIndex = contentIndex
+                self.kind = kind
+                self.messageId = messageId
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.toolCallId = toolCallId
+                self.toolName = toolName
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case arguments
+                case argumentsTruncated
+                case contentIndex
+                case kind
+                case messageId
+                case sequence
+                case sessionId
+                case streamId
+                case toolCallId
+                case toolName
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.arguments = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .arguments
+                )
+                self.argumentsTruncated = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .argumentsTruncated
+                )
+                self.contentIndex = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .contentIndex
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.ToolPlannedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.messageId = try container.decode(
+                    Swift.String.self,
+                    forKey: .messageId
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.toolCallId = try container.decode(
+                    Swift.String.self,
+                    forKey: .toolCallId
+                )
+                self.toolName = try container.decode(
+                    Swift.String.self,
+                    forKey: .toolName
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "arguments",
+                    "argumentsTruncated",
+                    "contentIndex",
+                    "kind",
+                    "messageId",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "toolCallId",
+                    "toolName",
+                    "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ToolResultContent`.
+        public typealias ToolResultContent = [Components.Schemas.TranscriptContent]
+        /// - Remark: Generated from `#/components/schemas/ToolStartedEvent`.
+        public struct ToolStartedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ToolStartedEvent/arguments`.
+            public var arguments: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ToolStartedEvent/argumentsTruncated`.
+            public var argumentsTruncated: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ToolStartedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case tool_started = "tool.started"
+            }
+            /// - Remark: Generated from `#/components/schemas/ToolStartedEvent/kind`.
+            public var kind: Components.Schemas.ToolStartedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ToolStartedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ToolStartedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolStartedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolStartedEvent/toolCallId`.
+            public var toolCallId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolStartedEvent/toolName`.
+            public var toolName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolStartedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `ToolStartedEvent`.
+            ///
+            /// - Parameters:
+            ///   - arguments:
+            ///   - argumentsTruncated:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - toolCallId:
+            ///   - toolName:
+            ///   - turnId:
+            public init(
+                arguments: Swift.String? = nil,
+                argumentsTruncated: Swift.Bool? = nil,
+                kind: Components.Schemas.ToolStartedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                toolCallId: Swift.String,
+                toolName: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.arguments = arguments
+                self.argumentsTruncated = argumentsTruncated
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.toolCallId = toolCallId
+                self.toolName = toolName
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case arguments
+                case argumentsTruncated
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case toolCallId
+                case toolName
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.arguments = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .arguments
+                )
+                self.argumentsTruncated = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .argumentsTruncated
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.ToolStartedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.toolCallId = try container.decode(
+                    Swift.String.self,
+                    forKey: .toolCallId
+                )
+                self.toolName = try container.decode(
+                    Swift.String.self,
+                    forKey: .toolName
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "arguments",
+                    "argumentsTruncated",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "toolCallId",
+                    "toolName",
+                    "turnId"
                 ])
             }
         }
@@ -13082,6 +16486,136 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/TurnCompletedEvent`.
+        public struct TurnCompletedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TurnCompletedEvent/compactionFailureReason`.
+            @frozen public enum CompactionFailureReasonPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case summaryTruncated = "summary_truncated"
+                case summaryInvalid = "summary_invalid"
+                case policyStop = "policy_stop"
+                case providerError = "provider_error"
+                case notAdaptable = "not_adaptable"
+                case canceled = "canceled"
+                case conflict = "conflict"
+                case internalError = "internal_error"
+            }
+            /// - Remark: Generated from `#/components/schemas/TurnCompletedEvent/compactionFailureReason`.
+            public var compactionFailureReason: Components.Schemas.TurnCompletedEvent.CompactionFailureReasonPayload?
+            /// - Remark: Generated from `#/components/schemas/TurnCompletedEvent/errorKind`.
+            public var errorKind: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/TurnCompletedEvent/errorMessage`.
+            public var errorMessage: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/TurnCompletedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case turn_completed = "turn.completed"
+            }
+            /// - Remark: Generated from `#/components/schemas/TurnCompletedEvent/kind`.
+            public var kind: Components.Schemas.TurnCompletedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/TurnCompletedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/TurnCompletedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/TurnCompletedEvent/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/TurnCompletedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/TurnCompletedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `TurnCompletedEvent`.
+            ///
+            /// - Parameters:
+            ///   - compactionFailureReason:
+            ///   - errorKind:
+            ///   - errorMessage:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - status:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                compactionFailureReason: Components.Schemas.TurnCompletedEvent.CompactionFailureReasonPayload? = nil,
+                errorKind: Swift.String? = nil,
+                errorMessage: Swift.String? = nil,
+                kind: Components.Schemas.TurnCompletedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                status: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.compactionFailureReason = compactionFailureReason
+                self.errorKind = errorKind
+                self.errorMessage = errorMessage
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.status = status
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case compactionFailureReason
+                case errorKind
+                case errorMessage
+                case kind
+                case sequence
+                case sessionId
+                case status
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.compactionFailureReason = try container.decodeIfPresent(
+                    Components.Schemas.TurnCompletedEvent.CompactionFailureReasonPayload.self,
+                    forKey: .compactionFailureReason
+                )
+                self.errorKind = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .errorKind
+                )
+                self.errorMessage = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .errorMessage
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.TurnCompletedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.status = try container.decode(
+                    Swift.String.self,
+                    forKey: .status
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "compactionFailureReason",
+                    "errorKind",
+                    "errorMessage",
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "status",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/TurnInfo`.
         public struct TurnInfo: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/TurnInfo/compactionFailureReason`.
@@ -13202,6 +16736,92 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/TurnStartedEvent`.
+        public struct TurnStartedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TurnStartedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case turn_started = "turn.started"
+            }
+            /// - Remark: Generated from `#/components/schemas/TurnStartedEvent/kind`.
+            public var kind: Components.Schemas.TurnStartedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/TurnStartedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/TurnStartedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/TurnStartedEvent/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/TurnStartedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/TurnStartedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `TurnStartedEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - status:
+            ///   - streamId:
+            ///   - turnId:
+            public init(
+                kind: Components.Schemas.TurnStartedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                status: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.status = status
+                self.streamId = streamId
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case sequence
+                case sessionId
+                case status
+                case streamId
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.TurnStartedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.status = try container.decode(
+                    Swift.String.self,
+                    forKey: .status
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "status",
+                    "streamId",
+                    "turnId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/TurnsCredentialExpiredError`.
         public struct TurnsCredentialExpiredError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/TurnsCredentialExpiredError/code`.
@@ -13283,6 +16903,92 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/URLOpenRequestedEvent`.
+        public struct URLOpenRequestedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/URLOpenRequestedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case url_open_requested = "url.open.requested"
+            }
+            /// - Remark: Generated from `#/components/schemas/URLOpenRequestedEvent/kind`.
+            public var kind: Components.Schemas.URLOpenRequestedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/URLOpenRequestedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/URLOpenRequestedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/URLOpenRequestedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/URLOpenRequestedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/URLOpenRequestedEvent/url`.
+            public var url: Swift.String?
+            /// Creates a new `URLOpenRequestedEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            ///   - url:
+            public init(
+                kind: Components.Schemas.URLOpenRequestedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil,
+                url: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+                self.url = url
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+                case url
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.URLOpenRequestedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                self.url = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .url
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId",
+                    "url"
                 ])
             }
         }
@@ -13561,6 +17267,178 @@ extension Components {
                     "modelOverrides",
                     "promptCacheRetention",
                     "readClaudeConfigs"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UsageChangedEvent`.
+        public struct UsageChangedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UsageChangedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case usage_changed = "usage.changed"
+            }
+            /// - Remark: Generated from `#/components/schemas/UsageChangedEvent/kind`.
+            public var kind: Components.Schemas.UsageChangedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/UsageChangedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/UsageChangedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/UsageChangedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/UsageChangedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UsageChangedEvent/usage`.
+            public var usage: Components.Schemas.SessionUsage
+            /// Creates a new `UsageChangedEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - turnId:
+            ///   - usage:
+            public init(
+                kind: Components.Schemas.UsageChangedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                turnId: Swift.String? = nil,
+                usage: Components.Schemas.SessionUsage
+            ) {
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.turnId = turnId
+                self.usage = usage
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case turnId
+                case usage
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.UsageChangedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                self.usage = try container.decode(
+                    Components.Schemas.SessionUsage.self,
+                    forKey: .usage
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "turnId",
+                    "usage"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UserMessageAddedEvent`.
+        public struct UserMessageAddedEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UserMessageAddedEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case user_message_added = "user.message.added"
+            }
+            /// - Remark: Generated from `#/components/schemas/UserMessageAddedEvent/kind`.
+            public var kind: Components.Schemas.UserMessageAddedEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/UserMessageAddedEvent/sequence`.
+            public var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/UserMessageAddedEvent/sessionId`.
+            public var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/UserMessageAddedEvent/streamId`.
+            public var streamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/UserMessageAddedEvent/text`.
+            public var text: Swift.String
+            /// - Remark: Generated from `#/components/schemas/UserMessageAddedEvent/turnId`.
+            public var turnId: Swift.String?
+            /// Creates a new `UserMessageAddedEvent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - streamId:
+            ///   - text:
+            ///   - turnId:
+            public init(
+                kind: Components.Schemas.UserMessageAddedEvent.KindPayload,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                streamId: Swift.String,
+                text: Swift.String,
+                turnId: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.streamId = streamId
+                self.text = text
+                self.turnId = turnId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case sequence
+                case sessionId
+                case streamId
+                case text
+                case turnId
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.UserMessageAddedEvent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.streamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .streamId
+                )
+                self.text = try container.decode(
+                    Swift.String.self,
+                    forKey: .text
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "sequence",
+                    "sessionId",
+                    "streamId",
+                    "text",
+                    "turnId"
                 ])
             }
         }

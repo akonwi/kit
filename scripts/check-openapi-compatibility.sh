@@ -42,8 +42,11 @@ if [[ -z $oasdiff_bin ]]; then
   exit 1
 fi
 
+# Each line excuses one exact finding; see the file's header.
+exceptions="$(git rev-parse --show-toplevel)/scripts/openapi-compatibility-exceptions.txt"
+
 run_oasdiff() {
-  "$oasdiff_bin" breaking --fail-on ERR --format json "$release_spec" "$current_spec"
+  "$oasdiff_bin" breaking --fail-on ERR --format json --err-ignore "$exceptions" "$release_spec" "$current_spec"
 }
 
 if run_oasdiff >"$report" 2>&1; then

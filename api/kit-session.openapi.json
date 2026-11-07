@@ -30,6 +30,8 @@
             "$ref": "#/components/schemas/PinnedDiffTarget"
           },
           "id": {
+            "format": "uint64",
+            "minimum": 0,
             "type": "integer"
           },
           "preview": {
@@ -71,6 +73,84 @@
           }
         },
         "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "AnnotationCreatedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "annotation": {
+            "$ref": "#/components/schemas/Annotation"
+          },
+          "annotationId": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "annotation.created"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "annotationId",
+          "annotation",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "AnnotationDeletedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "annotationId": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "annotation.deleted"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "annotationId",
           "kind"
         ],
         "type": "object"
@@ -120,6 +200,48 @@
         ],
         "type": "object"
       },
+      "AnnotationSubmittedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "acceptedMessageId": {
+            "type": "string"
+          },
+          "annotationIds": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "annotation.submitted"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "annotationIds",
+          "acceptedMessageId",
+          "kind"
+        ],
+        "type": "object"
+      },
       "AnnotationSummary": {
         "additionalProperties": false,
         "properties": {
@@ -153,6 +275,47 @@
           "anchor",
           "bodyPreview",
           "preview"
+        ],
+        "type": "object"
+      },
+      "AnnotationUpdatedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "annotation": {
+            "$ref": "#/components/schemas/Annotation"
+          },
+          "annotationId": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "annotation.updated"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "annotationId",
+          "annotation",
+          "kind"
         ],
         "type": "object"
       },
@@ -301,6 +464,130 @@
         "required": [
           "code",
           "message"
+        ],
+        "type": "object"
+      },
+      "AssistantCompletedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "assistant.completed"
+            ],
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "thinking": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "messageId",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "AssistantStartedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "assistant.started"
+            ],
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "thinking": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "messageId",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "AssistantTextDeltaEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contentIndex": {
+            "type": "integer"
+          },
+          "delta": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "assistant.text.delta"
+            ],
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "messageId",
+          "delta",
+          "kind"
         ],
         "type": "object"
       },
@@ -647,6 +934,62 @@
         ],
         "type": "object"
       },
+      "BoundaryCreatedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "boundaryId": {
+            "type": "string"
+          },
+          "boundaryKind": {
+            "type": "string"
+          },
+          "boundarySource": {
+            "type": "string"
+          },
+          "content": {
+            "$ref": "#/components/schemas/ContextContent"
+          },
+          "contentTruncated": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "details": {},
+          "detailsOmitted": {
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "boundary.created"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "boundaryId",
+          "boundaryKind",
+          "createdAt",
+          "kind"
+        ],
+        "type": "object"
+      },
       "BrowserLoginInstructions": {
         "additionalProperties": false,
         "properties": {
@@ -713,6 +1056,126 @@
         "required": [
           "session",
           "workspace"
+        ],
+        "type": "object"
+      },
+      "ClientPluginCall": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {},
+          "pluginId": {
+            "type": "string"
+          },
+          "subagentConversationId": {
+            "type": "string"
+          },
+          "toolCallId": {
+            "type": "string"
+          },
+          "toolId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pluginId",
+          "toolId",
+          "toolCallId",
+          "input"
+        ],
+        "type": "object"
+      },
+      "ClientPluginCallRequestedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "clientPluginCall": {
+            "$ref": "#/components/schemas/ClientPluginCall"
+          },
+          "clientPluginCallId": {
+            "type": "string"
+          },
+          "clientPluginInstanceId": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "client_plugin.call.requested"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "clientPluginCallId",
+          "clientPluginInstanceId",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ClientPluginCallResolvedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "clientPluginCallId": {
+            "type": "string"
+          },
+          "clientPluginCallResolution": {
+            "enum": [
+              "completed",
+              "failed",
+              "timed_out",
+              "withdrawn",
+              "unavailable"
+            ],
+            "type": "string"
+          },
+          "clientPluginInstanceId": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "client_plugin.call.resolved"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "clientPluginCallId",
+          "clientPluginInstanceId",
+          "clientPluginCallResolution",
+          "kind"
         ],
         "type": "object"
       },
@@ -805,6 +1268,54 @@
         ],
         "type": "object"
       },
+      "CompactionCompletedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "compactionFailureReason": {
+            "enum": [
+              "summary_truncated",
+              "summary_invalid",
+              "policy_stop",
+              "provider_error",
+              "not_adaptable",
+              "canceled",
+              "conflict",
+              "internal_error"
+            ],
+            "type": "string"
+          },
+          "compactionId": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "compaction.completed"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "compactionId",
+          "kind"
+        ],
+        "type": "object"
+      },
       "CompactionFailedErrorDetails": {
         "additionalProperties": false,
         "properties": {
@@ -824,6 +1335,41 @@
         },
         "required": [
           "reason"
+        ],
+        "type": "object"
+      },
+      "CompactionStartedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "compactionId": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "compaction.started"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "compactionId",
+          "kind"
         ],
         "type": "object"
       },
@@ -956,6 +1502,50 @@
           "message"
         ],
         "type": "object"
+      },
+      "ContextChangedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contextTokens": {
+            "type": "integer"
+          },
+          "contextWindow": {
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "context.changed"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "contextWindow",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ContextContent": {
+        "items": {
+          "$ref": "#/components/schemas/TranscriptContent"
+        },
+        "type": "array"
       },
       "CreateAnnotationInput": {
         "additionalProperties": false,
@@ -1972,6 +2562,41 @@
         ],
         "type": "object"
       },
+      "FollowUpsChangedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "followUps": {
+            "$ref": "#/components/schemas/FollowUpQueue"
+          },
+          "kind": {
+            "enum": [
+              "follow_ups.changed"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "followUps",
+          "kind"
+        ],
+        "type": "object"
+      },
       "ForbiddenError": {
         "additionalProperties": false,
         "properties": {
@@ -2392,6 +3017,80 @@
         ],
         "type": "object"
       },
+      "InteractionRequestedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "interaction": {
+            "$ref": "#/components/schemas/InteractionRequest"
+          },
+          "kind": {
+            "enum": [
+              "interaction.requested"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "interaction",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "InteractionResolvedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "interactionId": {
+            "type": "string"
+          },
+          "interactionResolution": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "interaction.resolved"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "interactionId",
+          "interactionResolution",
+          "kind"
+        ],
+        "type": "object"
+      },
       "InteractionResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2804,6 +3503,41 @@
         ],
         "type": "object"
       },
+      "PeerQueryChangedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "peer_query.changed"
+            ],
+            "type": "string"
+          },
+          "peerRequestId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "peerRequestId",
+          "kind"
+        ],
+        "type": "object"
+      },
       "PinnedDiffTarget": {
         "additionalProperties": false,
         "properties": {
@@ -3047,6 +3781,45 @@
         "required": [
           "pluginId",
           "instance"
+        ],
+        "type": "object"
+      },
+      "PluginMessageAddedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "plugin.message.added"
+            ],
+            "type": "string"
+          },
+          "pluginId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "pluginId",
+          "text",
+          "kind"
         ],
         "type": "object"
       },
@@ -3475,6 +4248,76 @@
         ],
         "type": "object"
       },
+      "ProviderRetryScheduledEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "provider.retry.scheduled"
+            ],
+            "type": "string"
+          },
+          "providerRetry": {
+            "$ref": "#/components/schemas/ProviderRetry"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "providerRetry",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ProviderRetryStartedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "provider.retry.started"
+            ],
+            "type": "string"
+          },
+          "providerRetry": {
+            "$ref": "#/components/schemas/ProviderRetry"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "providerRetry",
+          "kind"
+        ],
+        "type": "object"
+      },
       "ReadFileDiffInput": {
         "additionalProperties": false,
         "properties": {
@@ -3663,6 +4506,41 @@
           "content",
           "revision",
           "updatedAt"
+        ],
+        "type": "object"
+      },
+      "ScratchpadChangedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "scratchpad.changed"
+            ],
+            "type": "string"
+          },
+          "scratchpad": {
+            "$ref": "#/components/schemas/Scratchpad"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "scratchpad",
+          "kind"
         ],
         "type": "object"
       },
@@ -3983,10 +4861,83 @@
         ],
         "type": "object"
       },
-      "SessionEvent": {
+      "SessionCWDChangedEvent": {
         "additionalProperties": false,
         "properties": {
+          "kind": {
+            "enum": [
+              "session.cwd.changed"
+            ],
+            "type": "string"
+          },
           "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/WorkspaceRef"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "workspace",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "SessionConfiguration": {
+        "additionalProperties": false,
+        "properties": {
+          "configurationRevision": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "inputs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "model": {
+            "type": "string"
+          },
+          "thinkingLevel": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "thinkingLevel",
+          "configurationRevision"
+        ],
+        "type": "object"
+      },
+      "SessionConfigurationChangedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "configuration": {
+            "$ref": "#/components/schemas/SessionConfiguration"
+          },
+          "kind": {
+            "enum": [
+              "session.configuration.changed"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
             "type": "integer"
           },
           "sessionId": {
@@ -4002,9 +4953,160 @@
         "required": [
           "streamId",
           "sequence",
-          "sessionId"
+          "sessionId",
+          "configuration",
+          "kind"
         ],
         "type": "object"
+      },
+      "SessionEvent": {
+        "discriminator": {
+          "mapping": {
+            "annotation.created": "#/components/schemas/AnnotationCreatedEvent",
+            "annotation.deleted": "#/components/schemas/AnnotationDeletedEvent",
+            "annotation.submitted": "#/components/schemas/AnnotationSubmittedEvent",
+            "annotation.updated": "#/components/schemas/AnnotationUpdatedEvent",
+            "assistant.completed": "#/components/schemas/AssistantCompletedEvent",
+            "assistant.started": "#/components/schemas/AssistantStartedEvent",
+            "assistant.text.delta": "#/components/schemas/AssistantTextDeltaEvent",
+            "assistant.thinking.delta": "#/components/schemas/ThinkingDeltaEvent",
+            "boundary.created": "#/components/schemas/BoundaryCreatedEvent",
+            "client_plugin.call.requested": "#/components/schemas/ClientPluginCallRequestedEvent",
+            "client_plugin.call.resolved": "#/components/schemas/ClientPluginCallResolvedEvent",
+            "compaction.completed": "#/components/schemas/CompactionCompletedEvent",
+            "compaction.started": "#/components/schemas/CompactionStartedEvent",
+            "context.changed": "#/components/schemas/ContextChangedEvent",
+            "follow_ups.changed": "#/components/schemas/FollowUpsChangedEvent",
+            "interaction.requested": "#/components/schemas/InteractionRequestedEvent",
+            "interaction.resolved": "#/components/schemas/InteractionResolvedEvent",
+            "peer_query.changed": "#/components/schemas/PeerQueryChangedEvent",
+            "plugin.message.added": "#/components/schemas/PluginMessageAddedEvent",
+            "provider.retry.scheduled": "#/components/schemas/ProviderRetryScheduledEvent",
+            "provider.retry.started": "#/components/schemas/ProviderRetryStartedEvent",
+            "scratchpad.changed": "#/components/schemas/ScratchpadChangedEvent",
+            "session.configuration.changed": "#/components/schemas/SessionConfigurationChangedEvent",
+            "session.cwd.changed": "#/components/schemas/SessionCWDChangedEvent",
+            "session.name.changed": "#/components/schemas/SessionNameChangedEvent",
+            "subagent.changed": "#/components/schemas/SubagentChangedEvent",
+            "tool.completed": "#/components/schemas/ToolCompletedEvent",
+            "tool.output.delta": "#/components/schemas/ToolOutputDeltaEvent",
+            "tool.planned": "#/components/schemas/ToolPlannedEvent",
+            "tool.started": "#/components/schemas/ToolStartedEvent",
+            "turn.completed": "#/components/schemas/TurnCompletedEvent",
+            "turn.started": "#/components/schemas/TurnStartedEvent",
+            "url.open.requested": "#/components/schemas/URLOpenRequestedEvent",
+            "usage.changed": "#/components/schemas/UsageChangedEvent",
+            "user.message.added": "#/components/schemas/UserMessageAddedEvent"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TurnStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/UserMessageAddedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/PluginMessageAddedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AssistantStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AssistantTextDeltaEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ThinkingDeltaEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AssistantCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ToolPlannedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ToolStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ToolOutputDeltaEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/CompactionStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/CompactionCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ProviderRetryScheduledEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ProviderRetryStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ContextChangedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/UsageChangedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TurnCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SessionNameChangedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SessionCWDChangedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SubagentChangedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/PeerQueryChangedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/InteractionRequestedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/InteractionResolvedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AnnotationCreatedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AnnotationUpdatedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AnnotationDeletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AnnotationSubmittedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ScratchpadChangedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/BoundaryCreatedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/URLOpenRequestedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ClientPluginCallRequestedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ClientPluginCallResolvedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SessionConfigurationChangedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/FollowUpsChangedEvent"
+          }
+        ]
       },
       "SessionEventBatch": {
         "additionalProperties": false,
@@ -4133,6 +5235,41 @@
         },
         "required": [
           "sessions"
+        ],
+        "type": "object"
+      },
+      "SessionNameChangedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "session.name.changed"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "sessionName": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "sessionName",
+          "kind"
         ],
         "type": "object"
       },
@@ -4494,6 +5631,44 @@
           "boundaryId",
           "boundaryKind",
           "createdAt",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "SubagentChangedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "subagent.changed"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "subagentConversationId": {
+            "type": "string"
+          },
+          "subagentTaskId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "subagentConversationId",
           "kind"
         ],
         "type": "object"
@@ -5270,6 +6445,48 @@
         ],
         "type": "object"
       },
+      "ThinkingDeltaEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contentIndex": {
+            "type": "integer"
+          },
+          "delta": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "assistant.thinking.delta"
+            ],
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "messageId",
+          "delta",
+          "kind"
+        ],
+        "type": "object"
+      },
       "ToolCallContent": {
         "additionalProperties": false,
         "properties": {
@@ -5293,6 +6510,207 @@
           }
         },
         "required": [
+          "toolCallId",
+          "toolName",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ToolCompletedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "$ref": "#/components/schemas/ToolResultContent"
+          },
+          "contentTruncated": {
+            "type": "boolean"
+          },
+          "details": {},
+          "detailsOmitted": {
+            "type": "boolean"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "tool.completed"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "toolCallId": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "toolCallId",
+          "toolName",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ToolOutputDeltaEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "$ref": "#/components/schemas/ToolResultContent"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "tool.output.delta"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "toolCallId": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "toolCallId",
+          "toolName",
+          "content",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ToolPlannedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments": {
+            "type": "string"
+          },
+          "argumentsTruncated": {
+            "type": "boolean"
+          },
+          "contentIndex": {
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "tool.planned"
+            ],
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "toolCallId": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "messageId",
+          "toolCallId",
+          "toolName",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ToolResultContent": {
+        "items": {
+          "$ref": "#/components/schemas/TranscriptContent"
+        },
+        "type": "array"
+      },
+      "ToolStartedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments": {
+            "type": "string"
+          },
+          "argumentsTruncated": {
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "tool.started"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "toolCallId": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
           "toolCallId",
           "toolName",
           "kind"
@@ -5496,6 +6914,60 @@
         ],
         "type": "object"
       },
+      "TurnCompletedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "compactionFailureReason": {
+            "enum": [
+              "summary_truncated",
+              "summary_invalid",
+              "policy_stop",
+              "provider_error",
+              "not_adaptable",
+              "canceled",
+              "conflict",
+              "internal_error"
+            ],
+            "type": "string"
+          },
+          "errorKind": {
+            "type": "string"
+          },
+          "errorMessage": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "turn.completed"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "status",
+          "kind"
+        ],
+        "type": "object"
+      },
       "TurnInfo": {
         "additionalProperties": false,
         "properties": {
@@ -5548,6 +7020,41 @@
         ],
         "type": "object"
       },
+      "TurnStartedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "turn.started"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "status",
+          "kind"
+        ],
+        "type": "object"
+      },
       "TurnsCredentialExpiredError": {
         "additionalProperties": false,
         "properties": {
@@ -5587,6 +7094,40 @@
         "required": [
           "code",
           "message"
+        ],
+        "type": "object"
+      },
+      "URLOpenRequestedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "url.open.requested"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "kind"
         ],
         "type": "object"
       },
@@ -5714,6 +7255,76 @@
             "type": "boolean"
           }
         },
+        "type": "object"
+      },
+      "UsageChangedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "usage.changed"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/SessionUsage"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "usage",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "UserMessageAddedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "user.message.added"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "sequence",
+          "sessionId",
+          "text",
+          "kind"
+        ],
         "type": "object"
       },
       "VCSHead": {

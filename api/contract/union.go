@@ -132,6 +132,9 @@ func (c *unionCodec) flatten(union reflect.Value, payload any) (reflect.Value, *
 	}
 	value := reflect.ValueOf(payload)
 	for _, member := range variant.members {
+		if field := value.Field(member.field); member.required && field.Kind() == reflect.Pointer && field.IsNil() {
+			return reflect.Value{}, nil, fmt.Errorf("%s kind %q requires %s", c.name, variant.kind, member.name)
+		}
 		wire.Field(member.wire).Set(value.Field(member.field).Convert(c.wire.Field(member.wire).Type))
 	}
 	wire.Field(c.kindWire).SetString(variant.kind)

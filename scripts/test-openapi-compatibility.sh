@@ -25,6 +25,7 @@ PY
 
 cat >"$tmp/oasdiff" <<'SH'
 #!/usr/bin/env bash
+printf '%s\n' "$@" >"${OASDIFF_ARGS:-/dev/null}"
 case ${OASDIFF_RESULT:?} in
   clean) echo '[]'; exit 0 ;;
   breaking) echo '[{"id":"test-break","text":"removed test field","level":3,"operation":"GET","path":"/test"}]'; exit 1 ;;
@@ -53,5 +54,10 @@ if OASDIFF_BIN="$tmp/oasdiff" OASDIFF_RESULT=crash "$check" HEAD "$bumped" >/dev
 fi
 if OASDIFF_BIN="$tmp/oasdiff" OASDIFF_RESULT=clean "$check" HEAD "$regressed" >/dev/null 2>&1; then
   echo "protocol version regression was accepted" >&2
+  exit 1
+fi
+OASDIFF_BIN="$tmp/oasdiff" OASDIFF_RESULT=clean OASDIFF_ARGS="$tmp/args" "$check" HEAD "$same" >/dev/null
+if ! grep -qxF -- "--err-ignore" "$tmp/args" || ! grep -qxF -- "$root/scripts/openapi-compatibility-exceptions.txt" "$tmp/args"; then
+  echo "the compatibility exceptions file was not passed to oasdiff" >&2
   exit 1
 fi

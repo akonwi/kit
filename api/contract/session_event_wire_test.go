@@ -2,6 +2,8 @@ package contract
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -168,6 +170,53 @@ func TestSessionEventUnionCodecPreservesFlatWire(t *testing.T) {
 	}
 	if _, err := decodeSessionEventUnion([]byte(`{"streamId":"s","sequence":1,"sessionId":"s","turnId":"t","runId":"t","kind":"turn.started","status":"running"}`)); err == nil {
 		t.Fatal("legacy run identity was accepted")
+	}
+}
+
+// TestSessionEventRefusesToEncodeMissingRequiredRecord keeps the published
+// contract's required record members honest: a payload missing one cannot be
+// encoded, so the member is never absent or null on the wire.
+func TestSessionEventRefusesToEncodeMissingRequiredRecord(t *testing.T) {
+	t.Parallel()
+	checked := 0
+	for _, variant := range (SessionEvent{}).UnionVariants() {
+		typ := reflect.TypeOf(variant.Payload)
+		for index := 0; index < typ.NumField(); index++ {
+			field := typ.Field(index)
+			if field.Type.Kind() != reflect.Pointer || strings.Contains(field.Tag.Get("json"), ",omitempty") {
+				continue
+			}
+			checked++
+			payload := reflect.New(typ).Elem().Interface().(SessionEventPayload)
+			event := SessionEvent{StreamID: "stream_1", Sequence: 1, SessionID: "session_1", Payload: payload}
+			if encoded, err := json.Marshal(event); err == nil {
+				t.Errorf("%s without %s encoded as %s", typ.Name(), field.Name, encoded)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no required record members were checked")
+	}
+}
+
+// TestSessionEventDecodesOmittedZeroMembers covers members the wire omits when
+// they are zero, which the published contract therefore leaves optional.
+func TestSessionEventDecodesOmittedZeroMembers(t *testing.T) {
+	t.Parallel()
+	for _, wire := range []string{
+		`{"streamId":"stream_1","sequence":1,"sessionId":"session_1","turnId":"turn_1","kind":"context.changed","contextWindow":200000}`,
+		`{"streamId":"stream_1","sequence":2,"sessionId":"session_1","kind":"boundary.created","contentTruncated":true,"detailsOmitted":true,"boundaryId":"note:1","boundaryKind":"note","createdAt":"2026-01-01T00:00:00Z"}`,
+	} {
+		var event SessionEvent
+		if err := json.Unmarshal([]byte(wire), &event); err != nil {
+			t.Fatalf("decode %s: %v", wire, err)
+		}
+		if err := event.Validate(); err != nil {
+			t.Fatalf("validate %s: %v", wire, err)
+		}
+		if encoded, err := json.Marshal(event); err != nil || string(encoded) != wire {
+			t.Fatalf("round trip = %s, %v; want %s", encoded, err, wire)
+		}
 	}
 }
 

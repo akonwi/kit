@@ -54,6 +54,14 @@ For wire changes:
 Use stable error codes and closed discriminated unions. Clients must not infer
 behavior from error strings or unknown union shapes.
 
+A union is closed for a protocol version. Adding a kind to a published union,
+such as a session event kind, is breaking: the Go client and generated Swift
+reject a kind they don't know (ADR 0032), and the compatibility gate reports
+the new `oneOf` variant. Session routes require an exact protocol match, so a
+client never receives a kind from another protocol version. Generated
+TypeScript types only describe the union; a TypeScript client still handles a
+kind outside it explicitly, for example by ignoring it.
+
 `SessionProtocolVersion` identifies a released compatibility boundary, not each
 individual wire-changing commit. Multiple breaking changes merged after the
 latest stable release share one next protocol number. Increment it again only
@@ -100,6 +108,20 @@ go test ./internal/httpapi/openapi
 Commit `api/kit-session.openapi.json` with the source changes. Review its diff,
 not merely the generator result. CI compares it with the released contract and
 requires a protocol bump for breaking changes.
+
+Check compatibility locally with the oasdiff version CI installs:
+
+```sh
+go install github.com/oasdiff/oasdiff@v1.33.0
+scripts/check-openapi-compatibility.sh "$(gh api repos/akonwi/kit/releases/latest --jq .tag_name)"
+```
+
+When oasdiff reports a break that changes no client-visible wire behavior,
+such as publishing a schema the released contract described incorrectly, the
+finding may be excused in `scripts/openapi-compatibility-exceptions.txt`
+instead of bumping the protocol. Each line is the finding's method, path, and
+complete text, so it excuses exactly that finding. Record why in the file, and
+remove the line once the latest release publishes the change.
 
 ### 4. Update the Swift client
 

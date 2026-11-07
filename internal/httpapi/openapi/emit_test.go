@@ -40,6 +40,47 @@ func TestNestedSubagentLiveEventIsDiscriminatedUnion(t *testing.T) {
 	}
 }
 
+func TestSessionEventIsDiscriminatedUnionOfCompleteVariants(t *testing.T) {
+	encoded, err := Emit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	components := document["components"].(map[string]any)["schemas"].(map[string]any)
+	union := components["SessionEvent"].(map[string]any)
+	discriminator, _ := union["discriminator"].(map[string]any)
+	mapping, _ := discriminator["mapping"].(map[string]any)
+	variants := (protocol.SessionEvent{}).UnionVariants()
+	if discriminator["propertyName"] != "kind" || len(union["oneOf"].([]any)) != len(variants) || len(mapping) != len(variants) {
+		t.Fatalf("SessionEvent schema = %#v, want a %d-variant kind union", union, len(variants))
+	}
+	for _, variant := range variants {
+		name := reflect.TypeOf(variant.Payload).Name()
+		if mapping[variant.Kind] != "#/components/schemas/"+name {
+			t.Fatalf("kind %q maps to %v, want %s", variant.Kind, mapping[variant.Kind], name)
+		}
+		schema := components[name].(map[string]any)
+		properties := schema["properties"].(map[string]any)
+		required, _ := schema["required"].([]any)
+		if schema["additionalProperties"] != false || !reflect.DeepEqual(required[:3], []any{"streamId", "sequence", "sessionId"}) || required[len(required)-1] != "kind" {
+			t.Fatalf("%s = %#v, want a closed variant requiring the common identity and kind", name, schema)
+		}
+		if !reflect.DeepEqual(properties["kind"], map[string]any{"type": "string", "enum": []any{variant.Kind}}) {
+			t.Fatalf("%s kind = %#v", name, properties["kind"])
+		}
+		if !reflect.DeepEqual(properties["sequence"], map[string]any{"type": "integer", "format": "int64"}) || !reflect.DeepEqual(properties["turnId"], map[string]any{"type": "string"}) {
+			t.Fatalf("%s common members = %#v", name, properties)
+		}
+	}
+	contextChanged := components["ContextChangedEvent"].(map[string]any)
+	if !reflect.DeepEqual(contextChanged["required"], []any{"streamId", "sequence", "sessionId", "contextWindow", "kind"}) {
+		t.Fatalf("ContextChangedEvent required = %#v, want contextTokens optional because the wire omits zero", contextChanged["required"])
+	}
+}
+
 func TestDocumentIsCurrent(t *testing.T) {
 	document, err := Emit()
 	if err != nil {
