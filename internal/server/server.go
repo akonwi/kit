@@ -45,6 +45,7 @@ import (
 	"github.com/akonwi/kit/internal/subagent"
 	"github.com/akonwi/kit/internal/systemprompt"
 	"github.com/akonwi/kit/internal/version"
+	"github.com/akonwi/kit/internal/webui"
 	"github.com/akonwi/kit/internal/workingdiff"
 	"github.com/akonwi/kit/internal/workspace"
 	"github.com/gofrs/flock"
@@ -433,6 +434,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		devices:        deviceService,
 		pairing:        pairingRegistry,
 		servedURLs:     pairing.ServedURLs(allowed.hosts, allowed.origins, baseURL),
+		web:            webui.Embedded(),
 		store:          store,
 		logger:         logger,
 		sessions: runtimeSessionService{
@@ -535,7 +537,9 @@ type localHandlerOptions struct {
 	devices *devices.Service
 	pairing *pairing.Registry
 	// servedURLs are the origins pairing links can use, loopback last.
-	servedURLs  []string
+	servedURLs []string
+	// web serves the browser client's pages and files; nil serves none.
+	web         *webui.Handler
 	store       *storage.Store
 	sessions    sessionService
 	attachments attachmentService
@@ -604,6 +608,14 @@ func newHandler(options localHandlerOptions) http.Handler {
 		if !options.access.OriginAllowed(request.Header.Get("Origin"), request.Host) {
 			limitUnauthenticatedRead(writer)
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusForbidden, httpapi.ErrorForbidden, "forbidden", nil))
+			return
+		}
+		// The browser client's pages and files carry no data, and an unpaired
+		// browser must load them to pair, so they need no credential,
+		// instance, or protocol (ADR 0059). Every other path, including all
+		// of /v1, continues to those checks.
+		if options.web != nil && options.web.Match(request) {
+			options.web.ServeHTTP(writer, request)
 			return
 		}
 		request = withRequestAddress(request)

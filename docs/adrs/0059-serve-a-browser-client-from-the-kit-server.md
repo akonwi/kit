@@ -38,27 +38,43 @@ The Kit server serves the client's compiled HTML, JavaScript, CSS, and fonts
 from its one listener, on the same origin as the session API. The client
 talks only to the origin that served it.
 
-- Requests for the client's pages and assets need no credential, so an
-  unpaired browser can load the page that pairs it. These responses contain no
-  session, settings, or server data. `Host` checking applies to them as to
-  every request.
-- The session API under `/v1` keeps its credential, instance, and protocol
-  checks. Same-origin requests need no CORS.
+- The client answers a fixed set of `GET` and `HEAD` paths: its pages (`/`,
+  the pairing link path `/pair`, and `/sessions/{id}`), the hashed files of
+  its build under `/assets/`, and the root files a phone reads to add it to
+  the home screen (`/manifest.webmanifest`, `/favicon.ico`, the icons the
+  manifest names, and `/robots.txt`, which disallows crawling). Any other path
+  is served exactly as it would be without the client; there is no catch-all
+  page.
+- These requests need no credential, instance, or protocol, so an unpaired
+  browser can load the page that pairs it, and they never count as failed
+  authentications. Their responses contain no session, settings, or server
+  data. `Host` and `Origin` checking applies to them as to every request.
+- They are not session API operations and are not part of the OpenAPI
+  contract. The session API under `/v1` keeps its credential, instance, and
+  protocol checks. Same-origin requests need no CORS.
+- Pages revalidate on every load and build files are cached as immutable.
+  A build file may have a precompressed gzip variant, served when the browser
+  accepts it.
+- An executable built without the client answers its pages with a 404 page
+  that says so.
 - The page served for a pairing link's path redeems the link, so a link
   printed by `kit server pair`, the TUI, or the macOS app opens the browser
   client when it is followed in a browser.
 - Because the server serves the client, the two always speak the same
-  protocol. The client needs no compatibility negotiation beyond detecting
-  that the server it loaded from has been replaced, which it handles by
-  reloading.
+  protocol. When the server the page loaded from is replaced, the session API
+  answers with an instance or protocol mismatch, and the client reloads to
+  load the replacement's client. It reloads at most once for each server
+  instance, then shows an error, so a mismatch that persists cannot loop.
 
 ### Build and release
 
-The client lives in `apps/web`. Bun is a development and build-time
-dependency only; users need no JavaScript runtime. The release build compiles
-the client and embeds its assets into the `kit` executable with `go:embed`,
-which keeps the release build CGO-free. Building and testing the Go module
-does not require Bun.
+The client lives in `apps/web`. Bun is a development and build-time dependency
+only; users need no JavaScript runtime. The release build compiles the client
+into `internal/webui/build`, and the `kit` executable embeds that directory
+with `go:embed`, which adds no native code or runtime dependency. A checkout
+holds no build output there, so building and testing the Go module does not
+require Bun, and a release refuses to publish an executable without the
+client.
 
 ### Contract
 
@@ -118,9 +134,10 @@ Swift port.
 - Sharing sessions with other people or read-only links; Kit remains
   single-user.
 - A `kit web` command or other local launcher.
-- Hosting the client anywhere other than the server it talks to, or one page
-  talking to several servers.
-- Offline use and installation as an app.
+- Hosting the client anywhere other than the server it talks to, under a
+  path prefix, or one page talking to several servers.
+- Offline use and push notifications. Adding the client to a home screen
+  opens it like a bookmark; it installs no service worker.
 - Terminal and browser panes, the tiled workspace, source editing, provider
   login, server settings, and hosting session plugins.
 

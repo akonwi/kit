@@ -81,3 +81,15 @@ which they obtain by [pairing](pairing.md). See
 [Remote deployment](remote-deployment.md) for tunnels, reverse proxies, and
 cloud hosts, and
 [ADR 0045](../adrs/0045-connect-clients-to-local-ssh-and-network-servers.md).
+
+## Browser client paths
+
+Besides the session API under `/v1`, the daemon answers `GET` and `HEAD` for
+the browser client's pages and files
+([ADR 0059](../adrs/0059-serve-a-browser-client-from-the-kit-server.md)): `/`,
+`/pair`, `/sessions/{id}`, the client's files under `/assets/`,
+`/manifest.webmanifest`, `/favicon.ico` and the icons the manifest names, and
+`/robots.txt`. They need no credential and contain no session or server data;
+the allowed hosts and origins above apply to them too. A build of Kit without
+the browser client answers its pages with a 404 page that says so. Every other
+path is unaffected.
