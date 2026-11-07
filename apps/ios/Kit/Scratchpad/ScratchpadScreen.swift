@@ -212,7 +212,7 @@ struct ScratchpadReviewScreen: View {
                         .foregroundStyle(Theme.text)
                         .fixedSize()
                         .padding(.horizontal, 32).frame(height: 44)
-                        .background(Theme.hover, in: Capsule())
+                        .background(Theme.glassButton, in: Capsule())
                 }
                 .accessibilityIdentifier("scratchpad-use-shared")
                 Button {
@@ -227,7 +227,7 @@ struct ScratchpadReviewScreen: View {
                         .foregroundStyle(Theme.danger)
                         .lineLimit(1).minimumScaleFactor(0.85)
                         .frame(maxWidth: .infinity).frame(height: 44)
-                        .background(Theme.hover, in: Capsule())
+                        .background(Theme.glassButton, in: Capsule())
                 }
                 .accessibilityIdentifier("scratchpad-replace-shared")
             }

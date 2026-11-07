@@ -19,6 +19,11 @@ enum Theme {
     static let danger = dynamic(light: 0x98181F, dark: 0xFF9088)
     static let diffAdded = dynamic(light: 0xE6F0E8, dark: 0x162519)
     static let diffRemoved = dynamic(light: 0xF5E8E9, dark: 0x271C1B)
+    /// The fill of a secondary button on glass: the hover grey in light, and
+    /// a white wash in dark so the pill still shows against dark glass.
+    static let glassButton = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.1) : UIColor(rgb: 0xEFEFEF)
+    })
 
     /// Corner radii: controls and chips, then cards.
     static let controlRadius: CGFloat = 4
