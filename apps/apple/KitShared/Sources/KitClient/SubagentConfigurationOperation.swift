@@ -6,12 +6,14 @@ import Observation
 /// The roster snapshot remains authoritative: success and failure both refresh
 /// it, and the operation never replays a request or projects values itself.
 @MainActor @Observable
-final class SubagentConfigurationOperation {
-    private(set) var pending = false
-    private(set) var error: String?
-    private(set) var warning: String?
+public final class SubagentConfigurationOperation {
+    public private(set) var pending = false
+    public private(set) var error: String?
+    public private(set) var warning: String?
 
-    func clearFeedback() {
+    public init() {}
+
+    public func clearFeedback() {
         error = nil
         warning = nil
     }
@@ -19,7 +21,7 @@ final class SubagentConfigurationOperation {
     /// Applies a model and/or thinking patch. `outstandingWork` reads the
     /// refreshed roster so a conflict can explain why a model change was refused.
     @discardableResult
-    func change(session: String, conversation: String, generation: UInt64, agent: String,
+    public func change(session: String, conversation: String, generation: UInt64, agent: String,
                 model: String?, thinking: String?, client: any SubagentConfigurationClient,
                 outstandingWork: @MainActor () -> Bool,
                 refresh: @MainActor () async throws -> Void) async -> Bool {

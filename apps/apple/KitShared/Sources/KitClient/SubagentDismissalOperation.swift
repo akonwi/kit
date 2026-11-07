@@ -2,14 +2,16 @@ import Foundation
 import Observation
 
 @MainActor @Observable
-final class SubagentDismissalOperation {
-    private(set) var pending = false
-    private(set) var error: String?
+public final class SubagentDismissalOperation {
+    public private(set) var pending = false
+    public private(set) var error: String?
+
+    public init() {}
 
     /// Forgets the last failure, so a picker opened later doesn't show it.
-    func clearError() { if !pending { error = nil } }
+    public func clearError() { if !pending { error = nil } }
 
-    func dismiss(session: String, conversation: String, generation: UInt64,
+    public func dismiss(session: String, conversation: String, generation: UInt64,
                  client: any SubagentDismissalClient,
                  refresh: @MainActor () async throws -> Void) async -> Bool {
         guard !pending else { return false }

@@ -2,17 +2,19 @@ import Foundation
 import Observation
 
 @MainActor @Observable
-final class SubagentConversationState {
-    private(set) var messages: [TranscriptMessage] = []
-    private(set) var activity: String?
-    private(set) var loaded = false
-    private(set) var loading = false
-    private(set) var error: String?
-    private(set) var unavailable = false
+public final class SubagentConversationState {
+    public private(set) var messages: [TranscriptMessage] = []
+    public private(set) var activity: String?
+    public private(set) var loaded = false
+    public private(set) var loading = false
+    public private(set) var error: String?
+    public private(set) var unavailable = false
     private var generation = UUID()
 
+    public init() {}
+
     /// The view owns this lifetime; hidden panes cancel polling and reconnect delays.
-    func watch(client: any SubagentClient, session: String, conversation: String) async {
+    public func watch(client: any SubagentClient, session: String, conversation: String) async {
         guard let stream = client as? any SubagentStreamingClient else {
             await load(client: client, session: session, conversation: conversation)
             return
@@ -67,7 +69,7 @@ final class SubagentConversationState {
     }
 
     /// The presenting pane owns and cancels the task. Late responses cannot replace newer data.
-    func load(client: any SubagentClient, session: String, conversation: String) async {
+    public func load(client: any SubagentClient, session: String, conversation: String) async {
         let request = UUID()
         generation = request
         loading = true
