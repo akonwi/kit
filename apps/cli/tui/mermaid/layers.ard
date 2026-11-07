@@ -144,7 +144,7 @@ private fn fill(size: Int, value: Int) [Int] {
   values.*
 }
 
-// An independent copy of values; `.@` would share their storage.
+// An independent copy of values; `.*` would share their storage.
 private fn copy(values: [Int]) [Int] {
   let copied = &mut List::new<Int>()
   for value in values {
