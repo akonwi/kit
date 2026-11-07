@@ -99,7 +99,6 @@ The executable dispatches into several process roles:
 kit                  local client bootstrap + native TUI
 kit -p               print client
 kit --rpc             stdio protocol bridge/client
-kit web               embedded browser client gateway
 kit attach <server>   native TUI attached to another Kit server
 kit server ...        local daemon lifecycle commands
 kit __server          internal detached daemon role
@@ -386,7 +385,7 @@ internal/storage/        SQLite and migrations
 api/contract/            canonical Go wire records and validation
 api/                     public stateful Go server/session client
 apps/cli/                executable entry point, command line, and Ard/Cooper terminal client
-web/                     Solid/Mica browser source
+apps/web/                Solid/Mica browser client
 docs/adrs/               current architecture decisions
 docs/plugin-protocol/    public plugin wire contract
 ```
