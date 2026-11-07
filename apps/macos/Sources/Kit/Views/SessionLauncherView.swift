@@ -418,6 +418,10 @@ struct SessionCatalogMenu: View {
 
     var body: some View {
         if let rename { Button { rename(session) } label: { Label { Text("Rename…") } icon: { Image(.pencilSimple) } } }
-        if let delete { Button(role: .destructive) { delete(session) } label: { Label { Text(session.isTemporary == true ? "Dispose…" : "Delete…") } icon: { Image(.trash) } } }
+        if let delete {
+            Button(role: .destructive) { delete(session) } label: {
+                DestructiveMenuLabel("Delete…", icon: .trash)
+            }
+        }
     }
 }

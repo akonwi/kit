@@ -25,6 +25,9 @@ final class SessionCatalog {
         sessions.removeAll { $0.id == identity.session }
     }
 
+    /// Whether this app deleted the session since the catalog was last reset.
+    func wasDeleted(_ id: String) -> Bool { deletedIDs.contains(id) }
+
     func recordCreated(_ session: SessionExcerpt) {
         sessions.removeAll { $0.id == session.id }
         sessions.insert(session, at: 0)

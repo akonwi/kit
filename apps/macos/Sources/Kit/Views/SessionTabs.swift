@@ -323,7 +323,10 @@ private struct SessionSidebarRow: View {
         .accessibilityValue(tab.statusLabel ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .sessionTreeDisclosureAction(row: row, model: model)
-        .contextMenu { Button("Close Tab") { model.requestClose(tab, from: .side) } }
+        .sessionTabMenu(model.menuItems(for: tab),
+                        rename: { model.requestCatalogAction(.rename, for: tab.identity) },
+                        close: { model.requestClose(tab, from: .side) },
+                        delete: { model.requestCatalogAction(.delete, for: tab.identity) })
     }
 }
 
@@ -362,12 +365,16 @@ private struct ClosedParentRow: View {
         .accessibilityLabel(SessionTabHelp.accessibilityLabel(title: title, server: server))
         .accessibilityValue("Closed")
         .sessionTreeDisclosureAction(row: row, model: model)
-        .contextMenu { Button("Open Tab", action: reopen) }
+        .sessionTabMenu(model.menuItems(closedParent: session), open: reopen,
+                        rename: { model.requestCatalogAction(.rename, for: identity) },
+                        delete: { model.requestCatalogAction(.delete, for: identity) })
     }
 
-    private var server: String? { SessionWindowModel.identity(treeKey: session).serverLabel }
+    private var identity: SessionIdentity { SessionWindowModel.identity(treeKey: session) }
 
-    private func reopen() { navigation.openSession(SessionWindowModel.identity(treeKey: session)) }
+    private var server: String? { identity.serverLabel }
+
+    private func reopen() { navigation.openSession(identity) }
 }
 
 /// A family's caret. A collapsed family also shows how many tabs it hides
@@ -438,6 +445,59 @@ struct SessionTreeRollUp {
     }
 }
 
+/// A session tab's context menu, from ``SessionTabMenu``.
+struct SessionTabMenuContent: View {
+    let items: [SessionTabMenuItem]
+    var open: () -> Void = {}
+    let rename: () -> Void
+    var close: () -> Void = {}
+    let delete: () -> Void
+
+    var body: some View {
+        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+            switch item {
+            case .open: button(item, icon: .plusSquare, action: open)
+            case .rename(let enabled): button(item, icon: .pencilSimple, action: rename).disabled(!enabled)
+            case .close: button(item, icon: .x, action: close)
+            case .divider: Divider()
+            case .delete(let enabled):
+                Button(role: .destructive, action: delete) { DestructiveMenuLabel(item.title, icon: .trash) }
+                    .disabled(!enabled)
+            case .unavailable: button(item, icon: .prohibit) {}.disabled(true)
+            }
+        }
+    }
+
+    private func button(_ item: SessionTabMenuItem, icon: Icon, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Label { Text(item.title) } icon: { Image(icon) } }
+    }
+}
+
+extension View {
+    /// A session tab's context menu, and its Rename and Delete as
+    /// assistive technology actions while they are available.
+    func sessionTabMenu(_ items: [SessionTabMenuItem], open: @escaping () -> Void = {}, rename: @escaping () -> Void,
+                        close: @escaping () -> Void = {}, delete: @escaping () -> Void) -> some View {
+        contextMenu { SessionTabMenuContent(items: items, open: open, rename: rename, close: close, delete: delete) }
+            .modifier(SessionTabAccessibilityActions(items: items, rename: rename, delete: delete))
+    }
+}
+
+/// A tab's Rename and Delete for assistive technology.
+private struct SessionTabAccessibilityActions: ViewModifier {
+    let items: [SessionTabMenuItem]
+    let rename: () -> Void
+    let delete: () -> Void
+
+    func body(content: Content) -> some View {
+        content.accessibilityActions {
+            ForEach(SessionTabMenu.accessibilityActions(items), id: \.name) { action in
+                Button(action.name, action: action.kind == .rename ? rename : delete)
+            }
+        }
+    }
+}
+
 private extension View {
     /// Lets assistive technology expand or collapse a family.
     @ViewBuilder func sessionTreeDisclosureAction(row: SessionTreeRow, model: SessionWindowModel) -> some View {
@@ -497,9 +557,12 @@ struct SessionTopTabs: View {
                                           project: SessionTabStrip.project(of: tab, selected: selected),
                                           parent: model.parentTitle(of: tab),
                                           number: hints.tabs[tab.id],
+                                          menu: model.menuItems(for: tab),
                                           // Letting go of a dragged tab isn't a click.
                                           select: { if !drag.claimsRelease(of: tab.id) { model.select(tab) } },
                                           close: { model.requestClose(tab, from: .top) },
+                                          rename: { model.requestCatalogAction(.rename, for: tab.identity) },
+                                          delete: { model.requestCatalogAction(.delete, for: tab.identity) },
                                           hover: { inside in
                                               if inside { self.hovered = tab.id } else if self.hovered == tab.id { self.hovered = nil }
                                           },
@@ -963,7 +1026,7 @@ private struct LiftedTopTab: View {
     var body: some View {
         if let leading = drag.leading {
             SessionTopTab(tab: tab, selected: selected, hovering: false, project: project, parent: nil, number: nil,
-                          select: {}, close: {}, hover: { _ in }, move: { _ in }, lifted: true)
+                          menu: [], select: {}, close: {}, rename: {}, delete: {}, hover: { _ in }, move: { _ in }, lifted: true)
                 .offset(x: leading)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -982,8 +1045,12 @@ private struct SessionTopTab: View {
     let parent: String?
     /// The tab's ⌘ number, while ⌘ is held.
     let number: Int?
+    /// The tab's context menu.
+    let menu: [SessionTabMenuItem]
     let select: () -> Void
     let close: () -> Void
+    let rename: () -> Void
+    let delete: () -> Void
     let hover: (Bool) -> Void
     /// Moves the tab one place left (-1) or right (1).
     let move: (Int) -> Void
@@ -1023,7 +1090,7 @@ private struct SessionTopTab: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityAction(named: "Move Left") { move(-1) }
         .accessibilityAction(named: "Move Right") { move(1) }
-        .contextMenu { Button("Close Tab", action: close) }
+        .sessionTabMenu(menu, rename: rename, close: close, delete: delete)
     }
 
     private func projectLabel(_ project: String) -> some View {

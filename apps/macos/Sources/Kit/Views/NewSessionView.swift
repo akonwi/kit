@@ -277,9 +277,9 @@ struct NewSessionView: View {
     private var temporaryNote: String {
         switch place {
         case .thisMac(let server) where server == ServerClient.localID:
-            "Not saved. Gone when you dispose of it or the daemon stops."
+            "Not saved. Gone when you delete it or the daemon stops."
         case .thisMac(let server), .elsewhere(let server, _):
-            "Not saved. Gone when you dispose of it or \(server)’s server stops."
+            "Not saved. Gone when you delete it or \(server)’s server stops."
         }
     }
 
@@ -295,7 +295,7 @@ struct NewSessionView: View {
     private var buttons: some View {
         HStack(spacing: 8) {
             if temporary && uncertain {
-                Button("Dispose temporary session") { Task { await disposeUncertain() } }
+                Button("Delete temporary session") { Task { await disposeUncertain() } }
                     .buttonStyle(FormButtonStyle())
                     .disabled(pending)
             }
@@ -430,7 +430,7 @@ struct NewSessionView: View {
                     close(); open(recovered)
                 } else {
                     uncertain = true
-                    self.error = "The server did not confirm creation. Dispose of this temporary session before starting another. " + error.localizedDescription
+                    self.error = "The server did not confirm creation. Delete this temporary session before starting another. " + error.localizedDescription
                 }
                 return
             }

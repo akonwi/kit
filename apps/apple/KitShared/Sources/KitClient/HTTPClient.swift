@@ -701,13 +701,13 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
     public func deleteSession(_ id: String) async throws {
         guard Self.validScratchpadSession(id), let version = Operations.DeleteSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
         let output = try await api.deleteSession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version))
-        guard case .noContent = output else { throw ClientError.invalidPayload }
+        guard case .noContent = output else { throw Self.statusFailure(output) }
     }
 
     public func disposeSession(_ id: String) async throws {
         guard Self.validScratchpadSession(id), let version = Operations.DisposeTemporarySession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
         let output = try await api.disposeTemporarySession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version))
-        guard case .noContent = output else { throw ClientError.invalidPayload }
+        guard case .noContent = output else { throw Self.statusFailure(output) }
     }
 
     public func forkSession(_ id: String, input: WireForkSessionInput) async throws -> ForkedSession {

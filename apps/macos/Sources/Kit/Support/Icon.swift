@@ -86,12 +86,19 @@ enum Icon: String, CaseIterable, Sendable {
     /// The template image, sized for menus and labels. Views that need a
     /// specific box size use ``IconView``.
     @MainActor var image: NSImage { IconCache.shared.image(self) }
+
+    /// The icon drawn in the system red, for destructive menu items. Menus
+    /// draw template images in the item's text colour, so a destructive
+    /// item needs an image that is already coloured. The colour resolves
+    /// each time the image draws, so it follows light and dark appearance.
+    @MainActor var destructiveImage: NSImage { IconCache.shared.destructiveImage(self) }
 }
 
 @MainActor
 private final class IconCache {
     static let shared = IconCache()
     private var images: [Icon: NSImage] = [:]
+    private var destructiveImages: [Icon: NSImage] = [:]
 
     func image(_ icon: Icon) -> NSImage {
         if let image = images[icon] { return image }
@@ -100,6 +107,19 @@ private final class IconCache {
         image.size = NSSize(width: 16, height: 16)
         image.isTemplate = true
         images[icon] = image
+        return image
+    }
+
+    func destructiveImage(_ icon: Icon) -> NSImage {
+        if let image = destructiveImages[icon] { return image }
+        let template = image(icon)
+        let image = NSImage(size: template.size, flipped: false) { rect in
+            template.draw(in: rect)
+            NSColor.systemRed.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        destructiveImages[icon] = image
         return image
     }
 }

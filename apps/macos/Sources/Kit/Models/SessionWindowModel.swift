@@ -39,15 +39,7 @@ final class SessionTab: Identifiable {
     var serverIssue: String? {
         guard !isLauncher, servers != nil else { return nil }
         guard let connection else { return "Server isn’t saved" }
-        switch connection.status {
-        case .unreachable: return "Can’t connect"
-        case .incompatible(let mismatch): return mismatch.serverIsOlder ? "Server needs a newer Kit" : "Needs a newer Kit for Mac"
-        case .needsPairing: return "Pair again"
-        case .signInRequired: return "Sign in"
-        case .hostKeyChanged: return "Host key changed"
-        case .serverStopped: return "Server stopped"
-        case .connecting, .connected, .reconnecting: return nil
-        }
+        return connection.status.sessionIssue
     }
     /// Whether the tab's server missed a check and is being tried again.
     var reconnecting: Bool {
@@ -73,6 +65,21 @@ final class SessionTab: Identifiable {
     var parentSessionID: String? { isLauncher ? nil : session?.parentSessionID }
 }
 
+extension ServerStatus {
+    /// What a server needs from the user while it can't serve its sessions.
+    var sessionIssue: String? {
+        switch self {
+        case .unreachable: "Can’t connect"
+        case .incompatible(let mismatch): mismatch.serverIsOlder ? "Server needs a newer Kit" : "Needs a newer Kit for Mac"
+        case .needsPairing: "Pair again"
+        case .signInRequired: "Sign in"
+        case .hostKeyChanged: "Host key changed"
+        case .serverStopped: "Server stopped"
+        case .connecting, .connected, .reconnecting: nil
+        }
+    }
+}
+
 /// A row of the sidebar's session tree.
 typealias SessionTreeRow = SessionTree<SessionTab>.Row
 
@@ -88,6 +95,8 @@ final class SessionWindowModel: Identifiable {
     private(set) var collapsed: Set<String>
     /// The launcher tab whose new session form is open over the window.
     var creatingIn: SessionTab?
+    /// The rename or delete a tab's menu asked for, while its sheet is open.
+    var catalogAction: SessionCatalogAction?
     @ObservationIgnored weak var window: NSWindow?
     /// Keeps the window's traffic lights in the chrome row while it is open.
     @ObservationIgnored var trafficLights: TrafficLightPlacement?
@@ -201,6 +210,7 @@ final class SessionWindowModel: Identifiable {
     func parentTitle(of tab: SessionTab) -> String? {
         guard let parent = tab.parentSessionID else { return nil }
         let identity = SessionIdentity(server: tab.identity.server, session: parent)
+        guard !wasDeleted(identity) else { return nil }
         return self.tab(for: identity)?.title
             ?? catalogEntry(identity)?.title
             ?? tab.session?.parentSessionName
@@ -219,6 +229,8 @@ final class SessionWindowModel: Identifiable {
                                  let parent = session.parentSessionID.map { Self.treeKey(SessionIdentity(server: identity.server, session: $0)) }
                                  return .init(title: session.title, parent: parent)
                              }
+                             // A deleted parent leaves its children at the top level.
+                             if self.wasDeleted(identity) { return nil }
                              // Outside the catalog, a child may still know its parent's name.
                              let name = self.tabs.lazy.compactMap { tab in
                                  tab.identity.server == identity.server && tab.parentSessionID == identity.session
@@ -227,6 +239,64 @@ final class SessionWindowModel: Identifiable {
                              return name.map { .init(title: $0, parent: nil) }
                          },
                          collapsed: collapsed)
+    }
+
+    /// Whether this app deleted the session. Its children may still name it
+    /// until their server describes them again.
+    private func wasDeleted(_ identity: SessionIdentity) -> Bool {
+        servers.connection(named: identity.server)?.catalog.wasDeleted(identity.session) == true
+    }
+
+    // MARK: Rename and delete from a tab
+
+    /// The session a rename or delete acts on: its catalog entry, or what its
+    /// tab shows. A temporary session is marked, so it is disposed of.
+    func catalogTarget(_ identity: SessionIdentity) -> SessionExcerpt? {
+        guard !identity.session.isEmpty, !wasDeleted(identity),
+              var session = catalogEntry(identity) ?? tab(for: identity)?.session else { return nil }
+        session.messages = []
+        if TemporarySessions.shared.contains(server: identity.server, session: identity.session) { session.isTemporary = true }
+        return session
+    }
+
+    /// Why a session can't be renamed or deleted from its tab, or nil when it can.
+    func catalogActionUnavailableReason(_ identity: SessionIdentity) -> String? {
+        let connection = servers.connection(named: identity.server)
+        return SessionTabMenu.unavailableReason(
+            status: connection?.status, demo: connection?.client.isDemo ?? false,
+            sessionKnown: catalogTarget(identity) != nil,
+            sessionUnavailable: wasDeleted(identity) || tab(for: identity)?.store?.unavailable == true)
+    }
+
+    /// A session tab's context menu.
+    func menuItems(for tab: SessionTab) -> [SessionTabMenuItem] {
+        SessionTabMenu.items(launcher: tab.isLauncher,
+                             unavailable: tab.isLauncher ? nil : catalogActionUnavailableReason(tab.identity))
+    }
+
+    /// A closed parent's context menu, by its tree key.
+    func menuItems(closedParent key: String) -> [SessionTabMenuItem] {
+        let identity = Self.identity(treeKey: key)
+        return SessionTabMenu.closedParentItems(unavailable: catalogActionUnavailableReason(identity))
+    }
+
+    /// Asks to rename or delete a session, which opens its sheet. The
+    /// selection doesn't change.
+    func requestCatalogAction(_ kind: SessionCatalogAction.Kind, for identity: SessionIdentity) {
+        guard catalogActionUnavailableReason(identity) == nil else { return }
+        catalogAction = SessionCatalogAction(identity: identity, kind: kind)
+    }
+
+    /// Closes a session this app deleted, in whichever window shows it, as
+    /// Close Tab from `placement` would, asking first if that would end
+    /// commands running in its terminals. A tab kept open shows the session
+    /// as unavailable.
+    func sessionDeleted(_ identity: SessionIdentity, from placement: SessionTabPlacement) {
+        servers.connection(named: identity.server)?.catalog.sessionDeleted(identity)
+        if catalogAction?.identity == identity { catalogAction = nil }
+        guard let tab = tab(for: identity) else { return }
+        tab.store?.sessionDeleted(identity)
+        requestClose(tab, from: placement)
     }
 
     /// Shows or hides a session's children in the sidebar, by its tree key.

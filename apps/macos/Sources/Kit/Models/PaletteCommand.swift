@@ -215,7 +215,7 @@ struct PaletteCommand: Identifiable {
             rows.append(.init(id: "scratchpad", name: "scratchpad", description: "Open shared working notes", searchTerms: ["notes", "memory"]))
         }
         if temporary {
-            rows.append(.init(id: "dispose", name: "dispose", description: "Dispose temporary session", searchTerms: ["delete", "remove"]))
+            rows.append(.init(id: "delete", name: "delete", description: "Delete temporary session", searchTerms: ["dispose", "remove"]))
         }
         return rows
     }

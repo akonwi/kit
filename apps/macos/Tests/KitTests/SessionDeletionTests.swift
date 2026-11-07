@@ -74,7 +74,35 @@ private final class DeleteResponse: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
+/// Refuses a deletion as a server does a session in use, and a disposal
+/// as one does a session it no longer has.
+private final class RefusedResponse: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let (status, code) = request.httpMethod == "DELETE" ? (409, "conflict") : (404, "not_found")
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"error":{"code":"\#(code)","message":"refused"}}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 struct SessionDeletionTransportTests {
+    @Test func aRefusedDeleteOrDisposalReportsTheServersStatus() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RefusedResponse.self]
+        let client = try HTTPClient(endpoint: URL(string: "http://127.0.0.1:18200")!,
+            token: "test", instance: "test", serverID: "test", configuration: configuration)
+        func status(_ operation: () async throws -> Void) async -> Int? {
+            do { try await operation() } catch ClientError.http(let status) { return status } catch { return nil }
+            return nil
+        }
+        #expect(await status { try await client.deleteSession("session_test") } == 409)
+        #expect(await status { try await client.disposeSession("session_test") } == 404)
+    }
+
     @Test func authenticatedDeleteAcceptsEmpty204Response() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [DeleteResponse.self]

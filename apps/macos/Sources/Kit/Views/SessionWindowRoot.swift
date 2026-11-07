@@ -34,6 +34,11 @@ struct SessionWindowRoot: View {
         .disabled(model.creatingIn != nil)
         .accessibilityHidden(model.creatingIn != nil)
         .overlay { newSessionForm(model: model, theme: theme) }
+        .modifier(catalogActions(model: model))
+        // Any deletion this app makes closes the session's tabs.
+        .onReceive(NotificationCenter.default.publisher(for: .kitSessionDeleted)) { notification in
+            if let identity = notification.object as? SessionIdentity { model.sessionDeleted(identity, from: placement) }
+        }
         .environment(\.mica, theme)
         .foregroundStyle(theme.text)
         .background(theme.frame)
@@ -102,6 +107,21 @@ struct SessionWindowRoot: View {
         guard let signIn, signIn.step == .list else { return }
         await signIn.load()
         if signIn.loadError == nil && !signIn.anyConnected { firstRun = true }
+    }
+
+    /// The rename or delete sheet a tab's menu asked for, on the session's
+    /// own server.
+    private func catalogActions(model: SessionWindowModel) -> SessionCatalogActions {
+        let connection = model.catalogAction.flatMap { model.servers.connection(named: $0.identity.server) }
+        return SessionCatalogActions(
+            client: connection?.client,
+            refresh: { await connection?.catalog.refresh() },
+            target: Binding {
+                model.catalogAction.flatMap { model.catalogTarget($0.identity) }
+            } set: { session in
+                if session == nil { model.catalogAction = nil }
+            },
+            deleting: Binding { model.catalogAction?.kind == .delete } set: { _ in })
     }
 
     /// The new session form, over the whole window while a launcher asks for it.

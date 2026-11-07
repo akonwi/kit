@@ -13,7 +13,7 @@ struct PaletteCommandTests {
         ])
         #expect(PaletteCommand.builtIns(terminal: false).contains { $0.name == "terminal" } == false)
         #expect(PaletteCommand.builtIns(scratchpad: false).contains { $0.name == "scratchpad" } == false)
-        #expect(PaletteCommand.builtIns(temporary: true).last?.name == "dispose")
+        #expect(PaletteCommand.builtIns(temporary: true).last?.name == "delete")
     }
 
     @Test func builtInsCarryTheTUIArgumentHintsAndDescriptions() {

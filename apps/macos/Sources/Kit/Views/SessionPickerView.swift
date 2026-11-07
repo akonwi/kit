@@ -268,7 +268,7 @@ struct SessionPickerContent: View {
             if let delete {
                 Button(role: .destructive) { if let selectedSession { delete(selectedSession) } } label: {
                     HStack(spacing: 8) {
-                        Text(selectedSession?.isTemporary == true ? "Dispose…" : "Delete…")
+                        Text("Delete…")
                         Text("⌘⌫").foregroundStyle(theme.muted)
                     }
                 }

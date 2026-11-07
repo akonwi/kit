@@ -16,6 +16,53 @@ struct SessionCatalogActions: ViewModifier {
     }
 }
 
+/// What a rename or delete sheet says, by what it does.
+struct SessionCatalogActionCopy: Equatable {
+    let title: String
+    /// The consequence a delete spells out: a saved session loses its
+    /// history, and a temporary one, never saved, is disposed of.
+    let message: String?
+    let confirm: String
+}
+
+extension SessionCatalogActionCopy {
+    init(session: SessionExcerpt, deleting: Bool) {
+        let disposing = deleting && session.isTemporary == true
+        self.init(title: deleting ? "Delete session?" : "Rename session",
+                  message: disposing ? "“\(session.title)” will be removed from daemon memory and any active work will be cancelled. This cannot be undone."
+                    : deleting ? "“\(session.title)” and its saved history will be permanently deleted. This cannot be undone." : nil,
+                  confirm: deleting ? "Delete session" : "Rename")
+    }
+}
+
+/// Renames, deletes, or disposes of a cataloged session through its
+/// server, announcing a deletion so every window can let go of the session.
+@MainActor enum SessionCatalogMutation {
+    static func perform(session: SessionExcerpt, deleting: Bool, name: String, client: (any SessionClient)?) async throws {
+        if deleting && session.isTemporary == true, let client = client as? any SessionDisposalClient {
+            do { try await client.disposeSession(session.id) }
+            catch ClientError.http(404) {}
+            let identity = SessionIdentity(server: client.serverID, session: session.id)
+            TemporarySessions.shared.forget(identity)
+            NotificationCenter.default.post(name: .kitSessionDeleted, object: identity)
+        } else if deleting && session.isTemporary != true, let client = client as? any SessionDeletionClient {
+            try await SessionDeletion.perform(session.id, client: client)
+            NotificationCenter.default.post(name: .kitSessionDeleted,
+                object: SessionIdentity(server: client.serverID, session: session.id))
+        } else if !deleting, let client = client as? any SessionNamingClient,
+                  let name = SessionName.normalized(name) {
+            _ = try await client.renameSession(session.id, name: name)
+        } else { throw MutationNotSent(reason: "This server does not support this operation.") }
+    }
+
+    /// What the sheet says when the operation fails.
+    static func failure(_ error: Error) -> String {
+        if case ClientError.http(409) = error {
+            "This session is in use and cannot be deleted. Stop its active work before trying again."
+        } else { error.localizedDescription }
+    }
+}
+
 private struct SessionCatalogActionView: View {
     let client: (any SessionClient)?
     let session: SessionExcerpt
@@ -28,14 +75,13 @@ private struct SessionCatalogActionView: View {
     @State private var error: String?
     @FocusState private var focused: Bool
 
-    private var disposing: Bool { deleting && session.isTemporary == true }
-
     var body: some View {
+        let copy = SessionCatalogActionCopy(session: session, deleting: deleting)
         VStack(alignment: .leading, spacing: 16) {
-            Text(disposing ? "Dispose temporary session?" : deleting ? "Delete session?" : "Rename session")
+            Text(copy.title)
                 .font(.kit(size: 16, weight: .medium))
-            if deleting {
-                Text(disposing ? "“\(session.title)” will be removed from daemon memory and any active work will be cancelled. This cannot be undone." : "“\(session.title)” and its saved history will be permanently deleted. This cannot be undone.")
+            if let message = copy.message {
+                Text(message)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 TextField("Session name", text: $name).textFieldStyle(.roundedBorder)
@@ -46,7 +92,7 @@ private struct SessionCatalogActionView: View {
                 if pending { KitSpinner() }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(pending)
-                Button(disposing ? "Dispose session" : deleting ? "Delete session" : "Rename", role: deleting ? .destructive : nil) { perform() }
+                Button(copy.confirm, role: deleting ? .destructive : nil) { perform() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(pending || (!deleting && SessionName.normalized(name) == nil))
             }
@@ -66,26 +112,11 @@ private struct SessionCatalogActionView: View {
         pending = true; error = nil
         Task { @MainActor in
             do {
-                if disposing, let client = client as? any SessionDisposalClient {
-                    do { try await client.disposeSession(session.id) }
-                    catch ClientError.http(404) {}
-                    let identity = SessionIdentity(server: client.serverID, session: session.id)
-                    TemporarySessions.shared.forget(identity)
-                    NotificationCenter.default.post(name: .kitSessionDeleted, object: identity)
-                } else if deleting, let client = client as? any SessionDeletionClient {
-                    try await SessionDeletion.perform(session.id, client: client)
-                    NotificationCenter.default.post(name: .kitSessionDeleted,
-                        object: SessionIdentity(server: client.serverID, session: session.id))
-                } else if !deleting, let client = client as? any SessionNamingClient,
-                          let name = SessionName.normalized(name) {
-                    _ = try await client.renameSession(session.id, name: name)
-                } else { throw MutationNotSent(reason: "This server does not support this operation.") }
+                try await SessionCatalogMutation.perform(session: session, deleting: deleting, name: name, client: client)
                 await refresh()
                 dismiss()
             } catch {
-                if case ClientError.http(409) = error {
-                    self.error = "This session is in use and cannot be deleted. Stop its active work before trying again."
-                } else { self.error = error.localizedDescription }
+                self.error = SessionCatalogMutation.failure(error)
                 await refresh()
                 pending = false
                 focused = !deleting

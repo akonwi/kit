@@ -198,7 +198,7 @@ struct CommandPalette: View {
             screen = .rename(name: trimmed.isEmpty ? state.selected?.title ?? "" : trimmed, submit: !trimmed.isEmpty)
         case "subagents": state.ui.subagentsPresented = true
         case "reload": reload()
-        case "dispose":
+        case "delete":
             guard var session = state.selected else { return }
             session.isTemporary = true
             disposalTarget = session
