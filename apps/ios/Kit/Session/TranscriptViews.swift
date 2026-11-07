@@ -71,10 +71,17 @@ private struct MessageMenu: ViewModifier {
 
 /// The user's message on the accent wash.
 private struct UserMessage: View {
+    @Environment(\.userMessageCaption) private var caption
     let message: TranscriptMessage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let caption {
+                Text(caption)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.muted)
+                    .padding(.bottom, -4)
+            }
             if !message.text.isEmpty {
                 Prose(text: AttributedString(message.text), lineHeight: 23)
             }
@@ -149,9 +156,24 @@ struct ToolBatch: View {
 /// A tool call: icon, title, chip, and results. A row with details opens
 /// beneath itself.
 private struct ToolRow: View {
+    @Environment(\.agentLinks) private var agentLinks
     let tool: ToolActivity
     let open: Bool
     let toggle: () -> Void
+
+    /// The started subagent the call names, which its chip opens.
+    private func linkedAgent(_ presentation: ToolPresentation) -> String? {
+        guard case .agent(let name)? = presentation.link, agentLinks?.names.contains(name) == true else { return nil }
+        return name
+    }
+
+    private func chipText(_ text: String, color: Color, truncation: Text.TruncationMode) -> some View {
+        Text(text)
+            .font(.system(size: 12, design: .monospaced))
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .truncationMode(truncation)
+    }
 
     var body: some View {
         let presentation = ToolPresentation(tool)
@@ -163,16 +185,22 @@ private struct ToolRow: View {
                     .foregroundStyle(tool.notRun == true ? Theme.muted : Theme.text)
                     .lineLimit(1)
                     .layoutPriority(1)
-                if let chip = presentation.chip {
-                    Text(chip)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(1)
-                        .truncationMode(presentation.chipIsPath ? .head : .tail)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Theme.raised, in: RoundedRectangle(cornerRadius: Theme.controlRadius))
-                        .overlay { RoundedRectangle(cornerRadius: Theme.controlRadius).strokeBorder(Theme.border, lineWidth: 0.5) }
+                if let agent = linkedAgent(presentation), let links = agentLinks {
+                    Button { links.open(agent) } label: {
+                        HStack(spacing: 4) {
+                            chipText(presentation.chip ?? agent, color: Theme.accent, truncation: .tail)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(Theme.strongBorder)
+                        }
+                        .chipBox()
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open \(agent)")
+                    .accessibilityIdentifier("open-agent-\(agent)")
+                } else if let chip = presentation.chip {
+                    chipText(chip, color: Theme.text, truncation: presentation.chipIsPath ? .head : .tail)
+                        .chipBox()
                 }
                 Spacer(minLength: 0)
                 facts(presentation)
@@ -180,7 +208,8 @@ private struct ToolRow: View {
             .frame(minHeight: 32)
             .contentShape(Rectangle())
             .onTapGesture { if presentation.expandable { toggle() } }
-            .accessibilityElement(children: .combine)
+            // A row that opens an agent keeps the link its own element.
+            .accessibilityElement(children: linkedAgent(presentation) == nil ? .combine : .contain)
             .accessibilityAddTraits(presentation.expandable ? .isButton : [])
             if open && presentation.expandable {
                 ToolDetail(tool: tool, presentation: presentation)
@@ -395,5 +424,15 @@ private struct NoteRow: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.raised, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+    }
+}
+
+private extension View {
+    /// The box a tool row's chip sits in.
+    func chipBox() -> some View {
+        padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Theme.raised, in: RoundedRectangle(cornerRadius: Theme.controlRadius))
+            .overlay { RoundedRectangle(cornerRadius: Theme.controlRadius).strokeBorder(Theme.border, lineWidth: 0.5) }
     }
 }

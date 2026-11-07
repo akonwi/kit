@@ -33,6 +33,8 @@ struct SessionScreen: View {
     /// The session's shared scratchpad, kept current from its snapshots.
     @State private var scratchpad: ScratchpadState
     @State private var showingScratchpad = false
+    /// Which agent's transcript shows: Main's or a subagent's.
+    @State private var agents: SubagentFocus
     private let client: ServerClient
 
     init(identity: SessionIdentity, client: ServerClient) {
@@ -42,17 +44,24 @@ struct SessionScreen: View {
         let interactions = SessionInteractions(session: identity.session, client: client)
         let scratchpad = ScratchpadState(demo: false)
         scratchpad.bind(client: client, session: identity.session)
-        feed.onSnapshot = { [weak composer, weak actions, weak interactions, weak scratchpad] in
+        let agents = SubagentFocus(session: identity.session, client: client)
+        feed.onSnapshot = { [weak composer, weak actions, weak interactions, weak scratchpad, weak agents] in
             composer?.reconcile($0)
             actions?.reconcile($0)
             interactions?.reconcile($0)
+            agents?.reconcile($0)
             if let record = $0.scratchpad { scratchpad?.observe(record) }
         }
         actions.deliver = { [weak feed] in feed?.receive($0) }
-        feed.onConnection = { [weak composer, weak actions, weak interactions] connection in
+        agents.refresh = { [weak feed] in
+            let snapshot = try await client.snapshot(identity.session)
+            feed?.receive(snapshot)
+        }
+        feed.onConnection = { [weak composer, weak actions, weak interactions, weak agents] connection in
             composer?.live = connection == .live
             actions?.live = connection == .live
             interactions?.live = connection == .live
+            agents?.live = connection == .live
         }
         composer.modelName = { [weak actions] in actions?.modelName ?? "" }
         if let failure = ForkFirstTurnFailures.shared.take(identity) { composer.restore(failedFork: failure) }
@@ -61,6 +70,7 @@ struct SessionScreen: View {
         _actions = State(initialValue: actions)
         _interactions = State(initialValue: interactions)
         _scratchpad = State(initialValue: scratchpad)
+        _agents = State(initialValue: agents)
         _attachments = State(initialValue: TranscriptAttachmentStore(client: client, session: identity.session))
         self.client = client
     }
@@ -83,8 +93,17 @@ struct SessionScreen: View {
                     }
                 }
             }
+            .safeAreaBar(edge: .top, spacing: 0) {
+                if feed.session != nil, !agents.strip.isEmpty {
+                    AgentStrip(focus: agents, mainNeedsYou: interactions.docked != nil)
+                }
+            }
             .safeAreaBar(edge: .bottom, spacing: 0) {
-                if !feed.unavailable {
+                if feed.unavailable {
+                    EmptyView()
+                } else if let agent = agents.focused {
+                    AgentBar(agent: agent, focus: agents, actions: actions, conversation: agents.conversation(agent))
+                } else {
                     ComposerBar(composer: composer, actions: actions, interactions: interactions, feed: feed,
                                 revealComment: open, revealable: { _ in true }) { feed.reconnect() }
                 }
@@ -246,7 +265,21 @@ struct SessionScreen: View {
     @ViewBuilder
     private var content: some View {
         if let session = feed.session {
-            transcript(session)
+            // Each transcript shown stays put while another is in view, so
+            // coming back finds it where the reader left it.
+            ZStack {
+                transcript(session)
+                    .shown(agents.focus == nil)
+                ForEach(agents.visited, id: \.self) { name in
+                    if let agent = agents.strip.agent(named: name), let conversation = agents.conversation(agent) {
+                        SubagentTranscript(agent: agent, conversation: conversation, focus: agents,
+                                           visible: agents.focus == name)
+                            .id(agent.conversationID)
+                            .shown(agents.focus == name)
+                    }
+                }
+            }
+            .environment(\.agentLinks, AgentLinks(names: Set(agents.strip.agents.map(\.name))) { agents.show($0) })
         } else if case .unavailable(let reason) = feed.connection {
             ContentUnavailableView("Can’t show this session", systemImage: "exclamationmark.triangle", description: Text(reason))
         } else {
@@ -288,14 +321,19 @@ struct ActivityLine: View {
         var started: Date?
 
         init?(_ session: SessionExcerpt) {
-            guard session.activeRunID != nil || session.activity != nil else { return nil }
-            if let tool = session.messages.last(where: { $0.role == "tools" })?.tools.last(where: \.running) {
+            self.init(messages: session.messages, activity: session.activity, running: session.activeRunID != nil)
+        }
+
+        /// What an agent is doing: its running tool call, or its activity.
+        init?(messages: [TranscriptMessage], activity: String?, running: Bool) {
+            guard running || activity != nil else { return nil }
+            if let tool = messages.last(where: { $0.role == "tools" })?.tools.last(where: \.running) {
                 let presentation = ToolPresentation(tool)
                 label = tool.bashCommand != nil ? "Running" : presentation.title
                 detail = presentation.chip
                 started = tool.startedAt
             } else {
-                label = session.activity ?? LiveActivity.working
+                label = activity ?? LiveActivity.working
             }
         }
     }
@@ -331,5 +369,14 @@ struct ActivityLine: View {
     static func duration(_ seconds: TimeInterval) -> String {
         let whole = max(0, Int(seconds))
         return "\(whole / 60):" + String(format: "%02d", whole % 60)
+    }
+}
+
+private extension View {
+    /// Shows a transcript, or keeps it in place, hidden, while another shows.
+    func shown(_ shown: Bool) -> some View {
+        opacity(shown ? 1 : 0)
+            .allowsHitTesting(shown)
+            .accessibilityHidden(!shown)
     }
 }

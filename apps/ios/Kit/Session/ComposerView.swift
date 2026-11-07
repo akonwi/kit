@@ -186,7 +186,7 @@ private struct ReconnectLine: View {
 }
 
 /// Why the last send, stop, or queue change didn't happen.
-private struct NoticeLine: View {
+struct NoticeLine: View {
     let text: String
     var tone = SessionActions.Notice.Tone.danger
     /// Shows a close button when set.
