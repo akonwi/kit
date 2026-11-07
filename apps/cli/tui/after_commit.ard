@@ -13,7 +13,7 @@ private struct Once {
 // once runs work after the pending commit, and only then. The returned
 // function cancels it if it has not run.
 fn once(context: cui::Context, work: fn()) fn() {
-  let state = mut Once{done: false, cancel: fn() {}}
+  let state = &mut Once{done: false, cancel: fn() {}}
   let cancel = (context.internal_commit)(
     fn() {
       if not state.done {

@@ -78,7 +78,7 @@ struct Controller {
   scope_id: Int,
   active: Bool,
   lifetime: contextbridge::Cancellation?,
-  session: (mut api::Session)?,
+  session: (&mut api::Session)?,
   info: protocol::SessionInfo?,
   location: Str,
   prompt_commands: [protocol::PromptCommand],
@@ -290,14 +290,14 @@ private fn empty_usage() protocol::SessionUsage {
   }
 }
 
-private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, location: Str) mut Controller {
-  (mut Controller{
+private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, location: Str) &mut Controller {
+  &mut Controller{
     options: options,
     host: host,
     scope_id: scope_id,
     active: false,
     lifetime: Maybe::new<contextbridge::Cancellation>(),
-    session: Maybe::new<mut api::Session>(),
+    session: Maybe::new<&mut api::Session>(),
     info: Maybe::new<protocol::SessionInfo>(),
     location: location,
     prompt_commands: [],
@@ -380,12 +380,12 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     subagents_epoch: 0,
     subagents_cancelling: [],
     shown_subagent_diagnostics: [],
-  })
+  }
 }
 
 // detached is the inert attachment shown before bootstrap completes. It owns
 // no session and ignores every operation.
-fn detached(options: cli::TUIOptions, host: Host) mut Controller {
+fn detached(options: cli::TUIOptions, host: Host) &mut Controller {
   controller(options, host, 0, options.Location)
 }
 
@@ -398,7 +398,7 @@ fn attach(
   parent: contextbridge::Cancellation,
   attached: bootstrap::Attached,
   location: Str,
-) mut Controller {
+) &mut Controller {
   let result = controller(options, host, scope_id, location)
   result.active = true
   result.lifetime = Maybe::new(contextbridge::WithCancel(parent.Context))
@@ -414,7 +414,7 @@ fn attach(
 // Attaches a session this client just created or forked and reads its
 // snapshot. It runs on a worker under the request's deadline.
 private fn attach_new_session(
-  client: mut api::Client,
+  client: &mut api::Client,
   ctx: context::Context,
   info: protocol::SessionInfo,
   failed_first_message: bootstrap::FailedFirstMessage?,
@@ -572,14 +572,14 @@ impl Controller {
 
   // The settled transcript followed by the active turn's live messages.
   fn transcript_messages() [transcript::Message] {
-    let messages = mut List::new<transcript::Message>()
+    let messages = &mut List::new<transcript::Message>()
     for message in self.messages {
       messages.push(message)
     }
     for message in self.live.messages {
       messages.push(message)
     }
-    messages.@
+    messages.*
   }
 
   // Adopts an authoritative session record returned by a child request.
@@ -612,7 +612,7 @@ impl Controller {
       self.plugin_commands = snapshot.PluginCommands
       self.plugin_footer = match unsafe::is_nil(snapshot.PluginFooter) {
         true => protocol::PluginFooter{},
-        false => snapshot.PluginFooter.@,
+        false => snapshot.PluginFooter.*,
       }
       // Another client's /cd arrives as a snapshot.
       self.watch_vcs()
@@ -620,7 +620,7 @@ impl Controller {
       // A session compaction holds the session until it ends, so a snapshot
       // is never taken during one.
       self.session_compaction = ""
-      self.annotations = sessionbridge::Summaries(mut snapshot.Annotations)
+      self.annotations = sessionbridge::Summaries(snapshot.Annotations)
       self.context_tokens = snapshot.ContextTokens
       self.context_window = snapshot.ContextWindow
       self.usage = snapshot.Usage
@@ -631,7 +631,7 @@ impl Controller {
       if unsafe::is_nil(snapshot.Scratchpad) {
         self.scratchpad_record = Maybe::new<protocol::Scratchpad>()
       } else {
-        self.scratchpad_record = Maybe::new(snapshot.Scratchpad.@)
+        self.scratchpad_record = Maybe::new(snapshot.Scratchpad.*)
       }
       self.scratchpad_loading = false
       self.scratchpad_failure = ""
@@ -712,9 +712,9 @@ impl Controller {
   // events, which its own stream delivers. A turn started elsewhere is
   // followed so its stream replays it from its start.
   fn mut apply_watched_events(batch: [protocol::SessionEvent]) {
-    let kept = mut List::new<sessionbridge::Event>()
+    let kept = &mut List::new<sessionbridge::Event>()
     mut started = ""
-    for event in sessionbridge::Events(mut batch) {
+    for event in sessionbridge::Events(batch) {
       if event.TurnID == "" or event.TurnID != self.followed_run {
         kept.push(event)
         if transcript::classify(event.Kind) == transcript::Event::run_started {
@@ -722,7 +722,7 @@ impl Controller {
         }
       }
     }
-    self.apply_events(kept.@)
+    self.apply_events(kept.*)
     if started != "" and started == self.run_id and (not self.start_pending) {
       self.follow_run(started)
     }
@@ -743,7 +743,7 @@ impl Controller {
 
   // Applies a batch from the followed turn's own stream.
   fn mut apply_followed_events(batch: [protocol::SessionEvent]) {
-    self.apply_events(sessionbridge::Events(mut batch))
+    self.apply_events(sessionbridge::Events(batch))
   }
 
   // A remote client can start the turn, and one session batch can finish a
@@ -753,14 +753,14 @@ impl Controller {
     for event in events {
       let kind = transcript::classify(event.Kind)
       if event.Kind == "scratchpad.changed" and not unsafe::is_nil(event.Scratchpad) {
-        self.scratchpad_record = Maybe::new(event.Scratchpad.@)
+        self.scratchpad_record = Maybe::new(event.Scratchpad.*)
         self.scratchpad_failure = ""
       }
       if kind == transcript::Event::run_started {
         self.claim_run(event.TurnID)
       }
       if (event.Kind == "annotation.created" or event.Kind == "annotation.updated") and not unsafe::is_nil(event.Annotation) {
-        self.annotations = annotations::upsert(self.annotations, event.Annotation.@)
+        self.annotations = annotations::upsert(self.annotations, event.Annotation.*)
       }
       if event.Kind == "annotation.deleted" {
         self.annotations = annotations::without(self.annotations, [event.AnnotationID])
@@ -769,8 +769,8 @@ impl Controller {
         self.annotations = annotations::without(self.annotations, event.AnnotationIDs)
       }
       if event.Kind == "interaction.requested" and not unsafe::is_nil(event.Interaction) {
-        self.add_interaction(event.Interaction.@)
-        self.alert_request(event.Interaction.@)
+        self.add_interaction(event.Interaction.*)
+        self.alert_request(event.Interaction.*)
       }
       if event.Kind == "interaction.resolved" {
         self.remove_interaction(event.InteractionID)
@@ -781,7 +781,7 @@ impl Controller {
       // A finished composer command is a record from creation, including one
       // another client ran.
       if event.Kind == "boundary.created" and not unsafe::is_nil(event.Bash) {
-        self.show_bash(event.Bash.@)
+        self.show_bash(event.Bash.*)
       }
       if event.Kind == "session.cwd.changed" and event.CWD != "" {
         self.follow_cwd(event.CWD)
@@ -793,10 +793,10 @@ impl Controller {
         self.rename(event.SessionName)
       }
       if event.Kind == "session.configuration.changed" and not unsafe::is_nil(event.Configuration) {
-        self.configure(event.Configuration.@)
+        self.configure(event.Configuration.*)
       }
       if event.Kind == "follow_ups.changed" and not unsafe::is_nil(event.FollowUps) {
-        self.apply_follow_ups(event.FollowUps.@)
+        self.apply_follow_ups(event.FollowUps.*)
       }
       if event.TurnID == "" and event.Kind == "compaction.started" {
         self.session_compaction = event.CompactionID
@@ -1059,7 +1059,7 @@ impl Controller {
                             }
                           }
                         } else {
-                          let snapshot = update.Snapshot.@
+                          let snapshot = update.Snapshot.*
                           let _ = dispatch(fn() {
                             if self.active {
                               self.apply_watch_snapshot(snapshot)
@@ -1153,7 +1153,7 @@ impl Controller {
 
   // The session requests a turn follower makes and the attachment updates it
   // schedules. Updates apply only while their turn is still the active one.
-  private fn mut turn_follower(session: mut api::Session, ctx: context::Context) turn_follower::Follower {
+  private fn mut turn_follower(session: &mut api::Session, ctx: context::Context) turn_follower::Follower {
     let dispatch = self.host.dispatch
     turn_follower::Follower{
       stream: fn(run_id: Str, received: fn()) Void!Error {
@@ -1317,7 +1317,7 @@ impl Controller {
   private fn mut report_unsuccessful(info: protocol::TurnInfo) {
     let status = info.Status.to_str()
     if status != "completed" {
-      let row = mut transcript::message("", info.TurnID, transcript::Role::assistant)
+      let row = &mut transcript::message("", info.TurnID, transcript::Role::assistant)
       let compaction = info.CompactionFailureReason.to_str()
       row.text = match {
         compaction != "" => sessionbridge::CompactionFailedTurnText(compaction),
@@ -1326,7 +1326,7 @@ impl Controller {
       }
       row.error_message = info.ErrorMessage
       row.is_error = true
-      self.messages.push(row.@)
+      self.messages.push(row.*)
     }
   }
 
@@ -1351,17 +1351,17 @@ impl Controller {
     // A shown row keeps its own identity, which may be a history message ID.
     for message, index in self.messages {
       if transcript::shows_bash(message, run.ID) {
-        let kept = mut transcript::bash_message(run)
+        let kept = &mut transcript::bash_message(run)
         kept.id = message.id
-        self.messages.set(index, kept.@)
+        self.messages.set(index, kept.*)
         replaced = true
       }
     }
     for message, index in self.live.messages {
       if transcript::shows_bash(message, run.ID) {
-        let kept = mut transcript::bash_message(run)
+        let kept = &mut transcript::bash_message(run)
         kept.id = message.id
-        self.live.messages.set(index, kept.@)
+        self.live.messages.set(index, kept.*)
         replaced = true
       }
     }
@@ -1409,9 +1409,10 @@ impl Controller {
   fn mut rename(name: Str) {
     match self.info {
       info => {
-        let renamed = mut info
+        mut info = info
+        let renamed = &mut info
         renamed.Name = name
-        self.info = Maybe::new(renamed.@)
+        self.info = Maybe::new(renamed.*)
       },
       _ => (),
     }
@@ -1422,12 +1423,12 @@ impl Controller {
     match self.info {
       info => {
         if configuration.ConfigurationRevision >= info.ConfigurationRevision {
-          let configured = mut info
+          mut configured = info
           configured.Model = configuration.Model
           configured.ThinkingLevel = configuration.ThinkingLevel
           configured.Inputs = configuration.Inputs
           configured.ConfigurationRevision = configuration.ConfigurationRevision
-          self.info = Maybe::new(configured.@)
+          self.info = Maybe::new(configured)
         }
       },
       _ => (),
@@ -1454,9 +1455,9 @@ impl Controller {
     match self.info {
       info => {
         if info.CWD != cwd {
-          let moved = mut info
+          mut moved = info
           moved.CWD = cwd
-          self.info = Maybe::new(moved.@)
+          self.info = Maybe::new(moved)
           self.location = cwd
           self.resolve_location(cwd)
           self.watch_vcs()
@@ -1491,11 +1492,11 @@ impl Controller {
 
   // The names of the session's MCP servers.
   fn mcp_server_names() [Str] {
-    let names = mut List::new<Str>()
+    let names = &mut List::new<Str>()
     for server in self.mcp_servers {
       names.push(server.Name)
     }
-    names.@
+    names.*
   }
 
   // Shows or hides the output of the tool row with key.
@@ -1583,9 +1584,9 @@ impl Controller {
   // Follows a command the server accepted, stopping it when Escape was
   // pressed while it started.
   private fn mut adopt_bash(
-    session: mut api::Session,
+    session: &mut api::Session,
     ctx: context::Context,
-    execution: mut api::BashExecution,
+    execution: &mut api::BashExecution,
   ) {
     self.bash_admission = Maybe::new<Admission>()
     let id = execution.ID()
@@ -1601,7 +1602,7 @@ impl Controller {
   // A command that did not start returns to the composer. A start that was
   // being stopped is stopped on the server too, in case it did start.
   private fn mut reject_bash(
-    session: mut api::Session,
+    session: &mut api::Session,
     ctx: context::Context,
     admission: Admission,
     failure: Error,
@@ -1642,7 +1643,7 @@ impl Controller {
           match self.session {
             session => {
               self.bash_id = id
-              self.follow_bash(session, lifetime.Context, id, Maybe::new<mut api::BashExecution>())
+              self.follow_bash(session, lifetime.Context, id, Maybe::new<&mut api::BashExecution>())
             },
             _ => (),
           }
@@ -1655,10 +1656,10 @@ impl Controller {
   // Waits for a command to settle. A lost connection is reported once and the
   // command is looked up again every second until it can be followed.
   private fn mut follow_bash(
-    session: mut api::Session,
+    session: &mut api::Session,
     ctx: context::Context,
     id: Str,
-    known: (mut api::BashExecution)?,
+    known: (&mut api::BashExecution)?,
   ) {
     let dispatch = self.host.dispatch
     async::start(fn() {
@@ -1677,7 +1678,7 @@ impl Controller {
                 })
               },
               err(failure) => {
-                handle = Maybe::new<mut api::BashExecution>()
+                handle = Maybe::new<&mut api::BashExecution>()
                 following = self.keep_following_bash(ctx, id, "Bash update failed", failure)
               },
             }
@@ -1960,25 +1961,25 @@ impl Controller {
 
   // Settles a request, remembering a bounded number of settled IDs.
   private fn mut remove_interaction(id: Str) {
-    let remembered = mut List::new<Str>()
+    let remembered = &mut List::new<Str>()
     for settled in self.settled_interactions {
       if settled != id {
         remembered.push(settled)
       }
     }
     remembered.push(id)
-    let recent = remembered.@
+    let recent = remembered.*
     self.settled_interactions = match recent.size() > 64 {
       true => recent.slice(start: recent.size() - 64).expect("recent settled requests").to_list(),
       false => recent,
     }
-    let remaining = mut List::new<protocol::InteractionRequest>()
+    let remaining = &mut List::new<protocol::InteractionRequest>()
     for pending in self.interactions {
       if pending.ID != id {
         remaining.push(pending)
       }
     }
-    self.interactions = remaining.@
+    self.interactions = remaining.*
     if self.interaction_responding == id {
       self.interaction_responding = ""
     }
@@ -2015,7 +2016,7 @@ impl Controller {
               self.history_failure = ""
               async::start(fn() {
                 let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(30000))
-                let outcome = mut HistoryOutcome{
+                let outcome = &mut HistoryOutcome{
                   page: Maybe::new<protocol::TranscriptPage>(),
                   snapshot: Maybe::new<protocol::SessionSnapshot>(),
                   failure: "",
@@ -2350,13 +2351,13 @@ impl Controller {
   }
 
   private fn mut settle_cancel(conversation_id: Str) {
-    let kept = mut List::new<Str>()
+    let kept = &mut List::new<Str>()
     for id in self.subagents_cancelling {
       if id != conversation_id {
         kept.push(id)
       }
     }
-    self.subagents_cancelling = kept.@
+    self.subagents_cancelling = kept.*
   }
 
   // diff_observer lists the working tree's changed files for the Diff pane;
@@ -2843,11 +2844,11 @@ impl Controller {
     if self.active and source_id != "" and (not self.new_session_pending) and (not self.reload_pending) {
       match self.lifetime {
         lifetime => {
-          let request = mut protocol::ForkSessionInput{}
+          let request = &mut protocol::ForkSessionInput{}
           if message != "" {
-            request.Prompt = mut protocol::PromptInput{Text: message}
+            request.Prompt = &mut protocol::PromptInput{Text: message}
           }
-          let input = request.@
+          let input = request.*
           let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(30000))
           let client = self.options.Client
           let resolve_location = self.options.ResolveLocation
@@ -2962,7 +2963,7 @@ impl Controller {
   // command history lists until the session's history loads.
   fn shown_commands() [sessionbridge::BashHistoryItem] {
     let messages = self.transcript_messages()
-    let items = mut List::new<sessionbridge::BashHistoryItem>()
+    let items = &mut List::new<sessionbridge::BashHistoryItem>()
     mut index = messages.size() - 1
     while index >= 0 {
       let message = messages.at(index).expect("message")
@@ -2982,7 +2983,7 @@ impl Controller {
       }
       index = index - 1
     }
-    items.@
+    items.*
   }
 
   // Reads up to limit commands run before the cursor before, newest first,
@@ -3232,7 +3233,7 @@ impl Controller {
         self.attachments.push(item)
       }
     }
-    let texts = mut List::new<Str>()
+    let texts = &mut List::new<Str>()
     for message in restored.Messages {
       if message.Text != "" {
         texts.push(message.Text)
@@ -3305,7 +3306,7 @@ impl Controller {
     self.notice = ""
     let optimistic = self.live.activity == "" and not self.start_pending
     if optimistic {
-      let shown = mut List::new<transcript::Attachment>()
+      let shown = &mut List::new<transcript::Attachment>()
       for item in staged {
         if item.sendable() {
           shown.push(
@@ -3317,7 +3318,7 @@ impl Controller {
           )
         }
       }
-      self.live.submit(display, shown.@, notes)
+      self.live.submit(display, shown.*, notes)
       self.start_pending = true
       (self.host.show_latest)()
     }
@@ -3468,11 +3469,11 @@ impl Controller {
     if self.can_submit() {
       let ids = attachments::prompt_ids(self.attachments)
       let sent_notes = self.pending_annotations()
-      let notes = mut List::new<Uint64>()
+      let notes = &mut List::new<Uint64>()
       for annotation in sent_notes {
         notes.push(annotation.ID)
       }
-      let annotation_ids = notes.@
+      let annotation_ids = notes.*
       let bash = parse_bash(text)
       if text == "" and ids.size() == 0 and annotation_ids.size() == 0 {
         self.promote_follow_ups()
@@ -3681,9 +3682,9 @@ impl Controller {
   // Images the model cannot receive are refused, and a paste that would
   // exceed a prompt's limit is rejected.
   fn mut admit_attachments(paths: [Str]) [Upload] {
-    let accepted = mut List::new<Str>()
-    let types = mut List::new<Str>()
-    let refused = mut List::new<Str>()
+    let accepted = &mut List::new<Str>()
+    let types = &mut List::new<Str>()
+    let refused = &mut List::new<Str>()
     let rejecting = self.rejecting_model()
     for path in paths {
       let media_type = attachments::media_type(path).or("")
@@ -3708,7 +3709,7 @@ impl Controller {
         staged = staged + 1
       }
     }
-    let uploads = mut List::new<Upload>()
+    let uploads = &mut List::new<Upload>()
     if staged + accepted.size() > attachments::max_per_prompt {
       (self.host.toast)(
         "Too many attachments",
@@ -3717,7 +3718,7 @@ impl Controller {
         false,
       )
     } else {
-      for path, index in accepted.@ {
+      for path, index in accepted.* {
         self.attachment_token = self.attachment_token + 1
         self.attachments.push(
           attachments::uploading(self.attachment_token, path, types.at(index).or("")),
@@ -3725,22 +3726,23 @@ impl Controller {
         uploads.push(Upload{token: self.attachment_token, path: path})
       }
     }
-    uploads.@
+    uploads.*
   }
 
   // Records a finished upload on its staged row, unless the row was removed.
   fn mut finish_upload(token: Int, result: protocol::AttachmentInfo!Error) {
-    let updated = mut List::new<attachments::Staged>()
+    let updated = &mut List::new<attachments::Staged>()
     mut failure = Maybe::new<Error>()
     for item in self.attachments {
+      mut item = item
       if item.token == token and item.uploading {
         match result {
           ok(info) => updated.push(attachments::uploaded(info)),
           err(reason) => {
-            let failed = mut item
+            let failed = &mut item
             failed.uploading = false
             failed.failure = reason.error()
-            updated.push(failed.@)
+            updated.push(failed.*)
             failure = Maybe::new(reason)
           },
         }
@@ -3748,7 +3750,7 @@ impl Controller {
         updated.push(item)
       }
     }
-    self.attachments = updated.@
+    self.attachments = updated.*
     match failure {
       reason => {
         if not self.absorbs(reason) {
@@ -3761,26 +3763,26 @@ impl Controller {
 
   // Removes one staged attachment.
   fn mut remove_attachment(index: Int) {
-    let kept = mut List::new<attachments::Staged>()
+    let kept = &mut List::new<attachments::Staged>()
     for item, position in self.attachments {
       if position != index {
         kept.push(item)
       }
     }
-    self.attachments = kept.@
+    self.attachments = kept.*
   }
 
   // The annotations waiting for the next prompt: those not queued with a
   // follow-up or being sent.
   fn pending_annotations() [sessionbridge::Annotation] {
-    let pending = mut List::new<sessionbridge::Annotation>()
+    let pending = &mut List::new<sessionbridge::Annotation>()
     for annotation in self.annotations {
       let claimed = annotations::includes(self.follow_ups.AnnotationIDs, annotation.ID) or annotations::includes(self.sending_annotations, annotation.ID)
       if not claimed {
         pending.push(annotation)
       }
     }
-    pending.@
+    pending.*
   }
 
   fn mut apply_annotation(annotation: sessionbridge::Annotation) {
@@ -3957,16 +3959,16 @@ impl Controller {
   // Marks a preview as most recently used and forgets the oldest beyond
   // `kept_previews`, except the expanded one.
   fn mut remember_preview(attachment_id: Str) {
-    let order = mut List::new<Str>()
+    let order = &mut List::new<Str>()
     for id in self.preview_order {
       if id != attachment_id {
         order.push(id)
       }
     }
     order.push(attachment_id)
-    let kept = mut List::new<Str>()
+    let kept = &mut List::new<Str>()
     mut excess = order.size() - kept_previews
-    for id in order.@ {
+    for id in order.* {
       if excess > 0 and id != self.expanded_image {
         self.previews.delete(id)
         excess = excess - 1
@@ -3974,7 +3976,7 @@ impl Controller {
         kept.push(id)
       }
     }
-    self.preview_order = kept.@
+    self.preview_order = kept.*
   }
 
   // Opens an image in the system's default application from a private
@@ -4041,15 +4043,15 @@ struct Blocker {
 
 // Staged rows for the attachments of restored follow-ups.
 private fn resolve(
-  session: mut api::Session,
+  session: &mut api::Session,
   ctx: context::Context,
   messages: [protocol::PromptInput],
 ) [attachments::Staged] {
-  let ids = attachments::restored_ids(messages)
+  mut ids = attachments::restored_ids(messages)
   let rows: [attachments::Staged] = match ids.size() == 0 {
     true => [],
     false => {
-      let requested = mut ids
+      let requested = &mut ids
       let resolution: protocol::AttachmentResolution!Str = match session.ResolveAttachments(ctx, requested) {
         ok(resolved) => Result::ok(resolved),
         err(failure) => Result::err(failure.error()),
@@ -4061,7 +4063,7 @@ private fn resolve(
 }
 
 // Uploads one file to the session.
-private fn upload(session: mut api::Session, ctx: context::Context, path: Str) protocol::AttachmentInfo!Error {
+private fn upload(session: &mut api::Session, ctx: context::Context, path: Str) protocol::AttachmentInfo!Error {
   match os::Open(path) {
     ok(file) => {
       let timeout = contextbridge::WithTimeout(ctx, Int64::from(attachments::upload_timeout))
@@ -4080,7 +4082,7 @@ struct Effects {
   alerts: [Str],
 }
 
-private fn test_host(effects: mut Effects) Host {
+private fn test_host(effects: &mut Effects) Host {
   Host{
     dispatch: fn(action: fn()) Void!event::DispatchError {
       action()
@@ -4107,14 +4109,14 @@ private fn test_host(effects: mut Effects) Host {
   }
 }
 
-private fn active_controller(effects: mut Effects) mut Controller {
+private fn active_controller(effects: &mut Effects) &mut Controller {
   let result = controller(cli::TUIOptions{}, test_host(effects), 1, "")
   result.active = true
   result
 }
 
 test fn a_detached_controller_ignores_session_operations() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4131,7 +4133,7 @@ test fn a_detached_controller_ignores_session_operations() Void!Str {
 }
 
 test fn snapshots_project_session_state_and_report_each_mcp_warning_once() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4160,13 +4162,13 @@ test fn snapshots_project_session_state_and_report_each_mcp_warning_once() Void!
     "context usage is adopted",
   )
   testing::assert(
-    strings::Join(mut effects.toasts, "|") == "MCP configuration warning: missing server",
-    "each warning is reported once per attachment: {strings::Join(mut effects.toasts, "|")}",
+    strings::Join(&mut effects.toasts, "|") == "MCP configuration warning: missing server",
+    "each warning is reported once per attachment: {strings::Join(&mut effects.toasts, "|")}",
   )
 }
 
 test fn a_changed_working_directory_moves_the_session_and_its_location() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4187,7 +4189,7 @@ test fn a_changed_working_directory_moves_the_session_and_its_location() Void!St
 }
 
 test fn another_clients_rename_and_configuration_update_the_session() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4209,7 +4211,7 @@ test fn another_clients_rename_and_configuration_update_the_session() Void!Str {
       sessionbridge::Event{Kind: "session.name.changed", SessionName: "Renamed"},
       sessionbridge::Event{
         Kind: "session.configuration.changed",
-        Configuration: mut protocol::SessionConfiguration{
+        Configuration: &mut protocol::SessionConfiguration{
           Model: "openai/gpt-5",
           ThinkingLevel: "high",
           Inputs: [],
@@ -4229,7 +4231,7 @@ test fn another_clients_rename_and_configuration_update_the_session() Void!Str {
     [
       sessionbridge::Event{
         Kind: "session.configuration.changed",
-        Configuration: mut protocol::SessionConfiguration{
+        Configuration: &mut protocol::SessionConfiguration{
           Model: "openai/gpt-5",
           ThinkingLevel: "low",
           Inputs: [],
@@ -4245,7 +4247,7 @@ test fn another_clients_rename_and_configuration_update_the_session() Void!Str {
 }
 
 test fn another_clients_queue_changes_update_the_queue_and_a_held_queue_is_reported_once() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4256,7 +4258,7 @@ test fn another_clients_queue_changes_update_the_queue_and_a_held_queue_is_repor
     [
       sessionbridge::Event{
         Kind: "follow_ups.changed",
-        FollowUps: mut protocol::FollowUpQueue{
+        FollowUps: &mut protocol::FollowUpQueue{
           Count: 1,
           Previews: ["next"],
           AnnotationIDs: [],
@@ -4271,11 +4273,11 @@ test fn another_clients_queue_changes_update_the_queue_and_a_held_queue_is_repor
   try testing::assert(effects.toasts.size() == 0, "a waiting queue is not an alert")
   let held = sessionbridge::Event{
     Kind: "follow_ups.changed",
-    FollowUps: mut protocol::FollowUpQueue{
+    FollowUps: &mut protocol::FollowUpQueue{
       Count: 1,
       Previews: ["next"],
       AnnotationIDs: [],
-      AdmissionFailure: mut protocol::FollowUpAdmissionFailure{Message: "attachment is unavailable"},
+      AdmissionFailure: &mut protocol::FollowUpAdmissionFailure{Message: "attachment is unavailable"},
     },
   }
   subject.apply_events([held])
@@ -4285,14 +4287,14 @@ test fn another_clients_queue_changes_update_the_queue_and_a_held_queue_is_repor
     "the held queue keeps its reason",
   )
   try testing::assert(
-    strings::Join(mut effects.toasts, "|") == "Queued message couldn't start: attachment is unavailable. Press ↑ to restore the queue.",
-    "the held queue is reported once: {strings::Join(mut effects.toasts, "|")}",
+    strings::Join(&mut effects.toasts, "|") == "Queued message couldn't start: attachment is unavailable. Press ↑ to restore the queue.",
+    "the held queue is reported once: {strings::Join(&mut effects.toasts, "|")}",
   )
   subject.apply_events(
     [
       sessionbridge::Event{
         Kind: "follow_ups.changed",
-        FollowUps: mut protocol::FollowUpQueue{
+        FollowUps: &mut protocol::FollowUpQueue{
           Count: 0,
           Previews: [],
           AnnotationIDs: [],
@@ -4304,7 +4306,7 @@ test fn another_clients_queue_changes_update_the_queue_and_a_held_queue_is_repor
 }
 
 test fn a_prompt_refused_behind_a_held_queue_says_to_restore_it() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4325,7 +4327,7 @@ test fn a_prompt_refused_behind_a_held_queue_says_to_restore_it() Void!Str {
     reported(
       fmt::Errorf(
         "submit prompt: %w",
-        mut api::ServerError{Code: api::ErrorConflict, Message: "operation conflicts with session state"},
+        &mut api::ServerError{Code: api::ErrorConflict, Message: "operation conflicts with session state"},
       ),
     ),
   )
@@ -4336,7 +4338,7 @@ test fn a_prompt_refused_behind_a_held_queue_says_to_restore_it() Void!Str {
 }
 
 test fn a_session_compaction_is_session_work_until_it_ends() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4373,26 +4375,26 @@ test fn a_session_compaction_is_session_work_until_it_ends() Void!Str {
 }
 
 test fn opening_a_chip_closes_one_that_opened_on_its_own() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
   }
   let subject = active_controller(effects)
   let run = fn(turn: Str, state: transcript::ToolState) [transcript::Message] {
-    let reply = mut transcript::message("{turn}-reply", turn, transcript::Role::assistant)
+    let reply = &mut transcript::message("{turn}-reply", turn, transcript::Role::assistant)
     reply.tool_calls = [transcript::tool_call("{turn}-call", "read")]
-    let result = mut transcript::message("{turn}-result", turn, transcript::Role::tool)
+    let result = &mut transcript::message("{turn}-result", turn, transcript::Role::tool)
     result.tool_call_id = "{turn}-call"
     result.tool_name = "read"
     result.tool_state = state
-    [reply.@, result.@]
+    [reply.*, result.*]
   }
-  let messages = mut run("t1", transcript::ToolState::completed)
+  let messages = &mut run("t1", transcript::ToolState::completed)
   for message in run("t2", transcript::ToolState::running) {
     messages.push(message)
   }
-  subject.messages = messages.@
+  subject.messages = messages.*
   subject.toggle_work("work:t1:t1-call", false)
   try testing::assert(subject.open_work.get("work:t1:t1-call").or(false), "the clicked chip opens")
   testing::assert(
@@ -4402,7 +4404,7 @@ test fn opening_a_chip_closes_one_that_opened_on_its_own() Void!Str {
 }
 
 test fn session_records_only_update_the_attached_session() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4427,7 +4429,7 @@ struct Queue {
   actions: [fn()],
 }
 
-private fn queued_host(queue: mut Queue) Host {
+private fn queued_host(queue: &mut Queue) Host {
   Host{
     dispatch: fn(action: fn()) Void!event::DispatchError {
       queue.actions.push(action)
@@ -4448,7 +4450,7 @@ private fn queued_host(queue: mut Queue) Host {
   }
 }
 
-private fn run_queue(queue: mut Queue) {
+private fn run_queue(queue: &mut Queue) {
   let actions = queue.actions
   queue.actions = []
   for action in actions {
@@ -4457,7 +4459,7 @@ private fn run_queue(queue: mut Queue) {
 }
 
 test fn dialog_records_apply_through_the_host_and_only_while_attached() Void!Str {
-  let queue = mut Queue{actions: []}
+  let queue = &mut Queue{actions: []}
   let subject = controller(cli::TUIOptions{}, queued_host(queue), 1, "")
   subject.active = true
   subject.apply_snapshot(
@@ -4485,8 +4487,8 @@ test fn dialog_records_apply_through_the_host_and_only_while_attached() Void!Str
 }
 
 test fn scratchpad_editor_reports_apply_through_the_host_and_only_while_attached() Void!Str {
-  let queue = mut Queue{actions: []}
-  let effects = mut Effects{
+  let queue = &mut Queue{actions: []}
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4528,8 +4530,8 @@ test fn scratchpad_editor_reports_apply_through_the_host_and_only_while_attached
   )
   try testing::assert(subject.scratchpad_failure == "", "a saved record clears the load failure")
   try testing::assert(
-    strings::Join(mut effects.toasts, "|") == "Scratchpad save failed: offline",
-    "editor failures are reported once: {strings::Join(mut effects.toasts, "|")}",
+    strings::Join(&mut effects.toasts, "|") == "Scratchpad save failed: offline",
+    "editor failures are reported once: {strings::Join(&mut effects.toasts, "|")}",
   )
 
   try testing::assert(subject.request_scratchpad_retry(), "retry is accepted for scheduling")
@@ -4551,7 +4553,7 @@ test fn scratchpad_editor_reports_apply_through_the_host_and_only_while_attached
 }
 
 test fn watched_turn_lifecycle_tracks_and_releases_the_active_turn() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4596,7 +4598,7 @@ private fn run(id: Str, status: Str) sessionbridge::Bash {
 }
 
 private fn bash_ids(messages: [transcript::Message]) Str {
-  let ids = mut List::new<Str>()
+  let ids = &mut List::new<Str>()
   for message in messages {
     if message.role == transcript::Role::bash {
       ids.push(message.id)
@@ -4620,7 +4622,7 @@ test fn only_a_bang_with_a_command_runs_directly() Void!Str {
 }
 
 test fn a_command_shows_after_the_transcript_or_the_active_turn() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4644,7 +4646,7 @@ test fn a_command_shows_after_the_transcript_or_the_active_turn() Void!Str {
 }
 
 test fn a_snapshot_keeps_the_running_command_and_replaces_finished_ones() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4668,7 +4670,7 @@ test fn a_snapshot_keeps_the_running_command_and_replaces_finished_ones() Void!S
 }
 
 test fn a_command_row_from_the_transcript_is_settled_in_place() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4676,9 +4678,9 @@ test fn a_command_row_from_the_transcript_is_settled_in_place() Void!Str {
   let subject = active_controller(effects)
   // A run that joined a turn's history keeps its execution ID under a
   // history message ID.
-  let row = mut transcript::bash_message(run("bash_2", "running"))
+  let row = &mut transcript::bash_message(run("bash_2", "running"))
   row.id = "message_9"
-  subject.messages.push(row.@)
+  subject.messages.push(row.*)
   subject.show_bash(run("bash_2", "completed"))
   testing::assert(
     shown(subject) == "message_9" and not subject.messages.at(0).expect("row").pending,
@@ -4687,16 +4689,16 @@ test fn a_command_row_from_the_transcript_is_settled_in_place() Void!Str {
 }
 
 test fn command_history_starts_from_the_finished_commands_shown() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
   }
   let subject = active_controller(effects)
   subject.show_bash(run("bash_1", "completed"))
-  let excluded = mut run("bash_2", "completed")
+  let excluded = &mut run("bash_2", "completed")
   excluded.Exclude = true
-  subject.show_bash(excluded.@)
+  subject.show_bash(excluded.*)
   subject.show_bash(run("bash_3", "running"))
   let commands = subject.shown_commands()
   let first = commands.at(0).expect("newest")
@@ -4707,7 +4709,7 @@ test fn command_history_starts_from_the_finished_commands_shown() Void!Str {
 }
 
 test fn one_command_runs_at_a_time() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4722,7 +4724,7 @@ test fn one_command_runs_at_a_time() Void!Str {
 }
 
 test fn escape_stops_a_command_before_the_turn() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4749,7 +4751,7 @@ test fn escape_stops_a_command_before_the_turn() Void!Str {
 }
 
 test fn a_running_command_counts_as_work() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4762,7 +4764,7 @@ test fn a_running_command_counts_as_work() Void!Str {
 }
 
 test fn turn_recovery_is_shown_only_for_the_active_turn() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4794,7 +4796,7 @@ test fn turn_recovery_is_shown_only_for_the_active_turn() Void!Str {
 }
 
 test fn a_final_snapshot_settles_a_turn_that_finished_while_disconnected() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4829,7 +4831,7 @@ test fn a_final_snapshot_settles_a_turn_that_finished_while_disconnected() Void!
 }
 
 test fn a_turn_that_compaction_failed_says_why() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4876,7 +4878,7 @@ test fn a_turn_that_compaction_failed_says_why() Void!Str {
 }
 
 test fn a_persisted_failure_is_not_reported_twice() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4906,7 +4908,7 @@ test fn a_persisted_failure_is_not_reported_twice() Void!Str {
 }
 
 test fn a_turn_without_a_final_snapshot_settles_what_streamed() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4954,7 +4956,7 @@ test fn a_turn_without_a_final_snapshot_settles_what_streamed() Void!Str {
 }
 
 test fn restored_follow_ups_go_before_the_draft_and_leave_the_queue_to_the_stream() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -4995,7 +4997,7 @@ test fn restored_follow_ups_go_before_the_draft_and_leave_the_queue_to_the_strea
 }
 
 test fn promoted_follow_ups_are_acknowledged_and_leave_the_queue_to_the_stream() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5014,7 +5016,7 @@ test fn promoted_follow_ups_are_acknowledged_and_leave_the_queue_to_the_stream()
 }
 
 test fn follow_ups_change_only_on_a_connected_session() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5031,7 +5033,7 @@ test fn follow_ups_change_only_on_a_connected_session() Void!Str {
 }
 
 private fn uploaded_rows(count: Int) [attachments::Staged] {
-  let rows = mut List::new<attachments::Staged>()
+  let rows = &mut List::new<attachments::Staged>()
   mut index = 0
   while index < count {
     rows.push(
@@ -5041,13 +5043,13 @@ private fn uploaded_rows(count: Int) [attachments::Staged] {
     )
     index =+ 1
   }
-  rows.@
+  rows.*
 }
 
 test fn staging_refuses_images_the_model_cannot_receive() Void!Str {
   let directory = attachments::fixtures()
   defer os::RemoveAll(directory)
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5081,7 +5083,7 @@ test fn staging_refuses_images_the_model_cannot_receive() Void!Str {
 test fn a_paste_beyond_the_prompt_limit_is_rejected() Void!Str {
   let directory = attachments::fixtures()
   defer os::RemoveAll(directory)
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5100,7 +5102,7 @@ test fn a_paste_beyond_the_prompt_limit_is_rejected() Void!Str {
 }
 
 test fn finished_uploads_update_only_their_row() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5141,7 +5143,7 @@ test fn finished_uploads_update_only_their_row() Void!Str {
 }
 
 test fn only_discovered_prompt_commands_are_run_from_composer_text() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5150,7 +5152,7 @@ test fn only_discovered_prompt_commands_are_run_from_composer_text() Void!Str {
   subject.prompt_commands = [
     protocol::PromptCommand{Name: "claude-fix", Source: protocol::PromptCommandSourceClaudeProject},
   ]
-  let invoked = fn(subject: mut Controller, text: Str) Str {
+  let invoked = fn(subject: &mut Controller, text: Str) Str {
     match subject.prompt_invocation(text) {
       invocation => "{invocation.Name}|{invocation.Arguments}",
       _ => "",
@@ -5166,7 +5168,7 @@ test fn only_discovered_prompt_commands_are_run_from_composer_text() Void!Str {
 }
 
 test fn a_prompt_command_with_staged_files_is_refused() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5193,7 +5195,7 @@ test fn a_prompt_command_with_staged_files_is_refused() Void!Str {
 }
 
 test fn staged_files_block_sending_until_they_can_be_sent() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5206,7 +5208,7 @@ test fn staged_files_block_sending_until_they_can_be_sent() Void!Str {
       Inputs: [protocol::ModelInputText],
     },
   )
-  let blocked = fn(subject: mut Controller) Str {
+  let blocked = fn(subject: &mut Controller) Str {
     match subject.send_blocker("") {
       blocker => "{blocker.title}|{blocker.detail}",
       _ => "",
@@ -5238,7 +5240,7 @@ test fn staged_files_block_sending_until_they_can_be_sent() Void!Str {
 }
 
 test fn at_most_one_image_preview_is_expanded() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5256,13 +5258,13 @@ test fn at_most_one_image_preview_is_expanded() Void!Str {
 }
 
 test fn a_sent_prompt_expands_its_first_image() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
   }
   let subject = active_controller(effects)
-  let failed = mut attachments::uploaded(
+  let failed = &mut attachments::uploaded(
     protocol::AttachmentInfo{
       ID: "attachment-0",
       Filename: "bad.png",
@@ -5279,7 +5281,7 @@ test fn a_sent_prompt_expands_its_first_image() Void!Str {
           MediaType: "text/plain",
         },
       ),
-      failed.@,
+      failed.*,
       attachments::uploaded(
         protocol::AttachmentInfo{
           ID: "attachment-2",
@@ -5303,7 +5305,7 @@ test fn a_sent_prompt_expands_its_first_image() Void!Str {
 }
 
 test fn only_recent_previews_stay_decoded() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5323,7 +5325,7 @@ test fn only_recent_previews_stay_decoded() Void!Str {
 }
 
 test fn disposal_ends_the_attachment_scope() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5339,7 +5341,7 @@ test fn disposal_ends_the_attachment_scope() Void!Str {
 }
 
 test fn a_fork_waits_only_for_work_that_replaces_the_attachment() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5363,7 +5365,7 @@ test fn only_an_unstarted_first_message_is_reported_as_failed() Void!Str {
   let started = protocol::ForkSessionResult{Session: protocol::SessionInfo{ID: "child"}}
   let unstarted = protocol::ForkSessionResult{
     Session: protocol::SessionInfo{ID: "child"},
-    FirstTurnError: mut protocol::FirstTurnError{Code: protocol::FirstTurnUnavailable, Message: "session is unavailable"},
+    FirstTurnError: &mut protocol::FirstTurnError{Code: protocol::FirstTurnUnavailable, Message: "session is unavailable"},
   }
   try testing::assert(failed_first_message("", unstarted).is_none(), "a fork without a message has none")
   try testing::assert(
@@ -5381,7 +5383,7 @@ test fn only_an_unstarted_first_message_is_reported_as_failed() Void!Str {
 }
 
 test fn a_failed_first_message_is_presented_like_a_failed_prompt() Void!Str {
-  let drafts = mut List::new<Str>()
+  let drafts = &mut List::new<Str>()
   let host = Host{
     dispatch: fn(action: fn()) Void!event::DispatchError {
       action()
@@ -5415,7 +5417,7 @@ test fn a_failed_first_message_is_presented_like_a_failed_prompt() Void!Str {
 }
 
 test fn a_snapshot_after_a_stream_replacement_rebases_the_live_turn() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5479,17 +5481,17 @@ private fn model_request(id: Str) protocol::InteractionRequest {
 }
 
 test fn pending_requests_queue_in_order_and_settle_by_id() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
   }
   let subject = active_controller(effects)
-  let first = model_request("interaction_1")
-  let second = model_request("interaction_2")
-  let plugin = protocol::InteractionRequest{
+  mut first = model_request("interaction_1")
+  mut second = model_request("interaction_2")
+  mut plugin = protocol::InteractionRequest{
     ID: "interaction_plugin",
-    Plugin: mut protocol::PluginInteractionOwner{PluginID: "demo", Instance: "1"},
+    Plugin: &mut protocol::PluginInteractionOwner{PluginID: "demo", Instance: "1"},
     Kind: protocol::InteractionConfirm,
     Title: "Plugin",
   }
@@ -5504,25 +5506,25 @@ test fn pending_requests_queue_in_order_and_settle_by_id() Void!Str {
       sessionbridge::Event{
         Kind: "interaction.requested",
         Sequence: 2,
-        Interaction: mut first,
+        Interaction: &mut first,
         InteractionID: first.ID,
       },
       sessionbridge::Event{
         Kind: "interaction.requested",
         Sequence: 3,
-        Interaction: mut second,
+        Interaction: &mut second,
         InteractionID: second.ID,
       },
       sessionbridge::Event{
         Kind: "interaction.requested",
         Sequence: 3,
-        Interaction: mut first,
+        Interaction: &mut first,
         InteractionID: first.ID,
       },
       sessionbridge::Event{
         Kind: "interaction.requested",
         Sequence: 4,
-        Interaction: mut plugin,
+        Interaction: &mut plugin,
         InteractionID: plugin.ID,
       },
     ],
@@ -5579,19 +5581,19 @@ test fn pending_requests_queue_in_order_and_settle_by_id() Void!Str {
 }
 
 test fn a_late_copy_of_a_settled_request_does_not_reopen_it() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
   }
   let subject = active_controller(effects)
-  let request = model_request("interaction_1")
+  mut request = model_request("interaction_1")
   subject.apply_events(
     [
       sessionbridge::Event{
         Kind: "interaction.requested",
         Sequence: 1,
-        Interaction: mut request,
+        Interaction: &mut request,
         InteractionID: request.ID,
       },
       sessionbridge::Event{
@@ -5607,7 +5609,7 @@ test fn a_late_copy_of_a_settled_request_does_not_reopen_it() Void!Str {
       sessionbridge::Event{
         Kind: "interaction.requested",
         Sequence: 1,
-        Interaction: mut request,
+        Interaction: &mut request,
         InteractionID: request.ID,
       },
     ],
@@ -5620,7 +5622,7 @@ test fn a_late_copy_of_a_settled_request_does_not_reopen_it() Void!Str {
 }
 
 test fn snapshots_replace_pending_requests() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5646,7 +5648,7 @@ test fn snapshots_replace_pending_requests() Void!Str {
 }
 
 private fn transcript_messages(ids: [Str], first: Int) [protocol::TranscriptMessage] {
-  let result = mut List::new<protocol::TranscriptMessage>()
+  let result = &mut List::new<protocol::TranscriptMessage>()
   mut sequence = first
   for id in ids {
     result.push(
@@ -5660,10 +5662,10 @@ private fn transcript_messages(ids: [Str], first: Int) [protocol::TranscriptMess
     )
     sequence =+ 1
   }
-  result.@
+  result.*
 }
 
-private fn staged_names(subject: mut Controller) Str {
+private fn staged_names(subject: &mut Controller) Str {
   mut joined = ""
   for item in subject.attachments {
     joined = match joined == "" {
@@ -5674,7 +5676,7 @@ private fn staged_names(subject: mut Controller) Str {
   joined
 }
 
-private fn shown(subject: mut Controller) Str {
+private fn shown(subject: &mut Controller) Str {
   mut joined = ""
   for message in subject.messages {
     joined = match joined == "" {
@@ -5686,7 +5688,7 @@ private fn shown(subject: mut Controller) Str {
 }
 
 test fn earlier_history_continues_from_the_snapshot_and_survives_later_snapshots() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5729,7 +5731,7 @@ test fn earlier_history_continues_from_the_snapshot_and_survives_later_snapshots
 }
 
 test fn a_snapshot_that_replaces_history_restarts_its_cursor() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5758,7 +5760,7 @@ test fn a_snapshot_that_replaces_history_restarts_its_cursor() Void!Str {
 }
 
 test fn a_page_that_overlaps_the_transcript_is_reported_and_not_applied() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5788,7 +5790,7 @@ test fn a_page_that_overlaps_the_transcript_is_reported_and_not_applied() Void!S
 }
 
 test fn an_expired_cursor_recovers_from_a_fresh_snapshot() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5823,7 +5825,7 @@ private fn reported(result: Void!Error) Error {
 }
 
 test fn an_incompatible_server_freezes_the_attachment_once() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5861,7 +5863,7 @@ test fn an_incompatible_server_freezes_the_attachment_once() Void!Str {
 }
 
 test fn ordinary_failures_are_reported_by_their_operation() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5887,7 +5889,7 @@ private fn wire(sequence: Int, turn_id: Str, payload: protocol::SessionEventPayl
   }
 }
 
-private fn shown_roles(subject: mut Controller) Str {
+private fn shown_roles(subject: &mut Controller) Str {
   mut joined = ""
   for message in subject.transcript_messages() {
     let role = match message.role {
@@ -5910,7 +5912,7 @@ private fn shown_roles(subject: mut Controller) Str {
 // elsewhere, here by a plugin's message, from a snapshot taken after the
 // turn's first events.
 test fn a_turn_found_in_a_watch_snapshot_is_followed_from_its_start() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5962,7 +5964,7 @@ test fn a_turn_found_in_a_watch_snapshot_is_followed_from_its_start() Void!Str {
 }
 
 test fn a_submission_in_flight_is_followed_when_accepted() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -5977,7 +5979,7 @@ test fn a_submission_in_flight_is_followed_when_accepted() Void!Str {
 }
 
 test fn another_turn_being_followed_is_not_replaced_by_a_lagging_snapshot() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -6013,7 +6015,7 @@ private fn annotation_ids(annotations: [sessionbridge::Annotation]) Str {
 }
 
 test fn annotations_follow_snapshots_and_events() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -6032,8 +6034,8 @@ test fn annotations_follow_snapshots_and_events() Void!Str {
     },
   )
   try testing::assert(annotation_ids(subject.annotations) == "[2]", "a snapshot carries them")
-  let created = mut file_annotation(5, 1)
-  let updated = mut file_annotation(2, 3)
+  let created = &mut file_annotation(5, 1)
+  let updated = &mut file_annotation(2, 3)
   updated.Body = "tighten more"
   subject.apply_events(
     [
@@ -6060,7 +6062,7 @@ test fn annotations_follow_snapshots_and_events() Void!Str {
 }
 
 test fn queued_annotations_leave_the_composer() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -6080,7 +6082,7 @@ test fn queued_annotations_leave_the_composer() Void!Str {
 }
 
 test fn stale_annotations_block_sending() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -6089,7 +6091,7 @@ test fn stale_annotations_block_sending() Void!Str {
   subject.prompt_commands = [
     protocol::PromptCommand{Name: "review", Source: protocol::PromptCommandSourceProject},
   ]
-  let blocked = fn(subject: mut Controller, text: Str) Str {
+  let blocked = fn(subject: &mut Controller, text: Str) Str {
     match subject.send_blocker(text) {
       blocker => blocker.title,
       _ => "",
@@ -6101,10 +6103,10 @@ test fn stale_annotations_block_sending() Void!Str {
     blocked(subject, "/review") == "Prompt commands do not accept annotations",
     blocked(subject, "/review"),
   )
-  let stale = mut file_annotation(2, 2)
+  let stale = &mut file_annotation(2, 2)
   stale.Stale = true
   stale.StaleReason = "file_changed"
-  subject.annotations = [file_annotation(1, 1), stale.@]
+  subject.annotations = [file_annotation(1, 1), stale.*]
   try testing::assert(
     blocked(subject, "go") == "Remove stale annotations before sending",
     blocked(subject, "go"),
@@ -6113,7 +6115,7 @@ test fn stale_annotations_block_sending() Void!Str {
 }
 
 test fn a_sent_prompt_shows_its_annotations_at_once() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -6124,8 +6126,8 @@ test fn a_sent_prompt_shows_its_annotations_at_once() Void!Str {
   testing::assert(annotation_ids(shown.annotations) == "[1][2]", annotation_ids(shown.annotations))
 }
 
-private fn alert_log(effects: mut Effects) Str {
-  strings::Join(mut effects.alerts, " | ")
+private fn alert_log(effects: &mut Effects) Str {
+  strings::Join(&mut effects.alerts, " | ")
 }
 
 private fn finished(turn_id: Str, status: Str, sequence: Int64) sessionbridge::Event {
@@ -6138,7 +6140,7 @@ private fn finished(turn_id: Str, status: Str, sequence: Int64) sessionbridge::E
 }
 
 test fn each_finished_turn_alerts_once_unless_it_was_aborted() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -6167,7 +6169,7 @@ test fn each_finished_turn_alerts_once_unless_it_was_aborted() Void!Str {
 }
 
 test fn a_turn_settled_by_recovery_alerts_once() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -6191,7 +6193,7 @@ test fn a_turn_settled_by_recovery_alerts_once() Void!Str {
 }
 
 test fn requests_waiting_at_attach_do_not_alert_but_later_ones_do_once() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -6207,7 +6209,7 @@ test fn requests_waiting_at_attach_do_not_alert_but_later_ones_do_once() Void!St
   )
   try testing::assert(effects.alerts.size() == 0, "an already-waiting request is shown, not alerted")
 
-  let asked = protocol::InteractionRequest{
+  mut asked = protocol::InteractionRequest{
     ID: "interaction_2",
     Kind: protocol::InteractionInput,
     Title: "Which branch?",
@@ -6215,7 +6217,7 @@ test fn requests_waiting_at_attach_do_not_alert_but_later_ones_do_once() Void!St
   let event = sessionbridge::Event{
     Kind: "interaction.requested",
     Sequence: 2,
-    Interaction: mut asked,
+    Interaction: &mut asked,
     InteractionID: asked.ID,
   }
   subject.apply_events([event, event])
@@ -6238,7 +6240,7 @@ private fn branch_status(cwd: Str, branch: Str, dirty: Bool) protocol::SessionVC
   protocol::SessionVCSStatus{
     SessionID: "session-1",
     CWD: cwd,
-    Status: mut protocol::VCSStatus{
+    Status: &mut protocol::VCSStatus{
       Root: cwd,
       Head: protocol::VCSHead{Kind: protocol::VCSHeadBranch, Name: branch},
       Dirty: dirty,
@@ -6247,7 +6249,7 @@ private fn branch_status(cwd: Str, branch: Str, dirty: Bool) protocol::SessionVC
 }
 
 test fn git_status_applies_only_to_the_current_session_and_directory() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -6261,9 +6263,9 @@ test fn git_status_applies_only_to_the_current_session_and_directory() Void!Str 
 
   subject.apply_vcs(branch_status("/repo", "main", true))
   try testing::assert(subject.footer_location().Text == "~/repo (main*)", subject.footer_location().Text)
-  let elsewhere = mut branch_status("/repo", "other", false)
+  let elsewhere = &mut branch_status("/repo", "other", false)
   elsewhere.SessionID = "session-2"
-  subject.apply_vcs(elsewhere.@)
+  subject.apply_vcs(elsewhere.*)
   subject.apply_vcs(branch_status("/other", "other", false))
   try testing::assert(
     subject.footer_location().Text == "~/repo (main*)",
@@ -6288,7 +6290,7 @@ private fn pull_request_status(cwd: Str, branch: Str, failed: Int) protocol::Ses
     SessionID: "session-1",
     CWD: cwd,
     Branch: branch,
-    PullRequest: mut protocol::PullRequestStatus{
+    PullRequest: &mut protocol::PullRequestStatus{
       Number: 8,
       URL: "https://github.com/akonwi/kit/pull/8",
       State: protocol::PullRequestOpen,
@@ -6302,7 +6304,7 @@ private fn pull_request_status(cwd: Str, branch: Str, failed: Int) protocol::Ses
 }
 
 test fn the_footer_shows_the_checks_of_the_pull_request_it_links() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -6312,24 +6314,24 @@ test fn the_footer_shows_the_checks_of_the_pull_request_it_links() Void!Str {
     protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1", CWD: "/repo"}},
   )
   subject.location = "~/repo"
-  let status = mut branch_status("/repo", "feature", false)
-  status.Status.PullRequest = mut protocol::GitHubPullRequest{Number: 8, URL: "https://github.com/akonwi/kit/pull/8"}
-  subject.apply_vcs(status.@)
+  let status = &mut branch_status("/repo", "feature", false)
+  status.Status.PullRequest = &mut protocol::GitHubPullRequest{Number: 8, URL: "https://github.com/akonwi/kit/pull/8"}
+  subject.apply_vcs(status.*)
   subject.apply_pull_request(pull_request_status("/repo", "feature", 2))
   let checks = subject.footer_location().Checks
   try testing::assert(
-    not unsafe::is_nil(checks) and checks.@.Text() == "✗ 10/12",
+    not unsafe::is_nil(checks) and checks.*.Text() == "✗ 10/12",
     "the pull request's checks follow its label",
   )
 
   // A late result for another session or directory is ignored, and checks
   // observed for another branch are not shown.
-  let elsewhere = mut pull_request_status("/repo", "feature", 0)
+  let elsewhere = &mut pull_request_status("/repo", "feature", 0)
   elsewhere.SessionID = "session-2"
-  subject.apply_pull_request(elsewhere.@)
+  subject.apply_pull_request(elsewhere.*)
   subject.apply_pull_request(pull_request_status("/other", "feature", 0))
   try testing::assert(
-    subject.footer_location().Checks.@.Text() == "✗ 10/12",
+    subject.footer_location().Checks.*.Text() == "✗ 10/12",
     "another session or directory is ignored",
   )
   subject.apply_pull_request(pull_request_status("/repo", "main", 1))
@@ -6340,7 +6342,7 @@ test fn the_footer_shows_the_checks_of_the_pull_request_it_links() Void!Str {
 }
 
 test fn the_footer_location_names_an_attached_server() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -6359,7 +6361,7 @@ test fn the_footer_location_names_an_attached_server() Void!Str {
 }
 
 test fn snapshots_carry_the_plugin_footer() Void!Str {
-  let effects = mut Effects{
+  let effects = &mut Effects{
     toasts: [],
     drafts: [],
     alerts: [],
@@ -6368,7 +6370,7 @@ test fn snapshots_carry_the_plugin_footer() Void!Str {
   subject.apply_snapshot(
     protocol::SessionSnapshot{
       Session: protocol::SessionInfo{ID: "session-1"},
-      PluginFooter: mut protocol::PluginFooter{
+      PluginFooter: &mut protocol::PluginFooter{
         LocationHidden: true,
         Items: [
           protocol::PluginFooterItem{ID: "demo.status", Content: [protocol::PluginFooterSegment{Text: "Ready"}]},

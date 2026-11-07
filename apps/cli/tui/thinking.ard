@@ -16,9 +16,9 @@ use kit/tui/theme
 // applies one through the server-authoritative session configuration endpoint.
 struct Props {
   themes: theme::Context,
-  client: mut api::Client,
+  client: &mut api::Client,
   lifetime: contextbridge::Cancellation,
-  session_client: mut api::Session,
+  session_client: &mut api::Session,
   session: protocol::SessionInfo,
   dismiss: fn(),
   refreshed: fn(protocol::SessionInfo),
@@ -57,7 +57,7 @@ private fn current(props: Props) Subagent {
 struct Picker {
   // Parent-owned session/configuration dependencies remain live while the
   // picker retains its own selection, loading, and request state.
-  props: mut Props,
+  props: &mut Props,
   models: [protocol::ModelCapability],
   levels: [Str],
   resolved_model: Str,
@@ -70,24 +70,24 @@ struct Picker {
   context: cui::Context?,
 }
 
-fn new(props: mut Props) mut Picker {
-  (mut Picker{
+fn new(props: &mut Props) &mut Picker {
+  &mut Picker{
     props: props,
     models: [],
     levels: [],
-    resolved_model: current(props.@).model,
-    resolved_level: current(props.@).level,
-    selection: current(props.@).level,
+    resolved_model: current(props.*).model,
+    resolved_level: current(props.*).level,
+    selection: current(props.*).level,
     loading: true,
     pending: false,
     error: "",
     generation: 0,
     context: Maybe::new<cui::Context>(),
-  })
+  }
 }
 
 private fn catalog(levels: [Str], current: Str, pending: Bool) [palette::Item] {
-  let result = mut List::new<palette::Item>()
+  let result = &mut List::new<palette::Item>()
   for level in levels {
     let current_marker = match level == current {
       true => "__palette_current__",
@@ -108,7 +108,7 @@ private fn catalog(levels: [Str], current: Str, pending: Bool) [palette::Item] {
       },
     )
   }
-  result.@
+  result.*
 }
 
 impl cui::Lifecycle for Picker {
@@ -130,11 +130,11 @@ impl Picker {
     self.selection = current_level
     for capability in self.models {
       if capability.ID == model and capability.Available {
-        let levels = mut List::new<Str>()
+        let levels = &mut List::new<Str>()
         for level in capability.ThinkingLevels {
           levels.push("{level}")
         }
-        self.levels = levels.@
+        self.levels = levels.*
       }
     }
     mut current_supported = false
@@ -166,7 +166,7 @@ impl Picker {
           match result {
             ok(catalog) => {
               self.models = catalog.Models
-              let start = current(self.props.@)
+              let start = current(self.props.*)
               self.set_levels(start.model, start.level)
             },
             err(failure) => { self.error = failure.error() },
@@ -226,7 +226,7 @@ impl Picker {
       let lifetime = self.props.lifetime
       let session = self.props.session
       let session_client = self.props.session_client
-      let level = protocol::ThinkingLevel(selected)
+      mut level = protocol::ThinkingLevel(selected)
       let dispatch = ctx.dispatch
       async::start(fn() {
         let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(120000))
@@ -235,7 +235,7 @@ impl Picker {
           protocol::ConfigureSessionInput{
             ExpectedRevision: session.ConfigurationRevision,
             Model: session.Model,
-            ThinkingLevel: mut level,
+            ThinkingLevel: &mut level,
           },
         )
         attempt.Cancel()
@@ -292,7 +292,7 @@ test fn thinking_catalog_marks_the_current_level_and_pending_rows() Void!Str {
 
 impl cui::Component for Picker {
   fn mut render() cui::View {
-    let start = current(self.props.@)
+    let start = current(self.props.*)
     let settled = (not self.loading) and not self.pending
     if settled and (self.resolved_model != start.model or self.resolved_level != start.level) {
       self.set_levels(start.model, start.level)
@@ -350,7 +350,7 @@ impl cui::Component for Picker {
               palette::new_picker,
               palette::PickerProps{
                 themes: self.props.themes,
-                catalog: catalog(self.levels, current(self.props.@).level, self.pending),
+                catalog: catalog(self.levels, current(self.props.*).level, self.pending),
                 placeholder: "Search effort levels…",
                 initial_selection: self.selection,
                 title: "Thinking level",

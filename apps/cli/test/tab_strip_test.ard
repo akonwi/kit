@@ -10,11 +10,11 @@ use kit/tui/theme
 use go:strings
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn same_color(left: ui::Color?, right: ui::Color) Bool {
@@ -29,14 +29,14 @@ struct Clicks {
   more: Int,
 }
 
-fn entry(label: Str, selected: Bool, closable: Bool, clicks: mut Clicks) tab_strip::Entry {
+fn entry(label: Str, selected: Bool, closable: Bool, clicks: &mut Clicks) tab_strip::Entry {
   let show = keymap::simple_command("test.show:{label}", "Show", fn() Bool {
-    let next = mut List::new<Str>()
+    let next = &mut List::new<Str>()
     for earlier in clicks.shown {
       next.push(earlier)
     }
     next.push(label)
-    clicks.shown = next.@
+    clicks.shown = next.*
     true
   })
   tab_strip::Entry{
@@ -56,7 +56,7 @@ struct Shown {
 }
 
 // Mounts a strip in a terminal width cells wide and lets it measure itself.
-fn show(width: Int, entries: [tab_strip::Entry], clicks: mut Clicks) Shown {
+fn show(width: Int, entries: [tab_strip::Entry], clicks: &mut Clicks) Shown {
   let terminal = headless::new(width, 1)
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let renderer = cui::mount(
@@ -79,7 +79,7 @@ fn show(width: Int, entries: [tab_strip::Entry], clicks: mut Clicks) Shown {
 }
 
 test fn every_tab_shows_when_they_fit() Void!Str {
-  let clicks = mut Clicks{shown: [], more: 0}
+  let clicks = &mut Clicks{shown: [], more: 0}
   let shown = show(
     60,
     [
@@ -109,7 +109,7 @@ test fn every_tab_shows_when_they_fit() Void!Str {
 }
 
 test fn tabs_that_do_not_fit_collapse_into_more() Void!Str {
-  let clicks = mut Clicks{shown: [], more: 0}
+  let clicks = &mut Clicks{shown: [], more: 0}
   let shown = show(
     30,
     [

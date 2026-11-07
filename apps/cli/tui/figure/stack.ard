@@ -67,28 +67,28 @@ private struct Row {
 private fn row(each: grammar::Item) Row!Str {
   match grammar::label_value(each.text) {
     parts => {
-      let segments = mut List::new<Segment>()
+      let segments = &mut List::new<Segment>()
       for text in strings::Split(parts.at(1).or(""), ", ") {
         segments.push(try segment(text))
       }
       mut total = 0.0
-      let shapes = mut List::new<grammar::Shape>()
+      let shapes = &mut List::new<grammar::Shape>()
       for each_segment in segments {
         total =+ each_segment.value
         shapes.push(grammar::shape(each_segment.written))
       }
-      let made = mut model::item(
+      let made = &mut model::item(
         parts.at(0).or(""),
-        grammar::written(total, grammar::common(shapes.@), false),
+        grammar::written(total, grammar::common(shapes.*), false),
       )
       made.note = each.note
       made.accent = each.bold
       made.muted = each.italic
-      let shares = mut List::new<Int>()
+      let shares = &mut List::new<Int>()
       for each_segment in segments {
         shares.push(grammar::permille(each_segment.value, total))
       }
-      made.parts = shares.@
+      made.parts = shares.*
       match {
         each.details.size() > 0 => Result::err("a stack row takes no indented lines"),
         segments.size() < min_segments or segments.size() > max_segments => {
@@ -99,8 +99,8 @@ private fn row(each: grammar::Item) Row!Str {
         _ => {
           Result::ok(
             Row{
-              item: made.@,
-              segments: segments.@,
+              item: made.*,
+              segments: segments.*,
               total: total,
             },
           )
@@ -112,11 +112,11 @@ private fn row(each: grammar::Item) Row!Str {
 }
 
 private fn names(row: Row) [Str] {
-  let result = mut List::new<Str>()
+  let result = &mut List::new<Str>()
   for each in row.segments {
     result.push(each.name)
   }
-  result.@
+  result.*
 }
 
 fn parse(info: grammar::Info, body: Str) model::Figure!Str {
@@ -124,7 +124,7 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   let scale = grammar::attribute(info, "scale")
   let items = try grammar::items(body)
   try grammar::check_one_bold(items)
-  let rows = mut List::new<Row>()
+  let rows = &mut List::new<Row>()
   for each in items {
     rows.push(try row(each))
   }
@@ -151,13 +151,14 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     if each.total > largest {
       largest = each.total
     }
-    if strings::Join(mut names(each), ", ") != strings::Join(mut headings, ", ") and different == "" {
+    if strings::Join(&mut names(each), ", ") != strings::Join(headings, ", ") and different == "" {
       different = each.item.label
     }
   }
-  let made = mut List::new<model::Item>()
+  let made = &mut List::new<model::Item>()
   for each in rows {
-    let item = mut each.item
+    mut each = each
+    let item = &mut each.item
     item.scale = match scale == "shared" {
       true => grammar::permille(each.total, largest),
       false => {
@@ -167,7 +168,7 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
         }
       },
     }
-    made.push(item.@)
+    made.push(item.*)
   }
   match {
     scale != "" and scale != "shared" => Result::err("`scale` is `shared`"),
@@ -175,16 +176,16 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     rows.size() > max_rows => Result::err("a stack figure has at most {max_rows} rows"),
     different != "" => {
       Result::err(
-        "every stack row has the segments `{grammar::clip(strings::Join(mut headings, ", "))}` in order, unlike `{grammar::clip(different)}`",
+        "every stack row has the segments `{grammar::clip(strings::Join(headings, ", "))}` in order, unlike `{grammar::clip(different)}`",
       )
     },
     unlike != "" => {
       Result::err("every stack value is in the same unit, unlike `{grammar::clip(unlike)}`")
     },
     _ => {
-      let figure = mut model::figure("stack", grammar::attribute(info, "title"), made.@)
+      let figure = &mut model::figure("stack", grammar::attribute(info, "title"), made.*)
       figure.headings = headings
-      Result::ok(figure.@)
+      Result::ok(figure.*)
     },
   }
 }
@@ -197,7 +198,7 @@ private fn cells(permille: Int, cells: Int) Int {
 // The cells each segment of a row takes, the row being length cells long:
 // each boundary rounded, so the segments add up to the row.
 fn widths(parts: [Int], length: Int) [Int] {
-  let result = mut List::new<Int>()
+  let result = &mut List::new<Int>()
   mut sum = 0
   mut start = 0
   mut index = 0
@@ -211,7 +212,7 @@ fn widths(parts: [Int], length: Int) [Int] {
     start = end
     index =+ 1
   }
-  result.@
+  result.*
 }
 
 // The cells a row of scale thousandths spans; a row above zero always shows.
@@ -235,8 +236,8 @@ private fn widest(texts: [Str]) Int {
 }
 
 fn draw(figure: model::Figure) drawing::Drawing {
-  let labels = mut List::new<Str>()
-  let values = mut List::new<Str>()
+  let labels = &mut List::new<Str>()
+  let values = &mut List::new<Str>()
   mut emphasized = false
   for each in figure.items {
     labels.push(format::truncate_cells(each.label, max_label))
@@ -245,14 +246,14 @@ fn draw(figure: model::Figure) drawing::Drawing {
       emphasized = true
     }
   }
-  let label_lane = widest(labels.@)
-  let value_lane = widest(values.@)
-  let rows = mut List::new<[drawing::Segment]>()
+  let label_lane = widest(labels.*)
+  let value_lane = widest(values.*)
+  let rows = &mut List::new<[drawing::Segment]>()
   mut index = 0
   for each in figure.items {
     let quiet = each.muted or emphasized and (not each.accent)
     let label = drawing::pad(labels.at(index).or(""), label_lane, false)
-    let line = mut List::new<drawing::Segment>()
+    let line = &mut List::new<drawing::Segment>()
     line.push(
       match {
         each.accent => drawing::bold(label, drawing::Role::text),
@@ -273,7 +274,7 @@ fn draw(figure: model::Figure) drawing::Drawing {
       false => none,
     }
     mut shade = 0
-    let runs = mut List::new<Str>()
+    let runs = &mut List::new<Str>()
     for width in filled {
       runs.push(strings::Repeat(shades.at(shade).or("░"), width))
       shade =+ 1
@@ -291,18 +292,18 @@ fn draw(figure: model::Figure) drawing::Drawing {
     if each.note != "" {
       line.push(drawing::segment("  {each.note}", drawing::Role::muted))
     }
-    rows.push(line.@)
+    rows.push(line.*)
     index =+ 1
   }
   rows.push([])
-  let legend = mut List::new<Str>()
+  let legend = &mut List::new<Str>()
   mut shade = 0
   for name in figure.headings {
     legend.push("{shades.at(shade).or("░")} {format::truncate_cells(name, max_label)}")
     shade =+ 1
   }
   rows.push([drawing::segment(strings::Join(legend, "   "), drawing::Role::muted)])
-  drawing::framed(figure.title, rows.@)
+  drawing::framed(figure.title, rows.*)
 }
 
 test fn segments_round_at_each_boundary_and_fill_the_row() Void!Str {

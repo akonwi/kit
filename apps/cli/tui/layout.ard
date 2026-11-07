@@ -65,11 +65,11 @@ fn centered(children: [cui::View]) cui::View {
 
 // The wordmark above a muted instruction, centered in the available region.
 fn empty_state(colors: theme::Theme, instruction: Str) cui::View {
-  let children = mut List::new<cui::View>()
+  let children = &mut List::new<cui::View>()
   for view in wordmark(colors) {
     children.push(view)
   }
   children.push(blank())
   children.push(line(instruction, ui::text_style(foreground: colors.muted)))
-  centered(children.@)
+  centered(children.*)
 }

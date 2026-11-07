@@ -7,15 +7,16 @@ use go:strings
 
 // Numbers events 1, 2, 3, … in order, as one server stream would.
 fn sequenced(events: [sessionbridge::Event]) [sessionbridge::Event] {
-  let numbered = mut List::new<sessionbridge::Event>()
+  let numbered = &mut List::new<sessionbridge::Event>()
   mut next: Int64 = 1
   for event in events {
-    let copy = mut event
+    mut event = event
+    let copy = &mut event
     copy.Sequence = next
-    numbered.push(copy.@)
+    numbered.push(copy.*)
     next =+ 1
   }
-  numbered.@
+  numbered.*
 }
 
 fn event(kind: Str) sessionbridge::Event {
@@ -57,7 +58,7 @@ fn describe(messages: [transcript::Message]) Str {
 }
 
 test fn a_streamed_reply_replaces_the_submitted_prompt_and_settles() Void!Str {
-  let live = mut transcript::live()
+  let live = &mut transcript::live()
   live.submit("hi", [])
   try testing::assert(live.activity == "Working…", "submission shows activity")
   let stream = sequenced(
@@ -97,7 +98,7 @@ test fn a_streamed_reply_replaces_the_submitted_prompt_and_settles() Void!Str {
 }
 
 test fn a_watched_turn_from_another_client_shows_its_prompt_and_thinking() Void!Str {
-  let live = mut transcript::live()
+  let live = &mut transcript::live()
   let batch = sequenced(
     [
       event("turn.started"),
@@ -127,8 +128,8 @@ test fn a_watched_turn_from_another_client_shows_its_prompt_and_thinking() Void!
 }
 
 test fn a_plugin_message_starts_its_turn_in_place_of_a_prompt() Void!Str {
-  let live = mut transcript::live()
-  let plugin = sessionbridge::Event{
+  let live = &mut transcript::live()
+  mut plugin = sessionbridge::Event{
     Kind: "plugin.message.added",
     TurnID: "turn-1",
     PluginID: "autoresearch",
@@ -145,9 +146,9 @@ test fn a_plugin_message_starts_its_turn_in_place_of_a_prompt() Void!Str {
   )
   try testing::assert(live.activity == "Working…", "the turn shows activity")
   // A replayed copy from a reconnected stream adds no second row.
-  let replayed = mut plugin
+  let replayed = &mut plugin
   replayed.Sequence = 3
-  let _ = live.apply([replayed.@])
+  let _ = live.apply([replayed.*])
   testing::assert(live.messages.size() == 1, "one row per turn")
 }
 
@@ -175,7 +176,7 @@ test fn a_persisted_plugin_message_projects_with_its_plugin() Void!Str {
 }
 
 test fn watched_batches_reconcile_the_user_of_a_queued_successor() Void!Str {
-  let live = mut transcript::live()
+  let live = &mut transcript::live()
   let _ = live.apply(
     sequenced(
       [
@@ -203,7 +204,7 @@ test fn watched_batches_reconcile_the_user_of_a_queued_successor() Void!Str {
 }
 
 test fn active_turn_blocks_snapshots_after_the_user_event_claims_the_prompt() Void!Str {
-  let live = mut transcript::live()
+  let live = &mut transcript::live()
   live.submit("hi", [])
   try testing::assert(live.blocks_snapshot_replacement(), "new local prompt blocks stale snapshots")
   let _ = live.apply(
@@ -224,7 +225,7 @@ test fn active_turn_blocks_snapshots_after_the_user_event_claims_the_prompt() Vo
 }
 
 test fn a_submitted_prompt_keeps_its_attachments_when_the_server_confirms_it() Void!Str {
-  let live = mut transcript::live()
+  let live = &mut transcript::live()
   live.submit(
     "look",
     [
@@ -254,7 +255,7 @@ test fn a_submitted_prompt_keeps_its_attachments_when_the_server_confirms_it() V
 }
 
 test fn replayed_events_are_ignored() Void!Str {
-  let live = mut transcript::live()
+  let live = &mut transcript::live()
   let stream = sequenced([assistant_started(), text_delta("one"), text_delta(" two")])
   let _ = live.apply(stream.slice(end: 2).expect("first batch").to_list())
   let _ = live.apply(stream.slice(start: 1).expect("overlapping batch").to_list())
@@ -264,20 +265,21 @@ test fn replayed_events_are_ignored() Void!Str {
 
 // Places events on one server stream from `start`.
 fn on_stream(stream_id: Str, start: Int, events: [sessionbridge::Event]) [sessionbridge::Event] {
-  let placed = mut List::new<sessionbridge::Event>()
+  let placed = &mut List::new<sessionbridge::Event>()
   mut next = Int64::from(start)
   for event in events {
-    let copy = mut event
+    mut event = event
+    let copy = &mut event
     copy.StreamID = stream_id
     copy.Sequence = next
-    placed.push(copy.@)
+    placed.push(copy.*)
     next =+ 1
   }
-  placed.@
+  placed.*
 }
 
 test fn a_replacement_stream_continues_the_live_turn_and_ignores_the_replaced_one() Void!Str {
-  let live = mut transcript::live()
+  let live = &mut transcript::live()
   let _ = live.apply(
     on_stream("stream-a", 1, [event("turn.started"), assistant_started(), text_delta("one")]),
   )
@@ -298,7 +300,7 @@ test fn a_replacement_stream_continues_the_live_turn_and_ignores_the_replaced_on
 }
 
 test fn streamed_thinking_shows_its_latest_line_as_activity() Void!Str {
-  let live = mut transcript::live()
+  let live = &mut transcript::live()
   let thinking = sessionbridge::Event{
     Kind: "assistant.thinking.delta",
     TurnID: "turn-1",
@@ -316,7 +318,7 @@ test fn streamed_thinking_shows_its_latest_line_as_activity() Void!Str {
 }
 
 test fn tools_attach_to_their_turn_and_unrun_plans_settle_at_run_end() Void!Str {
-  let live = mut transcript::live()
+  let live = &mut transcript::live()
   let _ = live.apply(
     sequenced(
       [
@@ -372,7 +374,7 @@ fn output(text: Str) sessionbridge::Event {
 }
 
 test fn a_running_tool_streams_its_output_until_the_result_replaces_it() Void!Str {
-  let live = mut transcript::live()
+  let live = &mut transcript::live()
   let _ = live.apply(
     sequenced(
       [
@@ -411,7 +413,7 @@ test fn a_running_tool_streams_its_output_until_the_result_replaces_it() Void!St
 }
 
 test fn streamed_output_stops_at_the_live_limit() Void!Str {
-  let live = mut transcript::live()
+  let live = &mut transcript::live()
   let _ = live.apply(sequenced([output(strings::Repeat("é", 31000)), output("more")]))
   let running = live.messages.at(1).expect("bash")
   try testing::assert(running.output_truncated, "the output is marked cut")
@@ -533,7 +535,7 @@ test fn user_attachments_project_as_labels() Void!Str {
 
 // Persisted user messages named by ID at the given session sequences.
 fn persisted(ids: [Str], sequences: [Int]) [transcript::Message] {
-  let source = mut List::new<protocol::TranscriptMessage>()
+  let source = &mut List::new<protocol::TranscriptMessage>()
   mut index = 0
   while index < ids.size() {
     let id = ids.at(index).expect("message id")
@@ -548,11 +550,11 @@ fn persisted(ids: [Str], sequences: [Int]) [transcript::Message] {
     )
     index =+ 1
   }
-  transcript::project(source.@)
+  transcript::project(source.*)
 }
 
 fn ids(messages: [transcript::Message]) Str {
-  let result = mut List::new<Str>()
+  let result = &mut List::new<Str>()
   for message in messages {
     result.push("{message.id}@{message.sequence}")
   }
@@ -597,28 +599,28 @@ test fn earlier_pages_prepend_and_reject_overlap() Void!Str {
 // Builders for grouping tests. A reply that calls tools, a tool result, and
 // a user prompt, each in turn_id.
 fn reply(id: Str, turn_id: Str, text: Str, calls: [Str]) transcript::Message {
-  let built = mut transcript::message(id, turn_id, transcript::Role::assistant)
+  let built = &mut transcript::message(id, turn_id, transcript::Role::assistant)
   built.text = text
-  let listed = mut List::new<transcript::ToolCall>()
+  let listed = &mut List::new<transcript::ToolCall>()
   for call in calls {
     listed.push(transcript::tool_call(call, "read"))
   }
-  built.tool_calls = listed.@
-  built.@
+  built.tool_calls = listed.*
+  built.*
 }
 
 fn result(call: Str, turn_id: Str, state: transcript::ToolState) transcript::Message {
-  let built = mut transcript::message("result-{call}", turn_id, transcript::Role::tool)
+  let built = &mut transcript::message("result-{call}", turn_id, transcript::Role::tool)
   built.tool_call_id = call
   built.tool_name = "read"
   built.tool_state = state
-  built.@
+  built.*
 }
 
 fn prompt(id: Str, turn_id: Str) transcript::Message {
-  let built = mut transcript::message(id, turn_id, transcript::Role::user)
+  let built = &mut transcript::message(id, turn_id, transcript::Role::user)
   built.text = id
-  built.@
+  built.*
 }
 
 // Rows as `id` for messages and `key calls/failed[ running]` for work.
@@ -688,11 +690,11 @@ test fn a_run_is_running_until_its_calls_finish_unless_the_turn_was_aborted() Vo
   )
   try testing::assert(describe_rows(running) == "work:t1:c1 2/0 running", describe_rows(running))
 
-  let stopped = reply("a2", "t1", "Stopped.", [])
-  let aborted = mut stopped
+  mut stopped = reply("a2", "t1", "Stopped.", [])
+  let aborted = &mut stopped
   aborted.aborted = true
   let rows = transcript::rows(
-    [reply("a1", "t1", "", ["c1"]), result("c1", "t1", transcript::ToolState::planned), aborted.@],
+    [reply("a1", "t1", "", ["c1"]), result("c1", "t1", transcript::ToolState::planned), aborted.*],
   )
   testing::assert(describe_rows(rows) == "work:t1:c1 1/0 | a2", describe_rows(rows))
 }
@@ -740,9 +742,10 @@ fn describe_steps(work: transcript::Work) Str {
 }
 
 fn thinking(message: transcript::Message, text: Str) transcript::Message {
-  let built = mut message
+  mut message = message
+  let built = &mut message
   built.thinking = text
-  built.@
+  built.*
 }
 
 test fn a_run_lists_each_messages_thinking_before_its_calls() Void!Str {
@@ -774,9 +777,9 @@ test fn calls_without_results_are_planned_or_not_run_after_an_abort() Void!Str {
     describe_steps(open.at(0).expect("run").work.expect("work")) == "c1:running | c2:planned",
     describe_steps(open.at(0).expect("run").work.expect("work")),
   )
-  let stopped = mut reply("a2", "t1", "Stopped.", [])
+  let stopped = &mut reply("a2", "t1", "Stopped.", [])
   stopped.aborted = true
-  let aborted = transcript::rows([reply("a1", "t1", "", ["c1"]), stopped.@])
+  let aborted = transcript::rows([reply("a1", "t1", "", ["c1"]), stopped.*])
   testing::assert(
     describe_steps(aborted.at(0).expect("run").work.expect("work")) == "c1:not run",
     describe_steps(aborted.at(0).expect("run").work.expect("work")),
@@ -784,9 +787,9 @@ test fn calls_without_results_are_planned_or_not_run_after_an_abort() Void!Str {
 }
 
 fn thought(id: Str, turn_id: Str, thinking: Str) transcript::Message {
-  let built = mut reply(id, turn_id, "", [])
+  let built = &mut reply(id, turn_id, "", [])
   built.thinking = thinking
-  built.@
+  built.*
 }
 
 test fn thinking_before_a_run_leads_it_and_otherwise_shows_on_its_own() Void!Str {
@@ -809,9 +812,9 @@ test fn thinking_before_a_run_leads_it_and_otherwise_shows_on_its_own() Void!Str
   // Another turn's run does not take it.
   let separate = transcript::rows([thought("a0", "t1", "Done."), reply("a1", "t2", "", ["c1"])])
   try testing::assert(describe_rows(separate) == "a0 | work:t2:c1 1/0", describe_rows(separate))
-  let streaming = mut thought("a0", "t1", "Still thinking")
+  let streaming = &mut thought("a0", "t1", "Still thinking")
   streaming.pending = true
-  let live = transcript::rows([prompt("p1", "t1"), streaming.@])
+  let live = transcript::rows([prompt("p1", "t1"), streaming.*])
   testing::assert(
     describe_rows(live) == "p1",
     "streaming thinking is the turn's activity: {describe_rows(live)}",

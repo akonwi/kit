@@ -123,11 +123,11 @@ impl Source {
           match listed.SessionID == self.session_id and listed.CWD == self.cwd {
             false => { self.index.failure = "File index identity changed" },
             true => {
-              let paths = mut List::new<Str>()
+              let paths = &mut List::new<Str>()
               for entry in listed.Entries {
                 paths.push(entry.Path)
               }
-              self.index.paths = paths.@
+              self.index.paths = paths.*
               self.index.truncated = listed.Truncated
               self.index.failure = ""
               self.index.generation = self.index.generation + 1
@@ -142,7 +142,7 @@ impl Source {
 }
 
 private fn listing(session_id: Str, cwd: Str, paths: [Str]) protocol::SessionFileIndex!Str {
-  let entries = mut List::new<protocol::FileIndexEntry>()
+  let entries = &mut List::new<protocol::FileIndexEntry>()
   for path in paths {
     entries.push(protocol::FileIndexEntry{Path: path})
   }
@@ -150,7 +150,7 @@ private fn listing(session_id: Str, cwd: Str, paths: [Str]) protocol::SessionFil
     protocol::SessionFileIndex{
       SessionID: session_id,
       CWD: cwd,
-      Entries: entries.@,
+      Entries: entries.*,
     },
   )
 }
@@ -163,7 +163,7 @@ private fn started(load: Load?) Int {
 }
 
 test fn the_index_loads_once_and_again_when_stale() Void!Str {
-  let files = mut source()
+  let files = &mut source()
   let first = started(files.begin("session-1", "/repo", Int64::from(1000)))
   try testing::assert(first == 1 and files.index.loading, "the first use loads")
   try testing::assert(
@@ -184,7 +184,7 @@ test fn the_index_loads_once_and_again_when_stale() Void!Str {
 }
 
 test fn a_new_directory_forces_a_refresh_and_keeps_paths_meanwhile() Void!Str {
-  let files = mut source()
+  let files = &mut source()
   let first = started(files.begin("session-1", "/repo", Int64::from(0)))
   files.finish(first, listing("session-1", "/repo", ["go.mod"]), Int64::from(1))
   let moved = files.begin("session-1", "/repo/sub", Int64::from(2))
@@ -201,7 +201,7 @@ test fn a_new_directory_forces_a_refresh_and_keeps_paths_meanwhile() Void!Str {
 }
 
 test fn a_failed_load_is_reported_and_keeps_earlier_paths() Void!Str {
-  let files = mut source()
+  let files = &mut source()
   let first = started(files.begin("session-1", "/repo", Int64::from(0)))
   files.finish(first, listing("session-1", "/repo", ["go.mod"]), Int64::from(1))
   let again = started(files.begin("session-1", "/repo", Int64::from(400000)))

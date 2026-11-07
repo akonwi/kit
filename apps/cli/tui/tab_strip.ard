@@ -64,17 +64,17 @@ fn fit(widths: [Int], selected: Int, width: Int, more: fn(Int) Int) Fit {
     }
   }
   if width <= 0 or total <= width {
-    let all = mut List::new<Int>()
+    let all = &mut List::new<Int>()
     for _, index in widths {
       all.push(index)
     }
     Fit{
-      shown: all.@,
+      shown: all.*,
       hidden: 0,
       room: width,
     }
   } else {
-    let kept = mut List::new<Bool>()
+    let kept = &mut List::new<Bool>()
     for _, index in widths {
       kept.push(index == 0 or index == selected)
     }
@@ -99,7 +99,7 @@ fn fit(widths: [Int], selected: Int, width: Int, more: fn(Int) Int) Fit {
       }
     }
     let hidden = count - shown
-    let indexes = mut List::new<Int>()
+    let indexes = &mut List::new<Int>()
     for keep, index in kept {
       if keep {
         indexes.push(index)
@@ -111,7 +111,7 @@ fn fit(widths: [Int], selected: Int, width: Int, more: fn(Int) Int) Fit {
       false => width,
     }
     Fit{
-      shown: indexes.@,
+      shown: indexes.*,
       hidden: hidden,
       room: room,
     }
@@ -151,18 +151,18 @@ private fn more_width(hidden: Int) Int {
 }
 
 private struct Strip {
-  props: mut Props,
-  frame: mut cui::BoxRef,
+  props: &mut Props,
+  frame: &mut cui::BoxRef,
   // The strip's inner width as last laid out; zero until then.
   width: Int,
 }
 
-private fn new(props: mut Props) mut Strip {
-  (mut Strip{
+private fn new(props: &mut Props) &mut Strip {
+  &mut Strip{
     props: props,
     frame: cui::box_ref(),
     width: 0,
-  })
+  }
 }
 
 impl cui::Lifecycle for Strip {
@@ -198,7 +198,7 @@ impl Strip {
     let label = format::truncate_cells(entry.label, width - chrome(entry))
     match entry.close {
       close => {
-        let parts = mut List::new<cui::View>()
+        let parts = &mut List::new<cui::View>()
         match entry.status {
           shown => {
             let colors = themes.current()
@@ -242,7 +242,7 @@ impl Strip {
           ),
         )
         cui::box(
-          parts.@,
+          parts.*,
           styles: ui::style(flex_direction: ui::FlexDirection::row, flex_shrink: 0.0),
         )
       },
@@ -263,7 +263,7 @@ impl Strip {
 impl cui::Component for Strip {
   fn mut render() cui::View {
     let entries = self.props.entries
-    let widths = mut List::new<Int>()
+    let widths = &mut List::new<Int>()
     mut selected = 0
     for entry, index in entries {
       widths.push(tab_width(entry))
@@ -271,8 +271,8 @@ impl cui::Component for Strip {
         selected = index
       }
     }
-    let fitted = fit(widths.@, selected, self.width, more_width)
-    let children = mut List::new<cui::View>()
+    let fitted = fit(widths.*, selected, self.width, more_width)
+    let children = &mut List::new<cui::View>()
     for index in fitted.shown {
       let entry = entries.at(index).expect("a shown tab")
       let width = widths.at(index).expect("a shown tab")
@@ -299,7 +299,7 @@ impl cui::Component for Strip {
       )
     }
     cui::box(
-      children.@,
+      children.*,
       ref: self.frame,
       styles: ui::style(
         flex_shrink: 0.0,

@@ -34,8 +34,8 @@ struct Header {
 
 fn header(themes: theme::Context, spec: Header) cui::View {
   let colors = themes.current()
-  let left = mut List::new<cui::View>()
-  let right = mut List::new<cui::View>()
+  let left = &mut List::new<cui::View>()
+  let right = &mut List::new<cui::View>()
   match spec.session {
     session => {
       left.push(
@@ -107,9 +107,9 @@ fn header(themes: theme::Context, spec: Header) cui::View {
   }
   cui::box(
     [
-      cui::box(left.@, styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0))),
+      cui::box(left.*, styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0))),
       cui::box(
-        right.@,
+        right.*,
         styles: ui::style(
           flex_grow: 2.0,
           flex_basis: ui::cells(0),
@@ -144,7 +144,7 @@ fn session_status(recovery: Str, follow_ups: protocol::FollowUpQueue) Str {
 fn follow_up_failure(queue: protocol::FollowUpQueue) Str {
   match unsafe::is_nil(queue.AdmissionFailure) {
     true => "",
-    false => queue.AdmissionFailure.@.Message,
+    false => queue.AdmissionFailure.*.Message,
   }
 }
 
@@ -207,17 +207,17 @@ private struct RightProps {
 // The right side fits its content to the width it measures after each
 // layout, before drawing, using the footer rules in `ffi/footer`.
 private struct RightSide {
-  props: mut RightProps,
-  frame: mut cui::BoxRef,
+  props: &mut RightProps,
+  frame: &mut cui::BoxRef,
   width: Int,
 }
 
-private fn new_right_side(props: mut RightProps) mut RightSide {
-  (mut RightSide{
+private fn new_right_side(props: &mut RightProps) &mut RightSide {
+  &mut RightSide{
     props: props,
     frame: cui::box_ref(),
     width: 0,
-  })
+  }
 }
 
 impl cui::Lifecycle for RightSide {
@@ -249,13 +249,13 @@ impl cui::Component for RightSide {
   fn mut render() cui::View {
     let colors = self.props.themes.current()
     let right = self.props.right
-    let spans = mut List::new<ui::Span>()
+    let spans = &mut List::new<ui::Span>()
     for span in footerlayout::Spans(right.plugin, right.location, self.width) {
       spans.push(footer_span(colors, span))
     }
     cui::box(
       [
-        cui::text(ui::styled_text(spans.@), wrap: ui::TextWrap::none, overflow: ui::TextOverflow::clip),
+        cui::text(ui::styled_text(spans.*), wrap: ui::TextWrap::none, overflow: ui::TextOverflow::clip),
       ],
       ref: self.frame,
       styles: ui::style(
@@ -338,14 +338,14 @@ fn has_chips(spec: Pending) Bool {
 // previews (when more are queued, two previews and a remainder line), then
 // the staged files and annotations as chips that wrap onto further rows.
 fn pending_row(themes: theme::Context, spec: Pending) cui::View {
-  let rows = mut List::new<cui::View>()
+  let rows = &mut List::new<cui::View>()
   if spec.status {
     for row in status_rows(themes, spec) {
       rows.push(row)
     }
   }
   if has_chips(spec) {
-    let chips = mut List::new<cui::View>()
+    let chips = &mut List::new<cui::View>()
     for item, index in spec.attachments {
       chips.push(attachment_chip(themes, item, index, spec.rejecting_model, spec.remove_attachment))
     }
@@ -354,13 +354,13 @@ fn pending_row(themes: theme::Context, spec: Pending) cui::View {
     }
     rows.push(
       cui::box(
-        chips.@,
+        chips.*,
         styles: ui::style(flex_direction: ui::FlexDirection::row, flex_wrap: ui::FlexWrap::wrap),
       ),
     )
   }
   cui::box(
-    rows.@,
+    rows.*,
     styles: ui::style(
       flex_shrink: 0.0,
       flex_direction: ui::FlexDirection::column,
@@ -383,7 +383,7 @@ private fn status_rows(themes: theme::Context, spec: Pending) [cui::View] {
     spec.activity != "" => pending_activity(themes, spec.activity),
     _ => layout::line("", ui::text_style(foreground: colors.muted)),
   }
-  let rows = mut List::new<cui::View>()
+  let rows = &mut List::new<cui::View>()
   rows.push(content)
   let maximum = match spec.follow_ups.Count > 3 {
     true => 2,
@@ -406,7 +406,7 @@ private fn status_rows(themes: theme::Context, spec: Pending) [cui::View] {
       ),
     )
   }
-  rows.@
+  rows.*
 }
 
 // One annotation as a chip: the glyph, file and lines, which open them, and
@@ -488,7 +488,7 @@ private fn attachment_chip(
     item.uploading => colors.muted,
     _ => colors.foreground,
   }
-  let label = mut List::new<cui::View>()
+  let label = &mut List::new<cui::View>()
   label.push(
     cui::text(
       "{attachments::glyph} {item.filename}",
@@ -517,7 +517,7 @@ private fn attachment_chip(
   cui::box(
     [
       cui::box(
-        label.@,
+        label.*,
         styles: ui::style(
           flex_direction: ui::FlexDirection::row,
           background: colors.surface,

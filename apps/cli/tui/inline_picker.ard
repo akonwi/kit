@@ -51,7 +51,7 @@ fn item(key: Str, label: Str, search: Str?, detail: Str?, meta: Str?, aliases: [
 type Columns = palette::Columns
 
 fn columns(catalog: [Item]) Columns {
-  let rows = mut List::new<palette::Item>()
+  let rows = &mut List::new<palette::Item>()
   for entry in catalog {
     rows.push(
       palette::Item{
@@ -65,7 +65,7 @@ fn columns(catalog: [Item]) Columns {
       },
     )
   }
-  palette::columns(rows.@)
+  palette::columns(rows.*)
 }
 
 // filter returns the items matching query in catalog order, using the
@@ -75,7 +75,7 @@ fn filter(catalog: [Item], query: Str) [Item] {
   match needle == "" {
     true => catalog,
     false => {
-      let matches = mut List::new<Item>()
+      let matches = &mut List::new<Item>()
       for item in catalog {
         let text = match item.search == "" {
           true => item.label,
@@ -85,7 +85,7 @@ fn filter(catalog: [Item], query: Str) [Item] {
           matches.push(item)
         }
       }
-      matches.@
+      matches.*
     },
   }
 }
@@ -98,7 +98,7 @@ fn rank(catalog: [Item], query: Str) [Item] {
   match needle == "" {
     true => catalog,
     false => {
-      let ranked = mut List::new<Ranked>()
+      let ranked = &mut List::new<Ranked>()
       for entry, position in catalog {
         let score = palette::item_score(
           palette::Item{
@@ -128,11 +128,11 @@ fn rank(catalog: [Item], query: Str) [Item] {
           false => left.score > right.score,
         }
       })
-      let result = mut List::new<Item>()
+      let result = &mut List::new<Item>()
       for entry in ranked {
         result.push(entry.item)
       }
-      result.@
+      result.*
     },
   }
 }
@@ -150,7 +150,7 @@ fn keep_end(label: Str, width: Int) Str {
   match characters.size() <= width or width < 1 {
     true => label,
     false => {
-      let kept = mut List::new<Str>()
+      let kept = &mut List::new<Str>()
       for character, index in characters {
         if index > characters.size() - width {
           kept.push(character)
@@ -352,7 +352,7 @@ fn view(props: Props) cui::View {
 }
 
 private struct Picker {
-  props: mut Props,
+  props: &mut Props,
   start: Int,
   hovered: Str,
   // The selection and rows last brought into view. Scrolling keeps its
@@ -361,14 +361,14 @@ private struct Picker {
   revealed_count: Int,
 }
 
-private fn new(props: mut Props) mut Picker {
-  (mut Picker{
+private fn new(props: &mut Props) &mut Picker {
+  &mut Picker{
     props: props,
     start: 0,
     hovered: "",
     revealed: "",
     revealed_count: -1,
-  })
+  }
 }
 
 impl Picker {
@@ -391,7 +391,7 @@ impl cui::Component for Picker {
     self.start = shown.start
     self.revealed = selection
     self.revealed_count = items.size()
-    let rows = mut List::new<cui::View>()
+    let rows = &mut List::new<cui::View>()
     if items.size() == 0 {
       rows.push(
         cui::text(
@@ -428,7 +428,7 @@ impl cui::Component for Picker {
       )
     }
     cui::box(
-      rows.@,
+      rows.*,
       key: "inline-picker.panel",
       styles: ui::style(
         position: ui::Position::absolute,
@@ -466,7 +466,7 @@ impl cui::Component for Picker {
         border_color: colors.border,
         z_index: 50,
       ),
-      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+      on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
         if received.event_type == event::MouseEventType::scroll and received.scroll_y != 0 {
           self.scroll(received.scroll_y)
           received.prevent_default()
@@ -511,7 +511,7 @@ impl Picker {
           left: ui::cells(0),
         },
       ),
-      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+      on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
         match received.event_type {
           event::MouseEventType::over => { self.hovered = item.key },
           event::MouseEventType::move => { self.hovered = item.key },
@@ -606,7 +606,7 @@ impl Picker {
           left: ui::cells(1),
         },
       ),
-      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+      on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
         if received.event_type == event::MouseEventType::up and received.button == event::MouseButton::left {
           self.scroll(direction * (max_rows - 2))
           received.prevent_default()
@@ -618,15 +618,15 @@ impl Picker {
 }
 
 private fn items(labels: [Str]) [Item] {
-  let result = mut List::new<Item>()
+  let result = &mut List::new<Item>()
   for label in labels {
     result.push(item(label, label))
   }
-  result.@
+  result.*
 }
 
 private fn keys(items: [Item]) Str {
-  let parts = mut List::new<Str>()
+  let parts = &mut List::new<Str>()
   for item in items {
     parts.push(item.key)
   }

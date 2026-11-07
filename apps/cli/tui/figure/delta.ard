@@ -84,7 +84,7 @@ private fn row(each: grammar::Item, info: grammar::Info) Row!Str {
   match grammar::label_value(each.text) {
     parts => {
       let written = parts.at(1).or("")
-      let made = mut model::item(parts.at(0).or(""), written)
+      let made = &mut model::item(parts.at(0).or(""), written)
       made.note = each.note
       made.accent = each.bold
       made.muted = each.italic
@@ -110,7 +110,7 @@ private fn row(each: grammar::Item, info: grammar::Info) Row!Str {
             },
             _ => "",
           }
-          Result::ok(Row{item: made.@, paired: true})
+          Result::ok(Row{item: made.*, paired: true})
         },
         _ => {
           let value = try grammar::number(written)
@@ -129,7 +129,7 @@ private fn row(each: grammar::Item, info: grammar::Info) Row!Str {
               false => trend(1.0, better),
             }
           }
-          Result::ok(Row{item: made.@, paired: false})
+          Result::ok(Row{item: made.*, paired: false})
         },
       }
     },
@@ -170,7 +170,7 @@ private fn check_choice(info: grammar::Info, key: Str, allowed: [Str]) Void!Str 
   }
   match known {
     true => Result::ok(()),
-    false => Result::err("`{key}` is `{strings::Join(mut allowed, "` or `")}`"),
+    false => Result::err("`{key}` is `{strings::Join(allowed, "` or `")}`"),
   }
 }
 
@@ -179,7 +179,7 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   try check_choice(info, "change", ["percent", "absolute"])
   try check_choice(info, "better", ["up", "down"])
   let items = try grammar::items(body)
-  let rows = mut List::new<Row>()
+  let rows = &mut List::new<Row>()
   for each in items {
     rows.push(try row(each, info))
   }
@@ -201,7 +201,7 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
       needs_pairs = key
     }
   }
-  let made = mut List::new<model::Item>()
+  let made = &mut List::new<model::Item>()
   for each in rows {
     made.push(each.item)
   }
@@ -214,13 +214,13 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     early_bold => Result::err("only the last row can be bold, as the total"),
     needs_pairs != "" => Result::err("`{needs_pairs}` needs rows of `label: from → to`"),
     _ => {
-      let figure = mut model::figure("delta", grammar::attribute(info, "title"), made.@)
+      let figure = &mut model::figure("delta", grammar::attribute(info, "title"), made.*)
       let from = grammar::attribute(info, "from")
       let to = grammar::attribute(info, "to")
       if from != "" or to != "" {
         figure.headings = [from, to]
       }
-      Result::ok(figure.@)
+      Result::ok(figure.*)
     },
   }
 }
@@ -254,10 +254,10 @@ private fn run(text: Str, role: drawing::Role, bold: Bool) drawing::Segment {
 }
 
 fn draw(figure: model::Figure) drawing::Drawing {
-  let labels = mut List::new<Str>()
-  let froms = mut List::new<Str>()
-  let values = mut List::new<Str>()
-  let changes = mut List::new<Str>()
+  let labels = &mut List::new<Str>()
+  let froms = &mut List::new<Str>()
+  let values = &mut List::new<Str>()
+  let changes = &mut List::new<Str>()
   mut signs = false
   mut paired = false
   for each in figure.items {
@@ -274,11 +274,11 @@ fn draw(figure: model::Figure) drawing::Drawing {
   }
   froms.push(figure.headings.at(0).or(""))
   values.push(figure.headings.at(1).or(""))
-  let label_lane = widest(labels.@)
-  let from_lane = widest(froms.@)
-  let value_lane = widest(values.@)
-  let change_lane = widest(changes.@)
-  let rows = mut List::new<[drawing::Segment]>()
+  let label_lane = widest(labels.*)
+  let from_lane = widest(froms.*)
+  let value_lane = widest(values.*)
+  let change_lane = widest(changes.*)
+  let rows = &mut List::new<[drawing::Segment]>()
   if figure.headings.size() > 0 {
     rows.push(
       [
@@ -301,7 +301,7 @@ fn draw(figure: model::Figure) drawing::Drawing {
       true => drawing::Role::muted,
       false => drawing::Role::text,
     }
-    let line = mut List::new<drawing::Segment>()
+    let line = &mut List::new<drawing::Segment>()
     line.push(run(drawing::pad(labels.at(index).or(""), label_lane, false), base, total))
     if paired {
       line.push(
@@ -344,13 +344,13 @@ fn draw(figure: model::Figure) drawing::Drawing {
       for done in rows {
         width = maximum(width, drawing::row_width(done))
       }
-      width = maximum(width, drawing::row_width(line.@))
+      width = maximum(width, drawing::row_width(line.*))
       rows.push([drawing::segment(strings::Repeat("─", width), drawing::Role::frame)])
     }
-    rows.push(line.@)
+    rows.push(line.*)
     index =+ 1
   }
-  drawing::framed(figure.title, rows.@)
+  drawing::framed(figure.title, rows.*)
 }
 
 private fn maximum(a: Int, b: Int) Int {

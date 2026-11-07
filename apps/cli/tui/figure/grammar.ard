@@ -116,7 +116,7 @@ fn parse_info(info: Str) Info!Str {
   try check_info_size(trimmed)
   let figure = name(trimmed)
   mut rest = strings::TrimLeft(trimmed.slice(start: figure.size()).or(""), " \t")
-  let attributes = mut List::new<Attribute>()
+  let attributes = &mut List::new<Attribute>()
   mut repeated = ""
   while rest != "" {
     let next = try next_attribute(rest)
@@ -133,7 +133,7 @@ fn parse_info(info: Str) Info!Str {
       Result::err("a figure has at most {max_attributes} attributes")
     },
     repeated != "" => Result::err("`{repeated}` is set more than once"),
-    _ => Result::ok(Info{name: figure, attributes: attributes.@}),
+    _ => Result::ok(Info{name: figure, attributes: attributes.*}),
   }
 }
 
@@ -284,9 +284,9 @@ fn line(text: Str) Item {
 fn list_item(trimmed: Str) Item? {
   match marked(trimmed) {
     found => {
-      let item = mut parse_item(found.text)
+      let item = &mut parse_item(found.text)
       item.ordinal = found.ordinal
-      Maybe::new(item.@)
+      Maybe::new(item.*)
     },
     _ => Maybe::new<Item>(),
   }
@@ -349,11 +349,11 @@ private fn list(body: Str, closing: Bool) Listed!Str {
 }
 
 private fn list_items(body: Str, closing: Bool) Listed!Str {
-  let result = mut List::new<Item>()
-  mut details = mut List::new<Str>()
-  mut depths = mut List::new<Int>()
+  let result = &mut List::new<Item>()
+  mut details = &mut List::new<Str>()
+  mut depths = &mut List::new<Int>()
   mut current = Maybe::new<Item>()
-  let note = mut List::new<Str>()
+  let note = &mut List::new<Str>()
   // Whether the line before was blank, once the closing paragraph started.
   mut after_blank = false
   mut failure = ""
@@ -381,19 +381,20 @@ private fn list_items(body: Str, closing: Bool) Listed!Str {
       marker.is_some() => {
         match current {
           item => {
-            let done = mut item
-            done.details = details.@
-            done.depths = depths.@
-            result.push(done.@)
+            mut item = item
+            let done = &mut item
+            done.details = details.*
+            done.depths = depths.*
+            result.push(done.*)
           },
           _ => (),
         }
-        details = mut List::new<Str>()
-        depths = mut List::new<Int>()
+        details = &mut List::new<Str>()
+        depths = &mut List::new<Int>()
         let found = marker.expect("marker")
-        let next = mut parse_item(found.text)
+        let next = &mut parse_item(found.text)
         next.ordinal = found.ordinal
-        current = Maybe::new(next.@)
+        current = Maybe::new(next.*)
       },
       indent(line) >= 2 and current.is_some() => {
         details.push(clean(trimmed))
@@ -409,15 +410,16 @@ private fn list_items(body: Str, closing: Bool) Listed!Str {
   }
   match current {
     item => {
-      let done = mut item
-      done.details = details.@
-      done.depths = depths.@
-      result.push(done.@)
+      mut item = item
+      let done = &mut item
+      done.details = details.*
+      done.depths = depths.*
+      result.push(done.*)
     },
     _ => (),
   }
   match failure == "" {
-    true => Result::ok(Listed{items: result.@, note: strings::Join(note, " ")}),
+    true => Result::ok(Listed{items: result.*, note: strings::Join(note, " ")}),
     false => Result::err(failure),
   }
 }
@@ -506,7 +508,7 @@ fn shape(text: Str) Shape {
 // The shape numbers written in each of shapes share: the most decimals,
 // grouped if any is, and the first one's `$` and unit.
 fn common(shapes: [Shape]) Shape {
-  let first = shapes.at(
+  mut first = shapes.at(
     0,
   ).or(
     Shape{
@@ -516,7 +518,7 @@ fn common(shapes: [Shape]) Shape {
       unit: "",
     },
   )
-  let result = mut first
+  let result = &mut first
   for each in shapes {
     if each.decimals > result.decimals {
       result.decimals = each.decimals
@@ -525,12 +527,12 @@ fn common(shapes: [Shape]) Shape {
       result.grouped = true
     }
   }
-  result.@
+  result.*
 }
 
 // digits with `,` between each group of three from the right.
 private fn group(digits: Str) Str {
-  let groups = mut List::new<Str>()
+  let groups = &mut List::new<Str>()
   mut end = digits.size()
   while end > 0 {
     let start = match end > 3 {
@@ -540,7 +542,7 @@ private fn group(digits: Str) Str {
     groups.push(digits.slice(start: start, end: end).or(""))
     end = start
   }
-  let ordered = mut List::new<Str>()
+  let ordered = &mut List::new<Str>()
   mut index = groups.size() - 1
   while index >= 0 {
     ordered.push(groups.at(index).or(""))
@@ -590,7 +592,7 @@ fn written(value: Float64, shape: Shape, signed: Bool) Str {
 
 // A list of numbers separated by spaces, where `x*n` repeats x n times.
 fn numbers(text: Str, limit: Int) [Float64]!Str {
-  let result = mut List::new<Float64>()
+  let result = &mut List::new<Float64>()
   for token in strings::Fields(text) {
     let value = try run(token)
     mut index = 0
@@ -601,7 +603,7 @@ fn numbers(text: Str, limit: Int) [Float64]!Str {
   }
   match result.size() > limit {
     true => Result::err("there are more than {limit} values"),
-    false => Result::ok(result.@),
+    false => Result::ok(result.*),
   }
 }
 

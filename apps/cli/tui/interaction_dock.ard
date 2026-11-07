@@ -23,8 +23,8 @@ struct Ref {
   focus_action: (fn() Bool)?,
 }
 
-fn ref() mut Ref {
-  (mut Ref{focus_action: Maybe::new<fn() Bool>()})
+fn ref() &mut Ref {
+  &mut Ref{focus_action: Maybe::new<fn() Bool>()}
 }
 
 impl Ref {
@@ -46,7 +46,7 @@ struct Props {
   // True while a response for this request is being submitted.
   submitting: Bool,
   respond: fn(protocol::InteractionResponse),
-  control: mut Ref,
+  control: &mut Ref,
   // Opens a URL with the system's default application.
   open_url: fn(Str) Void!Error,
   // Listens for an authorization redirect on this machine; normally
@@ -80,7 +80,7 @@ private struct OptionColumns {
 let detail_yield = 4.0
 
 struct Dock {
-  props: mut Props,
+  props: &mut Props,
   context: cui::Context?,
   // The guided question being answered; plain requests stay at zero.
   step: Int,
@@ -94,15 +94,15 @@ struct Dock {
   checked: [Str: Bool],
   // The highlighted answer of a confirmation that offers a default choice.
   confirming: Bool,
-  list: mut cui::VirtualListRef,
+  list: &mut cui::VirtualListRef,
   hidden_above: Int,
   hidden_below: Int,
   // Whether the highlight is being brought into view. Revealing it can show
   // an overflow row that shrinks the list and hides it again, so the reveal
   // repeats until the list settles with the highlight visible.
   revealing: Bool,
-  focus: mut cui::BoxRef,
-  input: mut cui::InputRef,
+  focus: &mut cui::BoxRef,
+  input: &mut cui::InputRef,
   // An authorize request's redirect listener, while it listens.
   receiver: authbridge::RedirectReceiver?,
   // Why the browser did not open, after it failed to.
@@ -115,8 +115,8 @@ fn dock(props: Props) cui::View {
   cui::child(new, props, key: "interaction.{props.request.ID}")
 }
 
-private fn new(props: mut Props) mut Dock {
-  (mut Dock{
+private fn new(props: &mut Props) &mut Dock {
+  &mut Dock{
     props: props,
     context: Maybe::new<cui::Context>(),
     step: 0,
@@ -124,7 +124,7 @@ private fn new(props: mut Props) mut Dock {
     value: props.request.InitialValue,
     cursor: 0,
     checked: [:],
-    confirming: unsafe::is_nil(props.request.DefaultValue) == false and props.request.DefaultValue.@,
+    confirming: unsafe::is_nil(props.request.DefaultValue) == false and props.request.DefaultValue.*,
     list: cui::virtual_list_ref(),
     hidden_above: 0,
     hidden_below: 0,
@@ -133,7 +133,7 @@ private fn new(props: mut Props) mut Dock {
     input: cui::input_ref(),
     receiver: Maybe::new<authbridge::RedirectReceiver>(),
     open_error: "",
-  })
+  }
 }
 
 impl cui::Lifecycle for Dock {
@@ -255,11 +255,12 @@ impl Dock {
   // keyboard input. The redirect stays in the field, so an answer that is
   // not sent can be sent again with Return.
   private fn mut relay(redirect: Str) {
+    mut redirect = redirect
     if self.receiver.is_some() {
       self.value = redirect
     }
     if self.receiver.is_some() and not self.props.submitting {
-      let answer = mut redirect
+      let answer = &mut redirect
       (self.props.respond)(
         protocol::InteractionResponse{RequestID: self.props.request.ID, Value: answer},
       )
@@ -359,7 +360,7 @@ impl Dock {
         match self.answers.get(question.ID) {
           answer => {
             if not unsafe::is_nil(answer.Text) {
-              self.value = answer.Text.@
+              self.value = answer.Text.*
             }
             for id in answer.OptionIDs {
               self.checked.set(id, true)
@@ -393,7 +394,8 @@ impl Dock {
   }
 
   private fn mut confirm(value: Bool) Bool {
-    let confirmed = mut value
+    mut value = value
+    let confirmed = &mut value
     match self.guided() {
       true => self.advance(protocol::InteractionAnswer{Boolean: confirmed}),
       false => {
@@ -407,14 +409,15 @@ impl Dock {
   // Submits a text answer. Plugins may accept an empty answer; otherwise an
   // empty answer skips an optional question and is ignored.
   private fn mut submit_text(value: Str) Bool {
-    let trimmed = strings::TrimSpace(value)
+    mut value = value
+    mut trimmed = strings::TrimSpace(value)
     match {
       self.mode() == Mode::authorize => {
         match trimmed == "" {
           // An empty field opens the page; a pasted one answers with it.
           true => self.open_page(),
           false => {
-            let answer = mut trimmed
+            let answer = &mut trimmed
             self.respond(
               protocol::InteractionResponse{RequestID: self.props.request.ID, Value: answer},
             )
@@ -423,11 +426,11 @@ impl Dock {
       },
       trimmed == "" and not self.plugin() => self.skip(),
       self.guided() => {
-        let answer = mut trimmed
+        let answer = &mut trimmed
         self.advance(protocol::InteractionAnswer{Text: answer})
       },
       _ => {
-        let answer = mut value
+        let answer = &mut value
         self.respond(protocol::InteractionResponse{RequestID: self.props.request.ID, Value: answer})
       },
     }
@@ -463,7 +466,7 @@ impl Dock {
   // Answers a multiple-choice question with its checked options, in option
   // order. Nothing checked skips an optional question.
   private fn mut continue_multiple() Bool {
-    let ids = mut List::new<Str>()
+    let ids = &mut List::new<Str>()
     for option in self.choices() {
       if self.checked.get(option.ID).or(false) {
         ids.push(option.ID)
@@ -471,7 +474,7 @@ impl Dock {
     }
     match ids.size() == 0 {
       true => self.skip(),
-      false => self.advance(protocol::InteractionAnswer{OptionIDs: ids.@}),
+      false => self.advance(protocol::InteractionAnswer{OptionIDs: ids.*}),
     }
   }
 
@@ -537,8 +540,8 @@ impl Dock {
   }
 
   private fn mut bindings() Bindings {
-    let commands = mut List::new<keymap::Command>()
-    let bindings = mut List::new<keymap::Binding>()
+    let commands = &mut List::new<keymap::Command>()
+    let bindings = &mut List::new<keymap::Binding>()
     let bind = fn(name: Str, title: Str, keys: [keymap::Key], action: fn() Bool) Void {
       let command = keymap::simple_command(name, title, action)
       commands.push(command)
@@ -616,7 +619,7 @@ impl Dock {
       },
       _ => (),
     }
-    Bindings{commands: commands.@, bindings: bindings.@}
+    Bindings{commands: commands.*, bindings: bindings.*}
   }
 
   private fn mut bind_movement(bind: fn(Str, Str, [keymap::Key], fn() Bool)) {
@@ -636,7 +639,7 @@ impl Dock {
   // header shows the title with its source, guided progress, and queue
   // position as meta.
   private fn mut header(colors: theme::Theme) cui::View {
-    let meta = mut List::new<cui::View>()
+    let meta = &mut List::new<cui::View>()
     let muted = fn(text: Str) cui::View {
       cui::text(
         text,
@@ -668,7 +671,7 @@ impl Dock {
           styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
           text_style: ui::text_style(foreground: colors.foreground, bold: true),
         ),
-        cui::box(meta.@, styles: ui::style(flex_direction: ui::FlexDirection::row, flex_shrink: 0.0)),
+        cui::box(meta.*, styles: ui::style(flex_direction: ui::FlexDirection::row, flex_shrink: 0.0)),
       ],
       styles: ui::style(
         flex_direction: ui::FlexDirection::row,
@@ -684,7 +687,7 @@ impl Dock {
   private fn trail(colors: theme::Theme) [cui::View] {
     let questions = self.props.request.Questions
     let compact = questions.size() > 8
-    let marks = mut List::new<cui::View>()
+    let marks = &mut List::new<cui::View>()
     mut index = 0
     for question in questions {
       let answered = match self.answers.get(question.ID) {
@@ -717,7 +720,7 @@ impl Dock {
         ),
       )
     }
-    marks.@
+    marks.*
   }
 
   // detail renders explanatory Markdown. It scrolls only once the options are
@@ -850,7 +853,7 @@ impl Dock {
   // and a field for pasting where the browser ended up.
   private fn mut authorization(colors: theme::Theme) cui::View {
     let url = self.props.request.URL
-    let rows = mut List::new<cui::View>()
+    let rows = &mut List::new<cui::View>()
     rows.push(
       cui::text(
         ui::styled_text(
@@ -891,7 +894,7 @@ impl Dock {
     rows.push(status)
     rows.push(spacer())
     rows.push(self.text_field(colors, "Paste the address your browser ended up at"))
-    cui::box(rows.@, styles: ui::style(flex_direction: ui::FlexDirection::column, flex_shrink: 0.0))
+    cui::box(rows.*, styles: ui::style(flex_direction: ui::FlexDirection::column, flex_shrink: 0.0))
   }
 
   // options lists every choice when it fits; a constrained terminal windows
@@ -917,7 +920,7 @@ impl Dock {
         false => 0,
       },
     }
-    let indices = mut List::new<Int>()
+    let indices = &mut List::new<Int>()
     mut index = 0
     while index < options.size() {
       indices.push(index)
@@ -941,7 +944,7 @@ impl Dock {
         overflow_row(colors, "above", "▲", self.hidden_above),
         cui::virtual_list(
           // Each question starts its list at the top.
-          indices.@,
+          indices.*,
           item_key: fn(item: Int) Str {
             option_key(item)
           },
@@ -1010,7 +1013,7 @@ impl Dock {
       true => colors.picker_selected,
       false => colors.background,
     }
-    let label = mut List::new<cui::View>()
+    let label = &mut List::new<cui::View>()
     if multiple {
       let checked = self.checked.get(option.ID).or(false)
       label.push(
@@ -1051,7 +1054,7 @@ impl Dock {
           styles: ui::style(width: ui::cells(4), flex_shrink: 0.0),
         ),
         cui::box(
-          label.@,
+          label.*,
           styles: ui::style(
             // The gap before the detail is padding, so truncation keeps it.
             flex_basis: ui::cells(columns.label + columns.gap),
@@ -1083,7 +1086,7 @@ impl Dock {
         flex_shrink: 0.0,
         flex_direction: ui::FlexDirection::row,
       ),
-      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+      on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
         if received.event_type == event::MouseEventType::up and received.button == event::MouseButton::left {
           let _ = self.choose(index)
           received.prevent_default()
@@ -1118,7 +1121,7 @@ impl Dock {
 
   // footer keeps key hints on the left and pointer actions on the right.
   private fn mut footer(colors: theme::Theme) cui::View {
-    let children = mut List::new<cui::View>()
+    let children = &mut List::new<cui::View>()
     children.push(
       cui::text(
         self.hint(),
@@ -1177,7 +1180,7 @@ impl Dock {
       )
     }
     cui::box(
-      children.@,
+      children.*,
       styles: ui::style(
         flex_direction: ui::FlexDirection::row,
         flex_shrink: 0.0,
@@ -1199,7 +1202,7 @@ impl cui::Component for Dock {
     let rule = ui::style(flex_shrink: 0.0, border_color: colors.border)
     // Sections are direct children so only the detail and the options can
     // give up rows when the terminal is short.
-    let children = mut List::new<cui::View>()
+    let children = &mut List::new<cui::View>()
     children.push(self.header(colors))
     children.push(cui::divider(styles: rule))
     mut context = false
@@ -1239,7 +1242,7 @@ impl cui::Component for Dock {
     // from any focus target while no dialog is open, so its keys apply at
     // application scope beneath dialog priority.
     cui::box(
-      children.@,
+      children.*,
       key: "interaction.dock",
       styles: ui::style(
         flex_direction: ui::FlexDirection::column,

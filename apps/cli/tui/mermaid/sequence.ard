@@ -100,7 +100,7 @@ fn clean(value: Str) Str {
   match ui::text_width(text) <= max_text {
     true => text,
     false => {
-      let kept = mut List::new<Str>()
+      let kept = &mut List::new<Str>()
       mut width = 0
       for part in ui::graphemes(text) {
         if width + part.width <= max_text - 1 {
@@ -321,12 +321,12 @@ impl Parser {
           false => {
             let first = try self.participant(targets.at(0).or(""))
             let second = try self.participant(targets.at(targets.size() - 1).or(""))
-            let note = mut event(Kind::note)
+            let note = &mut event(Kind::note)
             note.from = minimum(first, second)
             note.to = maximum(first, second)
             note.placement = place
             note.text = text
-            self.events.push(note.@)
+            self.events.push(note.*)
             Result::ok(())
           },
         }
@@ -370,14 +370,14 @@ impl Parser {
           text = clean("{self.number}. {text}")
           self.number =+ self.step
         }
-        let message = mut event(Kind::message)
+        let message = &mut event(Kind::message)
         message.from = from
         message.to = to
         message.dashed = arrow.dashed
         message.start = arrow.start
         message.end = arrow.end
         message.text = text
-        self.events.push(message.@)
+        self.events.push(message.*)
         Result::ok(())
       },
       _ => Result::err("unsupported line `{line}`"),
@@ -386,19 +386,19 @@ impl Parser {
 
   fn mut open(keyword: Str, rest: Str) {
     self.blocks.push(keyword)
-    let block = mut event(Kind::open)
+    let block = &mut event(Kind::open)
     block.keyword = keyword
     block.text = clean(rest)
-    self.events.push(block.@)
+    self.events.push(block.*)
   }
 
   fn mut divider(keyword: Str, rest: Str, within: Str) Void!Str {
     match self.blocks.at(self.blocks.size() - 1).or("") == within {
       true => {
-        let block = mut event(Kind::divider)
+        let block = &mut event(Kind::divider)
         block.keyword = keyword
         block.text = clean(rest)
-        self.events.push(block.@)
+        self.events.push(block.*)
         Result::ok(())
       },
       false => Result::err("`{keyword}` outside {article(within)} `{within}` block"),
@@ -410,13 +410,13 @@ impl Parser {
       true => Result::err("`end` without an open block"),
       false => {
         let top = self.blocks.at(self.blocks.size() - 1).or("")
-        let open = mut List::new<Str>()
+        let open = &mut List::new<Str>()
         mut index = 0
         while index < self.blocks.size() - 1 {
           open.push(self.blocks.at(index).or(""))
           index =+ 1
         }
-        self.blocks = open.@
+        self.blocks = open.*
         if top != "rect" {
           self.events.push(event(Kind::close))
         }
@@ -510,7 +510,7 @@ impl Parser {
 // Parses the statements after a `sequenceDiagram` header. title is the
 // frontmatter title, which a `title` statement replaces.
 fn parse(lines: [Str], title: Str) Diagram!Str {
-  let parser = mut Parser{
+  let parser = &mut Parser{
     title: clean(title),
     participants: [],
     indexes: [:],
@@ -599,7 +599,7 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
 
   // Column centers: each must clear the boxes, texts, and notes between it
   // and the columns to its left.
-  let needs = mut List::new<[Int]>()
+  let needs = &mut List::new<[Int]>()
   mut index = 0
   while index + 1 < count {
     let width = box_width(participants.at(index).expect("participant"))
@@ -648,7 +648,7 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
       _ => (),
     }
   }
-  let centers = mut List::new<Int>()
+  let centers = &mut List::new<Int>()
   index = 0
   while index < count {
     mut center = box_width(participants.at(index).expect("participant")) / 2
@@ -671,10 +671,10 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
   }
   let header = title_rows
   mut row = header + 4
-  let placed = mut List::new<Placed>()
-  let frames = mut List::new<Frame>()
+  let placed = &mut List::new<Placed>()
+  let frames = &mut List::new<Frame>()
   // The frames still open, innermost at depth - 1.
-  let open = mut List::new<Int>()
+  let open = &mut List::new<Int>()
   mut depth = 0
   mut min_x = 0
   mut max_x = 0
@@ -686,7 +686,7 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
   }
   for item in diagram.events {
     let text = ui::text_width(item.text)
-    let place = mut Placed{
+    let place = &mut Placed{
       row: row,
       line: row,
       x0: 0,
@@ -774,17 +774,17 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
       },
       Kind::divider => {
         let current = open.at(depth - 1).or(0)
-        let frame = mut frames.at(current).expect("open frame")
+        let frame = &mut frames.at(current).expect("open frame")
         frame.dividers.push(row)
         frame.divider_keywords.push(item.keyword)
         frame.divider_conditions.push(item.text)
-        frames.set(current, frame.@)
+        frames.set(current, frame.*)
         row =+ 1
       },
       Kind::close => {
         let current = open.at(depth - 1).or(0)
         depth =- 1
-        let frame = mut frames.at(current).expect("open frame")
+        let frame = &mut frames.at(current).expect("open frame")
         if frame.empty {
           frame.min = center(0)
           frame.max = center(count - 1)
@@ -821,7 +821,7 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
             index =+ 1
           }
         }
-        frames.set(current, frame.@)
+        frames.set(current, frame.*)
         place.x0 = frame.x0
         place.x1 = frame.x1
         row =+ 2
@@ -839,7 +839,7 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
       // The contents widen the innermost open frame.
       match open.at(depth - 1) {
         current => {
-          let frame = mut frames.at(current).expect("open frame")
+          let frame = &mut frames.at(current).expect("open frame")
           match frame.empty {
             true => {
               frame.min = place.reach0
@@ -851,14 +851,14 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
             },
           }
           frame.empty = false
-          frames.set(current, frame.@)
+          frames.set(current, frame.*)
         },
         _ => (),
       }
       min_x = minimum(min_x, place.x0)
       max_x = maximum(max_x, place.x1)
     }
-    placed.push(place.@)
+    placed.push(place.*)
   }
   let height = row
   let shift = 0 - min_x
@@ -954,13 +954,13 @@ fn draw(diagram: Diagram) canvas::Canvas!Str {
         }
         event_index =+ 1
       }
-      Result::ok(drawing.@)
+      Result::ok(drawing.*)
     },
   }
 }
 
 // Erases a rectangle so a note covers the lifelines behind it.
-private fn clear(drawing: mut canvas::Canvas, x0: Int, y0: Int, x1: Int, y1: Int) {
+private fn clear(drawing: &mut canvas::Canvas, x0: Int, y0: Int, x1: Int, y1: Int) {
   mut y = y0
   while y <= y1 {
     drawing.write(x0, y, strings::Repeat(" ", x1 - x0 + 1), canvas::Role::note, false)
@@ -987,7 +987,13 @@ private fn head_glyph(head: Head, rightward: Bool) Str {
   }
 }
 
-private fn draw_message(drawing: mut canvas::Canvas, item: Event, place: Placed, from: Int, to: Int) {
+private fn draw_message(
+  drawing: &mut canvas::Canvas,
+  item: Event,
+  place: Placed,
+  from: Int,
+  to: Int,
+) {
   let text = ui::text_width(item.text)
   match from == to {
     true => {
@@ -1058,7 +1064,7 @@ fn render(lines: [Str], title: Str) canvas::Canvas!Str {
 fn expect_drawing(source: Str, expected: [Str]) Void!Str {
   let drawing = try render(strings::Split(source, "\n"), "")
   let actual = drawing.lines()
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(
     actual.size() == expected.size(),
     "row count {actual.size()}, want {expected.size()}:\n{shown}|",
@@ -1291,21 +1297,21 @@ test fn keywords_match_in_any_case() Void!Str {
 }
 
 test fn diagrams_past_the_limits_are_rejected() Void!Str {
-  let crowd = mut List::new<Str>()
+  let crowd = &mut List::new<Str>()
   mut index = 0
   while index <= max_participants {
     crowd.push("participant P{index}")
     index =+ 1
   }
   try expect_rejected(strings::Join(crowd, "\n"), "more than {max_participants} participants")
-  let chatter = mut List::new<Str>()
+  let chatter = &mut List::new<Str>()
   index = 0
   while index <= max_statements {
     chatter.push("A->>B: {index}")
     index =+ 1
   }
   try expect_rejected(strings::Join(chatter, "\n"), "more than {max_statements} statements")
-  let wide = mut List::new<Str>()
+  let wide = &mut List::new<Str>()
   index = 0
   while index < 12 {
     wide.push("participant P{index} as {strings::Repeat("w", 40)}")

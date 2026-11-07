@@ -50,7 +50,7 @@ fn dialog(themes: theme::Context, spec: Dialog) cui::View {
           left: ui::cells(0),
           z_index: 100,
         ),
-        on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+        on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
           received.prevent_default()
         },
       ),
@@ -73,13 +73,13 @@ private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
     true => "panel",
     false => "descendant",
   }
-  let commands = mut List::new<keymap::Command>()
+  let commands = &mut List::new<keymap::Command>()
   commands.push(spec.dismiss)
   for command in spec.commands.or([]) {
     commands.push(command)
   }
   let dismiss_binding = keymap::binding(keymap::key("escape"), spec.dismiss.with())
-  let panel_bindings = mut List::new<keymap::Binding>()
+  let panel_bindings = &mut List::new<keymap::Binding>()
   panel_bindings.push(dismiss_binding)
   for binding in spec.bindings.or([]) {
     panel_bindings.push(binding)
@@ -105,7 +105,7 @@ private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
       },
     ),
   )
-  let content = mut List::new<cui::View>()
+  let content = &mut List::new<cui::View>()
   // Pickers whose search field is their header omit a redundant title row.
   // Titled dialogs retain their structural header divider here.
   if spec.title != "" or spec.meta != "" {
@@ -129,12 +129,12 @@ private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
     // A modal owns Escape even while a descendant search input is focused.
     // Application scope plus the elevated priority prevents the input's local
     // key layer from delaying dismissal during reconciliation.
-    content.@,
+    content.*,
     key: "modal.panel.{spec.title}.{focus_owner}",
     autofocus: spec.autofocus,
     styles: panel_style(colors, spec.placement),
-    commands: commands.@,
-    bindings: panel_bindings.@,
+    commands: commands.*,
+    bindings: panel_bindings.*,
     binding_scope: keymap::ScopeMode::application,
     binding_priority: 100,
   )

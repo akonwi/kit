@@ -44,7 +44,8 @@ fn mark(result: transcript::Message) Mark {
 
 // The call's title and summary. servers names the session's MCP servers.
 fn presentation(call: transcript::ToolCall, result: transcript::Message, servers: [Str]) toolpresentation::Presentation {
-  let names = mut servers
+  mut servers = servers
+  let names = &mut servers
   toolpresentation::Present(call_input(call), result_input(result), names)
 }
 
@@ -100,7 +101,7 @@ fn path_tail(value: Str, limit: Int) Str {
           start =- 1
         }
       }
-      let kept = mut List::new<Str>()
+      let kept = &mut List::new<Str>()
       for character, index in characters {
         if index >= start {
           kept.push(character.text)
@@ -152,21 +153,21 @@ fn view(props: Props) cui::View {
 }
 
 private struct Row {
-  props: mut Props,
-  frame: mut cui::BoxRef,
+  props: &mut Props,
+  frame: &mut cui::BoxRef,
   // The row's width as last laid out; zero until then, when it is wide.
   width: Int,
   // Whether the pointer is over a summary that opens something.
   link_hovered: Bool,
 }
 
-private fn new(props: mut Props) mut Row {
-  (mut Row{
+private fn new(props: &mut Props) &mut Row {
+  &mut Row{
     props: props,
     frame: cui::box_ref(),
     width: 0,
     link_hovered: false,
-  })
+  }
 }
 
 impl cui::Lifecycle for Row {
@@ -256,7 +257,7 @@ impl Row {
         cui::box(
           [text],
           styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
-          on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+          on_mouse: fn(received: &mut cooper::MouseEvent, ctx: cui::Context) {
             if received.event_type == cooper::MouseEventType::over or received.event_type == cooper::MouseEventType::move {
               self.link_hovered = true
             } else if received.event_type == cooper::MouseEventType::out {
@@ -356,7 +357,7 @@ impl cui::Component for Row {
         true => ui::style(flex_direction: ui::FlexDirection::column, background: colors.surface_pressed),
         false => ui::style(flex_direction: ui::FlexDirection::column),
       },
-      on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+      on_mouse: fn(received: &mut cooper::MouseEvent, ctx: cui::Context) {
         if received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
           chosen()
           received.prevent_default()

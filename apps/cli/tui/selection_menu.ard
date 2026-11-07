@@ -79,7 +79,7 @@ private fn at_least_zero(value: Int) Int {
 // lines are dropped; blank lines inside the text stay in the quote.
 fn quote(text: Str) Str {
   let normalized = strings::ReplaceAll(text, "\r\n", "\n")
-  let lines = mut List::new<Str>()
+  let lines = &mut List::new<Str>()
   for line in strings::Split(normalized, "\n") {
     lines.push(strings::TrimRight(line, " \t\r"))
   }
@@ -94,7 +94,7 @@ fn quote(text: Str) Str {
       last = index
     }
   }
-  let quoted = mut List::new<Str>()
+  let quoted = &mut List::new<Str>()
   for line, index in lines {
     if index >= first and index <= last {
       quoted.push(
@@ -131,13 +131,13 @@ fn view(props: Props) cui::View {
 }
 
 private struct Menu {
-  props: mut Props,
+  props: &mut Props,
   // The highlighted row's key, or empty before the pointer or a key picks one.
   highlighted: Str,
 }
 
-private fn new(props: mut Props) mut Menu {
-  (mut Menu{props: props, highlighted: ""})
+private fn new(props: &mut Props) &mut Menu {
+  &mut Menu{props: props, highlighted: ""}
 }
 
 impl Menu {
@@ -206,7 +206,7 @@ impl Menu {
           left: ui::cells(1),
         },
       ),
-      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+      on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
         match received.event_type {
           // Only the primary button acts: the secondary release that follows
           // the opening press lands on the menu.
@@ -236,7 +236,7 @@ impl cui::Component for Menu {
     let colors = self.props.themes.current()
     let items = self.props.items
     let placed = place(items, self.props.pointer, self.props.viewport)
-    let rows = mut List::new<cui::View>()
+    let rows = &mut List::new<cui::View>()
     for item in items {
       rows.push(self.row(item))
     }
@@ -266,7 +266,7 @@ impl cui::Component for Menu {
             bottom: ui::cells(0),
             left: ui::cells(0),
           ),
-          on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+          on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
             if received.event_type == event::MouseEventType::down or received.event_type == event::MouseEventType::scroll {
               received.prevent_default()
               received.stop_propagation()
@@ -279,7 +279,7 @@ impl cui::Component for Menu {
           },
         ),
         cui::box(
-          rows.@,
+          rows.*,
           key: "selection-menu.panel",
           styles: ui::style(
             position: ui::Position::absolute,
@@ -301,7 +301,7 @@ impl cui::Component for Menu {
             keymap::binding(keymap::key("down"), down.with(), keymap::Trigger::press_or_repeat),
             keymap::binding(keymap::key("return"), choose.with()),
           ],
-          on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+          on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
             // Presses on the frame stay with the menu.
             if received.event_type == event::MouseEventType::down {
               received.prevent_default()

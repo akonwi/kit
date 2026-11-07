@@ -14,8 +14,8 @@ struct Deferred {
 }
 
 // Notifications raised so far, as "title: detail" with a persistence marker.
-fn shown(control: mut toast::Control) Str {
-  let parts = mut List::new<Str>()
+fn shown(control: &mut toast::Control) Str {
+  let parts = &mut List::new<Str>()
   for request in control.pending {
     let persistence = match request.persistent {
       true => "persistent",
@@ -84,7 +84,7 @@ test fn a_failed_refresh_reports_a_persistent_error() Void!Str {
 
 test fn only_one_refresh_runs_at_a_time() Void!Str {
   let notifications = toast::control()
-  let deferred = mut Deferred{work: [], calls: 0}
+  let deferred = &mut Deferred{work: [], calls: 0}
   let subject = model_refresh::custom(
     fn(ctx: context::Context) Int!Error {
       deferred.calls =+ 1
@@ -117,7 +117,7 @@ test fn only_one_refresh_runs_at_a_time() Void!Str {
 
 test fn an_unbound_refresher_does_nothing() Void!Str {
   let notifications = toast::control()
-  let deferred = mut Deferred{work: [], calls: 0}
+  let deferred = &mut Deferred{work: [], calls: 0}
   let subject = model_refresh::custom(
     fn(ctx: context::Context) Int!Error {
       Result::ok(1)

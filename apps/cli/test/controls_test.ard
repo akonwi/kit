@@ -17,17 +17,17 @@ struct Model {
 }
 
 struct Props {
-  model: mut Model,
+  model: &mut Model,
   themes: theme::Context,
 }
 
 struct Host {
-  model: mut Model,
+  model: &mut Model,
   themes: theme::Context,
 }
 
-fn host(props: mut Props) mut Host {
-  (mut Host{model: props.model, themes: props.themes})
+fn host(props: &mut Props) &mut Host {
+  &mut Host{model: props.model, themes: props.themes}
 }
 
 impl cui::Component for Host {
@@ -74,7 +74,7 @@ test fn button_has_semantic_interaction_surfaces_and_activates_from_pointer_and_
   let terminal = headless::new(30, 2)
   defer terminal.destroy()
   let app = cooper::App{context: terminal.context, root: terminal.root}
-  let model = mut Model{presses: 0}
+  let model = &mut Model{presses: 0}
   let themes = theme::context(theme::store(theme::system()))
   let renderer = cui::mount(app, cui::child(host, Props{model: model, themes: themes}))
   defer renderer.destroy()
@@ -125,16 +125,16 @@ struct Interrupts {
 }
 
 struct FieldProps {
-  interrupts: mut Interrupts,
+  interrupts: &mut Interrupts,
   keep: Bool,
 }
 
 struct FieldHost {
-  props: mut FieldProps,
+  props: &mut FieldProps,
 }
 
-fn field_host(props: mut FieldProps) mut FieldHost {
-  (mut FieldHost{props: props})
+fn field_host(props: &mut FieldProps) &mut FieldHost {
+  &mut FieldHost{props: props}
 }
 
 impl cui::Component for FieldHost {
@@ -168,7 +168,7 @@ fn interrupts_after_ctrl_c(keep: Bool) Int {
   let terminal = headless::new(20, 2)
   defer terminal.destroy()
   let app = cooper::App{context: terminal.context, root: terminal.root}
-  let interrupts = mut Interrupts{count: 0}
+  let interrupts = &mut Interrupts{count: 0}
   let renderer = cui::mount(
     app,
     cui::child(field_host, FieldProps{interrupts: interrupts, keep: keep}),
@@ -203,11 +203,11 @@ struct ToggleProps {
 }
 
 struct ToggleHost {
-  props: mut ToggleProps,
+  props: &mut ToggleProps,
 }
 
-fn toggle_host(props: mut ToggleProps) mut ToggleHost {
-  (mut ToggleHost{props: props})
+fn toggle_host(props: &mut ToggleProps) &mut ToggleHost {
+  &mut ToggleHost{props: props}
 }
 
 impl cui::Component for ToggleHost {
@@ -226,7 +226,7 @@ impl cui::Component for ToggleHost {
 test fn a_toggle_keeps_its_knob_at_the_end_its_state_names() Void!Str {
   let terminal = headless::new(12, 1)
   defer terminal.destroy()
-  let tokens = mut Map::new<kittheme::Color>()
+  let tokens = &mut Map::new<kittheme::Color>()
   tokens.set(
     kittheme::TokenToggleOn,
     kittheme::Color{
@@ -236,7 +236,7 @@ test fn a_toggle_keeps_its_knob_at_the_end_its_state_names() Void!Str {
       A: 255,
     },
   )
-  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, ctheme::default())
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.*}, ctheme::default())
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
     cui::child(toggle_host, ToggleProps{themes: theme::context(theme::store(colors))}),

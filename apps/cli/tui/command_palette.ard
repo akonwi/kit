@@ -79,8 +79,8 @@ private fn command_item(key: Str, description: Str, terms: Str, disabled_reason:
 // sorted_catalog keeps built-ins and discovered commands in one stable,
 // case-insensitive alphabetical catalog.
 private fn sorted_catalog(items: [palette::Item]) [palette::Item] {
-  let result = mut List::new<palette::Item>()
-  let placed = mut List::new<Str>()
+  let result = &mut List::new<palette::Item>()
+  let placed = &mut List::new<Str>()
   while result.size() < items.size() {
     mut next = Maybe::new<palette::Item>()
     for item in items {
@@ -109,7 +109,7 @@ private fn sorted_catalog(items: [palette::Item]) [palette::Item] {
       _ => (),
     }
   }
-  result.@
+  result.*
 }
 
 // Commands that need no server: diagnostics and MCP status read the last
@@ -130,7 +130,7 @@ fn command_catalog(
   match connected {
     true => available_catalog(running, prompt_commands, plugin_commands),
     false => {
-      let local = mut List::new<palette::Item>()
+      let local = &mut List::new<palette::Item>()
       for item in available_catalog(running, [], []) {
         for key in local_commands {
           if item.key == key {
@@ -138,7 +138,7 @@ fn command_catalog(
           }
         }
       }
-      local.@
+      local.*
     },
   }
 }
@@ -210,7 +210,7 @@ private fn available_catalog(
     command_item("theme", "Choose UI colors", "appearance colors", ""),
     command_item("thinking", "Change reasoning effort", "reasoning effort", ""),
   ]
-  let catalog = mut List::new<palette::Item>()
+  let catalog = &mut List::new<palette::Item>()
   for item in builtins {
     catalog.push(item)
   }
@@ -256,7 +256,7 @@ private fn available_catalog(
       },
     )
   }
-  sorted_catalog(catalog.@)
+  sorted_catalog(catalog.*)
 }
 
 // ActionKind identifies one executable command resolved by the palette.
@@ -321,10 +321,10 @@ struct Props {
 struct Palette {
   // props remains linked to cui::child's mutable slot so catalog capabilities
   // refresh without resetting the local query, selection, or viewport.
-  props: mut Props,
+  props: &mut Props,
   context: cui::Context?,
-  search: mut cui::InputRef,
-  list: mut cui::VirtualListRef,
+  search: &mut cui::InputRef,
+  list: &mut cui::VirtualListRef,
   query: Str,
   selection: Str,
   hovered: Str,
@@ -349,8 +349,8 @@ fn view(props: Props) cui::View {
   cui::child(new, props, key: "command-palette")
 }
 
-private fn new(props: mut Props) mut Palette {
-  (mut Palette{
+private fn new(props: &mut Props) &mut Palette {
+  &mut Palette{
     props: props,
     context: Maybe::new<cui::Context>(),
     search: cui::input_ref(),
@@ -366,7 +366,7 @@ private fn new(props: mut Props) mut Palette {
     pending: Maybe::new<PendingArgument>(),
     argument: "",
     argument_error: "",
-  })
+  }
 }
 
 private fn unavailable(reason: Str) Notice {

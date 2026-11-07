@@ -184,7 +184,7 @@ private fn model_name(models: [protocol::ModelCapability], id: Str) Str {
 }
 
 struct Dialog {
-  props: mut Props,
+  props: &mut Props,
   context: cui::Context?,
   selection: Str,
   hovered: Str,
@@ -205,8 +205,8 @@ struct Dialog {
   picking: Str,
 }
 
-fn new(props: mut Props) mut Dialog {
-  (mut Dialog{
+fn new(props: &mut Props) &mut Dialog {
+  &mut Dialog{
     props: props,
     context: Maybe::new<cui::Context>(),
     selection: match props.selection == "" {
@@ -225,7 +225,7 @@ fn new(props: mut Props) mut Dialog {
     server_saving: false,
     revision: 0,
     picking: "",
-  })
+  }
 }
 
 impl cui::Lifecycle for Dialog {
@@ -327,7 +327,7 @@ impl Dialog {
   // The rows that can be selected now: the server's only once it has
   // answered.
   private fn rows() [Str] {
-    let result = mut List::new<Str>()
+    let result = &mut List::new<Str>()
     if self.server_available() {
       for key in server_rows {
         result.push(key)
@@ -336,7 +336,7 @@ impl Dialog {
     for key in terminal_rows {
       result.push(key)
     }
-    result.@
+    result.*
   }
 
   private fn mut keep_selection_available() {
@@ -639,7 +639,7 @@ impl Dialog {
     }
     let saving = self.is_saving(key)
     let failure = self.failures.get(key).or("")
-    let cells = mut List::new<cui::View>()
+    let cells = &mut List::new<cui::View>()
     cells.push(
       cui::text(
         match active {
@@ -658,7 +658,7 @@ impl Dialog {
         overflow: ui::TextOverflow::ellipsis,
       ),
     )
-    let value = mut List::new<cui::View>()
+    let value = &mut List::new<cui::View>()
     if saving {
       value.push(spinner::spinner())
       value.push(cui::text(" Saving…", text_style: ui::text_style(foreground: colors.muted)))
@@ -673,7 +673,7 @@ impl Dialog {
     }
     cells.push(
       cui::box(
-        value.@,
+        value.*,
         styles: ui::style(
           flex_grow: 1.0,
           flex_basis: ui::cells(0),
@@ -707,7 +707,7 @@ impl Dialog {
       ),
     )
     let shown = cui::box(
-      cells.@,
+      cells.*,
       key: "settings.row.{key}",
       styles: ui::style(
         background: fill,
@@ -715,7 +715,7 @@ impl Dialog {
         flex_shrink: 0.0,
         flex_direction: ui::FlexDirection::row,
       ),
-      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+      on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
         match received.event_type {
           event::MouseEventType::over => {
             self.update(fn() {
@@ -762,7 +762,7 @@ impl Dialog {
 
   private fn mut body() cui::View {
     let colors = self.props.themes.current()
-    let children = mut List::new<cui::View>()
+    let children = &mut List::new<cui::View>()
     children.push(
       self.heading(
         match self.props.server == "" {
@@ -823,7 +823,7 @@ impl Dialog {
       children.push(self.row(key))
     }
     cui::box(
-      children.@,
+      children.*,
       styles: ui::style(
         flex_grow: 1.0,
         flex_basis: ui::cells(0),
@@ -883,7 +883,7 @@ impl Dialog {
       "default_model" => self.settings.DefaultModel,
       _ => self.settings.CompactionModel,
     }
-    let catalog = mut List::new<palette::Item>()
+    let catalog = &mut List::new<palette::Item>()
     catalog.push(
       palette::Item{
         key: no_model,
@@ -942,7 +942,7 @@ impl Dialog {
       palette::new_picker,
       palette::PickerProps{
         themes: self.props.themes,
-        catalog: catalog.@,
+        catalog: catalog.*,
         placeholder: "Search models…",
         initial_selection: match current == "" {
           true => no_model,

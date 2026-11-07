@@ -14,15 +14,15 @@ use go:strings
 use go:time
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {
@@ -42,16 +42,16 @@ fn same_color(left: ui::Color?, right: ui::Color) Bool {
 }
 
 fn line(kind: Str, old: Int, new: Int, content: Str) protocol::DiffLine {
-  let made = mut protocol::DiffLine{Kind: kind, Content: content}
+  let made = &mut protocol::DiffLine{Kind: kind, Content: content}
   if old > 0 {
-    let number = old
-    made.OldLine = mut number
+    mut number = old
+    made.OldLine = &mut number
   }
   if new > 0 {
-    let number = new
-    made.NewLine = mut number
+    mut number = new
+    made.NewLine = &mut number
   }
-  made.@
+  made.*
 }
 
 fn observed(input: protocol::ObserveWorkingTreeInput) protocol::WorkingTreePage!Error {
@@ -191,11 +191,11 @@ test fn the_working_tree_shows_each_file_and_its_changes() Void!Str {
 }
 
 fn long_read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Error {
-  let lines = mut List::new<protocol::DiffLine>()
+  let lines = &mut List::new<protocol::DiffLine>()
   for number in 1..12 {
     lines.push(line("addition", 0, number, "line {number}"))
   }
-  Result::ok(protocol::FileDiffPage{Hunks: [protocol::DiffHunk{Lines: lines.@}]})
+  Result::ok(protocol::FileDiffPage{Hunks: [protocol::DiffHunk{Lines: lines.*}]})
 }
 
 test fn a_scrolled_file_keeps_its_header_pinned() Void!Str {
@@ -219,7 +219,7 @@ test fn a_scrolled_file_keeps_its_header_pinned() Void!Str {
   let shown = rows(terminal)
   try testing::assert(
     strings::HasPrefix(shown.at(2).or(""), " ▾ main.go  "),
-    "the header stays on top:\n{strings::Join(mut shown, "|\n")}",
+    "the header stays on top:\n{strings::Join(shown, "|\n")}",
   )
   try testing::assert(strings::HasPrefix(shown.at(3).or(""), "───"), "with its rule")
   testing::assert(strings::Contains(shown.at(4).or(""), "line "), "its lines scroll beneath it")
@@ -249,7 +249,7 @@ test fn loading_is_centered_in_the_pane() Void!Str {
   let text = shown.at(found).or("")
   // The body has ten rows under the header; the spinner and label take 15
   // of 44 columns.
-  try testing::assert(found == 7, "the middle row of the body:\n{strings::Join(mut shown, "|\n")}")
+  try testing::assert(found == 7, "the middle row of the body:\n{strings::Join(shown, "|\n")}")
   testing::assert(
     strings::HasPrefix(text, strings::Repeat(" ", 15) + "⠋") and strings::HasSuffix(text, " Loading diff…"),
     "the middle columns: {text}|",
@@ -288,19 +288,19 @@ struct LayoutChoices {
 test fn the_layout_button_asks_for_the_other_layout() Void!Str {
   let terminal = headless::new(124, 9)
   defer terminal.destroy()
-  let choices = mut LayoutChoices{chosen: []}
-  let unified = mut props(Maybe::new(observed), Maybe::new(paired_read))
+  let choices = &mut LayoutChoices{chosen: []}
+  let unified = &mut props(Maybe::new(observed), Maybe::new(paired_read))
   unified.set_split = fn(split: Bool) {
-    let chosen = mut List::new<Bool>()
+    let chosen = &mut List::new<Bool>()
     for previous in choices.chosen {
       chosen.push(previous)
     }
     chosen.push(split)
-    choices.chosen = chosen.@
+    choices.chosen = chosen.*
   }
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    diff_pane::view(unified.@),
+    diff_pane::view(unified.*),
   )
   defer renderer.destroy()
   terminal.flush()
@@ -320,11 +320,11 @@ test fn the_layout_button_asks_for_the_other_layout() Void!Str {
 test fn a_wide_pane_splits_old_and_new_lines_side_by_side() Void!Str {
   let terminal = headless::new(124, 9)
   defer terminal.destroy()
-  let split = mut props(Maybe::new(observed), Maybe::new(paired_read))
+  let split = &mut props(Maybe::new(observed), Maybe::new(paired_read))
   split.split = true
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    diff_pane::view(split.@),
+    diff_pane::view(split.*),
   )
   defer renderer.destroy()
   terminal.flush()
@@ -361,11 +361,11 @@ fn long_line_read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Err
 test fn wrapped_lines_continue_under_their_text() Void!Str {
   let terminal = headless::new(26, 9)
   defer terminal.destroy()
-  let wrapped = mut props(Maybe::new(observed), Maybe::new(long_line_read))
+  let wrapped = &mut props(Maybe::new(observed), Maybe::new(long_line_read))
   wrapped.wrap = true
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    diff_pane::view(wrapped.@),
+    diff_pane::view(wrapped.*),
   )
   defer renderer.destroy()
   terminal.flush()
@@ -406,15 +406,15 @@ fn commit_observed(input: protocol::ObserveDiffInput) protocol::WorkingTreePage!
 test fn a_picked_commit_replaces_the_working_tree() Void!Str {
   let terminal = headless::new(64, 6)
   defer terminal.destroy()
-  let requests = mut List::new<diff_pane::TargetRequest>()
-  let picking = mut props(Maybe::new(observed), Maybe::new(read))
+  let requests = &mut List::new<diff_pane::TargetRequest>()
+  let picking = &mut props(Maybe::new(observed), Maybe::new(read))
   picking.observe_target = Maybe::new(commit_observed)
   picking.pick_target = fn(request: diff_pane::TargetRequest) {
     requests.push(request)
   }
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    diff_pane::view(picking.@),
+    diff_pane::view(picking.*),
   )
   defer renderer.destroy()
   terminal.flush()
@@ -473,12 +473,12 @@ fn long_pair_read(input: protocol::ReadFileDiffInput) protocol::FileDiffPage!Err
 test fn the_split_rule_spans_a_wrapped_row() Void!Str {
   let terminal = headless::new(124, 8)
   defer terminal.destroy()
-  let wrapped = mut props(Maybe::new(observed), Maybe::new(long_pair_read))
+  let wrapped = &mut props(Maybe::new(observed), Maybe::new(long_pair_read))
   wrapped.wrap = true
   wrapped.split = true
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    diff_pane::view(wrapped.@),
+    diff_pane::view(wrapped.*),
   )
   defer renderer.destroy()
   terminal.flush()
@@ -505,19 +505,19 @@ struct Calls {
   removed: [Uint64],
 }
 
-fn calls() mut Calls {
-  (mut Calls{saved: [], removed: []})
+fn calls() &mut Calls {
+  &mut Calls{saved: [], removed: []}
 }
 
 // Props for an annotated pane over `observed` and `read`, recording what
 // it asks.
-fn annotated(notes: [sessionbridge::Annotation], recorded: mut Calls, reveal: diff_pane::Reveal) diff_pane::Props {
-  let made = mut props(Maybe::new(observed), Maybe::new(read))
+fn annotated(notes: [sessionbridge::Annotation], recorded: &mut Calls, reveal: diff_pane::Reveal) diff_pane::Props {
+  let made = &mut props(Maybe::new(observed), Maybe::new(read))
   made.annotations = notes
   made.annotate = Maybe::new(
     annotations::Service{
       create: fn(anchor: protocol::AnnotationAnchor, body: Str) Str {
-        let diff = anchor.WorkingTreeDiff.@
+        let diff = anchor.WorkingTreeDiff.*
         recorded.saved.push(
           "create {diff.TargetID}@{diff.TargetRevision} {diff.Path}@{diff.FileRevision} {diff.Side} {diff.StartLine}-{diff.EndLine}: {body}",
         )
@@ -539,7 +539,7 @@ fn annotated(notes: [sessionbridge::Annotation], recorded: mut Calls, reveal: di
     recorded.removed.push(id)
   }
   made.reveal = reveal
-  made.@
+  made.*
 }
 
 fn diff_note(id: Int, side: Str, start: Int, end: Int, body: Str) sessionbridge::Annotation {
@@ -770,7 +770,7 @@ test fn a_chip_reveals_its_lines() Void!Str {
   })
   testing::assert(
     strings::Contains(terminal.frame().text(), "   3 + var y = 3"),
-    "the lines are scrolled into view: {strings::Join(mut rows(terminal), "|\n")}",
+    "the lines are scrolled into view: {strings::Join(&mut rows(terminal), "|\n")}",
   )
 }
 
@@ -778,19 +778,19 @@ test fn split_halves_annotate_their_own_side() Void!Str {
   let recorded = calls()
   let terminal = headless::new(124, 10)
   defer terminal.destroy()
-  let made = mut annotated([diff_note(3, "old", 3, 3, "keep z")], recorded, diff_pane::no_reveal())
+  let made = &mut annotated([diff_note(3, "old", 3, 3, "keep z")], recorded, diff_pane::no_reveal())
   made.read = Maybe::new(paired_read)
   made.split = true
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    diff_pane::view(made.@),
+    diff_pane::view(made.*),
   )
   defer renderer.destroy()
   wait_for(terminal, "var z")
   terminal.flush()
   try testing::assert(
     rows(terminal).at(7).or("") == "   ×  🗨️ keep z                                              │                                                             │",
-    "an old note sits in the old half: {strings::Join(mut rows(terminal), "|\n")}",
+    "an old note sits in the old half: {strings::Join(&mut rows(terminal), "|\n")}",
   )
   // The new half's line 1 is a context line; its + annotates the new side.
   terminal.mouse_move(80, 4)
@@ -858,8 +858,8 @@ struct Opened {
 }
 
 test fn a_files_path_opens_it_at_its_first_change() Void!Str {
-  let opened = mut Opened{files: []}
-  let made = mut props(Maybe::new(observed_kinds), Maybe::new(read))
+  let opened = &mut Opened{files: []}
+  let made = &mut props(Maybe::new(observed_kinds), Maybe::new(read))
   made.open_file = Maybe::new(fn(path: Str, line: Int) {
     opened.files.push("{path}:{line}")
   })
@@ -867,7 +867,7 @@ test fn a_files_path_opens_it_at_its_first_change() Void!Str {
   defer terminal.destroy()
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    diff_pane::view(made.@),
+    diff_pane::view(made.*),
   )
   defer renderer.destroy()
   wait_for(terminal, "var y")
@@ -922,8 +922,8 @@ test fn a_files_path_opens_it_at_its_first_change() Void!Str {
   terminal.click(5, 9)
   terminal.flush()
   try testing::assert(
-    strings::Join(mut opened.files, ",") == "main.go:2,logo.png:0",
-    "opened {strings::Join(mut opened.files, ",")}",
+    strings::Join(&mut opened.files, ",") == "main.go:2,logo.png:0",
+    "opened {strings::Join(&mut opened.files, ",")}",
   )
   try expect_rows(rows(terminal), shown)
   // A deleted file's path isn't a link: hovering fills the row, and
@@ -991,9 +991,9 @@ fn commit_text_observed(input: protocol::ObserveDiffInput) protocol::WorkingTree
 }
 
 test fn a_commits_file_opens_at_its_top() Void!Str {
-  let opened = mut Opened{files: []}
-  let requests = mut List::new<diff_pane::TargetRequest>()
-  let made = mut props(Maybe::new(observed_kinds), Maybe::new(read))
+  let opened = &mut Opened{files: []}
+  let requests = &mut List::new<diff_pane::TargetRequest>()
+  let made = &mut props(Maybe::new(observed_kinds), Maybe::new(read))
   made.observe_target = Maybe::new(commit_text_observed)
   made.pick_target = fn(request: diff_pane::TargetRequest) {
     requests.push(request)
@@ -1005,7 +1005,7 @@ test fn a_commits_file_opens_at_its_top() Void!Str {
   defer terminal.destroy()
   let renderer = cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    diff_pane::view(made.@),
+    diff_pane::view(made.*),
   )
   defer renderer.destroy()
   wait_for(terminal, "var y")
@@ -1039,7 +1039,7 @@ test fn a_commits_file_opens_at_its_top() Void!Str {
   terminal.click(5, 2)
   terminal.flush()
   testing::assert(
-    strings::Join(mut opened.files, ",") == "chrome.ard:0",
-    "opened {strings::Join(mut opened.files, ",")}",
+    strings::Join(&mut opened.files, ",") == "chrome.ard:0",
+    "opened {strings::Join(&mut opened.files, ",")}",
   )
 }

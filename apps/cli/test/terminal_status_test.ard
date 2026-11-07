@@ -19,17 +19,17 @@ struct Status {
 }
 
 struct HostProps {
-  status: mut Status,
+  status: &mut Status,
   terminal: terminal_status::Terminal,
   frame_duration: time::Duration,
 }
 
 struct Host {
-  props: mut HostProps,
+  props: &mut HostProps,
 }
 
-fn host(props: mut HostProps) mut Host {
-  (mut Host{props: props})
+fn host(props: &mut HostProps) &mut Host {
+  &mut Host{props: props}
 }
 
 impl cui::Component for Host {
@@ -78,7 +78,7 @@ fn host_terminal(terminal: headless::TestApp) terminal_status::Terminal {
   }
 }
 
-fn mount(terminal: headless::TestApp, status: mut Status, frame_duration: time::Duration) cui::Renderer {
+fn mount(terminal: headless::TestApp, status: &mut Status, frame_duration: time::Duration) cui::Renderer {
   let app = cooper::App{context: terminal.context, root: terminal.root}
   cui::mount(
     app,
@@ -95,7 +95,7 @@ fn mount(terminal: headless::TestApp, status: mut Status, frame_duration: time::
 
 fn expect_titles(terminal: headless::TestApp, expected: [Str]) Void!Str {
   let actual = terminal.terminal_titles()
-  let shown = strings::Join(mut actual, " | ")
+  let shown = strings::Join(actual, " | ")
   try testing::assert(actual.size() == expected.size(), "titles: {shown}")
   mut index = 0
   while index < expected.size() {
@@ -123,7 +123,7 @@ fn expect_progress(terminal: headless::TestApp, expected: [terminal_progress::St
 test fn the_title_and_progress_follow_running_work() Void!Str {
   let terminal = headless::new(10, 1)
   defer terminal.destroy()
-  let status = mut Status{
+  let status = &mut Status{
     session_name: "Fix pager",
     running: false,
     work_id: "",
@@ -184,7 +184,7 @@ test fn the_title_and_progress_follow_running_work() Void!Str {
 test fn the_running_marker_animates_and_restarts_for_new_work() Void!Str {
   let terminal = headless::new(10, 1)
   defer terminal.destroy()
-  let status = mut Status{
+  let status = &mut Status{
     session_name: "Animate",
     running: true,
     work_id: "turn-1",
@@ -199,7 +199,7 @@ test fn the_running_marker_animates_and_restarts_for_new_work() Void!Str {
   // Frames that elapse between renders coalesce, so the second title may skip
   // ahead; it must still be a later running frame for the same session.
   let animated = terminal.terminal_titles()
-  let shown = strings::Join(mut animated, " | ")
+  let shown = strings::Join(animated, " | ")
   try testing::assert(
     animated.at(0).or("") == "⠋ kit - Animate - kit",
     "running starts at the first frame: {shown}",
@@ -218,14 +218,14 @@ test fn the_running_marker_animates_and_restarts_for_new_work() Void!Str {
   let restarted = terminal.terminal_titles()
   testing::assert(
     restarted.at(restarted.size() - 1).or("") == "⠋ kit - Animate - kit",
-    "new work restarts at the first frame: {strings::Join(mut restarted, " | ")}",
+    "new work restarts at the first frame: {strings::Join(restarted, " | ")}",
   )
 }
 
 test fn unmounting_leaves_an_idle_title_without_progress() Void!Str {
   let terminal = headless::new(10, 1)
   defer terminal.destroy()
-  let status = mut Status{
+  let status = &mut Status{
     session_name: "Exit",
     running: true,
     work_id: "turn-1",
@@ -245,7 +245,7 @@ test fn unmounting_leaves_an_idle_title_without_progress() Void!Str {
 test fn waiting_for_an_answer_marks_the_title_and_pauses_progress() Void!Str {
   let terminal = headless::new(10, 1)
   defer terminal.destroy()
-  let status = mut Status{
+  let status = &mut Status{
     session_name: "Ask",
     running: true,
     work_id: "turn-1",
@@ -276,7 +276,7 @@ test fn waiting_for_an_answer_marks_the_title_and_pauses_progress() Void!Str {
 
 // Each update as `state kind: message`, or `clear`.
 fn program_log(terminal: headless::TestApp) Str {
-  let shown = mut List::new<Str>()
+  let shown = &mut List::new<Str>()
   for update in terminal.program_status_updates() {
     shown.push(
       match update {
@@ -314,14 +314,14 @@ fn program_log(terminal: headless::TestApp) Str {
 
 fn expect_program(terminal: headless::TestApp, expected: [Str]) Void!Str {
   let shown = program_log(terminal)
-  let wanted = strings::Join(mut expected, " | ")
+  let wanted = strings::Join(expected, " | ")
   testing::assert(shown == wanted, "program status:\n  got  {shown}\n  want {wanted}")
 }
 
 test fn the_root_record_follows_turns_requests_and_sign_in() Void!Str {
   let terminal = headless::new(10, 1)
   defer terminal.destroy()
-  let status = mut Status{
+  let status = &mut Status{
     session_name: "Status",
     running: false,
     work_id: "",

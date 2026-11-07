@@ -133,7 +133,7 @@ fn model_name(selector: Str) Str {
     false => selector.slice(slash + 1, selector.size()).or(selector),
   }
   let parts = strings::Split(id, "-")
-  let formatted = mut List::new<Str>()
+  let formatted = &mut List::new<Str>()
   mut index = 0
   while index < parts.size() {
     mut part = parts.at(index).or("")
@@ -180,14 +180,14 @@ fn usage_integer(value: Int) Str {
     true => 3,
     false => remainder,
   }
-  let groups = mut List::new<Str>()
+  let groups = &mut List::new<Str>()
   groups.push(digits.slice(0, first).or(digits))
   mut index = first
   while index < digits.size() {
     groups.push(digits.slice(index, index + 3).or(""))
     index =+ 3
   }
-  strings::Join(mut groups, ",")
+  strings::Join(groups, ",")
 }
 
 // context_window abbreviates model capacity for the model picker.

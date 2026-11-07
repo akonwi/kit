@@ -19,14 +19,14 @@ struct Refresher {
   run: fn(context::Context) Int!Error,
   // Starts the background work; tests substitute a synchronous runner.
   spawn: fn(fn()),
-  notifications: mut toast::Control,
+  notifications: &mut toast::Control,
   dispatch: (fn(fn()) Void!event::DispatchError)?,
   lifetime: contextbridge::Cancellation?,
   pending: Bool,
 }
 
 // refresher refreshes through the public API client.
-fn refresher(client: mut api::Client, notifications: mut toast::Control) mut Refresher {
+fn refresher(client: &mut api::Client, notifications: &mut toast::Control) &mut Refresher {
   custom(
     fn(ctx: context::Context) Int!Error {
       let catalog = try client.RefreshModels(ctx)
@@ -40,15 +40,15 @@ fn refresher(client: mut api::Client, notifications: mut toast::Control) mut Ref
 }
 
 // custom builds a Refresher from injected work, as tests require.
-fn custom(run: fn(context::Context) Int!Error, spawn: fn(fn()), notifications: mut toast::Control) mut Refresher {
-  (mut Refresher{
+fn custom(run: fn(context::Context) Int!Error, spawn: fn(fn()), notifications: &mut toast::Control) &mut Refresher {
+  &mut Refresher{
     run: run,
     spawn: spawn,
     notifications: notifications,
     dispatch: Maybe::new<fn(fn()) Void!event::DispatchError>(),
     lifetime: Maybe::new<contextbridge::Cancellation>(),
     pending: false,
-  })
+  }
 }
 
 impl Refresher {

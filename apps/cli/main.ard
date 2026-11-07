@@ -58,7 +58,7 @@ fn main() {
   })
 
   let args = os::Args.slice(start: 1).expect("process arguments").to_list()
-  let invocation = cli::Parse(lifetime.Context, mut args, os::Stdout, os::Stderr)
+  let invocation = cli::Parse(lifetime.Context, args, os::Stdout, os::Stderr)
   mut exit_code = match invocation.Kind == cli::InvocationExit {
     true => invocation.ExitCode,
     false => interactive(lifetime.Context, invocation),

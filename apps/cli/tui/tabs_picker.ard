@@ -95,7 +95,7 @@ private fn item(key: Str, label: Str, meta: Str, current: Bool) palette::Item {
 
 // Agent, then each open tab in strip order.
 fn catalog(tabs: workspace::Tabs) [palette::Item] {
-  let items = mut List::new<palette::Item>()
+  let items = &mut List::new<palette::Item>()
   items.push(item(agent_key, "Agent", "conversation", tabs.on_agent()))
   let labels = tabs.labels()
   for tab, index in tabs.open {
@@ -103,13 +103,13 @@ fn catalog(tabs: workspace::Tabs) [palette::Item] {
       item(tab.id, labels.at(index).or(tab.label), kind_name(tab.kind), tab.id == tabs.selected),
     )
   }
-  items.@
+  items.*
 }
 
 test fn the_catalog_lists_agent_then_each_tab() Void!Str {
   let tabs = workspace::tabs()
   let _ = tabs.open(workspace::scratchpad())
-  let items = catalog(tabs.@)
+  let items = catalog(tabs.*)
   try testing::assert(items.size() == 2, "Agent and Scratchpad")
   let first = items.at(0).expect("Agent")
   let second = items.at(1).expect("Scratchpad")

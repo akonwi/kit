@@ -18,7 +18,7 @@ The terminal client is written in Ard with Cooper (`tui.ard`, `tui/`).
 The directory is a separate Go module (`github.com/akonwi/kit/apps/cli`) that
 replaces `github.com/akonwi/kit` with the repository root, so root
 `go build ./...` and `go test ./...` do not include it. Building requires Ard
-0.43.0 or newer (CI uses the version in `.github/actions/setup-ard/action.yml`)
+0.45.0 or newer (CI uses the version in `.github/actions/setup-ard/action.yml`)
 and Go 1.27 or newer.
 
 ## Cooper
@@ -36,10 +36,11 @@ To move to a newer Cooper commit that is on GitHub, run
 `ard add github.com/akonwi/cooper@<commit>` (or `ard update cooper` for the
 latest `main`) and commit `ard.toml` and `ard.lock` together. To develop
 against an unpushed local Cooper checkout, temporarily set
-`cooper = { path = "../../../cooper" }` in `ard.toml` and move `ard.lock`
-aside: Ard builds the locked commit while the lock pins one, ignoring the path.
-Push the Cooper change and pin its commit with `ard add`, which writes a new
-lock, before committing Kit.
+`cooper = { path = "../../../cooper" }` in `ard.toml`. Ard builds the path even
+though `ard.lock` still pins a commit; `ard deps verify` reports the mismatch
+until you pin a commit again. Don't follow its `ard update cooper` hint, which
+would lock the path. Push the Cooper change and pin its commit with `ard add`,
+which rewrites `ard.toml` and `ard.lock`, before committing Kit.
 
 ## Develop
 

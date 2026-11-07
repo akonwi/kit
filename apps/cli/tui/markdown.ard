@@ -41,7 +41,7 @@ struct Props {
 }
 
 struct Document {
-  props: mut Props,
+  props: &mut Props,
   parsed_source: Str,
   parsed: parser::Document,
   // Whether the source ends inside a code fence, as streaming output does
@@ -50,7 +50,7 @@ struct Document {
 }
 
 struct InlineDocument {
-  props: mut Props,
+  props: &mut Props,
   parsed_source: Str,
   parsed: parser::Document,
 }
@@ -85,13 +85,13 @@ fn inline_view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle
   )
 }
 
-private fn new(props: mut Props) mut Document {
-  (mut Document{
+private fn new(props: &mut Props) &mut Document {
+  &mut Document{
     parsed_source: props.source,
     parsed: parser::Parse(props.source),
     fence_open: ends_inside_fence(props.source),
     props: props,
-  })
+  }
 }
 
 // The run of fence characters a line starts with, after any quote markers,
@@ -175,12 +175,12 @@ impl cui::Component for Document {
   }
 }
 
-private fn new_inline(props: mut Props) mut InlineDocument {
-  (mut InlineDocument{
+private fn new_inline(props: &mut Props) &mut InlineDocument {
+  &mut InlineDocument{
     parsed_source: props.source,
     parsed: parser::Parse(props.source),
     props: props,
-  })
+  }
 }
 
 impl cui::Component for InlineDocument {
@@ -211,7 +211,7 @@ private fn render_document(
   match document.PlainTextFallback {
     true => text(document_text(document), base, colors),
     false => {
-      let children = mut List::new<cui::View>()
+      let children = &mut List::new<cui::View>()
       mut prior = Maybe::new<parser::Block>()
       mut block_index = 0
       for block in document.Blocks {
@@ -228,7 +228,7 @@ private fn render_document(
         prior = Maybe::new(block)
         block_index =+ 1
       }
-      cui::box(children.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
+      cui::box(children.*, styles: ui::style(flex_direction: ui::FlexDirection::column))
     },
   }
 }
@@ -274,7 +274,7 @@ fn document_block(
   fence_open: Bool,
 ) cui::View {
   let colors = themes.current()
-  let children = mut List::new<cui::View>()
+  let children = &mut List::new<cui::View>()
   match document.Blocks.at(index) {
     block => {
       if index > 0 {
@@ -292,11 +292,11 @@ fn document_block(
     },
     _ => (),
   }
-  cui::box(children.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
+  cui::box(children.*, styles: ui::style(flex_direction: ui::FlexDirection::column))
 }
 
 private fn document_text(document: parser::Document) Str {
-  let blocks = mut List::new<Str>()
+  let blocks = &mut List::new<Str>()
   for block in document.Blocks {
     match {
       block.Kind == parser::BlockCode => blocks.push(block.Code),
@@ -352,7 +352,7 @@ private fn render_inline(
 }
 
 private fn inline_runs(source: Str, document: parser::Document) [parser::Run] {
-  let runs = mut List::new<parser::Run>()
+  let runs = &mut List::new<parser::Run>()
   for block in document.Blocks {
     if runs.size() > 0 {
       runs.push(parser::Run{Text: " "})
@@ -395,11 +395,11 @@ private fn inline_runs(source: Str, document: parser::Document) [parser::Run] {
       },
     }
   }
-  runs.@
+  runs.*
 }
 
 private fn inline_container_prefix(containers: [parser::Container]) Str {
-  let parts = mut List::new<Str>()
+  let parts = &mut List::new<Str>()
   for container in containers {
     match {
       container.Kind == parser::ContainerQuote => parts.push("│ "),
@@ -515,30 +515,33 @@ private fn render_block(
 }
 
 private fn heading_style(colors: theme::Theme, base: ui::TextStyle, level: Int, semantic: Bool) ui::TextStyle {
-  let style = mut base
+  mut base = base
+  let style = &mut base
   style.bold = true
   if semantic and level <= 2 {
     style.foreground = colors.primary_text
   }
-  style.@
+  style.*
 }
 
 private fn quote_style(colors: theme::Theme, base: ui::TextStyle, semantic: Bool) ui::TextStyle {
-  let style = mut base
+  mut base = base
+  let style = &mut base
   if semantic {
     style.foreground = colors.muted
   }
-  style.@
+  style.*
 }
 
 private fn bold_runs(runs: [parser::Run]) [parser::Run] {
-  let result = mut List::new<parser::Run>()
+  let result = &mut List::new<parser::Run>()
   for source in runs {
-    let run = mut source
+    mut source = source
+    let run = &mut source
     run.Bold = true
-    result.push(run.@)
+    result.push(run.*)
   }
-  result.@
+  result.*
 }
 
 private fn visible_run_text(run: parser::Run, single_line: Bool) Str {
@@ -562,7 +565,7 @@ private fn markdown_spans(
   runs: [parser::Run],
   single_line: Bool,
 ) [ui::Span] {
-  let spans = mut List::new<ui::Span>()
+  let spans = &mut List::new<ui::Span>()
   for run in runs {
     let target = hyperlink::SafeExternal(run.Link)
     let link = match target == "" {
@@ -592,7 +595,7 @@ private fn markdown_spans(
       ),
     )
   }
-  spans.@
+  spans.*
 }
 
 private fn rich_text(colors: theme::Theme, base: ui::TextStyle, semantic: Bool, runs: [parser::Run]) cui::View {
@@ -622,7 +625,7 @@ private struct TableLayout {
 }
 
 private fn table_text(runs: [parser::Run]) Str {
-  let parts = mut List::new<Str>()
+  let parts = &mut List::new<Str>()
   for run in runs {
     parts.push(visible_run_text(run, true))
   }
@@ -634,7 +637,7 @@ private fn table_layout(block: parser::Block) TableLayout {
   for row in block.Rows {
     columns = maximum(columns, row.Cells.size())
   }
-  let widths = mut List::new<Int>()
+  let widths = &mut List::new<Int>()
   mut column = 0
   while column < columns {
     widths.push(1)
@@ -663,7 +666,7 @@ private fn table_layout(block: parser::Block) TableLayout {
     row_index =+ 1
   }
   TableLayout{
-    widths: widths.@,
+    widths: widths.*,
     columns: columns,
     width: total,
     height: maximum(1, height),
@@ -672,9 +675,9 @@ private fn table_layout(block: parser::Block) TableLayout {
 }
 
 private fn table_tsv(block: parser::Block, columns: Int) Str {
-  let rows = mut List::new<Str>()
+  let rows = &mut List::new<Str>()
   for row in block.Rows {
-    let cells = mut List::new<Str>()
+    let cells = &mut List::new<Str>()
     mut index = 0
     while index < columns {
       match row.Cells.at(index) {
@@ -711,7 +714,7 @@ private fn table_cell(
     left = extra / 2
     right = extra - left
   }
-  let spans = mut List::new<ui::Span>()
+  let spans = &mut List::new<ui::Span>()
   if left > 0 {
     spans.push(ui::span(strings::Repeat(" ", left)))
   }
@@ -722,7 +725,7 @@ private fn table_cell(
     spans.push(ui::span(strings::Repeat(" ", right)))
   }
   cui::text(
-    ui::styled_text(spans.@),
+    ui::styled_text(spans.*),
     styles: ui::style(width: ui::cells(width), flex_shrink: 0.0),
     text_style: base,
     wrap: ui::TextWrap::none,
@@ -745,8 +748,9 @@ private fn table_row(
   layout: TableLayout,
   background: ui::Color?,
 ) cui::View {
-  let cells = mut List::new<cui::View>()
-  let row_style = mut base
+  mut base = base
+  let cells = &mut List::new<cui::View>()
+  let row_style = &mut base
   row_style.background = background
   if semantic {
     row_style.foreground = colors.foreground
@@ -761,7 +765,7 @@ private fn table_row(
         cui::text(
           "  ",
           styles: ui::style(width: ui::cells(2), height: ui::cells(1), flex_shrink: 0.0),
-          text_style: row_style.@,
+          text_style: row_style.*,
           wrap: ui::TextWrap::none,
           selectable: true,
           selection_style: theme::selection_style(colors),
@@ -779,7 +783,7 @@ private fn table_row(
     cells.push(
       table_cell(
         colors,
-        row_style.@,
+        row_style.*,
         semantic,
         styled_runs,
         layout.widths.at(index).or(1),
@@ -789,7 +793,7 @@ private fn table_row(
     index =+ 1
   }
   cui::box(
-    cells.@,
+    cells.*,
     styles: ui::style(
       width: ui::cells(layout.width),
       height: ui::cells(1),
@@ -811,8 +815,9 @@ private fn table_view(
   semantic: Bool,
   block: parser::Block,
 ) cui::View {
+  mut base = base
   let layout = table_layout(block)
-  let children = mut List::new<cui::View>()
+  let children = &mut List::new<cui::View>()
   mut body_index = 0
   mut row_index = 0
   for row in block.Rows {
@@ -825,13 +830,13 @@ private fn table_view(
     }
     children.push(table_row(colors, base, semantic, block, row, layout, background))
     if row.Header and row_index + 1 < block.Rows.size() {
-      let divider_style = mut base
+      let divider_style = &mut base
       divider_style.foreground = colors.border
       children.push(
         cui::text(
           strings::Repeat("─", layout.width),
           styles: ui::style(width: ui::cells(layout.width), height: ui::cells(1), flex_shrink: 0.0),
-          text_style: divider_style.@,
+          text_style: divider_style.*,
           wrap: ui::TextWrap::none,
         ),
       )
@@ -839,7 +844,7 @@ private fn table_view(
     row_index =+ 1
   }
   let grid = cui::box(
-    children.@,
+    children.*,
     key: "markdown-table-grid:{id}",
     styles: ui::style(
       width: ui::cells(layout.width),
@@ -876,7 +881,7 @@ private fn table_view(
 }
 
 private fn row_text(row: parser::TableRow) Str {
-  let cells = mut List::new<Str>()
+  let cells = &mut List::new<Str>()
   for cell in row.Cells {
     cells.push(runs_text(cell.Runs))
   }
@@ -884,7 +889,7 @@ private fn row_text(row: parser::TableRow) Str {
 }
 
 private fn runs_text(runs: [parser::Run]) Str {
-  let parts = mut List::new<Str>()
+  let parts = &mut List::new<Str>()
   for run in runs {
     parts.push(parser::VisibleText(run))
   }
@@ -898,6 +903,7 @@ private fn list_item(
   container: parser::Container,
   content: cui::View,
 ) cui::View {
+  mut base = base
   mut marker = match {
     container.Marker == parser::MarkerBullet => "•",
     container.Marker == parser::MarkerOrdered => "{container.Number}.",
@@ -913,7 +919,7 @@ private fn list_item(
       false => task,
     }
   }
-  let marker_style = mut base
+  let marker_style = &mut base
   if semantic {
     marker_style.foreground = colors.muted
   }
@@ -924,7 +930,7 @@ private fn list_item(
       cui::text(
         shown_marker,
         styles: ui::style(width: ui::cells(marker_width), flex_shrink: 0.0),
-        text_style: marker_style.@,
+        text_style: marker_style.*,
       ),
       cui::box([], styles: ui::style(width: ui::cells(1), flex_shrink: 0.0)),
       cui::box(
@@ -969,7 +975,7 @@ private fn alert_header(
     true => alert_color(colors, container.Alert),
     false => Maybe::new<ui::Color>(),
   }
-  let spans = mut [
+  let spans = &mut [
     ui::span(
       alert_label(container.Alert),
       style: ui::span_style(foreground: color, bold: Maybe::new(true)),
@@ -981,7 +987,7 @@ private fn alert_header(
     )
   }
   cui::text(
-    ui::styled_text(spans.@),
+    ui::styled_text(spans.*),
     text_style: base,
     selectable: true,
     selection_style: theme::selection_style(colors),
@@ -996,7 +1002,8 @@ private fn quote(
   container: parser::Container,
   content: cui::View,
 ) cui::View {
-  let gutter_style = mut base
+  mut base = base
+  let gutter_style = &mut base
   gutter_style.foreground = match semantic {
     true => alert_color(colors, container.Alert).or(colors.border),
     false => colors.border,
@@ -1010,7 +1017,7 @@ private fn quote(
           cui::text(
             strings::Repeat("│\n", max_rail_rows - 1) + "│",
             styles: ui::style(width: ui::cells(1), flex_shrink: 0.0),
-            text_style: gutter_style.@,
+            text_style: gutter_style.*,
             wrap: ui::TextWrap::none,
           ),
         ],
@@ -1078,7 +1085,7 @@ private fn same_container(left: parser::Container, right: parser::Container) Boo
 }
 
 private fn shared_containers(left: [parser::Container], right: [parser::Container]) [parser::Container] {
-  let result = mut List::new<parser::Container>()
+  let result = &mut List::new<parser::Container>()
   let count = minimum(left.size(), right.size())
   mut index = 0
   mut matching = true
@@ -1092,7 +1099,7 @@ private fn shared_containers(left: [parser::Container], right: [parser::Containe
     }
     index =+ 1
   }
-  result.@
+  result.*
 }
 
 private fn wrap_gap(
@@ -1106,7 +1113,7 @@ private fn wrap_gap(
   mut quote_depth = 0
   mut index = containers.size() - 1
   while index >= 0 {
-    let container = containers.at(index).expect("shared Markdown container")
+    mut container = containers.at(index).expect("shared Markdown container")
     match {
       container.Kind == parser::ContainerQuote => {
         if quote_depth < max_quote_depth {
@@ -1115,12 +1122,12 @@ private fn wrap_gap(
         quote_depth =+ 1
       },
       container.Kind == parser::ContainerListItem => {
-        let gap_container = mut container
+        let gap_container = &mut container
         gap_container.Marker = parser::MarkerNone
         gap_container.Number = 0
         gap_container.Task = false
         gap_container.Checked = false
-        child = list_item(colors, base, true, gap_container.@, child)
+        child = list_item(colors, base, true, gap_container.*, child)
       },
       _ => (),
     }

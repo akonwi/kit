@@ -67,7 +67,7 @@ struct Updater {
 
 // updater checks and installs for a release build attached through client.
 // local reports that client is attached to this home's own server.
-fn updater(client: mut api::Client, local: Bool) mut Updater {
+fn updater(client: &mut api::Client, local: Bool) &mut Updater {
   custom(
     Effects{
       check: fn(ctx: context::Context) updatebridge::Update!Error {
@@ -91,8 +91,8 @@ fn updater(client: mut api::Client, local: Bool) mut Updater {
 }
 
 // custom builds an Updater from injected effects, as tests require.
-fn custom(effects: Effects, enabled: Bool) mut Updater {
-  (mut Updater{
+fn custom(effects: Effects, enabled: Bool) &mut Updater {
+  &mut Updater{
     effects: effects,
     enabled: enabled,
     dispatch: Maybe::new<fn(fn()) Void!event::DispatchError>(),
@@ -107,13 +107,13 @@ fn custom(effects: Effects, enabled: Bool) mut Updater {
       active: -1,
     },
     refreshing: false,
-  })
+  }
 }
 
 // inspect asks the attached server what finishing an update to installed
 // restarts: this home's server when it runs an older Kit, and how many of
 // its sessions that interrupts.
-private fn inspect(client: mut api::Client, local: Bool, ctx: context::Context, installed: Str) Finish {
+private fn inspect(client: &mut api::Client, local: Bool, ctx: context::Context, installed: Str) Finish {
   let attempt = contextbridge::WithTimeout(ctx, Int64::from(5000))
   let server_version = match client.Server(attempt.Context) {
     ok(info) => info.KitVersion,
@@ -405,12 +405,12 @@ private fn footer(themes: theme::Context, hint: Str, actions: Actions, confirm: 
 fn dialog(themes: theme::Context, subject: Updater, actions: Actions) cui::View {
   let colors = themes.current()
   let update = subject.update
-  let body = mut List::new<cui::View>()
+  let body = &mut List::new<cui::View>()
   mut title = "Update Kit"
   mut meta = "{update.Current} → {update.Version}"
   mut confirm = "Update"
   mut hint = "o open on GitHub"
-  let bindings = mut List::new<keymap::Binding>()
+  let bindings = &mut List::new<keymap::Binding>()
   bindings.push(keymap::binding(keymap::key("return"), actions.confirm.with()))
   match subject.stage == Stage::installed {
     true => {
@@ -476,12 +476,12 @@ fn dialog(themes: theme::Context, subject: Updater, actions: Actions) cui::View 
       title: title,
       meta: meta,
       header: [],
-      body: padded(body.@),
+      body: padded(body.*),
       footer: Maybe::new(footer(themes, hint, actions, confirm)),
       autofocus: true,
       dismiss: actions.later,
       commands: Maybe::new([actions.confirm, actions.open_release]),
-      bindings: Maybe::new(bindings.@),
+      bindings: Maybe::new(bindings.*),
     },
   )
 }

@@ -72,11 +72,11 @@ private fn rank(state: Str) Int {
 
 // rows joins definitions with their conversations, in picker order.
 fn rows(roster: Roster) [Row] {
-  let result = mut List::new<Row>()
-  let defined = mut List::new<Str>()
+  let result = &mut List::new<Row>()
+  let defined = &mut List::new<Str>()
   for definition in roster.definitions {
     defined.push(definition.Name)
-    let row = mut Row{
+    let row = &mut Row{
       name: definition.Name,
       description: definition.Description,
       model: definition.Model,
@@ -92,7 +92,7 @@ fn rows(roster: Roster) [Row] {
         row.conversation_id = conversation.ID
       }
     }
-    result.push(row.@)
+    result.push(row.*)
   }
   for conversation in roster.conversations {
     mut known = false
@@ -122,7 +122,7 @@ fn rows(roster: Roster) [Row] {
       false => left_rank < right_rank,
     }
   })
-  result.@
+  result.*
 }
 
 // configuration is a row's model and thinking level, as "Sonnet 4.5 (high)".
@@ -147,7 +147,7 @@ fn configuration(row: Row, session_model: Str, session_thinking: Str) Str {
 // catalog is the picker's rows. An agent that has not started is listed,
 // muted, but cannot be opened: the model starts agents.
 fn catalog(roster: Roster, session_model: Str, session_thinking: Str) [palette::Item] {
-  let items = mut List::new<palette::Item>()
+  let items = &mut List::new<palette::Item>()
   for row in rows(roster) {
     items.push(
       palette::Item{
@@ -163,7 +163,7 @@ fn catalog(roster: Roster, session_model: Str, session_thinking: Str) [palette::
       },
     )
   }
-  items.@
+  items.*
 }
 
 // conversation is the conversation with the ID, if it is still retained.
@@ -215,7 +215,7 @@ fn failure(conversation: protocol::SubagentConversation) Str {
   for task in conversation.Tasks {
     if task.State == "failed" and task.Sequence >= latest {
       latest = task.Sequence
-      reason = strings::Join(mut strings::Fields(task.Error), " ")
+      reason = strings::Join(&mut strings::Fields(task.Error), " ")
     }
   }
   reason
@@ -252,7 +252,7 @@ test fn rows_list_running_agents_first_and_keep_unstarted_ones() Void!Str {
       ],
     },
   )
-  let names = mut List::new<Str>()
+  let names = &mut List::new<Str>()
   for row in listed {
     names.push("{row.name}:{row.state}:{row.conversation_id}")
   }

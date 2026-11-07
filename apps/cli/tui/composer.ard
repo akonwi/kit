@@ -34,8 +34,8 @@ struct HistoryEntry {
   text: Str,
 }
 
-fn ref() mut Ref {
-  (mut Ref{
+fn ref() &mut Ref {
+  &mut Ref{
     focus_action: Maybe::new<fn() Bool>(),
     clear_action: Maybe::new<fn() Bool>(),
     reset_action: Maybe::new<fn() Bool>(),
@@ -45,7 +45,7 @@ fn ref() mut Ref {
     history_action: Maybe::new<fn([HistoryEntry]) Bool>(),
     bash_history_action: Maybe::new<fn([HistoryEntry]) Bool>(),
     bash_page_action: Maybe::new<fn(BashPage?, Bool) Bool>(),
-  })
+  }
 }
 
 impl Ref {
@@ -151,7 +151,7 @@ struct Props {
   themes: theme::Context,
   enabled: Bool,
   focus_eligible: Bool,
-  control: mut Ref,
+  control: &mut Ref,
   // Enter offers the trimmed draft, which may be empty; accepting it clears
   // the draft.
   submit: fn(Str) Bool,
@@ -200,11 +200,11 @@ private fn trigger(kind: Mention) Str {
 }
 
 struct Composer {
-  props: mut Props,
+  props: &mut Props,
   context: cui::Context?,
-  editor: mut cui::TextAreaRef,
+  editor: &mut cui::TextAreaRef,
   // The positioned box pickers rest against.
-  surface: mut cui::BoxRef,
+  surface: &mut cui::BoxRef,
   // The draft, including the `!` or `!!` that the Bash panel's field hides.
   draft: Str,
   bash: Bool,
@@ -240,8 +240,8 @@ fn view(props: Props) cui::View {
   cui::child(new, props, key: "composer")
 }
 
-private fn new(props: mut Props) mut Composer {
-  (mut Composer{
+private fn new(props: &mut Props) &mut Composer {
+  &mut Composer{
     props: props,
     context: Maybe::new<cui::Context>(),
     editor: cui::text_area_ref(),
@@ -269,7 +269,7 @@ private fn new(props: mut Props) mut Composer {
     mention_generation: -1,
     typing: false,
     pasting: false,
-  })
+  }
 }
 
 impl cui::Lifecycle for Composer {
@@ -308,7 +308,7 @@ impl cui::Lifecycle for Composer {
       self.settle_anchor()
     })
     // Pastes reach this listener before the focused editor inserts them.
-    let _ = context.on_paste(fn(paste: mut event::PasteEvent) {
+    let _ = context.on_paste(fn(paste: &mut event::PasteEvent) {
       // The editor applies the paste after this listener; the flag lasts
       // until the next dispatch.
       self.pasting = true
@@ -410,7 +410,7 @@ impl Composer {
     match self.context {
       context => {
         let _ = context.dispatch(fn() {
-          let parts = mut List::new<Str>()
+          let parts = &mut List::new<Str>()
           for part in [value, self.draft] {
             if part != "" {
               parts.push(part)
@@ -446,7 +446,7 @@ impl Composer {
   // Some terminals deliver a paste as an ordinary text change, so a change
   // that names files is offered as attachments too; accepted paths leave the
   // draft.
-  // 
+  //
   // The field holds the draft after its `!` or `!!`. A `!` typed at the start
   // of the field joins that prefix, leaving the field at once, so keys that
   // arrive before the next render edit what the field shows; the caret moves
@@ -627,11 +627,11 @@ impl Composer {
       match page {
         loaded => {
           if older {
-            let known = mut Map::new<Bool>()
+            let known = &mut Map::new<Bool>()
             for entry in self.history {
               known.set(entry.id, true)
             }
-            let merged = mut List::new<HistoryEntry>()
+            let merged = &mut List::new<HistoryEntry>()
             for entry in self.history {
               merged.push(entry)
             }
@@ -641,7 +641,7 @@ impl Composer {
                 known.set(entry.id, true)
               }
             }
-            self.history = merged.@
+            self.history = merged.*
             self.bash_pages = self.bash_pages + 1
             if self.history_selection == "" {
               self.history_selection = inline_picker::last_key(self.history_matches())
@@ -664,7 +664,7 @@ impl Composer {
   // composer. Multi-line entries show on one line; a command is matched
   // without its `!` or `!!`.
   private fn history_catalog() [inline_picker::Item] {
-    let items = mut List::new<inline_picker::Item>()
+    let items = &mut List::new<inline_picker::Item>()
     mut index = self.history.size() - 1
     while index >= 0 {
       let entry = self.history.at(index).expect("history entry")
@@ -675,7 +675,7 @@ impl Composer {
       items.push(inline_picker::item(entry.id, one_line(entry.text), search: search))
       index = index - 1
     }
-    items.@
+    items.*
   }
 
   // Prompts are filtered by the draft, and commands by the draft's command.
@@ -860,11 +860,11 @@ impl Composer {
   private fn mention_catalog() [inline_picker::Item] {
     match self.mention_kind {
       Mention::file => {
-        let catalog = mut List::new<inline_picker::Item>()
+        let catalog = &mut List::new<inline_picker::Item>()
         for path in self.props.files.paths {
           catalog.push(inline_picker::item(path, path))
         }
-        catalog.@
+        catalog.*
       },
       Mention::session => session_mentions::catalog(self.props.sessions, time::Now()),
     }
@@ -1119,7 +1119,7 @@ impl cui::Component for Composer {
         self.request_mention_dismissal()
       },
     )
-    let bindings = mut List::new<keymap::Binding>()
+    let bindings = &mut List::new<keymap::Binding>()
     let bash_mode = self.bash
     if bash_mode {
       bindings.push(
@@ -1218,11 +1218,11 @@ impl cui::Component for Composer {
         mention_choose,
         mention_dismiss,
       ],
-      bindings: bindings.@,
+      bindings: bindings.*,
     )
     // The field keeps its place in the tree as the Bash panel's frame comes
     // and goes, so it keeps focus and its caret.
-    let frame = mut List::new<cui::View>()
+    let frame = &mut List::new<cui::View>()
     if bash_mode {
       frame.push(self.bash_header())
       frame.push(
@@ -1233,10 +1233,10 @@ impl cui::Component for Composer {
       )
     }
     frame.push(editor)
-    let children = mut List::new<cui::View>()
+    let children = &mut List::new<cui::View>()
     children.push(
       cui::box(
-        frame.@,
+        frame.*,
         key: "composer.frame",
         styles: match bash_mode {
           true => {
@@ -1289,7 +1289,7 @@ impl cui::Component for Composer {
     // Pickers are positioned against this box; message history rests on its
     // top edge.
     cui::box(
-      children.@,
+      children.*,
       key: "composer.surface",
       ref: self.surface,
       styles: ui::style(
@@ -1417,7 +1417,7 @@ impl Composer {
               false => colors.background,
             },
           ),
-          on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+          on_mouse: fn(received: &mut event::MouseEvent, ctx: cui::Context) {
             match received.event_type {
               event::MouseEventType::over => { self.context_hovered = true },
               event::MouseEventType::move => { self.context_hovered = true },
@@ -1479,6 +1479,6 @@ fn bash_command(value: Str) Str {
 
 // value with each run of whitespace, including line breaks, as one space.
 private fn one_line(value: Str) Str {
-  let words = mut strings::Fields(value)
+  let words = &mut strings::Fields(value)
   strings::Join(words, " ")
 }

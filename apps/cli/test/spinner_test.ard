@@ -8,8 +8,8 @@ use go:time
 
 struct SpinnerHost {}
 
-fn spinner_host(props: mut SpinnerHost) mut SpinnerHost {
-  (mut SpinnerHost{})
+fn spinner_host(props: &mut SpinnerHost) &mut SpinnerHost {
+  &mut SpinnerHost{}
 }
 
 impl cui::Component for SpinnerHost {

@@ -16,12 +16,12 @@ let max_label = 24
 private fn row(each: grammar::Item) model::Item!Str {
   match grammar::label_value(each.text) {
     parts => {
-      let made = mut model::item(parts.at(0).or(""), parts.at(1).or(""))
+      let made = &mut model::item(parts.at(0).or(""), parts.at(1).or(""))
       made.note = each.note
       made.accent = each.bold
       made.muted = each.italic
-      made.body = strings::Join(mut each.details, " ")
-      Result::ok(made.@)
+      made.body = strings::Join(each.details, " ")
+      Result::ok(made.*)
     },
     _ => Result::err("a spec row is `label: value`, got `{grammar::clip(each.text)}`"),
   }
@@ -31,21 +31,21 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   try grammar::check_attributes(info, ["title"])
   let items = try grammar::items(body)
   try grammar::check_one_bold(items)
-  let made = mut List::new<model::Item>()
+  let made = &mut List::new<model::Item>()
   for each in items {
     made.push(try row(each))
   }
   match {
     made.size() == 0 => Result::err("the figure has no rows"),
     made.size() > max_rows => Result::err("a spec has at most {max_rows} rows"),
-    _ => Result::ok(model::figure("spec", grammar::attribute(info, "title"), made.@)),
+    _ => Result::ok(model::figure("spec", grammar::attribute(info, "title"), made.*)),
   }
 }
 
 // Each row's label in a muted lane, then its value, which wraps, with its
 // note and body under it. The bold row's value takes the accent.
 fn layout(figure: model::Figure) listing::Listing {
-  let entries = mut List::new<listing::Entry>()
+  let entries = &mut List::new<listing::Entry>()
   for each in figure.items {
     let label = format::truncate_cells(each.label, max_label)
     entries.push(
@@ -67,7 +67,7 @@ fn layout(figure: model::Figure) listing::Listing {
     )
   }
   listing::Listing{
-    entries: entries.@,
+    entries: entries.*,
     spaced: false,
     lead: [],
     closing: "",

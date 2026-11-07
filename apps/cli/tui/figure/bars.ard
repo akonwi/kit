@@ -29,14 +29,14 @@ private fn row(each: grammar::Item) Row!Str {
   match grammar::label_value(each.text) {
     parts => {
       let number = try grammar::number(parts.at(1).or(""))
-      let made = mut model::item(parts.at(0).or(""), parts.at(1).or(""))
+      let made = &mut model::item(parts.at(0).or(""), parts.at(1).or(""))
       made.note = each.note
       made.accent = each.bold
       made.muted = each.italic
       match {
         each.details.size() > 0 => Result::err("a bars row takes no indented lines"),
         number < 0.0 => Result::err("bars can't be negative, got `{grammar::clip(parts.at(1).or(""))}`"),
-        _ => Result::ok(Row{item: made.@, number: number}),
+        _ => Result::ok(Row{item: made.*, number: number}),
       }
     },
     _ => Result::err("a bars row is `label: value`, got `{grammar::clip(each.text)}`"),
@@ -115,28 +115,29 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   try grammar::check_attributes(info, ["title", "max", "percent"])
   let items = try grammar::items(body)
   try grammar::check_one_bold(items)
-  let rows = mut List::new<Row>()
+  let rows = &mut List::new<Row>()
   for each in items {
     rows.push(try row(each))
   }
-  let most = try scale_max(info, rows.@)
-  let whole = try share_whole(info, rows.@)
+  let most = try scale_max(info, rows.*)
+  let whole = try share_whole(info, rows.*)
   let first_only = grammar::attribute(info, "percent") == "first"
-  let made = mut List::new<model::Item>()
+  let made = &mut List::new<model::Item>()
   mut index = 0
   for each in rows {
-    let item = mut each.item
+    mut each = each
+    let item = &mut each.item
     item.scale = grammar::permille(each.number, most)
     if whole > 0.0 and not first_only and index == 0 {
       item.share = share(each.number, whole)
     }
-    made.push(item.@)
+    made.push(item.*)
     index =+ 1
   }
   match {
     rows.size() == 0 => Result::err("the figure has no rows"),
     rows.size() > max_rows => Result::err("a bars figure has at most {max_rows} rows"),
-    _ => Result::ok(model::figure("bars", grammar::attribute(info, "title"), made.@)),
+    _ => Result::ok(model::figure("bars", grammar::attribute(info, "title"), made.*)),
   }
 }
 
@@ -157,9 +158,9 @@ fn bar(scale: Int) [Str] {
 }
 
 fn draw(figure: model::Figure) drawing::Drawing {
-  let labels = mut List::new<Str>()
-  let values = mut List::new<Str>()
-  let shares = mut List::new<Str>()
+  let labels = &mut List::new<Str>()
+  let values = &mut List::new<Str>()
+  let shares = &mut List::new<Str>()
   mut emphasized = false
   for each in figure.items {
     labels.push(format::truncate_cells(each.label, max_label))
@@ -169,16 +170,16 @@ fn draw(figure: model::Figure) drawing::Drawing {
       emphasized = true
     }
   }
-  let label_lane = widest(labels.@)
-  let value_lane = widest(values.@)
-  let share_lane = widest(shares.@)
-  let rows = mut List::new<[drawing::Segment]>()
+  let label_lane = widest(labels.*)
+  let value_lane = widest(values.*)
+  let share_lane = widest(shares.*)
+  let rows = &mut List::new<[drawing::Segment]>()
   mut index = 0
   for each in figure.items {
     let quiet = each.muted or emphasized and (not each.accent)
     let label = drawing::pad(labels.at(index).or(""), label_lane, false)
     let lengths = bar(each.scale)
-    let line = mut List::new<drawing::Segment>()
+    let line = &mut List::new<drawing::Segment>()
     line.push(
       match {
         each.accent => drawing::bold(label, drawing::Role::text),
@@ -214,10 +215,10 @@ fn draw(figure: model::Figure) drawing::Drawing {
     if each.note != "" {
       line.push(drawing::segment("  {each.note}", drawing::Role::muted))
     }
-    rows.push(line.@)
+    rows.push(line.*)
     index =+ 1
   }
-  drawing::framed(figure.title, rows.@)
+  drawing::framed(figure.title, rows.*)
 }
 
 test fn bars_are_drawn_in_eighths_of_a_cell() Void!Str {

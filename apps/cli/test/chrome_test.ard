@@ -14,15 +14,15 @@ use kit/tui/theme
 use go:strings
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {
@@ -151,7 +151,7 @@ fn pull_request_location() footerlayout::Location {
 }
 
 fn plugin_items(texts: [Str]) protocol::PluginFooter {
-  let items = mut List::new<protocol::PluginFooterItem>()
+  let items = &mut List::new<protocol::PluginFooterItem>()
   for text in texts {
     items.push(
       protocol::PluginFooterItem{
@@ -162,7 +162,7 @@ fn plugin_items(texts: [Str]) protocol::PluginFooter {
       },
     )
   }
-  protocol::PluginFooter{Items: items.@}
+  protocol::PluginFooter{Items: items.*}
 }
 
 fn footer_with(right: chrome::Right) cui::View {
@@ -214,8 +214,8 @@ test fn pull_request_checks_follow_the_location_in_their_state_color() Void!Str 
   let terminal = headless::new(60, 1)
   defer terminal.destroy()
   let app = cooper::App{context: terminal.context, root: terminal.root}
-  let location = mut pull_request_location()
-  location.Checks = mut footerlayout::Checks{
+  let location = &mut pull_request_location()
+  location.Checks = &mut footerlayout::Checks{
     Glyph: "✗",
     Count: "10/12",
     Tone: footerlayout::ToneDanger,
@@ -227,7 +227,7 @@ test fn pull_request_checks_follow_the_location_in_their_state_color() Void!Str 
       themes,
       "",
       "",
-      chrome::Right{location: location.@, plugin: plugin_items(["Ready"])},
+      chrome::Right{location: location.*, plugin: plugin_items(["Ready"])},
     ),
   )
   defer renderer.destroy()
@@ -373,7 +373,7 @@ fn held_queue(count: Int, previews: [Str], failure: Str) protocol::FollowUpQueue
     Count: count,
     Previews: previews,
     AnnotationIDs: [],
-    AdmissionFailure: mut protocol::FollowUpAdmissionFailure{Message: failure},
+    AdmissionFailure: &mut protocol::FollowUpAdmissionFailure{Message: failure},
   }
 }
 
@@ -503,8 +503,8 @@ fn same(left: ui::Color, right: ui::Color) Bool {
   left.red == right.red and left.green == right.green and left.blue == right.blue
 }
 
-fn staged(rejecting_model: Str, removed: mut [Int]) chrome::Pending {
-  let failed = mut attachments::uploading(3, "/tmp/big.log", "text/plain")
+fn staged(rejecting_model: Str, removed: &mut [Int]) chrome::Pending {
+  let failed = &mut attachments::uploading(3, "/tmp/big.log", "text/plain")
   failed.uploading = false
   failed.failure = "too large"
   chrome::Pending{
@@ -522,7 +522,7 @@ fn staged(rejecting_model: Str, removed: mut [Int]) chrome::Pending {
         },
       ),
       attachments::uploading(2, "/tmp/notes.txt", "text/plain"),
-      failed.@,
+      failed.*,
     ],
     rejecting_model: rejecting_model,
     remove_attachment: fn(index: Int) {
@@ -535,7 +535,7 @@ fn staged(rejecting_model: Str, removed: mut [Int]) chrome::Pending {
 
 test fn staged_files_are_chips_that_wrap() Void!Str {
   let themes = theme::context(theme::store(theme::system()))
-  let removed = mut List::new<Int>()
+  let removed = &mut List::new<Int>()
   let terminal = headless::new(44, 4)
   defer terminal.destroy()
   let app = cooper::App{context: terminal.context, root: terminal.root}
@@ -576,7 +576,7 @@ test fn staged_files_are_chips_that_wrap() Void!Str {
 
 test fn a_staged_image_the_model_cannot_receive_is_a_warning() Void!Str {
   let themes = theme::context(theme::store(theme::system()))
-  let removed = mut List::new<Int>()
+  let removed = &mut List::new<Int>()
   let terminal = headless::new(60, 2)
   defer terminal.destroy()
   let app = cooper::App{context: terminal.context, root: terminal.root}
@@ -606,11 +606,11 @@ private fn annotation(id: Int, path: Str, start: Int, end: Int) sessionbridge::A
 
 test fn annotations_are_chips_that_open_and_remove() Void!Str {
   let themes = theme::context(theme::store(theme::system()))
-  let opened = mut List::new<Int>()
-  let removed = mut List::new<Uint64>()
-  let stale = mut annotation(4, "tui/shell.ard", 120, 120)
+  let opened = &mut List::new<Int>()
+  let removed = &mut List::new<Uint64>()
+  let stale = &mut annotation(4, "tui/shell.ard", 120, 120)
   stale.Stale = true
-  let diff = mut annotation(5, "tui/diff_pane.ard", 941, 941)
+  let diff = &mut annotation(5, "tui/diff_pane.ard", 941, 941)
   diff.Kind = "diff"
   diff.Side = "old"
   let terminal = headless::new(60, 3)
@@ -626,7 +626,7 @@ test fn annotations_are_chips_that_open_and_remove() Void!Str {
         activity: "",
         follow_ups: protocol::FollowUpQueue{Count: 0},
         attachments: [],
-        annotations: [annotation(3, "tui/diff_pane.ard", 939, 941), diff.@, stale.@],
+        annotations: [annotation(3, "tui/diff_pane.ard", 939, 941), diff.*, stale.*],
         rejecting_model: "",
         remove_attachment: fn(index: Int) {},
         open_annotation: fn(opened_annotation: sessionbridge::Annotation) {

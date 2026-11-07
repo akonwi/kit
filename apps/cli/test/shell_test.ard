@@ -25,11 +25,11 @@ fn modifiers(ctrl: Bool) event::Modifiers {
   }
 }
 
-fn ctrl(name: Str) mut event::KeyEvent {
+fn ctrl(name: Str) &mut event::KeyEvent {
   event::key(name, "", event::KeyEventType::press, modifiers(true))
 }
 
-fn key(name: Str) mut event::KeyEvent {
+fn key(name: Str) &mut event::KeyEvent {
   event::key(name, "", event::KeyEventType::press, modifiers(false))
 }
 
@@ -38,15 +38,15 @@ struct Quits {
 }
 
 fn rows(terminal: headless::TestApp) [Str] {
-  let trimmed = mut List::new<Str>()
+  let trimmed = &mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
     trimmed.push(strings::TrimRight(row, " "))
   }
-  trimmed.@
+  trimmed.*
 }
 
 fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
-  let shown = strings::Join(mut actual, "|\n")
+  let shown = strings::Join(actual, "|\n")
   try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
   mut index = 0
   while index < expected.size() {
@@ -58,13 +58,13 @@ fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
   testing::pass()
 }
 
-fn mount_signed_out(terminal: headless::TestApp, quits: mut Quits) cui::Renderer {
+fn mount_signed_out(terminal: headless::TestApp, quits: &mut Quits) cui::Renderer {
   mount(terminal, quits, false, Chan::new<Int>(8))
 }
 
 // Mounts the shell. Each start attempt reports on `attempts` and fails the
 // way an unreachable server does.
-fn mount(terminal: headless::TestApp, quits: mut Quits, authenticated: Bool, attempts: Chan<Int>) cui::Renderer {
+fn mount(terminal: headless::TestApp, quits: &mut Quits, authenticated: Bool, attempts: Chan<Int>) cui::Renderer {
   let props = shell::Props{
     options: cli::TUIOptions{
       Context: context::Background(),
@@ -134,7 +134,7 @@ fn await_attempt(terminal: headless::TestApp, attempts: Chan<Int>) Void!Str {
 test fn signed_out_shell_centers_the_connect_prompt() Void!Str {
   let terminal = headless::new(60, 12)
   defer terminal.destroy()
-  let quits = mut Quits{count: 0}
+  let quits = &mut Quits{count: 0}
   let renderer = mount_signed_out(terminal, quits)
   defer renderer.destroy()
   terminal.flush()
@@ -162,14 +162,14 @@ test fn signed_out_shell_centers_the_connect_prompt() Void!Str {
 test fn the_terminal_title_names_the_startup_directory_before_a_session() Void!Str {
   let terminal = headless::new(60, 12)
   defer terminal.destroy()
-  let quits = mut Quits{count: 0}
+  let quits = &mut Quits{count: 0}
   let renderer = mount_signed_out(terminal, quits)
   defer renderer.destroy()
   terminal.flush()
   let titles = terminal.terminal_titles()
   try testing::assert(
     titles.size() == 1 and titles.at(0).or("") == "kit - tmp",
-    "titles: {strings::Join(mut titles, " | ")}",
+    "titles: {strings::Join(titles, " | ")}",
   )
   let progress = terminal.terminal_progress_reports()
   testing::assert(
@@ -181,7 +181,7 @@ test fn the_terminal_title_names_the_startup_directory_before_a_session() Void!S
 test fn signed_out_connect_opens_and_esc_closes_the_provider_modal() Void!Str {
   let terminal = headless::new(60, 32)
   defer terminal.destroy()
-  let quits = mut Quits{count: 0}
+  let quits = &mut Quits{count: 0}
   let renderer = mount_signed_out(terminal, quits)
   defer renderer.destroy()
   terminal.flush()
@@ -263,7 +263,7 @@ test fn signed_out_connect_opens_and_esc_closes_the_provider_modal() Void!Str {
 test fn provider_picker_centers_after_its_width_cap() Void!Str {
   let terminal = headless::new(140, 32)
   defer terminal.destroy()
-  let quits = mut Quits{count: 0}
+  let quits = &mut Quits{count: 0}
   let renderer = mount_signed_out(terminal, quits)
   defer renderer.destroy()
   terminal.flush()
@@ -284,7 +284,7 @@ test fn provider_picker_centers_after_its_width_cap() Void!Str {
 test fn a_failed_start_explains_the_error_and_r_retries() Void!Str {
   let terminal = headless::new(60, 12)
   defer terminal.destroy()
-  let quits = mut Quits{count: 0}
+  let quits = &mut Quits{count: 0}
   let attempts = Chan::new<Int>(8)
   let renderer = mount(terminal, quits, true, attempts)
   defer renderer.destroy()
@@ -316,7 +316,7 @@ test fn a_failed_start_explains_the_error_and_r_retries() Void!Str {
 test fn ctrl_c_quits_when_there_is_no_draft() Void!Str {
   let terminal = headless::new(60, 12)
   defer terminal.destroy()
-  let quits = mut Quits{count: 0}
+  let quits = &mut Quits{count: 0}
   let renderer = mount_signed_out(terminal, quits)
   defer renderer.destroy()
   terminal.flush()

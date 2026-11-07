@@ -97,7 +97,7 @@ fn plain(request: highlight::Request) highlight::Result {
 }
 
 private struct Code {
-  props: mut Props,
+  props: &mut Props,
   request: highlight::Request,
   result: highlight::Result,
   generation: Int,
@@ -105,16 +105,16 @@ private struct Code {
   attempt: contextbridge::Cancellation?,
 }
 
-private fn new(props: mut Props) mut Code {
-  let current = request(props.@)
-  (mut Code{
+private fn new(props: &mut Props) &mut Code {
+  let current = request(props.*)
+  &mut Code{
     props: props,
     request: current,
     result: plain(current),
     generation: 0,
     context: Maybe::new<cui::Context>(),
     attempt: Maybe::new<contextbridge::Cancellation>(),
-  })
+  }
 }
 
 impl cui::Lifecycle for Code {
@@ -151,7 +151,7 @@ impl Code {
   }
 
   private fn mut refresh() {
-    let current = request(self.props.@)
+    let current = request(self.props.*)
     let changed = current.Language != self.request.Language or current.Path != self.request.Path
     if changed or current.Source != self.request.Source {
       self.request = current
@@ -168,7 +168,7 @@ impl cui::Component for Code {
   fn mut render() cui::View {
     self.refresh()
     let colors = self.props.themes.current()
-    let style = mut self.props.base
+    let style = &mut self.props.base
     style.background = self.props.fill
     let marker = match self.props.marker == "" {
       true => Maybe::new<Marker>(),
@@ -182,7 +182,7 @@ impl cui::Component for Code {
             true => ui::style(),
             false => ui::style(flex_shrink: 0.0),
           },
-          text_style: style.@,
+          text_style: style.*,
           wrap: match self.props.wrap {
             true => ui::TextWrap::word,
             false => ui::TextWrap::none,
@@ -215,7 +215,7 @@ private struct Marker {
 
 // The highlighted source as styled text, with marker before each line.
 private fn styled(colors: theme::Theme, semantic: Bool, result: highlight::Result, marker: Marker?) ui::StyledText {
-  let spans = mut List::new<ui::Span>()
+  let spans = &mut List::new<ui::Span>()
   let push = fn(text: Str, foreground: ui::Color?) {
     match marker {
       mark => {
@@ -257,5 +257,5 @@ private fn styled(colors: theme::Theme, semantic: Bool, result: highlight::Resul
   if spans.size() == 0 {
     push(result.Source, Maybe::new<ui::Color>())
   }
-  ui::styled_text(spans.@)
+  ui::styled_text(spans.*)
 }

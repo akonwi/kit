@@ -19,12 +19,12 @@ let max_label = 32
 private fn entry(each: grammar::Item) model::Item!Str {
   match grammar::label_value(each.text) {
     parts => {
-      let made = mut model::item(parts.at(0).or(""), parts.at(1).or(""))
+      let made = &mut model::item(parts.at(0).or(""), parts.at(1).or(""))
       made.note = each.note
       made.accent = each.bold
       made.muted = each.italic
-      made.body = strings::Join(mut each.details, " ")
-      Result::ok(made.@)
+      made.body = strings::Join(each.details, " ")
+      Result::ok(made.*)
     },
     _ => Result::err("a timeline item is `when: event`, got `{grammar::clip(each.text)}`"),
   }
@@ -34,31 +34,31 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   try grammar::check_attributes(info, ["title"])
   let items = try grammar::items(body)
   try grammar::check_one_bold(items)
-  let bold = mut List::new<Bool>()
+  let bold = &mut List::new<Bool>()
   for each in items {
     bold.push(each.bold)
   }
-  let states = listing::states(bold.@)
-  let made = mut List::new<model::Item>()
+  let states = listing::states(bold.*)
+  let made = &mut List::new<model::Item>()
   mut index = 0
   for each in items {
-    let parsed = try entry(each)
-    let item = mut parsed
+    mut parsed = try entry(each)
+    let item = &mut parsed
     item.state = states.at(index).or("")
-    made.push(item.@)
+    made.push(item.*)
     index =+ 1
   }
   match {
     made.size() == 0 => Result::err("the figure has no items"),
     made.size() > max_items => Result::err("a timeline has at most {max_items} items"),
-    _ => Result::ok(model::figure("timeline", grammar::attribute(info, "title"), made.@)),
+    _ => Result::ok(model::figure("timeline", grammar::attribute(info, "title"), made.*)),
   }
 }
 
 // Each item as the listing lays it out: now in the accent, done filled,
 // and still to come hollow.
 fn entries(figure: model::Figure) [listing::Entry] {
-  let result = mut List::new<listing::Entry>()
+  let result = &mut List::new<listing::Entry>()
   for each in figure.items {
     let marker = match each.state {
       "now" => drawing::segment("●", drawing::Role::accent),
@@ -86,19 +86,19 @@ fn entries(figure: model::Figure) [listing::Entry] {
       },
     )
   }
-  result.@
+  result.*
 }
 
 test fn items_before_the_bold_one_are_done() Void!Str {
   let info = try grammar::parse_info("timeline")
   let figure = try parse(info, "- Mar 12: one\n- **Mar 18: two**\n\n    body\n    more\n- Apr 02: three")
-  let states = mut List::new<Str>()
+  let states = &mut List::new<Str>()
   for each in figure.items {
     states.push("{each.label}={each.state}")
   }
   try testing::assert(
-    strings::Join(mut states.@, ",") == "Mar 12=done,Mar 18=now,Apr 02=next",
-    "got {strings::Join(mut states.@, ",")}",
+    strings::Join(states.*, ",") == "Mar 12=done,Mar 18=now,Apr 02=next",
+    "got {strings::Join(states.*, ",")}",
   )
   let second = figure.items.at(1).expect("second")
   testing::assert(second.body == "body more", "got {second.body}")

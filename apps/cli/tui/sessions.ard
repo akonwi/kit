@@ -20,14 +20,14 @@ use go:time
 // `kit sessions` picker instead receives the chosen ID through `choose`.
 struct Props {
   themes: theme::Context,
-  client: mut api::Client,
+  client: &mut api::Client,
   lifetime: contextbridge::Cancellation,
   current_session_id: Str,
   // The server user's home directory, for abbreviating session directories.
   home: Str,
   dismiss: keymap::SimpleCommand,
   renamed: fn(protocol::SessionInfo),
-  applied: fn(mut api::Session, protocol::SessionSnapshot),
+  applied: fn(&mut api::Session, protocol::SessionSnapshot),
   // Chooses a session by ID instead of attaching to it.
   choose: fn(Str)?,
   // Sessions already listed, shown without loading them again.
@@ -48,7 +48,7 @@ struct Row {
 struct Picker {
   // The current attachment and callbacks remain parent-owned and live while
   // picker-owned query, disclosure, editing, and pending state are retained.
-  props: mut Props,
+  props: &mut Props,
   sessions: [protocol::SessionInfo],
   // Each working or waiting session's activity by ID; absent sessions are
   // idle.
@@ -67,8 +67,8 @@ struct Picker {
   context: cui::Context?,
 }
 
-fn new(props: mut Props) mut Picker {
-  (mut Picker{
+fn new(props: &mut Props) &mut Picker {
+  &mut Picker{
     props: props,
     sessions: props.listed.or([]),
     statuses: statuses_of(props.activity.or([])),
@@ -84,16 +84,16 @@ fn new(props: mut Props) mut Picker {
     delete_session_id: "",
     delete_pending: false,
     context: Maybe::new<cui::Context>(),
-  })
+  }
 }
 
 // statuses_of indexes reported session activity by session ID.
 private fn statuses_of(entries: [protocol::SessionActivityEntry]) [Str: protocol::SessionActivity] {
-  let statuses = mut Map::new<protocol::SessionActivity>()
+  let statuses = &mut Map::new<protocol::SessionActivity>()
   for entry in entries {
     statuses.set(entry.SessionID, entry.Status)
   }
-  statuses.@
+  statuses.*
 }
 
 // row_status is a session row's status icon: the spinner while it works and
@@ -116,7 +116,7 @@ private fn row_status(statuses: [Str: protocol::SessionActivity], id: Str) statu
 // hierarchy retains server ordering among siblings while placing each child
 // directly after its parent.
 private fn hierarchy(sessions: [protocol::SessionInfo]) [Row] {
-  let rows = mut List::new<Row>()
+  let rows = &mut List::new<Row>()
   for session in sessions {
     if session.ParentSessionID == "" {
       for row in branch(sessions, session, 0) {
@@ -138,11 +138,11 @@ private fn hierarchy(sessions: [protocol::SessionInfo]) [Row] {
       }
     }
   }
-  rows.@
+  rows.*
 }
 
 private fn branch(sessions: [protocol::SessionInfo], session: protocol::SessionInfo, depth: Int) [Row] {
-  let rows = mut List::new<Row>()
+  let rows = &mut List::new<Row>()
   rows.push(Row{session: session, depth: depth})
   for child in sessions {
     if child.ParentSessionID == session.ID {
@@ -151,7 +151,7 @@ private fn branch(sessions: [protocol::SessionInfo], session: protocol::SessionI
       }
     }
   }
-  rows.@
+  rows.*
 }
 
 private fn child_count(sessions: [protocol::SessionInfo], id: Str) Int {
@@ -206,7 +206,7 @@ private fn catalog(
   collapsed: [Str],
   home: Str,
 ) [palette::Item] {
-  let items = mut List::new<palette::Item>()
+  let items = &mut List::new<palette::Item>()
   let now = time::Now()
   for row in hierarchy(sessions) {
     let session = row.session
@@ -225,7 +225,7 @@ private fn catalog(
       items.push(row_item(row, statuses, current, pending, now, disclosure, home))
     }
   }
-  items.@
+  items.*
 }
 
 // search_tree is every session in tree order, including those under collapsed
@@ -238,7 +238,7 @@ private fn search_tree(
   pending: Bool,
   home: Str,
 ) [palette::Branch] {
-  let branches = mut List::new<palette::Branch>()
+  let branches = &mut List::new<palette::Branch>()
   let now = time::Now()
   for row in hierarchy(sessions) {
     branches.push(
@@ -249,7 +249,7 @@ private fn search_tree(
       },
     )
   }
-  branches.@
+  branches.*
 }
 
 private fn row_item(
@@ -369,7 +369,7 @@ impl Picker {
     match self.context {
       context => {
         let _ = context.dispatch(fn() {
-          let collapsed = mut List::new<Str>()
+          let collapsed = &mut List::new<Str>()
           for existing in self.collapsed {
             if existing != session_id {
               collapsed.push(existing)
@@ -378,7 +378,7 @@ impl Picker {
           if value {
             collapsed.push(session_id)
           }
-          self.collapsed = collapsed.@
+          self.collapsed = collapsed.*
         })
       },
       _ => (),
@@ -447,7 +447,7 @@ impl Picker {
             self.rename_pending = false
             match result {
               ok(renamed) => {
-                let updated = mut List::new<protocol::SessionInfo>()
+                let updated = &mut List::new<protocol::SessionInfo>()
                 for session in self.sessions {
                   if session.ID == renamed.ID {
                     updated.push(renamed)
@@ -455,7 +455,7 @@ impl Picker {
                     updated.push(session)
                   }
                 }
-                self.sessions = updated.@
+                self.sessions = updated.*
                 self.rename_session_id = ""
                 self.rename_name = ""
                 self.rename_error = ""
@@ -510,13 +510,13 @@ impl Picker {
           self.delete_pending = false
           match result {
             ok(_) => {
-              let retained = mut List::new<protocol::SessionInfo>()
+              let retained = &mut List::new<protocol::SessionInfo>()
               for session in self.sessions {
                 if session.ID != id {
                   retained.push(session)
                 }
               }
-              self.sessions = retained.@
+              self.sessions = retained.*
               self.delete_session_id = ""
             },
             err(failure) => { self.error = "Could not delete session: {failure}" },

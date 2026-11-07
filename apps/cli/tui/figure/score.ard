@@ -53,7 +53,7 @@ private fn row(each: grammar::Item) model::Item!Str {
     parts => {
       let written = parts.at(1).or("")
       let rated = try rating(written)
-      let made = mut model::item(parts.at(0).or(""), written)
+      let made = &mut model::item(parts.at(0).or(""), written)
       made.note = each.note
       made.accent = each.bold
       made.muted = each.italic
@@ -61,7 +61,7 @@ private fn row(each: grammar::Item) model::Item!Str {
       made.slots = rated.slots
       match each.details.size() > 0 {
         true => Result::err("a score row takes no indented lines"),
-        false => Result::ok(made.@),
+        false => Result::ok(made.*),
       }
     },
     _ => Result::err("a score row is `label: N/M`, got `{grammar::clip(each.text)}`"),
@@ -72,7 +72,7 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
   try grammar::check_attributes(info, ["title"])
   let items = try grammar::items(body)
   try grammar::check_one_bold(items)
-  let made = mut List::new<model::Item>()
+  let made = &mut List::new<model::Item>()
   mut slots = 0
   mut mixed = false
   for each in items {
@@ -87,15 +87,15 @@ fn parse(info: grammar::Info, body: Str) model::Figure!Str {
     made.size() == 0 => Result::err("the figure has no rows"),
     made.size() > max_rows => Result::err("a score figure has at most {max_rows} rows"),
     mixed => Result::err("every score is out of the same whole"),
-    _ => Result::ok(model::figure("score", grammar::attribute(info, "title"), made.@)),
+    _ => Result::ok(model::figure("score", grammar::attribute(info, "title"), made.*)),
   }
 }
 
 // A score's dots, `●` filled, `◐` half, and `○` empty, a space between each:
 // the filled and half dots, then the empty ones.
 fn dots(filled: Int, slots: Int) [Str] {
-  let full = mut List::new<Str>()
-  let empty = mut List::new<Str>()
+  let full = &mut List::new<Str>()
+  let empty = &mut List::new<Str>()
   mut index = 0
   while index < slots {
     match {
@@ -120,8 +120,8 @@ private fn widest(texts: [Str]) Int {
 }
 
 fn draw(figure: model::Figure) drawing::Drawing {
-  let labels = mut List::new<Str>()
-  let values = mut List::new<Str>()
+  let labels = &mut List::new<Str>()
+  let values = &mut List::new<Str>()
   mut emphasized = false
   for each in figure.items {
     labels.push(format::truncate_cells(each.label, max_label))
@@ -130,9 +130,9 @@ fn draw(figure: model::Figure) drawing::Drawing {
       emphasized = true
     }
   }
-  let label_lane = widest(labels.@)
-  let value_lane = widest(values.@)
-  let rows = mut List::new<[drawing::Segment]>()
+  let label_lane = widest(labels.*)
+  let value_lane = widest(values.*)
+  let rows = &mut List::new<[drawing::Segment]>()
   mut index = 0
   for each in figure.items {
     let quiet = each.muted or emphasized and (not each.accent)
@@ -140,7 +140,7 @@ fn draw(figure: model::Figure) drawing::Drawing {
     let shown = dots(each.filled, each.slots)
     let full = shown.at(0).or("")
     let empty = shown.at(1).or("")
-    let line = mut List::new<drawing::Segment>()
+    let line = &mut List::new<drawing::Segment>()
     line.push(
       match {
         each.accent => drawing::bold(label, drawing::Role::text),
@@ -174,10 +174,10 @@ fn draw(figure: model::Figure) drawing::Drawing {
     if each.note != "" {
       line.push(drawing::segment("  {each.note}", drawing::Role::muted))
     }
-    rows.push(line.@)
+    rows.push(line.*)
     index =+ 1
   }
-  drawing::framed(figure.title, rows.@)
+  drawing::framed(figure.title, rows.*)
 }
 
 test fn half_dots_fill_after_the_whole_ones() Void!Str {

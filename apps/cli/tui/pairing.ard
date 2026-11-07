@@ -19,7 +19,7 @@ use kit/tui/theme
 // Props provides the server, the URLs that reach it, and the shell callbacks.
 struct Props {
   themes: theme::Context,
-  client: mut api::Client,
+  client: &mut api::Client,
   lifetime: contextbridge::Cancellation,
   urls: [Str],
   dismiss: keymap::SimpleCommand,
@@ -27,7 +27,7 @@ struct Props {
 }
 
 struct Dialog {
-  props: mut Props,
+  props: &mut Props,
   loading: Bool,
   links: [Str],
   expires: Str,
@@ -36,15 +36,15 @@ struct Dialog {
   generation: Int,
 }
 
-fn new(props: mut Props) mut Dialog {
-  (mut Dialog{
+fn new(props: &mut Props) &mut Dialog {
+  &mut Dialog{
     props: props,
     loading: true,
     links: [],
     expires: "",
     error: "",
     generation: 0,
-  })
+  }
 }
 
 impl cui::Lifecycle for Dialog {
@@ -56,7 +56,7 @@ impl cui::Lifecycle for Dialog {
     let urls = self.props.urls
     let dispatch = ctx.dispatch
     async::start(fn() {
-      let result = cli::CreatePairingLinks(lifetime.Context, client, mut urls)
+      let result = cli::CreatePairingLinks(lifetime.Context, client, urls)
       let _ = dispatch(fn() {
         if self.generation == generation {
           self.loading = false
@@ -81,7 +81,7 @@ impl cui::Lifecycle for Dialog {
 fn body(themes: theme::Context, links: [Str], expires: Str, error: Str, copied: fn()) [cui::View] {
   let colors = themes.current()
   let muted = ui::text_style(foreground: colors.muted)
-  let rows = mut List::new<cui::View>()
+  let rows = &mut List::new<cui::View>()
   match error != "" {
     true => rows.push(layout::line(error, ui::text_style(foreground: colors.danger_text))),
     false => {
@@ -105,7 +105,7 @@ fn body(themes: theme::Context, links: [Str], expires: Str, error: Str, copied: 
       }
     },
   }
-  rows.@
+  rows.*
 }
 
 impl cui::Component for Dialog {
