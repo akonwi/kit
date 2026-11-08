@@ -138,18 +138,18 @@ struct SessionScreen: View {
                 guard feed.session != nil else { return }
                 try? await composer.annotations.refresh(client: client, session: feed.identity.session)
             }
-            .alert(deleteTitle, isPresented: $confirmingDelete) {
+            .alert(actions.deleteConfirmation.title, isPresented: $confirmingDelete) {
                 Button("Cancel", role: .cancel) {}
-                Button(actions.temporary ? "Dispose session" : "Delete session", role: .destructive) { delete() }
+                Button(actions.deleteConfirmation.button, role: .destructive) { delete() }
             } message: {
-                Text(deleteMessage)
+                Text(actions.deleteConfirmation.message)
             }
             .alert("Couldn’t delete", isPresented: deleteFailed) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(actions.deleteError ?? "")
             }
-            .overlay { if actions.deleting { deletingOverlay } }
+            .overlay { if actions.deleting { DeletingOverlay() } }
             .navigationDestination(isPresented: $showingChanges) {
                 ChangesScreen(diff: diff, client: client, feed: feed, composer: composer,
                               actions: actions, interactions: interactions)
@@ -190,26 +190,8 @@ struct SessionScreen: View {
         }
     }
 
-    private var deleteTitle: String { actions.temporary ? "Dispose temporary session?" : "Delete session?" }
-
-    private var deleteMessage: String {
-        let title = "“\(feed.session?.title ?? "This session")”"
-        return actions.temporary
-            ? "\(title) will be removed from the server’s memory and any active work will be cancelled. This can’t be undone."
-            : "\(title) and its saved history will be permanently deleted. This can’t be undone."
-    }
-
     private var deleteFailed: Binding<Bool> {
         Binding(get: { actions.deleteError != nil }, set: { if !$0 { actions.clearDeleteError() } })
-    }
-
-    private var deletingOverlay: some View {
-        ProgressView()
-            .controlSize(.large)
-            .padding(24)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.black.opacity(0.08))
     }
 
     private func delete() {
@@ -378,5 +360,17 @@ private extension View {
         opacity(shown ? 1 : 0)
             .allowsHitTesting(shown)
             .accessibilityHidden(!shown)
+    }
+}
+
+/// Covers a screen while a session is deleted.
+struct DeletingOverlay: View {
+    var body: some View {
+        ProgressView()
+            .controlSize(.large)
+            .padding(24)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.black.opacity(0.08))
     }
 }

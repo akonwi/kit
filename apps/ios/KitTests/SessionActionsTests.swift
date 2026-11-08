@@ -154,6 +154,22 @@ struct SessionActionsTests {
         #expect(client.deleted.isEmpty)
     }
 
+    @Test func deletingAsksInTheSessionsOwnWords() async {
+        var named = Self.snapshot()
+        named.title = "Fix SSE reconnect"
+        #expect(await Self.actions(snapshot: named).deleteConfirmation == .init(
+            item: "Delete…", title: "Delete session?",
+            message: "“Fix SSE reconnect” and its saved history will be permanently deleted. This can’t be undone.",
+            button: "Delete session"))
+
+        var temporary = Self.snapshot(temporary: true)
+        temporary.title = "Scratch"
+        #expect(await Self.actions(snapshot: temporary).deleteConfirmation == .init(
+            item: "Dispose…", title: "Dispose temporary session?",
+            message: "“Scratch” will be removed from the server’s memory and any active work will be cancelled. This can’t be undone.",
+            button: "Dispose session"))
+    }
+
     @Test func aSessionInUseIsNotDeleted() async {
         let client = FakeActionsClient()
         client.deleteError = ClientError.http(409)

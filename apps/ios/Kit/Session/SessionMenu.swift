@@ -60,7 +60,7 @@ struct SessionMenu: View {
                 Button("Details", systemImage: "info.circle") { present(.details) }
             }
             Section {
-                Button(actions.temporary ? "Dispose…" : "Delete…", systemImage: "trash", role: .destructive, action: confirmDelete)
+                Button(actions.deleteConfirmation.item, systemImage: "trash", role: .destructive, action: confirmDelete)
                     .disabled(!actions.live)
             }
         } label: {

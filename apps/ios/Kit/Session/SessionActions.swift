@@ -215,6 +215,37 @@ final class SessionActions {
         return child
     }
 
+    /// What asks before deleting: the menu item, the alert's title, message,
+    /// and button. A temporary session is disposed instead.
+    struct DeleteConfirmation: Equatable {
+        let item: String
+        let title: String
+        let message: String
+        let button: String
+
+        init(item: String, title: String, message: String, button: String) {
+            self.item = item
+            self.title = title
+            self.message = message
+            self.button = button
+        }
+
+        init(session title: String, temporary: Bool) {
+            let name = "“\(title.isEmpty ? "This session" : title)”"
+            self = temporary
+                ? DeleteConfirmation(
+                    item: "Dispose…", title: "Dispose temporary session?",
+                    message: "\(name) will be removed from the server’s memory and any active work will be cancelled. This can’t be undone.",
+                    button: "Dispose session")
+                : DeleteConfirmation(
+                    item: "Delete…", title: "Delete session?",
+                    message: "\(name) and its saved history will be permanently deleted. This can’t be undone.",
+                    button: "Delete session")
+        }
+    }
+
+    var deleteConfirmation: DeleteConfirmation { DeleteConfirmation(session: title, temporary: temporary) }
+
     /// Deletes the session, or disposes it when it is temporary. A lost
     /// answer is settled by reading the session, never by deleting again.
     func delete() async -> Bool {
