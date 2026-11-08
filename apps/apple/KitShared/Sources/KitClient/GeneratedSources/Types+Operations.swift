@@ -14257,12 +14257,23 @@ public enum Operations {
             public struct Query: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/v1/sessions/GET/query/cwd`.
                 public var cwd: Swift.String?
+                /// - Remark: Generated from `#/paths/v1/sessions/GET/query/order`.
+                @frozen public enum OrderPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case attention = "attention"
+                }
+                /// - Remark: Generated from `#/paths/v1/sessions/GET/query/order`.
+                public var order: Operations.ListSessions.Input.Query.OrderPayload?
                 /// Creates a new `Query`.
                 ///
                 /// - Parameters:
                 ///   - cwd:
-                public init(cwd: Swift.String? = nil) {
+                ///   - order:
+                public init(
+                    cwd: Swift.String? = nil,
+                    order: Operations.ListSessions.Input.Query.OrderPayload? = nil
+                ) {
                     self.cwd = cwd
+                    self.order = order
                 }
             }
             public var query: Operations.ListSessions.Input.Query

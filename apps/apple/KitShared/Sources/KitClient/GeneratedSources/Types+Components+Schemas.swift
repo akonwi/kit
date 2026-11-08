@@ -12492,6 +12492,8 @@ extension Components {
         }
         /// - Remark: Generated from `#/components/schemas/SessionInfo`.
         public struct SessionInfo: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/activity`.
+            public var activity: Components.Schemas.SessionInfoActivity?
             /// - Remark: Generated from `#/components/schemas/SessionInfo/configurationRevision`.
             public var configurationRevision: Swift.Int
             /// - Remark: Generated from `#/components/schemas/SessionInfo/createdAt`.
@@ -12519,6 +12521,7 @@ extension Components {
             /// Creates a new `SessionInfo`.
             ///
             /// - Parameters:
+            ///   - activity:
             ///   - configurationRevision:
             ///   - createdAt:
             ///   - cwd:
@@ -12532,6 +12535,7 @@ extension Components {
             ///   - thinkingLevel:
             ///   - updatedAt:
             public init(
+                activity: Components.Schemas.SessionInfoActivity? = nil,
                 configurationRevision: Swift.Int,
                 createdAt: Swift.String,
                 cwd: Swift.String,
@@ -12545,6 +12549,7 @@ extension Components {
                 thinkingLevel: Swift.String,
                 updatedAt: Swift.String
             ) {
+                self.activity = activity
                 self.configurationRevision = configurationRevision
                 self.createdAt = createdAt
                 self.cwd = cwd
@@ -12559,6 +12564,7 @@ extension Components {
                 self.updatedAt = updatedAt
             }
             public enum CodingKeys: String, CodingKey {
+                case activity
                 case configurationRevision
                 case createdAt
                 case cwd
@@ -12574,6 +12580,10 @@ extension Components {
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.activity = try container.decodeIfPresent(
+                    Components.Schemas.SessionInfoActivity.self,
+                    forKey: .activity
+                )
                 self.configurationRevision = try container.decode(
                     Swift.Int.self,
                     forKey: .configurationRevision
@@ -12623,6 +12633,7 @@ extension Components {
                     forKey: .updatedAt
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "activity",
                     "configurationRevision",
                     "createdAt",
                     "cwd",
@@ -12638,27 +12649,87 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/SessionInfoActivity`.
+        public struct SessionInfoActivity: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionInfoActivity/since`.
+            public var since: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SessionInfoActivity/status`.
+            @frozen public enum StatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case running = "running"
+                case awaitingResponse = "awaitingResponse"
+            }
+            /// - Remark: Generated from `#/components/schemas/SessionInfoActivity/status`.
+            public var status: Components.Schemas.SessionInfoActivity.StatusPayload
+            /// Creates a new `SessionInfoActivity`.
+            ///
+            /// - Parameters:
+            ///   - since:
+            ///   - status:
+            public init(
+                since: Swift.String? = nil,
+                status: Components.Schemas.SessionInfoActivity.StatusPayload
+            ) {
+                self.since = since
+                self.status = status
+            }
+            public enum CodingKeys: String, CodingKey {
+                case since
+                case status
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.since = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .since
+                )
+                self.status = try container.decode(
+                    Components.Schemas.SessionInfoActivity.StatusPayload.self,
+                    forKey: .status
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "since",
+                    "status"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/SessionList`.
         public struct SessionList: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionList/order`.
+            @frozen public enum OrderPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case attention = "attention"
+            }
+            /// - Remark: Generated from `#/components/schemas/SessionList/order`.
+            public var order: Components.Schemas.SessionList.OrderPayload?
             /// - Remark: Generated from `#/components/schemas/SessionList/sessions`.
             public var sessions: [Components.Schemas.SessionInfo]
             /// Creates a new `SessionList`.
             ///
             /// - Parameters:
+            ///   - order:
             ///   - sessions:
-            public init(sessions: [Components.Schemas.SessionInfo]) {
+            public init(
+                order: Components.Schemas.SessionList.OrderPayload? = nil,
+                sessions: [Components.Schemas.SessionInfo]
+            ) {
+                self.order = order
                 self.sessions = sessions
             }
             public enum CodingKeys: String, CodingKey {
+                case order
                 case sessions
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.order = try container.decodeIfPresent(
+                    Components.Schemas.SessionList.OrderPayload.self,
+                    forKey: .order
+                )
                 self.sessions = try container.decode(
                     [Components.Schemas.SessionInfo].self,
                     forKey: .sessions
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "order",
                     "sessions"
                 ])
             }

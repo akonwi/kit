@@ -165,7 +165,7 @@ public struct ServerIdentity: Equatable, Sendable {
     }
 }
 
-public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, HostFileClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, ClientPluginHostingClient, SessionDeletionClient, SessionDisposalClient, SessionActivityClient, SessionForkClient, ComposerClient, AttachmentClient {
+public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, HostFileClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, ClientPluginHostingClient, SessionDeletionClient, SessionDisposalClient, SessionActivityClient, SessionAttentionClient, SessionForkClient, ComposerClient, AttachmentClient {
     public let serverID: String
     public let isDemo = false
     public let endpoint: URL
@@ -1391,6 +1391,49 @@ public final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, W
         guard case let .ok(response) = output else { throw Self.statusFailure(output) }
         let list: [WireSessionInfo] = try generated(try response.body.json.sessions, as: [WireSessionInfo].self)
         return try list.map { try SessionProjection.summary($0) }
+    }
+
+    public func sessionsByAttention() async throws -> AttentionListing {
+        guard let version = Operations.ListSessions.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.incompatible }
+        let output = try await api.listSessions(query: .init(order: .attention), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version))
+        guard case let .ok(response) = output else { throw Self.statusFailure(output) }
+        let body = try response.body.json
+        guard body.order == .attention else {
+            guard body.sessions.allSatisfy({ $0.activity == nil }) else { throw ClientError.invalidPayload }
+            return .unordered(try body.sessions.map { try SessionProjection.summary($0) })
+        }
+        return .ordered(try Self.listed(body.sessions))
+    }
+
+    /// Projects a list in the attention order. Each session's activity must be
+    /// well formed, and the sessions must come in the order's groups: waiting,
+    /// then running, then idle. Within a group the server's order stands;
+    /// dates read here keep less precision than it compared.
+    static func listed(_ sessions: [Components.Schemas.SessionInfo]) throws -> [ListedSession] {
+        var seen = Set<String>()
+        var listed: [ListedSession] = []
+        for info in sessions {
+            guard seen.insert(info.id).inserted else { throw ClientError.invalidPayload }
+            let session = try SessionProjection.summary(info)
+            var status = SessionTabStatus.idle
+            var since: Date?
+            switch info.activity?.status {
+            case nil:
+                break
+            case .running:
+                guard info.activity?.since == nil else { throw ClientError.invalidPayload }
+                status = .running
+            case .awaitingResponse:
+                guard let value = info.activity?.since, let date = date(value) else { throw ClientError.invalidPayload }
+                status = .awaitingResponse
+                since = date
+            }
+            if let previous = listed.last, AttentionOrder.rank(previous.status) > AttentionOrder.rank(status) {
+                throw ClientError.invalidPayload
+            }
+            listed.append(ListedSession(session: session, status: status, waitingSince: since))
+        }
+        return listed
     }
 
     public func sessionActivity() async throws -> [String: SessionTabStatus] {
