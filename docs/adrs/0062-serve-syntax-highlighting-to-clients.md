@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed. Extends the semantic highlighting service of
+Accepted. Extends the semantic highlighting service of
 [ADR 0021](0021-use-native-tree-sitter-highlighting.md) to protocol clients,
 first the browser client of
 [ADR 0059](0059-serve-a-browser-client-from-the-kit-server.md).
