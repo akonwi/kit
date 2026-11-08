@@ -1,7 +1,7 @@
 Ard grammar license provenance
 
 Source: https://github.com/akonwi/tree-sitter-ard
-Revision: 98a6e2e447c9b95cc677d5b37b74117f5d3f47a5
+Revision: a3fd3a3dc1164bc654aa3c02acc975845da77d36
 Declared license: MIT (tree-sitter.json metadata)
 Declared author: Akonwi Ngoh (tree-sitter.json metadata)
 

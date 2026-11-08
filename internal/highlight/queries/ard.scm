@@ -21,6 +21,8 @@
 (variable_declaration "let" @keyword)
 (variable_declaration "mut" @keyword)
 (mutable_type "mut" @keyword)
+(pointer_type mutable: "mut" @keyword)
+(address_of_expression mutable: "mut" @keyword)
 (function_declaration "test" @keyword)
 (function_declaration "fn" @keyword)
 (function_declaration
@@ -122,6 +124,7 @@
   "+"
   "-"
   "*"
+  "&"
   "/"
   "%"
   "<"

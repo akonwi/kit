@@ -21,7 +21,7 @@ copy_module() {
 }
 
 copy_module core github.com/tree-sitter/go-tree-sitter v0.25.0
-copy_module ard github.com/akonwi/tree-sitter-ard v0.0.0-20260825025050-98a6e2e447c9
+copy_module ard github.com/akonwi/tree-sitter-ard v0.0.0-20261108005617-a3fd3a3dc116
 copy_module go github.com/tree-sitter/tree-sitter-go v0.25.0
 copy_module typescript github.com/tree-sitter/tree-sitter-typescript v0.23.2
 copy_module javascript github.com/tree-sitter/tree-sitter-javascript v0.25.0

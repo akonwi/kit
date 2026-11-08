@@ -3,7 +3,7 @@ module github.com/akonwi/kit
 go 1.27.0
 
 require (
-	github.com/akonwi/tree-sitter-ard v0.0.0-20260825025050-98a6e2e447c9
+	github.com/akonwi/tree-sitter-ard v0.0.0-20261108005617-a3fd3a3dc116
 	github.com/anthropics/anthropic-sdk-go v1.61.0
 	github.com/getkin/kin-openapi v0.134.0
 	github.com/gofrs/flock v0.13.1

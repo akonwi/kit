@@ -83,6 +83,43 @@ func TestNativeTreeSitterExactArdSpansAndMalformedRecovery(t *testing.T) {
 	assertToken(t, result, "// tail", Comment)
 }
 
+func TestNativeTreeSitterExactArdPointersFieldShorthandAndStructTags(t *testing.T) {
+	var engine treeSitterEngine
+	defer engine.close()
+	source := "struct Config {\n  #go:yaml(\"name\")\n  name: Str,\n}\n" +
+		"fn rename(user: &mut User, view: &User) Config {\n" +
+		"  user.* = view.*\n" +
+		"  let next = &mut Config{name}\n" +
+		"  next.*.name\n" +
+		"}\n"
+	result := engine.highlight(context.Background(), Request{Language: "ard", Source: source})
+	want := []Span{
+		// struct Config { #go:yaml("name") name: Str, }
+		{0, 6, Keyword}, {6, 13, Type}, {14, 15, Punctuation},
+		{19, 21, Attribute}, {21, 22, Punctuation}, {22, 26, Attribute},
+		{26, 27, Punctuation}, {27, 33, String}, {33, 34, Punctuation},
+		{37, 41, Member}, {41, 42, Punctuation}, {43, 46, Type}, {46, 47, Punctuation},
+		{48, 49, Punctuation},
+		// fn rename(user: &mut User, view: &User) Config {
+		{50, 52, Keyword}, {53, 59, Function}, {59, 60, Punctuation},
+		{60, 64, Variable}, {64, 65, Punctuation}, {66, 67, Operator}, {67, 70, Keyword},
+		{75, 76, Punctuation}, {76, 81, Variable}, {81, 82, Punctuation}, {83, 84, Operator},
+		{88, 89, Punctuation}, {97, 98, Punctuation},
+		// user.* = view.*
+		{105, 109, Operator}, {114, 116, Operator},
+		// let next = &mut Config{name}
+		{119, 122, Keyword}, {122, 127, Variable}, {128, 129, Operator},
+		{130, 131, Operator}, {131, 134, Keyword},
+		{141, 142, Punctuation}, {142, 146, Member}, {146, 147, Punctuation},
+		// next.*.name
+		{154, 156, Operator},
+		{162, 163, Punctuation},
+	}
+	if result.Err != nil || result.Fallback || !reflect.DeepEqual(result.Spans, want) {
+		t.Fatalf("Ard spans = %+v, want %+v, fallback %t, err %v", result.Spans, want, result.Fallback, result.Err)
+	}
+}
+
 func TestNativeTreeSitterDetectsArdFiles(t *testing.T) {
 	var engine treeSitterEngine
 	defer engine.close()
