@@ -5841,12 +5841,52 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/FileDiffHighlight`.
+        public struct FileDiffHighlight: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/FileDiffHighlight/new`.
+            public var new: Components.Schemas.Highlight?
+            /// - Remark: Generated from `#/components/schemas/FileDiffHighlight/old`.
+            public var old: Components.Schemas.Highlight?
+            /// Creates a new `FileDiffHighlight`.
+            ///
+            /// - Parameters:
+            ///   - new:
+            ///   - old:
+            public init(
+                new: Components.Schemas.Highlight? = nil,
+                old: Components.Schemas.Highlight? = nil
+            ) {
+                self.new = new
+                self.old = old
+            }
+            public enum CodingKeys: String, CodingKey {
+                case new
+                case old
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.new = try container.decodeIfPresent(
+                    Components.Schemas.Highlight.self,
+                    forKey: .new
+                )
+                self.old = try container.decodeIfPresent(
+                    Components.Schemas.Highlight.self,
+                    forKey: .old
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "new",
+                    "old"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/FileDiffPage`.
         public struct FileDiffPage: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/FileDiffPage/computation`.
             public var computation: Components.Schemas.DiffComputation
             /// - Remark: Generated from `#/components/schemas/FileDiffPage/file`.
             public var file: Components.Schemas.DiffFileSummary
+            /// - Remark: Generated from `#/components/schemas/FileDiffPage/highlight`.
+            public var highlight: Components.Schemas.FileDiffHighlight?
             /// - Remark: Generated from `#/components/schemas/FileDiffPage/hunks`.
             public var hunks: [Components.Schemas.DiffHunk]
             /// - Remark: Generated from `#/components/schemas/FileDiffPage/nextCursor`.
@@ -5858,18 +5898,21 @@ extension Components {
             /// - Parameters:
             ///   - computation:
             ///   - file:
+            ///   - highlight:
             ///   - hunks:
             ///   - nextCursor:
             ///   - observation:
             public init(
                 computation: Components.Schemas.DiffComputation,
                 file: Components.Schemas.DiffFileSummary,
+                highlight: Components.Schemas.FileDiffHighlight? = nil,
                 hunks: [Components.Schemas.DiffHunk],
                 nextCursor: Swift.String? = nil,
                 observation: Components.Schemas.DiffObservation
             ) {
                 self.computation = computation
                 self.file = file
+                self.highlight = highlight
                 self.hunks = hunks
                 self.nextCursor = nextCursor
                 self.observation = observation
@@ -5877,6 +5920,7 @@ extension Components {
             public enum CodingKeys: String, CodingKey {
                 case computation
                 case file
+                case highlight
                 case hunks
                 case nextCursor
                 case observation
@@ -5890,6 +5934,10 @@ extension Components {
                 self.file = try container.decode(
                     Components.Schemas.DiffFileSummary.self,
                     forKey: .file
+                )
+                self.highlight = try container.decodeIfPresent(
+                    Components.Schemas.FileDiffHighlight.self,
+                    forKey: .highlight
                 )
                 self.hunks = try container.decode(
                     [Components.Schemas.DiffHunk].self,
@@ -5906,6 +5954,7 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "computation",
                     "file",
+                    "highlight",
                     "hunks",
                     "nextCursor",
                     "observation"
@@ -6438,6 +6487,337 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/Highlight`.
+        public struct Highlight: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/Highlight/language`.
+            public var language: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Highlight/lines`.
+            public var lines: [[Swift.Int]]
+            /// - Remark: Generated from `#/components/schemas/Highlight/roles`.
+            public var roles: [Swift.String]
+            /// Creates a new `Highlight`.
+            ///
+            /// - Parameters:
+            ///   - language:
+            ///   - lines:
+            ///   - roles:
+            public init(
+                language: Swift.String,
+                lines: [[Swift.Int]],
+                roles: [Swift.String]
+            ) {
+                self.language = language
+                self.lines = lines
+                self.roles = roles
+            }
+            public enum CodingKeys: String, CodingKey {
+                case language
+                case lines
+                case roles
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.language = try container.decode(
+                    Swift.String.self,
+                    forKey: .language
+                )
+                self.lines = try container.decode(
+                    [[Swift.Int]].self,
+                    forKey: .lines
+                )
+                self.roles = try container.decode(
+                    [Swift.String].self,
+                    forKey: .roles
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "language",
+                    "lines",
+                    "roles"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HighlightCodeBlock`.
+        public struct HighlightCodeBlock: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HighlightCodeBlock/language`.
+            public var language: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HighlightCodeBlock/source`.
+            public var source: Swift.String
+            /// Creates a new `HighlightCodeBlock`.
+            ///
+            /// - Parameters:
+            ///   - language:
+            ///   - source:
+            public init(
+                language: Swift.String,
+                source: Swift.String
+            ) {
+                self.language = language
+                self.source = source
+            }
+            public enum CodingKeys: String, CodingKey {
+                case language
+                case source
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.language = try container.decode(
+                    Swift.String.self,
+                    forKey: .language
+                )
+                self.source = try container.decode(
+                    Swift.String.self,
+                    forKey: .source
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "language",
+                    "source"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HighlightCodeInput`.
+        public struct HighlightCodeInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HighlightCodeInput/blocks`.
+            public var blocks: [Components.Schemas.HighlightCodeBlock]
+            /// Creates a new `HighlightCodeInput`.
+            ///
+            /// - Parameters:
+            ///   - blocks:
+            public init(blocks: [Components.Schemas.HighlightCodeBlock]) {
+                self.blocks = blocks
+            }
+            public enum CodingKeys: String, CodingKey {
+                case blocks
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.blocks = try container.decode(
+                    [Components.Schemas.HighlightCodeBlock].self,
+                    forKey: .blocks
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "blocks"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HighlightCodeLimitDetails`.
+        public struct HighlightCodeLimitDetails: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HighlightCodeLimitDetails/limit`.
+            @frozen public enum LimitPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case blocks = "blocks"
+                case blockBytes = "block_bytes"
+                case totalBytes = "total_bytes"
+                case languageBytes = "language_bytes"
+            }
+            /// - Remark: Generated from `#/components/schemas/HighlightCodeLimitDetails/limit`.
+            public var limit: Components.Schemas.HighlightCodeLimitDetails.LimitPayload
+            /// Creates a new `HighlightCodeLimitDetails`.
+            ///
+            /// - Parameters:
+            ///   - limit:
+            public init(limit: Components.Schemas.HighlightCodeLimitDetails.LimitPayload) {
+                self.limit = limit
+            }
+            public enum CodingKeys: String, CodingKey {
+                case limit
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.limit = try container.decode(
+                    Components.Schemas.HighlightCodeLimitDetails.LimitPayload.self,
+                    forKey: .limit
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "limit"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HighlightCodeResult`.
+        public struct HighlightCodeResult: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HighlightCodeResult/blocks`.
+            public var blocks: [Components.Schemas.HighlightedCode]
+            /// Creates a new `HighlightCodeResult`.
+            ///
+            /// - Parameters:
+            ///   - blocks:
+            public init(blocks: [Components.Schemas.HighlightedCode]) {
+                self.blocks = blocks
+            }
+            public enum CodingKeys: String, CodingKey {
+                case blocks
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.blocks = try container.decode(
+                    [Components.Schemas.HighlightedCode].self,
+                    forKey: .blocks
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "blocks"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HighlightCredentialExpiredError`.
+        public struct HighlightCredentialExpiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HighlightCredentialExpiredError/code`.
+            @frozen public enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case credentialExpired = "credential_expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/HighlightCredentialExpiredError/code`.
+            public var code: Components.Schemas.HighlightCredentialExpiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/HighlightCredentialExpiredError/message`.
+            public var message: Swift.String
+            /// Creates a new `HighlightCredentialExpiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            public init(
+                code: Components.Schemas.HighlightCredentialExpiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.HighlightCredentialExpiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HighlightLimitExceededError`.
+        public struct HighlightLimitExceededError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HighlightLimitExceededError/code`.
+            @frozen public enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case limitExceeded = "limit_exceeded"
+            }
+            /// - Remark: Generated from `#/components/schemas/HighlightLimitExceededError/code`.
+            public var code: Components.Schemas.HighlightLimitExceededError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/HighlightLimitExceededError/details`.
+            public var details: Components.Schemas.HighlightCodeLimitDetails
+            /// - Remark: Generated from `#/components/schemas/HighlightLimitExceededError/message`.
+            public var message: Swift.String
+            /// Creates a new `HighlightLimitExceededError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - details:
+            ///   - message:
+            public init(
+                code: Components.Schemas.HighlightLimitExceededError.CodePayload,
+                details: Components.Schemas.HighlightCodeLimitDetails,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.details = details
+                self.message = message
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case details
+                case message
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.HighlightLimitExceededError.CodePayload.self,
+                    forKey: .code
+                )
+                self.details = try container.decode(
+                    Components.Schemas.HighlightCodeLimitDetails.self,
+                    forKey: .details
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "details",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HighlightRateLimitedError`.
+        public struct HighlightRateLimitedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HighlightRateLimitedError/code`.
+            @frozen public enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case rateLimited = "rate_limited"
+            }
+            /// - Remark: Generated from `#/components/schemas/HighlightRateLimitedError/code`.
+            public var code: Components.Schemas.HighlightRateLimitedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/HighlightRateLimitedError/message`.
+            public var message: Swift.String
+            /// Creates a new `HighlightRateLimitedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            public init(
+                code: Components.Schemas.HighlightRateLimitedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.HighlightRateLimitedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HighlightedCode`.
+        public struct HighlightedCode: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HighlightedCode/highlight`.
+            public var highlight: Components.Schemas.Highlight?
+            /// Creates a new `HighlightedCode`.
+            ///
+            /// - Parameters:
+            ///   - highlight:
+            public init(highlight: Components.Schemas.Highlight? = nil) {
+                self.highlight = highlight
+            }
+            public enum CodingKeys: String, CodingKey {
+                case highlight
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.highlight = try container.decodeIfPresent(
+                    Components.Schemas.Highlight.self,
+                    forKey: .highlight
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "highlight"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/HostFileRead`.
         @frozen public enum HostFileRead: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/HostFileRead/HostImageFile`.
@@ -6600,6 +6980,8 @@ extension Components {
             public var content: Swift.String?
             /// - Remark: Generated from `#/components/schemas/HostTextFile/encoding`.
             public var encoding: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HostTextFile/highlight`.
+            public var highlight: Components.Schemas.Highlight?
             /// - Remark: Generated from `#/components/schemas/HostTextFile/kind`.
             @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case text = "text"
@@ -6627,6 +7009,7 @@ extension Components {
             /// - Parameters:
             ///   - content:
             ///   - encoding:
+            ///   - highlight:
             ///   - kind:
             ///   - modifiedAt:
             ///   - path:
@@ -6639,6 +7022,7 @@ extension Components {
             public init(
                 content: Swift.String? = nil,
                 encoding: Swift.String,
+                highlight: Components.Schemas.Highlight? = nil,
                 kind: Components.Schemas.HostTextFile.KindPayload,
                 modifiedAt: Swift.String? = nil,
                 path: Swift.String,
@@ -6651,6 +7035,7 @@ extension Components {
             ) {
                 self.content = content
                 self.encoding = encoding
+                self.highlight = highlight
                 self.kind = kind
                 self.modifiedAt = modifiedAt
                 self.path = path
@@ -6664,6 +7049,7 @@ extension Components {
             public enum CodingKeys: String, CodingKey {
                 case content
                 case encoding
+                case highlight
                 case kind
                 case modifiedAt
                 case path
@@ -6683,6 +7069,10 @@ extension Components {
                 self.encoding = try container.decode(
                     Swift.String.self,
                     forKey: .encoding
+                )
+                self.highlight = try container.decodeIfPresent(
+                    Components.Schemas.Highlight.self,
+                    forKey: .highlight
                 )
                 self.kind = try container.decode(
                     Components.Schemas.HostTextFile.KindPayload.self,
@@ -6723,6 +7113,7 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "content",
                     "encoding",
+                    "highlight",
                     "kind",
                     "modifiedAt",
                     "path",
@@ -10696,6 +11087,8 @@ extension Components {
             public var cursor: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/expectedFileRevision`.
             public var expectedFileRevision: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/highlight`.
+            public var highlight: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/maxHunks`.
             public var maxHunks: Swift.Int?
             /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/pageSize`.
@@ -10712,6 +11105,7 @@ extension Components {
             ///   - annotationId:
             ///   - cursor:
             ///   - expectedFileRevision:
+            ///   - highlight:
             ///   - maxHunks:
             ///   - pageSize:
             ///   - path:
@@ -10721,6 +11115,7 @@ extension Components {
                 annotationId: Swift.Int? = nil,
                 cursor: Swift.String? = nil,
                 expectedFileRevision: Swift.String? = nil,
+                highlight: Swift.Bool? = nil,
                 maxHunks: Swift.Int? = nil,
                 pageSize: Swift.Int? = nil,
                 path: Swift.String,
@@ -10730,6 +11125,7 @@ extension Components {
                 self.annotationId = annotationId
                 self.cursor = cursor
                 self.expectedFileRevision = expectedFileRevision
+                self.highlight = highlight
                 self.maxHunks = maxHunks
                 self.pageSize = pageSize
                 self.path = path
@@ -10740,6 +11136,7 @@ extension Components {
                 case annotationId
                 case cursor
                 case expectedFileRevision
+                case highlight
                 case maxHunks
                 case pageSize
                 case path
@@ -10759,6 +11156,10 @@ extension Components {
                 self.expectedFileRevision = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .expectedFileRevision
+                )
+                self.highlight = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .highlight
                 )
                 self.maxHunks = try container.decodeIfPresent(
                     Swift.Int.self,
@@ -10784,6 +11185,7 @@ extension Components {
                     "annotationId",
                     "cursor",
                     "expectedFileRevision",
+                    "highlight",
                     "maxHunks",
                     "pageSize",
                     "path",
@@ -10794,25 +11196,38 @@ extension Components {
         }
         /// - Remark: Generated from `#/components/schemas/ReadHostFileInput`.
         public struct ReadHostFileInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ReadHostFileInput/highlight`.
+            public var highlight: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/ReadHostFileInput/path`.
             public var path: Swift.String
             /// Creates a new `ReadHostFileInput`.
             ///
             /// - Parameters:
+            ///   - highlight:
             ///   - path:
-            public init(path: Swift.String) {
+            public init(
+                highlight: Swift.Bool? = nil,
+                path: Swift.String
+            ) {
+                self.highlight = highlight
                 self.path = path
             }
             public enum CodingKeys: String, CodingKey {
+                case highlight
                 case path
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.highlight = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .highlight
+                )
                 self.path = try container.decode(
                     Swift.String.self,
                     forKey: .path
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "highlight",
                     "path"
                 ])
             }
@@ -10821,6 +11236,8 @@ extension Components {
         public struct ReadWorkspaceFileInput: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ReadWorkspaceFileInput/expectedFileRevision`.
             public var expectedFileRevision: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ReadWorkspaceFileInput/highlight`.
+            public var highlight: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/ReadWorkspaceFileInput/path`.
             public var path: Swift.String
             /// - Remark: Generated from `#/components/schemas/ReadWorkspaceFileInput/workspaceId`.
@@ -10829,19 +11246,23 @@ extension Components {
             ///
             /// - Parameters:
             ///   - expectedFileRevision:
+            ///   - highlight:
             ///   - path:
             ///   - workspaceId:
             public init(
                 expectedFileRevision: Swift.String? = nil,
+                highlight: Swift.Bool? = nil,
                 path: Swift.String,
                 workspaceId: Swift.String
             ) {
                 self.expectedFileRevision = expectedFileRevision
+                self.highlight = highlight
                 self.path = path
                 self.workspaceId = workspaceId
             }
             public enum CodingKeys: String, CodingKey {
                 case expectedFileRevision
+                case highlight
                 case path
                 case workspaceId
             }
@@ -10850,6 +11271,10 @@ extension Components {
                 self.expectedFileRevision = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .expectedFileRevision
+                )
+                self.highlight = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .highlight
                 )
                 self.path = try container.decode(
                     Swift.String.self,
@@ -10861,6 +11286,7 @@ extension Components {
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "expectedFileRevision",
+                    "highlight",
                     "path",
                     "workspaceId"
                 ])
@@ -18532,6 +18958,8 @@ extension Components {
             public var content: Swift.String
             /// - Remark: Generated from `#/components/schemas/WorkspaceFileRead/encoding`.
             public var encoding: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkspaceFileRead/highlight`.
+            public var highlight: Components.Schemas.Highlight?
             /// - Remark: Generated from `#/components/schemas/WorkspaceFileRead/modifiedAt`.
             public var modifiedAt: Swift.String?
             /// - Remark: Generated from `#/components/schemas/WorkspaceFileRead/path`.
@@ -18557,6 +18985,7 @@ extension Components {
             /// - Parameters:
             ///   - content:
             ///   - encoding:
+            ///   - highlight:
             ///   - modifiedAt:
             ///   - path:
             ///   - returnedBytes:
@@ -18570,6 +18999,7 @@ extension Components {
             public init(
                 content: Swift.String,
                 encoding: Swift.String,
+                highlight: Components.Schemas.Highlight? = nil,
                 modifiedAt: Swift.String? = nil,
                 path: Swift.String,
                 returnedBytes: Swift.Int,
@@ -18583,6 +19013,7 @@ extension Components {
             ) {
                 self.content = content
                 self.encoding = encoding
+                self.highlight = highlight
                 self.modifiedAt = modifiedAt
                 self.path = path
                 self.returnedBytes = returnedBytes
@@ -18597,6 +19028,7 @@ extension Components {
             public enum CodingKeys: String, CodingKey {
                 case content
                 case encoding
+                case highlight
                 case modifiedAt
                 case path
                 case returnedBytes
@@ -18617,6 +19049,10 @@ extension Components {
                 self.encoding = try container.decode(
                     Swift.String.self,
                     forKey: .encoding
+                )
+                self.highlight = try container.decodeIfPresent(
+                    Components.Schemas.Highlight.self,
+                    forKey: .highlight
                 )
                 self.modifiedAt = try container.decodeIfPresent(
                     Swift.String.self,
@@ -18661,6 +19097,7 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "content",
                     "encoding",
+                    "highlight",
                     "modifiedAt",
                     "path",
                     "returnedBytes",

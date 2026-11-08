@@ -12,6 +12,7 @@ filter:
     - attachments
     - subagents
     - server
+    - highlight
     - workspace
     - scratchpad
     - vcs

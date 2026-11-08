@@ -20,6 +20,9 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /v1/health`.
     /// - Remark: Generated from `#/paths//v1/health/get(getHealth)`.
     func getHealth(_ input: Operations.GetHealth.Input) async throws -> Operations.GetHealth.Output
+    /// - Remark: HTTP `POST /v1/highlight`.
+    /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)`.
+    func highlightCode(_ input: Operations.HighlightCode.Input) async throws -> Operations.HighlightCode.Output
     /// - Remark: HTTP `POST /v1/logins`.
     /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)`.
     func startProviderLogin(_ input: Operations.StartProviderLogin.Input) async throws -> Operations.StartProviderLogin.Output
@@ -266,6 +269,17 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//v1/health/get(getHealth)`.
     public func getHealth(headers: Operations.GetHealth.Input.Headers = .init()) async throws -> Operations.GetHealth.Output {
         try await getHealth(Operations.GetHealth.Input(headers: headers))
+    }
+    /// - Remark: HTTP `POST /v1/highlight`.
+    /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)`.
+    public func highlightCode(
+        headers: Operations.HighlightCode.Input.Headers,
+        body: Operations.HighlightCode.Input.Body
+    ) async throws -> Operations.HighlightCode.Output {
+        try await highlightCode(Operations.HighlightCode.Input(
+            headers: headers,
+            body: body
+        ))
     }
     /// - Remark: HTTP `POST /v1/logins`.
     /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)`.

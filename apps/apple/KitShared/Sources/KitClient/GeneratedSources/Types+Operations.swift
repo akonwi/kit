@@ -2730,6 +2730,1110 @@ public enum Operations {
             }
         }
     }
+    /// - Remark: HTTP `POST /v1/highlight`.
+    /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)`.
+    public enum HighlightCode {
+        public static let id: Swift.String = "highlightCode"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/v1/highlight/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/header/X-Kit-Instance-ID`.
+                public var xKitInstanceID: Swift.String
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/header/X-Kit-Protocol-Version`.
+                @frozen public enum XKitProtocolVersionPayload: Int, Codable, Hashable, Sendable, CaseIterable {
+                    case _50 = 50
+                }
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/header/X-Kit-Protocol-Version`.
+                public var xKitProtocolVersion: Operations.HighlightCode.Input.Headers.XKitProtocolVersionPayload
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.HighlightCode.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xKitInstanceID:
+                ///   - xKitProtocolVersion:
+                ///   - accept:
+                public init(
+                    xKitInstanceID: Swift.String,
+                    xKitProtocolVersion: Operations.HighlightCode.Input.Headers.XKitProtocolVersionPayload,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.HighlightCode.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xKitInstanceID = xKitInstanceID
+                    self.xKitProtocolVersion = xKitProtocolVersion
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.HighlightCode.Input.Headers
+            /// - Remark: Generated from `#/paths/v1/highlight/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.HighlightCodeInput)
+            }
+            public var body: Operations.HighlightCode.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.HighlightCode.Input.Headers,
+                body: Operations.HighlightCode.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.HighlightCodeResult)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.HighlightCodeResult {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.HighlightCode.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.HighlightCode.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Success
+            ///
+            /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.HighlightCode.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.HighlightCode.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/400/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/400/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/400/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/400/content/json/error/InvalidRequestError`.
+                            case invalidRequest(Components.Schemas.InvalidRequestError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_request":
+                                    self = .invalidRequest(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidRequest(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/400/content/json/error`.
+                        public var error: Operations.HighlightCode.Output.BadRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.HighlightCode.Output.BadRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.HighlightCode.Output.BadRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/400/content/application\/json`.
+                    case json(Operations.HighlightCode.Output.BadRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.HighlightCode.Output.BadRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.HighlightCode.Output.BadRequest.Body
+                /// Creates a new `BadRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.HighlightCode.Output.BadRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Bad Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.HighlightCode.Output.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.HighlightCode.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/401/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/401/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/401/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/401/content/json/error/HighlightCredentialExpiredError`.
+                            case credentialExpired(Components.Schemas.HighlightCredentialExpiredError)
+                            /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "credential_expired":
+                                    self = .credentialExpired(try .init(from: decoder))
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .credentialExpired(value):
+                                    try value.encode(to: encoder)
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/401/content/json/error`.
+                        public var error: Operations.HighlightCode.Output.Unauthorized.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.HighlightCode.Output.Unauthorized.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.HighlightCode.Output.Unauthorized.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/401/content/application\/json`.
+                    case json(Operations.HighlightCode.Output.Unauthorized.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.HighlightCode.Output.Unauthorized.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.HighlightCode.Output.Unauthorized.Body
+                /// Creates a new `Unauthorized`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.HighlightCode.Output.Unauthorized.Body) {
+                    self.body = body
+                }
+            }
+            /// Unauthorized
+            ///
+            /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.HighlightCode.Output.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.HighlightCode.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/403/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/403/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/403/content/json/error`.
+                        public var error: Operations.HighlightCode.Output.Forbidden.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.HighlightCode.Output.Forbidden.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.HighlightCode.Output.Forbidden.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/403/content/application\/json`.
+                    case json(Operations.HighlightCode.Output.Forbidden.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.HighlightCode.Output.Forbidden.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.HighlightCode.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.HighlightCode.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// Forbidden
+            ///
+            /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.HighlightCode.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.HighlightCode.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/409/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/409/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/409/content/json/error`.
+                        public var error: Operations.HighlightCode.Output.Conflict.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.HighlightCode.Output.Conflict.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.HighlightCode.Output.Conflict.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/409/content/application\/json`.
+                    case json(Operations.HighlightCode.Output.Conflict.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.HighlightCode.Output.Conflict.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.HighlightCode.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.HighlightCode.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflict
+            ///
+            /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.HighlightCode.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.HighlightCode.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ContentTooLarge: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/413/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/413/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/413/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/413/content/json/error/HighlightLimitExceededError`.
+                            case limitExceeded(Components.Schemas.HighlightLimitExceededError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "limit_exceeded":
+                                    self = .limitExceeded(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .limitExceeded(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/413/content/json/error`.
+                        public var error: Operations.HighlightCode.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.HighlightCode.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.HighlightCode.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/413/content/application\/json`.
+                    case json(Operations.HighlightCode.Output.ContentTooLarge.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.HighlightCode.Output.ContentTooLarge.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.HighlightCode.Output.ContentTooLarge.Body
+                /// Creates a new `ContentTooLarge`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.HighlightCode.Output.ContentTooLarge.Body) {
+                    self.body = body
+                }
+            }
+            /// Request Entity Too Large
+            ///
+            /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)/responses/413`.
+            ///
+            /// HTTP response code: `413 contentTooLarge`.
+            case contentTooLarge(Operations.HighlightCode.Output.ContentTooLarge)
+            /// The associated value of the enum case if `self` is `.contentTooLarge`.
+            ///
+            /// - Throws: An error if `self` is not `.contentTooLarge`.
+            /// - SeeAlso: `.contentTooLarge`.
+            public var contentTooLarge: Operations.HighlightCode.Output.ContentTooLarge {
+                get throws {
+                    switch self {
+                    case let .contentTooLarge(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "contentTooLarge",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct MisdirectedRequest: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/421/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/421/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/421/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/421/content/json/error`.
+                        public var error: Operations.HighlightCode.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.HighlightCode.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.HighlightCode.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/421/content/application\/json`.
+                    case json(Operations.HighlightCode.Output.MisdirectedRequest.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.HighlightCode.Output.MisdirectedRequest.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.HighlightCode.Output.MisdirectedRequest.Body
+                /// Creates a new `MisdirectedRequest`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.HighlightCode.Output.MisdirectedRequest.Body) {
+                    self.body = body
+                }
+            }
+            /// Misdirected Request
+            ///
+            /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)/responses/421`.
+            ///
+            /// HTTP response code: `421 misdirectedRequest`.
+            case misdirectedRequest(Operations.HighlightCode.Output.MisdirectedRequest)
+            /// The associated value of the enum case if `self` is `.misdirectedRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.misdirectedRequest`.
+            /// - SeeAlso: `.misdirectedRequest`.
+            public var misdirectedRequest: Operations.HighlightCode.Output.MisdirectedRequest {
+                get throws {
+                    switch self {
+                    case let .misdirectedRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "misdirectedRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct UpgradeRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/426/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/426/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/426/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/426/content/json/error`.
+                        public var error: Operations.HighlightCode.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.HighlightCode.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.HighlightCode.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/426/content/application\/json`.
+                    case json(Operations.HighlightCode.Output.UpgradeRequired.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.HighlightCode.Output.UpgradeRequired.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.HighlightCode.Output.UpgradeRequired.Body
+                /// Creates a new `UpgradeRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.HighlightCode.Output.UpgradeRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Upgrade Required
+            ///
+            /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)/responses/426`.
+            ///
+            /// HTTP response code: `426 upgradeRequired`.
+            case upgradeRequired(Operations.HighlightCode.Output.UpgradeRequired)
+            /// The associated value of the enum case if `self` is `.upgradeRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.upgradeRequired`.
+            /// - SeeAlso: `.upgradeRequired`.
+            public var upgradeRequired: Operations.HighlightCode.Output.UpgradeRequired {
+                get throws {
+                    switch self {
+                    case let .upgradeRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "upgradeRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct TooManyRequests: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/429/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/429/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/429/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/429/content/json/error/HighlightRateLimitedError`.
+                            case rateLimited(Components.Schemas.HighlightRateLimitedError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "rate_limited":
+                                    self = .rateLimited(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .rateLimited(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/429/content/json/error`.
+                        public var error: Operations.HighlightCode.Output.TooManyRequests.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.HighlightCode.Output.TooManyRequests.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.HighlightCode.Output.TooManyRequests.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/429/content/application\/json`.
+                    case json(Operations.HighlightCode.Output.TooManyRequests.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.HighlightCode.Output.TooManyRequests.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.HighlightCode.Output.TooManyRequests.Body
+                /// Creates a new `TooManyRequests`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.HighlightCode.Output.TooManyRequests.Body) {
+                    self.body = body
+                }
+            }
+            /// Too Many Requests
+            ///
+            /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Operations.HighlightCode.Output.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Operations.HighlightCode.Output.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/500/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/500/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/500/content/json/error`.
+                        @frozen public enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
+                            public enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/500/content/json/error`.
+                        public var error: Operations.HighlightCode.Output.InternalServerError.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Operations.HighlightCode.Output.InternalServerError.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.HighlightCode.Output.InternalServerError.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/highlight/POST/responses/500/content/application\/json`.
+                    case json(Operations.HighlightCode.Output.InternalServerError.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.HighlightCode.Output.InternalServerError.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.HighlightCode.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.HighlightCode.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// Internal Server Error
+            ///
+            /// - Remark: Generated from `#/paths//v1/highlight/post(highlightCode)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.HighlightCode.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            public var internalServerError: Operations.HighlightCode.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// - Remark: HTTP `POST /v1/logins`.
     /// - Remark: Generated from `#/paths//v1/logins/post(startProviderLogin)`.
     public enum StartProviderLogin {
