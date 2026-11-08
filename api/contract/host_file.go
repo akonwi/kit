@@ -20,6 +20,8 @@ const (
 type ReadHostFileInput struct {
 	// Path is absolute, or "~" or "~/…" for the server user's home directory.
 	Path string `json:"path"`
+	// Highlight asks for the syntax highlighting of a text result (ADR 0062).
+	Highlight bool `json:"highlight,omitempty"`
 }
 
 // HostFileKind identifies what a host file read returned.
@@ -54,6 +56,9 @@ type HostTextFile struct {
 	ReturnedLines    int    `json:"returnedLines,omitempty"`
 	Truncated        bool   `json:"truncated,omitempty"`
 	TruncationReason string `json:"truncationReason,omitempty"`
+	// Highlight colors Content when the request asked for it and the server
+	// could highlight it; it is absent otherwise.
+	Highlight *Highlight `json:"highlight,omitempty"`
 }
 
 // HostImageFile is a complete PNG, JPEG, GIF, or WebP host file.
@@ -134,6 +139,7 @@ type hostFileReadWire struct {
 	ReturnedLines    int          `json:"returnedLines,omitempty"`
 	Truncated        bool         `json:"truncated,omitempty"`
 	TruncationReason string       `json:"truncationReason,omitempty"`
+	Highlight        *Highlight   `json:"highlight,omitempty"`
 	MediaType        string       `json:"mediaType,omitempty"`
 	Width            int          `json:"width,omitempty"`
 	Height           int          `json:"height,omitempty"`
@@ -213,6 +219,11 @@ func (t HostTextFile) Validate() error {
 	}
 	if t.Truncated != (t.TruncationReason != "") || (t.TruncationReason != "" && t.TruncationReason != "byte_limit" && t.TruncationReason != "line_limit") {
 		return fmt.Errorf("host text file truncation is invalid")
+	}
+	if t.Highlight != nil {
+		if err := t.Highlight.ValidateText(t.Content); err != nil {
+			return fmt.Errorf("host text file highlight is invalid: %w", err)
+		}
 	}
 	return nil
 }

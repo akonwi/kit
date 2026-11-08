@@ -10,7 +10,7 @@ func Catalog() []Descriptor {
 		GetBashHistory.Describe(), StartBash.Describe(), GetBash.Describe(), AbortBash.Describe(),
 		UploadAttachment.Describe(), ResolveAttachments.Describe(), ReadAttachment.Describe(),
 		ConfigureSubagent.Describe(), GetSubagentEvents.Describe(), GetSubagentTranscript.Describe(), OperateSubagent.Describe(),
-		GetHealth.Describe(), Shutdown.Describe(), ListModels.Describe(), RefreshModels.Describe(),
+		GetHealth.Describe(), Shutdown.Describe(), ListModels.Describe(), RefreshModels.Describe(), HighlightCode.Describe(),
 		RedeemPairing.Describe(), CreatePairing.Describe(), ListDevices.Describe(), RevokeDevice.Describe(),
 		ListProviders.Describe(), StartProviderLogin.Describe(), GetProviderLogin.Describe(), SubmitProviderLoginAuthorization.Describe(),
 		CancelProviderLogin.Describe(), SetProviderAPIKey.Describe(), DeleteProviderCredentials.Describe(),

@@ -88,6 +88,9 @@ type ReadFileDiffInput struct {
 	PageSize             int    `json:"pageSize,omitempty"`
 	MaxHunks             int    `json:"maxHunks,omitempty"`
 	Cursor               string `json:"cursor,omitempty"`
+	// Highlight asks for the syntax highlighting of the page's lines
+	// (ADR 0062).
+	Highlight bool `json:"highlight,omitempty"`
 }
 type DiffComputation struct {
 	State  string `json:"state"`
@@ -115,6 +118,9 @@ type FileDiffPage struct {
 	Computation DiffComputation `json:"computation"`
 	Hunks       []DiffHunk      `json:"hunks"`
 	NextCursor  string          `json:"nextCursor,omitempty"`
+	// Highlight colors the page's lines when the request asked for it and the
+	// server could highlight either side; it is absent otherwise.
+	Highlight *FileDiffHighlight `json:"highlight,omitempty"`
 }
 
 func validHexOID(v string) bool {
@@ -298,6 +304,11 @@ func (p FileDiffPage) Validate() error {
 	}
 	if lines > MaxDiffLinePageSize {
 		return fmt.Errorf("diff page has too many lines")
+	}
+	if p.Highlight != nil {
+		if err := p.Highlight.Validate(p); err != nil {
+			return fmt.Errorf("file diff highlight is invalid: %w", err)
+		}
 	}
 	b, _ := json.Marshal(p)
 	if len(b) > MaxDiffResponseBytes {

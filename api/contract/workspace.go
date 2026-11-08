@@ -144,6 +144,8 @@ type ReadWorkspaceFileInput struct {
 	WorkspaceID          string `json:"workspaceId"`
 	Path                 string `json:"path"`
 	ExpectedFileRevision string `json:"expectedFileRevision,omitempty"`
+	// Highlight asks for the content's syntax highlighting (ADR 0062).
+	Highlight bool `json:"highlight,omitempty"`
 }
 
 // WorkspaceFileRead is one bounded current-file observation.
@@ -160,6 +162,9 @@ type WorkspaceFileRead struct {
 	ReturnedLines    int          `json:"returnedLines"`
 	Truncated        bool         `json:"truncated"`
 	TruncationReason string       `json:"truncationReason,omitempty"`
+	// Highlight colors Content when the request asked for it and the server
+	// could highlight it; it is absent otherwise.
+	Highlight *Highlight `json:"highlight,omitempty"`
 }
 
 func ValidateWorkspacePath(value string, allowRoot bool) error {
@@ -257,6 +262,11 @@ func (r WorkspaceFileRead) Validate() error {
 	}
 	if r.Truncated != (r.TruncationReason != "") || (r.TruncationReason != "" && r.TruncationReason != "byte_limit" && r.TruncationReason != "line_limit") {
 		return fmt.Errorf("file truncation is invalid")
+	}
+	if r.Highlight != nil {
+		if err := r.Highlight.ValidateText(r.Content); err != nil {
+			return fmt.Errorf("workspace file highlight is invalid: %w", err)
+		}
 	}
 	return nil
 }

@@ -81,6 +81,7 @@ type (
 	DiffTruncation                    = contract.DiffTruncation
 	DirectoryPage                     = contract.DirectoryPage
 	FileContent                       = contract.FileContent
+	FileDiffHighlight                 = contract.FileDiffHighlight
 	FileDiffPage                      = contract.FileDiffPage
 	FileIndexEntry                    = contract.FileIndexEntry
 	FirstTurnError                    = contract.FirstTurnError
@@ -91,6 +92,14 @@ type (
 	ForkSessionInput                  = contract.ForkSessionInput
 	ForkSessionResult                 = contract.ForkSessionResult
 	GitHubPullRequest                 = contract.GitHubPullRequest
+	Highlight                         = contract.Highlight
+	HighlightCodeBlock                = contract.HighlightCodeBlock
+	HighlightCodeInput                = contract.HighlightCodeInput
+	HighlightCodeLimit                = contract.HighlightCodeLimit
+	HighlightCodeLimitDetails         = contract.HighlightCodeLimitDetails
+	HighlightCodeLimitError           = contract.HighlightCodeLimitError
+	HighlightCodeResult               = contract.HighlightCodeResult
+	HighlightedCode                   = contract.HighlightedCode
 	HostFileKind                      = contract.HostFileKind
 	HostFilePayload                   = contract.HostFilePayload
 	HostFileRead                      = contract.HostFileRead
@@ -333,6 +342,10 @@ const (
 	FirstTurnInvalidRequest                 = contract.FirstTurnInvalidRequest
 	FirstTurnNotFound                       = contract.FirstTurnNotFound
 	FirstTurnUnavailable                    = contract.FirstTurnUnavailable
+	HighlightCodeLimitBlockBytes            = contract.HighlightCodeLimitBlockBytes
+	HighlightCodeLimitBlocks                = contract.HighlightCodeLimitBlocks
+	HighlightCodeLimitLanguageBytes         = contract.HighlightCodeLimitLanguageBytes
+	HighlightCodeLimitTotalBytes            = contract.HighlightCodeLimitTotalBytes
 	HostFileImage                           = contract.HostFileImage
 	HostFileText                            = contract.HostFileText
 	InteractionAuthorize                    = contract.InteractionAuthorize
@@ -395,6 +408,12 @@ const (
 	MaxFileIndexEntries                     = contract.MaxFileIndexEntries
 	MaxFileIndexPathLen                     = contract.MaxFileIndexPathLen
 	MaxGuidedQuestions                      = contract.MaxGuidedQuestions
+	MaxHighlightCodeBlockBytes              = contract.MaxHighlightCodeBlockBytes
+	MaxHighlightCodeBlocks                  = contract.MaxHighlightCodeBlocks
+	MaxHighlightCodeTotalBytes              = contract.MaxHighlightCodeTotalBytes
+	MaxHighlightLanguageBytes               = contract.MaxHighlightLanguageBytes
+	MaxHighlightRoleBytes                   = contract.MaxHighlightRoleBytes
+	MaxHighlightRoles                       = contract.MaxHighlightRoles
 	MaxHostFileImageBytes                   = contract.MaxHostFileImageBytes
 	MaxHostFileImagePixels                  = contract.MaxHostFileImagePixels
 	MaxImageAttachmentBytes                 = contract.MaxImageAttachmentBytes
