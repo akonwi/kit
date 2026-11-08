@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -109,6 +110,7 @@ type sessionService interface {
 	Delete(context.Context, string) error
 	DisposeTemporary(context.Context, string) error
 	List(context.Context, string) ([]protocol.SessionInfo, error)
+	ListByAttention(context.Context, string) ([]protocol.SessionInfo, error)
 	Activity(context.Context) (protocol.SessionActivityList, error)
 	Models(context.Context) (protocol.ModelCatalog, error)
 	RefreshModels(context.Context) (protocol.ModelCatalog, error)
@@ -321,6 +323,38 @@ func (s runtimeSessionService) List(ctx context.Context, cwd string) ([]protocol
 	for _, record := range records {
 		result = append(result, s.projectSession(record))
 	}
+	return result, nil
+}
+
+// ListByAttention lists sessions in the attention order, each that is not
+// idle with its activity. The list and the activity are read one after the
+// other, so a session that changes between the reads shows its state from
+// the second.
+func (s runtimeSessionService) ListByAttention(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
+	records, err := s.manager.List(ctx, cwd)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.manager.Activity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	activity := make(map[string]kitsession.SessionActivity, len(entries))
+	for _, entry := range entries {
+		activity[entry.SessionID] = entry
+	}
+	result := make([]protocol.SessionInfo, 0, len(records))
+	for _, record := range records {
+		info := s.projectSession(record)
+		if entry, ok := activity[info.ID]; ok {
+			info.Activity = &protocol.SessionInfoActivity{Status: protocol.SessionActivity(entry.Status)}
+			if entry.Status == kitsession.ActivityAwaitingResponse {
+				info.Activity.Since = entry.Since.UTC().Format(time.RFC3339Nano)
+			}
+		}
+		result = append(result, info)
+	}
+	slices.SortFunc(result, protocol.CompareAttention)
 	return result, nil
 }
 
@@ -2036,14 +2070,23 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 		return catalog, nil
 	})
 	httpapi.Handle(mux, httpOptions, httpapi.ListSessions, func(ctx context.Context, params httpapi.ListSessionsPath, _ httpapi.NoBody) (protocol.SessionList, error) {
-		records, err := service.List(ctx, params.CWD)
+		if params.Order != "" && !params.Order.Valid() {
+			return protocol.SessionList{}, invalidAPIError()
+		}
+		var records []protocol.SessionInfo
+		var err error
+		if params.Order == protocol.SessionListOrderAttention {
+			records, err = service.ListByAttention(ctx, params.CWD)
+		} else {
+			records, err = service.List(ctx, params.CWD)
+		}
 		if err != nil {
 			return protocol.SessionList{}, lifecycleAPIError(err)
 		}
 		if records == nil {
 			records = []protocol.SessionInfo{}
 		}
-		result := protocol.SessionList{Sessions: records}
+		result := protocol.SessionList{Sessions: records, Order: params.Order}
 		if err := result.Validate(); err != nil {
 			return protocol.SessionList{}, internalAPIError()
 		}

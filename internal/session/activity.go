@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"sort"
+	"time"
 )
 
 // Activity is what a session is doing that its user would want to see.
@@ -20,6 +21,9 @@ const (
 type SessionActivity struct {
 	SessionID string
 	Status    Activity
+	// Since is when the session's oldest pending interaction was created,
+	// for ActivityAwaitingResponse. It is zero otherwise.
+	Since time.Time
 }
 
 // Activity reports the saved sessions that are working or waiting on their
@@ -51,6 +55,7 @@ func (m *Manager) Activity(ctx context.Context) ([]SessionActivity, error) {
 	m.mu.Unlock()
 
 	activity := make(map[string]Activity)
+	waitingSince := make(map[string]time.Time)
 	running := func(id string) {
 		if activity[id] == "" {
 			activity[id] = ActivityRunning
@@ -60,8 +65,19 @@ func (m *Manager) Activity(ctx context.Context) ([]SessionActivity, error) {
 		candidate.mu.Lock()
 		active := candidate.activeRun != ""
 		candidate.mu.Unlock()
-		if candidate.interactions != nil && len(candidate.interactions.snapshot()) > 0 {
+		var pending []InteractionRequest
+		if candidate.interactions != nil {
+			pending = candidate.interactions.snapshot()
+		}
+		if len(pending) > 0 {
 			activity[id] = ActivityAwaitingResponse
+			oldest := pending[0].CreatedAt
+			for _, request := range pending[1:] {
+				if request.CreatedAt.Before(oldest) {
+					oldest = request.CreatedAt
+				}
+			}
+			waitingSince[id] = oldest
 		} else if active {
 			running(id)
 		}
@@ -88,7 +104,7 @@ func (m *Manager) Activity(ctx context.Context) ([]SessionActivity, error) {
 		if _, skip := excluded[id]; skip {
 			continue
 		}
-		result = append(result, SessionActivity{SessionID: id, Status: value})
+		result = append(result, SessionActivity{SessionID: id, Status: value, Since: waitingSince[id]})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].SessionID < result[j].SessionID })
 	return result, nil
