@@ -128,6 +128,7 @@ type Client struct {
 	devices        deviceTransport
 	providers      providerTransport
 	settings       settingsTransport
+	highlights     highlightTransport
 	lifetime       context.Context
 	cancel         context.CancelFunc
 	closed         bool
@@ -209,6 +210,7 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 	client.devices = transport
 	client.providers = transport
 	client.settings = transport
+	client.highlights = transport
 	return client, nil
 }
 
