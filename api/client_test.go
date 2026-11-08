@@ -24,7 +24,8 @@ import (
 )
 
 type fakeClientBackend struct {
-	list func(context.Context, string) ([]protocol.SessionInfo, error)
+	list          func(context.Context, string) ([]protocol.SessionInfo, error)
+	listAttention func(context.Context, string) (protocol.SessionList, error)
 }
 
 func (f *fakeClientBackend) CreateSession(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error) {
@@ -44,6 +45,12 @@ func (f *fakeClientBackend) DisposeTemporarySession(context.Context, string) err
 }
 func (f *fakeClientBackend) ListSessions(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
 	return f.list(ctx, cwd)
+}
+func (f *fakeClientBackend) ListSessionsByAttention(ctx context.Context, cwd string) (protocol.SessionList, error) {
+	if f.listAttention == nil {
+		return protocol.SessionList{}, errors.New("unexpected ListSessionsByAttention")
+	}
+	return f.listAttention(ctx, cwd)
 }
 func (f *fakeClientBackend) GetSessionActivity(context.Context) ([]protocol.SessionActivityEntry, error) {
 	return nil, errors.New("unexpected GetSessionActivity")
@@ -68,6 +75,41 @@ func TestClientListSessionsProjectsOptions(t *testing.T) {
 	sessions, err := client.ListSessions(t.Context(), ListSessionsOptions{CWD: "/workspace"})
 	if err != nil || len(sessions) != 1 || sessions[0].ID != "session_test" {
 		t.Fatalf("sessions = %+v, err = %v", sessions, err)
+	}
+}
+
+func TestClientListSessionsByAttentionReturnsTheOrderedSessions(t *testing.T) {
+	waiting := protocol.SessionInfo{ID: "session_a", Activity: &protocol.SessionInfoActivity{Status: protocol.SessionActivityAwaitingResponse, Since: "2026-03-23T12:00:00Z"}}
+	backend := &fakeClientBackend{listAttention: func(_ context.Context, cwd string) (protocol.SessionList, error) {
+		if cwd != "/workspace" {
+			t.Fatalf("cwd = %q", cwd)
+		}
+		return protocol.SessionList{Sessions: []protocol.SessionInfo{waiting, {ID: "session_b"}}, Order: protocol.SessionListOrderAttention}, nil
+	}}
+	client := newClient(backend, nil)
+	t.Cleanup(func() { _ = client.Close() })
+
+	sessions, err := client.ListSessionsByAttention(t.Context(), ListSessionsOptions{CWD: "/workspace"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []SessionInfo{waiting, {ID: "session_b"}}; !reflect.DeepEqual(sessions, want) {
+		t.Fatalf("sessions = %+v, want %+v", sessions, want)
+	}
+}
+
+// A server that predates the order answers with a list without one.
+func TestClientListSessionsByAttentionIsUnsupportedByAnOlderServer(t *testing.T) {
+	backend := &fakeClientBackend{listAttention: func(context.Context, string) (protocol.SessionList, error) {
+		return protocol.SessionList{Sessions: []protocol.SessionInfo{{ID: "session_b"}}}, nil
+	}}
+	client := newClient(backend, nil)
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err := client.ListSessionsByAttention(t.Context(), ListSessionsOptions{})
+	var unsupported *UnsupportedError
+	if !errors.As(err, &unsupported) || unsupported.Capability != "listSessionsByAttention" {
+		t.Fatalf("error = %#v, want UnsupportedError for listSessionsByAttention", err)
 	}
 }
 

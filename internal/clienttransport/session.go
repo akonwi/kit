@@ -115,6 +115,20 @@ func (c *Client) ListSessions(ctx context.Context, cwd string) ([]protocol.Sessi
 	return output.Sessions, nil
 }
 
+// ListSessionsByAttention asks for the session list in the attention order.
+// A server that predates the order ignores it and answers with a list whose
+// Order is empty, which is returned as received.
+func (c *Client) ListSessionsByAttention(ctx context.Context, cwd string) (protocol.SessionList, error) {
+	output, err := httpapi.Call(ctx, c, httpapi.ListSessions, httpapi.ListSessionsPath{CWD: cwd, Order: protocol.SessionListOrderAttention}, httpapi.NoBody{})
+	if err != nil {
+		return protocol.SessionList{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.SessionList{}, protocolErrorf("validate daemon session list: %w", err)
+	}
+	return output, nil
+}
+
 // GetSessionActivity reports the saved sessions that are not idle.
 func (c *Client) GetSessionActivity(ctx context.Context) ([]protocol.SessionActivityEntry, error) {
 	output, err := httpapi.Call(ctx, c, httpapi.GetSessionActivity, httpapi.ServerPath{}, httpapi.NoBody{})

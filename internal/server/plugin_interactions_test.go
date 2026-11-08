@@ -281,6 +281,21 @@ func TestPendingPluginDialogReportsSessionAwaitingResponse(t *testing.T) {
 	if !reflect.DeepEqual(activity, want) {
 		t.Fatalf("activity with a pending dialog = %#v, want %#v", activity, want)
 	}
+	list, err := client.ListSessionsByAttention(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked, err := time.Parse(time.RFC3339Nano, request.CreatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list.Order != protocol.SessionListOrderAttention || len(list.Sessions) != 1 || list.Sessions[0].ID != id ||
+		list.Sessions[0].Activity == nil || list.Sessions[0].Activity.Status != protocol.SessionActivityAwaitingResponse {
+		t.Fatalf("attention list with a pending dialog = %#v, want %s awaiting a response", list, id)
+	}
+	if since, err := time.Parse(time.RFC3339Nano, list.Sessions[0].Activity.Since); err != nil || !since.Equal(asked) {
+		t.Fatalf("waiting since %q, want the dialog's creation %q", list.Sessions[0].Activity.Since, request.CreatedAt)
+	}
 	if err := client.RespondInteraction(ctx, id, protocol.InteractionResponse{RequestID: request.ID, Cancelled: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -298,6 +313,13 @@ func TestPendingPluginDialogReportsSessionAwaitingResponse(t *testing.T) {
 	}
 	if !reflect.DeepEqual(activity, []protocol.SessionActivityEntry{}) {
 		t.Fatalf("activity after the dialog settled = %#v, want none", activity)
+	}
+	list, err = client.ListSessionsByAttention(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Sessions) != 1 || list.Sessions[0].Activity != nil {
+		t.Fatalf("attention list after the dialog settled = %#v, want the session idle", list)
 	}
 }
 
