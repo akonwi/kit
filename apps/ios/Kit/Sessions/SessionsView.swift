@@ -10,6 +10,15 @@ struct SessionsView: View {
     /// The open session, when one is.
     @State private var path: [SessionIdentity] = []
     @State private var newSession: NewSessionForm?
+    /// The session being renamed from its row's menu.
+    @State private var renaming: ListedSession?
+    /// The session whose deletion is being confirmed. Kept after the alert
+    /// closes so its words don't change while it fades.
+    @State private var confirming: ListedSession?
+    @State private var confirmingDelete = false
+    /// The session being deleted, until the list no longer shows it or
+    /// until its failure is seen.
+    @State private var deleting: ListedSession?
 
     /// How often the list is fetched again while it's on screen.
     static let refreshInterval: Duration = .seconds(10)
@@ -54,6 +63,23 @@ struct SessionsView: View {
                     Task { await store.retry(session.server) }
                 }
             }
+            .sheet(item: $renaming) { listed in
+                RenameSessionSheet(actions: listed.actions) {
+                    Task { await store.retry(listed.id.server) }
+                }
+            }
+            .alert(confirming?.confirmation.title ?? "", isPresented: $confirmingDelete, presenting: confirming) { listed in
+                Button("Cancel", role: .cancel) {}
+                Button(listed.confirmation.button, role: .destructive) { delete(listed) }
+            } message: { listed in
+                Text(listed.confirmation.message)
+            }
+            .alert("Couldn’t delete", isPresented: deleteFailed) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(deleting?.actions.deleteError ?? "")
+            }
+            .overlay { if let deleting, deleting.actions.deleteError == nil { DeletingOverlay() } }
             .refreshable { await store.refresh(saved) }
             .task(id: saved.map(\.address)) {
                 while !Task.isCancelled {
@@ -144,11 +170,52 @@ struct SessionsView: View {
                                 SessionRow(row: row, now: context.date)
                             }
                             .buttonStyle(.plain)
+                            .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 22, style: .continuous))
+                            .contextMenu { menu(row) }
                         }
                     }
                 }
             }
         }
+    }
+
+    // MARK: Row menu
+
+    /// Rename and Delete, on a long press of a row. Both are off while its server can’t be reached.
+    @ViewBuilder
+    private func menu(_ row: SessionsStore.Row) -> some View {
+        let confirmation = SessionActions.DeleteConfirmation(session: row.session.title,
+                                                             temporary: row.session.isTemporary == true)
+        Group {
+            Button("Rename…", systemImage: "pencil") { renaming = listed(row) }
+            Button(confirmation.item, systemImage: "trash", role: .destructive) {
+                confirming = listed(row)
+                confirmingDelete = confirming != nil
+            }
+        }
+        .disabled(row.stale)
+    }
+
+    /// What the menu acts through for a row: the session as the list last read it.
+    private func listed(_ row: SessionsStore.Row) -> ListedSession? {
+        guard let server = store.server(named: row.server) else { return nil }
+        let actions = SessionActions(identity: row.id, client: store.network.client(for: server))
+        actions.reconcile(row.session)
+        return ListedSession(actions: actions)
+    }
+
+    /// Deletes the session, keeping the progress up until the list reads its server again.
+    private func delete(_ listed: ListedSession) {
+        deleting = listed
+        Task {
+            guard await listed.actions.delete() else { return }
+            await store.retry(listed.id.server)
+            deleting = nil
+        }
+    }
+
+    private var deleteFailed: Binding<Bool> {
+        Binding(get: { deleting?.actions.deleteError != nil }, set: { if !$0 { deleting = nil } })
     }
 
     private var empty: some View {
@@ -178,6 +245,19 @@ struct SessionsView: View {
             let names = store.servers.formatted(.list(type: .and))
             return "Sessions from \(names) show up here, including ones you start on your Mac."
         }
+    }
+}
+
+/// A listed session acted on from its row's menu.
+struct ListedSession: Identifiable {
+    let id: SessionIdentity
+    let actions: SessionActions
+    let confirmation: SessionActions.DeleteConfirmation
+
+    @MainActor init(actions: SessionActions) {
+        id = actions.identity
+        self.actions = actions
+        confirmation = actions.deleteConfirmation
     }
 }
 
