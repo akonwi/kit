@@ -36,7 +36,7 @@ func (s *Service) ReadLineRange(ctx context.Context, session, cwd string, input 
 	if err != nil {
 		return LineRangeEvidence{}, err
 	}
-	page, err := s.readFile(ctx, session, cwd, protocol.ReadFileDiffInput{
+	page, _, err := s.readFile(ctx, session, cwd, protocol.ReadFileDiffInput{
 		TargetID: input.TargetID, TargetRevision: input.TargetRevision, Path: input.Path,
 		ExpectedFileRevision: input.FileRevision,
 	}, observation)
@@ -152,5 +152,5 @@ func (s *Service) ReadFileForAnnotation(ctx context.Context, session, cwd string
 	if err != nil {
 		return protocol.FileDiffPage{}, err
 	}
-	return s.readFile(ctx, session, cwd, input, observation)
+	return s.readHighlightedFile(ctx, session, cwd, input, observation)
 }

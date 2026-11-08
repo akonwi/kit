@@ -24,6 +24,7 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/auth"
+	"github.com/akonwi/kit/internal/codehighlight"
 	"github.com/akonwi/kit/internal/devices"
 	"github.com/akonwi/kit/internal/githubpr"
 	"github.com/akonwi/kit/internal/httpapi"
@@ -553,6 +554,8 @@ type localHandlerOptions struct {
 	streamShutdown context.Context
 	// logger receives causes of failed requests; nil disables reporting.
 	logger *slog.Logger
+	// highlights serves highlightCode; nil uses the shared highlighter.
+	highlights *codehighlight.Service
 }
 
 func newHandler(options localHandlerOptions) http.Handler {
@@ -584,6 +587,10 @@ func newHandler(options localHandlerOptions) http.Handler {
 	if options.attachments != nil {
 		registerAttachmentRoutes(mux, options.attachments)
 	}
+	if options.highlights == nil {
+		options.highlights = codehighlight.Default
+	}
+	registerHighlightRoutes(mux, options.highlights)
 	if options.pairing == nil {
 		options.pairing = pairing.NewRegistry(nil)
 	}
@@ -638,7 +645,7 @@ func newHandler(options localHandlerOptions) http.Handler {
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusConflict, httpapi.ErrorInstanceMismatch, "daemon instance mismatch", nil))
 			return
 		}
-		if (strings.HasPrefix(request.URL.Path, "/v1/sessions") || strings.HasPrefix(request.URL.Path, "/v1/models")) &&
+		if (strings.HasPrefix(request.URL.Path, "/v1/sessions") || strings.HasPrefix(request.URL.Path, "/v1/models") || request.URL.Path == httpapi.HighlightCode.Path) &&
 			request.Header.Get(protocolHeader) != strconv.Itoa(version.SessionProtocolVersion) {
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusUpgradeRequired, httpapi.ErrorProtocolMismatch, "session protocol mismatch", nil))
 			return

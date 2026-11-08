@@ -13,6 +13,7 @@ require (
 )
 
 require (
+	github.com/akonwi/tree-sitter-ard v0.0.0-20261108005617-a3fd3a3dc116 // indirect
 	github.com/anthropics/anthropic-sdk-go v1.61.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
@@ -24,6 +25,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/modelcontextprotocol/go-sdk v1.7.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/openai/openai-go/v3 v3.66.0 // indirect
@@ -38,6 +40,19 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
+	github.com/tree-sitter-grammars/tree-sitter-toml v0.7.0 // indirect
+	github.com/tree-sitter-grammars/tree-sitter-yaml v0.7.2 // indirect
+	github.com/tree-sitter/go-tree-sitter v0.25.0 // indirect
+	github.com/tree-sitter/tree-sitter-bash v0.25.1 // indirect
+	github.com/tree-sitter/tree-sitter-css v0.25.0 // indirect
+	github.com/tree-sitter/tree-sitter-go v0.25.0 // indirect
+	github.com/tree-sitter/tree-sitter-html v0.23.2 // indirect
+	github.com/tree-sitter/tree-sitter-javascript v0.25.0 // indirect
+	github.com/tree-sitter/tree-sitter-json v0.24.8 // indirect
+	github.com/tree-sitter/tree-sitter-python v0.25.0 // indirect
+	github.com/tree-sitter/tree-sitter-ruby v0.23.1 // indirect
+	github.com/tree-sitter/tree-sitter-rust v0.24.2 // indirect
+	github.com/tree-sitter/tree-sitter-typescript v0.23.2 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yuin/goldmark v1.8.4 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect

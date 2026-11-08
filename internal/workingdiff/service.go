@@ -16,6 +16,7 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/internal/codehighlight"
 	"github.com/akonwi/kit/internal/workspace"
 )
 
@@ -91,6 +92,8 @@ type Service struct {
 	// budget bounds each observation or file read the service performs on
 	// behalf of a caller.
 	budget time.Duration
+	// highlights colors file diff pages that ask for it.
+	highlights *codehighlight.Service
 }
 
 func NewService(ws *workspace.Service) (*Service, error) {
@@ -98,7 +101,7 @@ func NewService(ws *workspace.Service) (*Service, error) {
 	if e != nil {
 		return nil, e
 	}
-	s := &Service{runner: r, workspaces: ws, observations: map[string]*observation{}, active: make(chan struct{}, 8), gates: map[string]chan struct{}{}, pending: map[string]int{}, now: time.Now, budget: observationBudget}
+	s := &Service{runner: r, workspaces: ws, observations: map[string]*observation{}, active: make(chan struct{}, 8), gates: map[string]chan struct{}{}, pending: map[string]int{}, now: time.Now, budget: observationBudget, highlights: codehighlight.Default}
 	_, e = rand.Read(s.key[:])
 	return s, e
 }

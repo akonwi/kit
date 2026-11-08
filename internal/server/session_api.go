@@ -20,6 +20,7 @@ import (
 	protocol "github.com/akonwi/kit/api/contract"
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/attachment"
+	"github.com/akonwi/kit/internal/codehighlight"
 	"github.com/akonwi/kit/internal/fileindex"
 	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/identifier"
@@ -2257,6 +2258,9 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 			writeSessionError(writer, err)
 			return
 		}
+		if input.Highlight {
+			result.Highlight = codehighlight.Default.Highlight(request.Context(), codehighlight.Text{Path: result.Path, Source: result.Content})
+		}
 		if err := result.Validate(); err != nil {
 			writeSessionError(writer, fmt.Errorf("invalid workspace file: %w", err))
 			return
@@ -2276,6 +2280,10 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 		if err != nil {
 			writeSessionError(writer, hostFileAPIError(err))
 			return
+		}
+		if text := result.Text(); text != nil && input.Highlight {
+			text.Highlight = codehighlight.Default.Highlight(request.Context(), codehighlight.Text{Path: text.Path, Source: text.Content})
+			result.Payload = *text
 		}
 		if err := result.Validate(); err != nil || result.SessionID() != sessionID {
 			writeSessionError(writer, internalAPIErrorCausedBy(fmt.Errorf("invalid host file read for session %q: %v", sessionID, err)))
@@ -2891,13 +2899,13 @@ func decodeSessionJSON(writer http.ResponseWriter, request *http.Request, target
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		return fmt.Errorf("%w: invalid JSON: %v", errInvalidSessionRequest, err)
+		return fmt.Errorf("%w: invalid JSON: %w", errInvalidSessionRequest, err)
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		if err == nil {
 			return fmt.Errorf("%w: multiple JSON values", errInvalidSessionRequest)
 		}
-		return fmt.Errorf("%w: invalid JSON: %v", errInvalidSessionRequest, err)
+		return fmt.Errorf("%w: invalid JSON: %w", errInvalidSessionRequest, err)
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/internal/codehighlight"
 	"github.com/akonwi/kit/internal/workspace"
 )
 
@@ -163,16 +164,75 @@ func (s *Service) listCursor(session string, in protocol.ObserveWorkingTreeInput
 }
 func (s *Service) ReadFile(ctx context.Context, session, cwd string, in protocol.ReadFileDiffInput) (_ protocol.FileDiffPage, err error) {
 	defer projectDeadline(ctx, &err)
-	return s.readFile(ctx, session, cwd, in, nil)
+	return s.readHighlightedFile(ctx, session, cwd, in, nil)
 }
 
-func (s *Service) readFile(ctx context.Context, session, cwd string, in protocol.ReadFileDiffInput, resolved *observation) (protocol.FileDiffPage, error) {
+// readHighlightedFile reads one page and, when the request asks for it,
+// colors the page after the session's diff slot is released, so a slow parse
+// never holds the slot.
+func (s *Service) readHighlightedFile(ctx context.Context, session, cwd string, in protocol.ReadFileDiffInput, resolved *observation) (protocol.FileDiffPage, error) {
+	page, file, err := s.readFile(ctx, session, cwd, in, resolved)
+	if err != nil {
+		return protocol.FileDiffPage{}, err
+	}
+	if in.Highlight {
+		s.highlightPage(ctx, &page, file)
+	}
+	return page, nil
+}
+
+// highlightPage colors the page's lines from the whole old and new file, each
+// highlighted once, so constructs that span lines are colored correctly. The
+// page stays plain when neither side can be highlighted or the colors would
+// take it past the diff response bound.
+func (s *Service) highlightPage(ctx context.Context, page *protocol.FileDiffPage, file retainedFile) {
+	var oldIndexes, newIndexes []int
+	for _, hunk := range page.Hunks {
+		for _, line := range hunk.Lines {
+			if line.OldLine != nil {
+				oldIndexes = append(oldIndexes, *line.OldLine-1)
+			}
+			if line.NewLine != nil {
+				newIndexes = append(newIndexes, *line.NewLine-1)
+			}
+		}
+	}
+	var texts []codehighlight.Text
+	if len(oldIndexes) > 0 {
+		texts = append(texts, codehighlight.Text{Path: page.File.Path, Source: string(file.old)})
+	}
+	if len(newIndexes) > 0 {
+		texts = append(texts, codehighlight.Text{Path: page.File.Path, Source: string(file.new)})
+	}
+	if len(texts) == 0 {
+		return
+	}
+	highlights := s.highlights.Highlights(ctx, texts)
+	var colors protocol.FileDiffHighlight
+	if len(oldIndexes) > 0 {
+		colors.Old = codehighlight.SelectLines(highlights[0], oldIndexes)
+		highlights = highlights[1:]
+	}
+	if len(newIndexes) > 0 {
+		colors.New = codehighlight.SelectLines(highlights[0], newIndexes)
+	}
+	if colors.Old == nil && colors.New == nil || colors.Validate(*page) != nil {
+		return
+	}
+	page.Highlight = &colors
+	if encoded, err := json.Marshal(page); err != nil || len(encoded) > protocol.MaxDiffResponseBytes {
+		page.Highlight = nil
+	}
+}
+
+// readFile returns one page and the retained file it reads.
+func (s *Service) readFile(ctx context.Context, session, cwd string, in protocol.ReadFileDiffInput, resolved *observation) (protocol.FileDiffPage, retainedFile, error) {
 	if e := in.Validate(); e != nil {
-		return protocol.FileDiffPage{}, &Error{Code: InvalidPath, Message: "file diff request is invalid"}
+		return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: InvalidPath, Message: "file diff request is invalid"}
 	}
 	release, e := s.acquire(ctx, session)
 	if e != nil {
-		return protocol.FileDiffPage{}, e
+		return protocol.FileDiffPage{}, retainedFile{}, e
 	}
 	defer release()
 	offset := 0
@@ -188,7 +248,7 @@ func (s *Service) readFile(ctx context.Context, session, cwd string, in protocol
 	if in.Cursor != "" {
 		c, e := s.decodeCursor(in.Cursor)
 		if e != nil || c.Operation != "file" || c.Session != session || c.Target != in.TargetID || c.Revision != in.TargetRevision || c.Path != boundPath(in.Path) || c.PageSize != lineLimit || c.MaxHunks != hunkLimit {
-			return protocol.FileDiffPage{}, staleCursor()
+			return protocol.FileDiffPage{}, retainedFile{}, staleCursor()
 		}
 		offset = c.Offset
 		cursorFileRevision = c.FileRevision
@@ -198,17 +258,17 @@ func (s *Service) readFile(ctx context.Context, session, cwd string, in protocol
 		var ok bool
 		o, ok = s.get(in.TargetRevision, session)
 		if !ok {
-			return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "diff observation is unavailable"}
+			return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleTarget, Message: "diff observation is unavailable"}
 		}
 	} else if o.Revision != in.TargetRevision || o.SessionID != session {
-		return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "diff observation identity does not match"}
+		return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleTarget, Message: "diff observation identity does not match"}
 	}
 	if o.Target.ID != in.TargetID || o.Target.WorkspaceID != s.workspaces.Ref(session, cwd).WorkspaceID {
-		return protocol.FileDiffPage{}, &Error{Code: StaleWorkspace, Message: "the session workspace changed"}
+		return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleWorkspace, Message: "the session workspace changed"}
 	}
 	i := sort.Search(len(o.files), func(i int) bool { return o.files[i].summary.Path >= in.Path })
 	if i == len(o.files) || o.files[i].summary.Path != in.Path {
-		return protocol.FileDiffPage{}, &Error{Code: NotFound, Message: "changed file is not in the observation"}
+		return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: NotFound, Message: "changed file is not in the observation"}
 	}
 	f := o.files[i]
 	if o.committed {
@@ -217,70 +277,70 @@ func (s *Service) readFile(ctx context.Context, session, cwd string, in protocol
 		defer cancel()
 	}
 	if cursorFileRevision != "" && cursorFileRevision != f.summary.FileRevision {
-		return protocol.FileDiffPage{}, staleCursor()
+		return protocol.FileDiffPage{}, retainedFile{}, staleCursor()
 	}
 	if in.ExpectedFileRevision != "" && in.ExpectedFileRevision != f.summary.FileRevision {
-		return protocol.FileDiffPage{}, &Error{Code: StaleFile, Message: "file revision does not match"}
+		return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleFile, Message: "file revision does not match"}
 	}
 	rediscovered, e := s.discoverRepository(ctx, cwd)
 	if e != nil && ctx.Err() != nil {
-		return protocol.FileDiffPage{}, ctx.Err()
+		return protocol.FileDiffPage{}, retainedFile{}, ctx.Err()
 	}
 	if e != nil || rediscovered.gitdirID != o.repo.gitdirID || rediscovered.commonID != o.repo.commonID || rediscovered.objectsID != o.repo.objectsID || o.committed && authorityToken(rediscovered) != authorityToken(o.repo) || !o.committed && rediscovered.authorityDigest != o.repo.authorityDigest {
-		return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "repository authority changed"}
+		return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleTarget, Message: "repository authority changed"}
 	}
 	if o.committed {
 		ref := targetReference{Kind: o.Target.Kind, Base: o.Target.Base, Head: o.Target.Head}
 		pinned, e := s.verifyPinnedTarget(ctx, rediscovered, ref)
 		if e != nil {
-			return protocol.FileDiffPage{}, e
+			return protocol.FileDiffPage{}, retainedFile{}, e
 		}
 		if e := s.revalidateCommittedFile(ctx, rediscovered, ref, pinned, f); e != nil {
-			return protocol.FileDiffPage{}, e
+			return protocol.FileDiffPage{}, retainedFile{}, e
 		}
 	} else {
 		current, e := s.observeControl(ctx, o.repo)
 		if e != nil {
-			return protocol.FileDiffPage{}, e
+			return protocol.FileDiffPage{}, retainedFile{}, e
 		}
 		if current.digest != o.control.digest {
-			return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "diff target changed"}
+			return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleTarget, Message: "diff target changed"}
 		}
 		aggregate := int64(0)
 		snap, e := s.workspaces.ObserveDiffPaths(ctx, session, cwd, o.Target.WorkspaceID, o.control.candidates, protocol.MaxDiffFileBytes, &aggregate)
 		if e != nil {
-			return protocol.FileDiffPage{}, projectWorkspace(e)
+			return protocol.FileDiffPage{}, retainedFile{}, projectWorkspace(e)
 		}
 		if snap.RootIdentity != o.rootIdentity {
-			return protocol.FileDiffPage{}, &Error{Code: StaleWorkspace, Message: "workspace root changed"}
+			return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleWorkspace, Message: "workspace root changed"}
 		}
 		for _, entry := range snap.Entries {
 			old := o.allLive[entry.Path]
 			if entry.Path == in.Path {
 				if entry.Identity != old.Identity || entry.Digest != old.Digest || entry.Mode != old.Mode || entry.Kind != old.Kind {
-					return protocol.FileDiffPage{}, &Error{Code: StaleFile, Message: "requested file changed"}
+					return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleFile, Message: "requested file changed"}
 				}
 			} else if entry.Identity != old.Identity || entry.Mode != old.Mode || entry.Kind != old.Kind {
-				return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "another target file changed"}
+				return protocol.FileDiffPage{}, retainedFile{}, &Error{Code: StaleTarget, Message: "another target file changed"}
 			}
 		}
 	}
 	result := protocol.FileDiffPage{Observation: o.DiffObservation, File: f.summary, Computation: protocol.DiffComputation{State: "complete"}, Hunks: []protocol.DiffHunk{}}
 	if f.summary.ContentState != "text" || f.summary.Change == "mode_changed" {
-		return result, nil
+		return result, f, nil
 	}
 	oldLines, reason := splitLines(f.old)
 	if reason != "" {
-		return result, nil
+		return result, f, nil
 	}
 	newLines, _ := splitLines(f.new)
 	hunks, e := semanticHunks(ctx, oldLines, newLines)
 	if errors.Is(e, errTooComplex) {
 		result.Computation = protocol.DiffComputation{State: "too_complex", Reason: "diff_work"}
-		return result, nil
+		return result, f, nil
 	}
 	if e != nil {
-		return protocol.FileDiffPage{}, e
+		return protocol.FileDiffPage{}, retainedFile{}, e
 	}
 	flat := 0
 	usedLines := 0
@@ -327,7 +387,7 @@ func (s *Service) readFile(ctx context.Context, session, cwd string, in protocol
 	if next < total {
 		result.NextCursor = s.cursor(cursorRecord{Session: session, Workspace: o.Target.WorkspaceID, Target: o.Target.ID, Revision: o.Revision, Operation: "file", Path: boundPath(in.Path), FileRevision: f.summary.FileRevision, Offset: next, PageSize: lineLimit, MaxHunks: hunkLimit, Expires: o.expires.Unix()})
 	}
-	return result, nil
+	return result, f, nil
 }
 func projectWorkspace(err error) error {
 	var e *workspace.Error
