@@ -131,10 +131,53 @@ struct NewSessionFormTests {
         }
         let form = form(server)
         await form.load()
+        form.folderText = "~/src/eval"
         #expect(await form.create() == nil)
-        #expect(form.error == "studio couldn’t start a session in ~/src/kit. Check that the folder exists there.")
+        #expect(form.folderError == "No folder at ~/src/eval on studio.")
+        #expect(form.error == nil)
         #expect(!form.uncertain)
         #expect(form.canCreate)
+
+        form.folderText = "~/src/evals"
+        #expect(form.folderError == nil)
+    }
+
+    @Test func theFolderFieldChoosesARecentFolderOrKeepsWhatWasTyped() async {
+        let server = FakeNewSessionServer { $0.models = [Self.model("a", nil)] }
+        let form = form(server, recent: ["/home/me/src/kit", "/home/me/src/surf"])
+        await form.load()
+        #expect(form.folderText == "~/src/kit")
+
+        form.folderText = "~/src/"
+        #expect(form.folder == NewSessionForm.Folder.typed("~/src/"))
+        #expect(form.path == "/home/me/src/")
+
+        form.folderText = "~/src/surf"
+        #expect(form.folder == NewSessionForm.Folder.recent("/home/me/src/surf"))
+
+        form.folderText = ""
+        #expect(form.folder == nil)
+        #expect(!form.canCreate)
+    }
+
+    @Test func suggestionsNarrowToRecentFoldersContainingWhatWasTyped() async {
+        let server = FakeNewSessionServer { $0.models = [Self.model("a", nil)] }
+        let form = form(server, recent: ["/home/me/src/kit", "/home/me/src/kit-worktrees/ios", "/home/me/src/surf"])
+        await form.load()
+        // While the field shows a recent folder, it offers all of them.
+        #expect(form.suggestions == ["/home/me/src/kit", "/home/me/src/kit-worktrees/ios", "/home/me/src/surf"])
+        #expect(form.completion("/home/me/src/kit") == nil)
+
+        form.folderText = "~/src/k"
+        #expect(form.suggestions == ["/home/me/src/kit", "/home/me/src/kit-worktrees/ios"])
+        #expect(form.completion("/home/me/src/kit-worktrees/ios")! == ("~/src/k", "it-worktrees/ios"))
+
+        form.folderText = "WORKTREES"
+        #expect(form.suggestions == ["/home/me/src/kit-worktrees/ios"])
+        #expect(form.completion("/home/me/src/kit-worktrees/ios") == nil)
+
+        form.folderText = "~/elsewhere"
+        #expect(form.suggestions.isEmpty)
     }
 
     @Test func aLostAnswerFindsTheSessionTheServerMade() async throws {

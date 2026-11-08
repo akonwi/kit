@@ -1,8 +1,9 @@
 import XCTest
 
 /// Starts a session from the Sessions list on the paired server of an
-/// isolated Kit home: a folder the server doesn't have is refused, then a
-/// typed folder that exists creates a named session, which opens ready for
+/// isolated Kit home: the folder field offers the server's recent folders, a
+/// folder the server doesn't have is refused under it, then a typed folder
+/// that exists creates a named session, which opens ready for
 /// its first message and is deleted again. Run by script/test_new_session.sh,
 /// which names the folder. Nothing here starts a turn.
 final class NewSessionUITests: XCTestCase {
@@ -26,23 +27,44 @@ final class NewSessionUITests: XCTestCase {
         plus.tap()
         XCTAssertTrue(app.navigationBars["New session"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Model"].waitForExistence(timeout: 15), "Expected the models to load")
-        XCTAssertTrue(app.buttons["new-session-other-folder"].exists)
+        let folderField = app.textFields["new-session-folder"]
+        XCTAssertTrue(folderField.exists, "Expected one folder field")
         attach(app, "Form")
 
-        // A folder the server doesn't have is refused, and the form stays open.
+        // Choosing a folder offers the server's recent folders in place of the rest of the form.
+        folderField.tap()
+        let footer = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "is your home folder on")).firstMatch
+        XCTAssertTrue(footer.waitForExistence(timeout: 5), "Expected the field to say where ~ points")
+        XCTAssertFalse(app.buttons["Model"].exists, "Expected the folder to take the sheet while it is chosen")
+        attach(app, "Choosing a folder")
+
+        // A folder the server doesn't have is refused under the field, and the form stays open.
         let missing = "~/kit-ios-no-such-folder"
         type(app, folder: missing)
-        attach(app, "Other folder")
-        app.buttons["new-session-use-folder"].tap()
-        XCTAssertTrue(app.buttons[missing].waitForExistence(timeout: 5), "Expected the typed folder in the list")
+        XCTAssertTrue(app.buttons["Model"].waitForExistence(timeout: 5), "Expected the form back after Done")
         app.buttons["new-session-create"].tap()
-        let refusal = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Check that the folder exists there")).firstMatch
+        let refusal = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "No folder at \(missing) on ")).firstMatch
         XCTAssertTrue(refusal.waitForExistence(timeout: 15), "Expected the server to refuse \(missing)")
-        attach(app, "Refused")
+        attach(app, "No such folder")
+
+        // An empty field offers every recent folder, and typing narrows them
+        // to those containing it.
+        folderField.tap()
+        let clear = app.buttons["Clear"]
+        if clear.waitForExistence(timeout: 2) { clear.tap() }
+        let suggestion = app.buttons["new-session-suggestion"].firstMatch
+        if suggestion.waitForExistence(timeout: 5) {
+            let label = suggestion.label
+            folderField.typeText(String(label.dropLast(2)))
+            let narrowed = app.buttons.matching(identifier: "new-session-suggestion")
+            XCTAssertTrue(narrowed.matching(NSPredicate(format: "label == %@", label)).firstMatch.waitForExistence(timeout: 5),
+                          "Expected \(label) to stay offered")
+            attach(app, "Narrowed")
+        }
 
         // A folder it has creates the session, named, which opens with the field focused.
         type(app, folder: folder)
-        app.buttons["new-session-use-folder"].tap()
+        XCTAssertFalse(refusal.exists, "Expected a new folder to clear the refusal")
         let name = "New session test \(Int(Date().timeIntervalSince1970) % 100_000)"
         let field = app.textFields["new-session-name"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
@@ -69,16 +91,15 @@ final class NewSessionUITests: XCTestCase {
 
     // MARK: Steps
 
-    /// Opens Other folder and replaces its text with `folder`.
+    /// Replaces the focused folder field's text with `folder`, then Done.
     @MainActor
     private func type(_ app: XCUIApplication, folder: String) {
-        app.buttons["new-session-other-folder"].tap()
         let field = app.textFields["new-session-folder"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        if let current = field.value as? String, !current.isEmpty {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
-        }
+        let clear = app.buttons["Clear"]
+        if clear.waitForExistence(timeout: 2) { clear.tap() }
         field.typeText(folder)
+        field.typeText("\n")
     }
 
     private func header(_ app: XCUIApplication, _ title: String) -> XCUIElement {

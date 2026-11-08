@@ -17,8 +17,8 @@ extension ServerClient: NewSessionServer {
 }
 
 /// The new session form: which server, which folder on it, the model and
-/// thinking level, and an optional name. A folder is one of the server's
-/// recent folders, or a path typed relative to its home.
+/// thinking level, and an optional name. The folder is one field: one of the
+/// server's recent folders, or any path typed relative to its home.
 @MainActor @Observable
 final class NewSessionForm {
     /// A paired server and the folders its sessions ran in, newest first.
@@ -36,7 +36,9 @@ final class NewSessionForm {
 
     let places: [Place]
     private(set) var server: String
-    var folder: Folder?
+    var folder: Folder? {
+        didSet { if folder != oldValue { folderError = nil } }
+    }
     var name = ""
     private(set) var models: [WireModelCapability] = []
     var model = "" {
@@ -51,13 +53,15 @@ final class NewSessionForm {
     /// failed, so creating another could duplicate it.
     private(set) var uncertain = false
     private(set) var error: String?
+    /// The server has no folder at the chosen path.
+    private(set) var folderError: String?
 
     /// Chosen before the request, so a create whose answer was lost can be found.
     private let creationID = SessionCreation.newID()
     private let connect: @MainActor (String) -> any NewSessionServer
     private var loads = 0
 
-    /// The most folders a server offers before Other folder.
+    /// The most recent folders a server offers.
     static let recentLimit = 5
 
     /// `places` in the order servers are listed; the form starts on
@@ -114,6 +118,44 @@ final class NewSessionForm {
         path != nil && !model.isEmpty && (levels.isEmpty || !thinking.isEmpty) && !loading && !pending && !uncertain
     }
 
+    /// The folder field's text: a recent folder as the form shows it, or the
+    /// path as typed. Text that names a recent folder chooses it.
+    var folderText: String {
+        get {
+            switch folder {
+            case .recent(let path): return display(path)
+            case .typed(let typed): return typed
+            case nil: return ""
+            }
+        }
+        set {
+            guard newValue != folderText else { return }
+            if let path = recent.first(where: { display($0) == newValue || $0 == newValue }) {
+                folder = .recent(path)
+            } else {
+                folder = newValue.isEmpty ? nil : .typed(newValue)
+            }
+        }
+    }
+
+    /// The recent folders the field offers: all of them while it shows one of
+    /// them, else those containing what was typed.
+    var suggestions: [String] {
+        guard case .typed(let typed) = folder else { return recent }
+        let query = typed.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return recent }
+        return recent.filter { display($0).localizedCaseInsensitiveContains(query) || $0.localizedCaseInsensitiveContains(query) }
+    }
+
+    /// A suggestion split into the part already typed and the rest, when the
+    /// typed text starts it.
+    func completion(_ path: String) -> (typed: String, rest: String)? {
+        guard case .typed(let typed) = folder, !typed.isEmpty else { return nil }
+        let shown = display(path)
+        guard shown.count > typed.count, shown.lowercased().hasPrefix(typed.lowercased()) else { return nil }
+        return (String(shown.prefix(typed.count)), String(shown.dropFirst(typed.count)))
+    }
+
     /// A folder as the form shows it, with the server's home written `~`.
     func display(_ path: String) -> String {
         guard let home, !home.isEmpty, home != "/" else { return SessionFormat.directory(path) }
@@ -164,7 +206,7 @@ final class NewSessionForm {
     /// Asks the server to create the session, and returns it once it exists.
     func create() async -> SessionIdentity? {
         guard canCreate, let path else { return nil }
-        pending = true; error = nil
+        pending = true; error = nil; folderError = nil
         defer { pending = false }
         let server = connect(self.server)
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -175,7 +217,14 @@ final class NewSessionForm {
             return SessionIdentity(server: self.server, session: session.id)
         } catch {
             if SessionCreation.definitelyRejected(error) {
-                self.error = refusal(error, path: path)
+                // The server answers any invalid create with a bare 400. The
+                // model, thinking level and ID come from its catalog and this
+                // form, so the folder is what it refused.
+                if case ClientError.http(400) = error {
+                    folderError = "No folder at \(folderText.trimmingCharacters(in: .whitespacesAndNewlines)) on \(self.server)."
+                } else {
+                    self.error = error.localizedDescription
+                }
                 return nil
             }
             // The answer may have been lost after the server created it.
@@ -186,15 +235,6 @@ final class NewSessionForm {
             self.error = "\(self.server) may have created the session. Close this and pull to refresh Sessions before trying again. \(error.localizedDescription)"
             return nil
         }
-    }
-
-    /// Why the server refused: a request it can't take is most often a
-    /// folder that doesn't exist there.
-    private func refusal(_ error: any Error, path: String) -> String {
-        if case ClientError.http(400) = error {
-            return "\(server) couldn’t start a session in \(display(path)). Check that the folder exists there."
-        }
-        return error.localizedDescription
     }
 }
 

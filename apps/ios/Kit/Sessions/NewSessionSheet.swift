@@ -6,21 +6,22 @@ struct NewSessionSheet: View {
     @State var form: NewSessionForm
     let open: (SessionIdentity) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var typing = false
+    /// While the folder field has focus, the sheet offers recent folders in
+    /// place of the rest of the form.
+    @FocusState private var choosing: Bool
 
     var body: some View {
         NavigationStack {
             Form {
-                if form.places.count > 1 { serverSection }
+                if form.places.count > 1 && !choosing { serverSection }
                 folderSection
-                configurationSection
+                if choosing { suggestionsSection } else { configurationSection }
             }
+            .animation(.default, value: choosing)
+            .scrollDismissesKeyboard(.interactively)
             .disabled(form.pending)
             .navigationTitle("New session")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(isPresented: $typing) {
-                OtherFolderView(form: form)
-            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", role: .cancel) { dismiss() }
@@ -72,41 +73,89 @@ struct NewSessionSheet: View {
 
     private var folderSection: some View {
         Section {
-            ForEach(form.recent, id: \.self) { path in
-                folderRow(form.display(path), selected: form.folder == .recent(path)) {
-                    form.folder = .recent(path)
+            HStack(spacing: 10) {
+                TextField(form.home == nil ? "/path/to/folder" : "~/path/to/folder", text: $form.folderText)
+                    .font(.system(size: 15, design: .monospaced))
+                    .foregroundStyle(Theme.text)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .focused($choosing)
+                    .accessibilityIdentifier("new-session-folder")
+                if choosing {
+                    if !form.folderText.isEmpty {
+                        Button {
+                            form.folderText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 17))
+                                .foregroundStyle(Theme.strongBorder)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Clear")
+                    }
+                } else {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.muted)
+                        .accessibilityHidden(true)
                 }
             }
-            if case .typed(let typed) = form.folder {
-                folderRow(typed, selected: true) { typing = true }
-            }
-            Button("Other folder…") { typing = true }
-                .foregroundStyle(Theme.accent)
-                .accessibilityIdentifier("new-session-other-folder")
+            .listRowBackground(FieldBackground(invalid: form.folderError != nil))
         } header: {
             Text("Folder")
+        } footer: {
+            if let error = form.folderError { ErrorLine(text: error) }
         }
     }
 
-    private func folderRow(_ title: String, selected: Bool, choose: @escaping () -> Void) -> some View {
-        Button(action: choose) {
-            HStack(spacing: 10) {
-                Text(title)
-                    .font(.system(size: 15, design: .monospaced))
-                    .foregroundStyle(Theme.text)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if selected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
+    private var suggestionsSection: some View {
+        Section {
+            ForEach(form.suggestions, id: \.self) { path in
+                Button {
+                    form.folder = .recent(path)
+                    choosing = false
+                } label: {
+                    suggestion(path)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(form.display(path))
+                .accessibilityIdentifier("new-session-suggestion")
             }
-            .contentShape(Rectangle())
+        } header: {
+            if !form.suggestions.isEmpty { Text("Recent on \(form.server)") }
+        } footer: {
+            Text(footer)
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// A recent folder, with the part already typed muted. One text, so a
+    /// long path loses its middle rather than the part being completed.
+    private func suggestion(_ path: String) -> some View {
+        var text: AttributedString
+        if let completion = form.completion(path) {
+            var typed = AttributedString(completion.typed)
+            typed.foregroundColor = Theme.muted
+            var rest = AttributedString(completion.rest)
+            rest.foregroundColor = Theme.text
+            rest.font = .system(size: 15, weight: .semibold, design: .monospaced)
+            text = typed + rest
+        } else {
+            text = AttributedString(form.display(path))
+            text.foregroundColor = Theme.text
+        }
+        return Text(text)
+            .font(.system(size: 15, design: .monospaced))
+            .lineLimit(1)
+            .truncationMode(.middle)
+    }
+
+    private var footer: String {
+        let home = form.home.map { ", \($0)" } ?? ""
+        let prefix = form.suggestions.isEmpty ? "Type any path." : "Or type any path."
+        return "\(prefix) ~ is your home folder on \(form.server)\(home)."
     }
 
     // MARK: Model, thinking, name
@@ -160,7 +209,24 @@ struct NewSessionSheet: View {
     }
 }
 
-/// A refusal under the form, in the danger color.
+/// A form row's background, outlined in the danger color while its value is refused.
+private struct FieldBackground: View {
+    /// The corners of a one-row section in a grouped form.
+    static let radius: CGFloat = 26
+    let invalid: Bool
+
+    var body: some View {
+        Color(uiColor: .secondarySystemGroupedBackground)
+            .overlay {
+                if invalid {
+                    RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
+                        .strokeBorder(Theme.danger, lineWidth: 1.5)
+                }
+            }
+    }
+}
+
+/// A refusal under a field or the form, in the danger color.
 private struct ErrorLine: View {
     let text: String
 
@@ -173,58 +239,5 @@ private struct ErrorLine: View {
         .font(.system(size: 15))
         .foregroundStyle(Theme.danger)
         .padding(.top, 8)
-    }
-}
-
-/// A folder typed as a path on the server: `~` is the server user's home.
-private struct OtherFolderView: View {
-    let form: NewSessionForm
-    @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        Form {
-            Section {
-                TextField("~/src/project", text: $text)
-                    .font(.system(size: 15, design: .monospaced))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .focused($focused)
-                    .submitLabel(.done)
-                    .onSubmit(choose)
-                    .accessibilityIdentifier("new-session-folder")
-            } header: {
-                Text("Folder on \(form.server)")
-            } footer: {
-                Text(footer)
-            }
-        }
-        .navigationTitle("Other folder")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Use folder", role: .confirm, action: choose)
-                    .disabled(trimmed.isEmpty)
-                    .accessibilityIdentifier("new-session-use-folder")
-            }
-        }
-        .onAppear {
-            if case .typed(let typed) = form.folder { text = typed } else { text = "~/" }
-            focused = true
-        }
-    }
-
-    private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    private var footer: String {
-        let home = form.home.map { ", \($0)" } ?? ""
-        return "~ is your home folder on \(form.server)\(home). The server checks the folder exists when you create the session."
-    }
-
-    private func choose() {
-        guard !trimmed.isEmpty else { return }
-        form.folder = .typed(trimmed)
-        dismiss()
     }
 }
