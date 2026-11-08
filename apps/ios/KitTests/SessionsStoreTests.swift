@@ -96,6 +96,54 @@ struct SessionsStoreTests {
         ])
     }
 
+    /// Sessions that need you come first, the one waiting longest first, then
+    /// working ones, then the rest, latest first, merged across servers.
+    @Test func sessionsAreMergedInAttentionOrder() async {
+        let network = FakeSessionsNetwork()
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        network.set(studio, sessions: [SessionTesting.session("idle-new", at: 900), SessionTesting.session("asked-later", at: 500),
+                                       SessionTesting.session("working-old", at: 100)],
+                    activity: ["asked-later": .awaitingResponse, "working-old": .running],
+                    waitingSince: ["asked-later": base.addingTimeInterval(400)])
+        network.set(vps, sessions: [SessionTesting.session("asked-first", at: 50), SessionTesting.session("working-new", at: 600),
+                                    SessionTesting.session("idle-old", at: 10)],
+                    activity: ["asked-first": .awaitingResponse, "working-new": .running],
+                    waitingSince: ["asked-first": base.addingTimeInterval(40)])
+        let store = SessionTesting.store(network)
+        await store.refresh([studio, vps])
+        #expect(store.rows.map(\.session.id) == ["asked-first", "asked-later", "working-new", "working-old", "idle-new", "idle-old"])
+        #expect(network.activityRequests.isEmpty)
+    }
+
+    /// A server that predates the attention order is asked for its activity
+    /// besides, and its sessions are ordered here, a waiting one by its last
+    /// change.
+    @Test func anOlderServersSessionsAreOrderedHere() async {
+        let network = FakeSessionsNetwork()
+        network.set(vps, sessions: [SessionTesting.session("idle", at: 900), SessionTesting.session("asked", at: 100),
+                                    SessionTesting.session("working", at: 200)],
+                    activity: ["asked": .awaitingResponse, "working": .running], legacy: true)
+        let store = SessionTesting.store(network)
+        await store.refresh([vps])
+        #expect(store.rows.map(\.session.id) == ["asked", "working", "idle"])
+        #expect(network.activityRequests == ["vps"])
+    }
+
+    /// An unreachable server's statuses are only as last seen, so its
+    /// sessions are ordered as idle among the others.
+    @Test func staleSessionsAreOrderedAsIdle() async {
+        let network = FakeSessionsNetwork()
+        network.set(vps, sessions: [SessionTesting.session("was-asking", at: 100)], activity: ["was-asking": .awaitingResponse],
+                    waitingSince: ["was-asking": Date(timeIntervalSince1970: 1_800_000_050)])
+        network.set(studio, sessions: [SessionTesting.session("recent", at: 300)])
+        let store = SessionTesting.store(network)
+        await store.refresh([studio, vps])
+        #expect(store.rows.map(\.session.id) == ["was-asking", "recent"])
+        network.fail(vps, with: URLError(.cannotConnectToHost))
+        await store.refresh([studio, vps])
+        #expect(store.rows.map(\.session.id) == ["recent", "was-asking"])
+    }
+
     @Test func sessionsListedTheFirstTimeCountAsSeen() async {
         let network = FakeSessionsNetwork()
         network.set(studio, sessions: [SessionTesting.session("a", at: 100)])
@@ -184,31 +232,62 @@ enum SessionTesting {
     }
 }
 
+/// Lists sessions as a server would. By default it's a server that orders
+/// them by attention; `legacy` makes it one that predates the order, which
+/// lists them unordered and reports their activity separately.
 final class FakeSessionsNetwork: SessionsNetwork, @unchecked Sendable {
+    private struct Listing {
+        var sessions: [SessionExcerpt]
+        var activity: [String: SessionTabStatus]
+        var waitingSince: [String: Date]
+        var legacy: Bool
+    }
+
     private let lock = NSLock()
-    private var lists: [String: Result<([SessionExcerpt], [String: SessionTabStatus]), any Error>] = [:]
+    private var lists: [String: Result<Listing, any Error>] = [:]
     private var _snapshots: [String] = []
+    private var _activityRequests: [String] = []
 
     var snapshots: [String] { lock.withLock { _snapshots } }
+    /// The servers asked for their activity separately, in order.
+    var activityRequests: [String] { lock.withLock { _activityRequests } }
 
-    func set(_ server: SavedServer, sessions: [SessionExcerpt], activity: [String: SessionTabStatus] = [:]) {
-        lock.withLock { lists[server.name] = .success((sessions, activity)) }
+    func set(_ server: SavedServer, sessions: [SessionExcerpt], activity: [String: SessionTabStatus] = [:],
+             waitingSince: [String: Date] = [:], legacy: Bool = false) {
+        lock.withLock { lists[server.name] = .success(Listing(sessions: sessions, activity: activity, waitingSince: waitingSince, legacy: legacy)) }
     }
 
     func fail(_ server: SavedServer, with error: any Error) {
         lock.withLock { lists[server.name] = .failure(error) }
     }
 
-    private func list(_ server: SavedServer) throws -> ([SessionExcerpt], [String: SessionTabStatus]) {
-        try lock.withLock { try lists[server.name]?.get() ?? ([], [:]) }
+    private func list(_ server: SavedServer) throws -> Listing {
+        try lock.withLock { try lists[server.name]?.get() ?? Listing(sessions: [], activity: [:], waitingSince: [:], legacy: false) }
     }
 
-    func sessions(on server: SavedServer) async throws -> [SessionExcerpt] { try list(server).0 }
-    func activity(on server: SavedServer) async throws -> [String: SessionTabStatus] { try list(server).1 }
+    func sessionsByAttention(on server: SavedServer) async throws -> AttentionListing {
+        let listing = try list(server)
+        if listing.legacy { return .unordered(listing.sessions) }
+        let listed = listing.sessions.map { session in
+            let status = listing.activity[session.id] ?? .idle
+            return ListedSession(session: session, status: status,
+                                 waitingSince: status == .awaitingResponse ? listing.waitingSince[session.id] : nil)
+        }
+        return .ordered(listed.sorted {
+            AttentionOrder.precedes(
+                .init(status: $0.status, waitingSince: $0.waitingSince, updated: SessionFormat.date($0.session.lastActivity ?? $0.session.date), id: $0.session.id),
+                .init(status: $1.status, waitingSince: $1.waitingSince, updated: SessionFormat.date($1.session.lastActivity ?? $1.session.date), id: $1.session.id))
+        })
+    }
+
+    func activity(on server: SavedServer) async throws -> [String: SessionTabStatus] {
+        lock.withLock { _activityRequests.append(server.name) }
+        return try list(server).activity
+    }
 
     func snapshot(_ id: String, on server: SavedServer) async throws -> SessionExcerpt {
         lock.withLock { _snapshots.append(id) }
-        guard let session = try list(server).0.first(where: { $0.id == id }) else { throw ClientError.missingSession }
+        guard let session = try list(server).sessions.first(where: { $0.id == id }) else { throw ClientError.missingSession }
         return session
     }
 

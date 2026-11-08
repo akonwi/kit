@@ -5,8 +5,11 @@ import Synchronization
 
 /// What the Sessions list asks of a server.
 protocol SessionsNetwork: Sendable {
-    func sessions(on server: SavedServer) async throws -> [SessionExcerpt]
+    /// The server's sessions, asked for in the attention order. A server that
+    /// predates the order lists them unordered and without their activity.
+    func sessionsByAttention(on server: SavedServer) async throws -> AttentionListing
     /// Which sessions are working or awaiting a response; the rest are idle.
+    /// Asked only of a server that predates the attention order.
     func activity(on server: SavedServer) async throws -> [String: SessionTabStatus]
     func snapshot(_ id: String, on server: SavedServer) async throws -> SessionExcerpt
     /// A client for one server, for screens that watch a session.
@@ -35,8 +38,8 @@ final class LiveSessionsNetwork: SessionsNetwork {
         }
     }
 
-    func sessions(on server: SavedServer) async throws -> [SessionExcerpt] {
-        try await client(for: server).sessions()
+    func sessionsByAttention(on server: SavedServer) async throws -> AttentionListing {
+        try await client(for: server).sessionsByAttention()
     }
 
     func activity(on server: SavedServer) async throws -> [String: SessionTabStatus] {
@@ -108,8 +111,10 @@ final class SeenSessions {
     }
 }
 
-/// Every paired server's sessions, merged into one list, latest activity
-/// first. A server that can't be reached keeps the list it last gave.
+/// Every paired server's sessions, merged into one list in the attention
+/// order: sessions that need you first, the one waiting longest first; then
+/// working sessions; then the rest, latest activity first. A server that
+/// can't be reached keeps the list it last gave, ordered as idle.
 @MainActor @Observable
 final class SessionsStore {
     struct Row: Identifiable, Equatable {
@@ -121,6 +126,8 @@ final class SessionsStore {
         let unseen: Bool
         let preview: SessionPreview?
         let changed: Date?
+        /// When it started waiting on you, if its server says.
+        var waitingSince: Date? = nil
 
         var id: SessionIdentity { SessionIdentity(server: server, session: session.id) }
         /// Whether the row shows a lane mark and a semibold title.
@@ -145,6 +152,7 @@ final class SessionsStore {
         var server: SavedServer
         var sessions: [SessionExcerpt] = []
         var activity: [String: SessionTabStatus] = [:]
+        var waitingSince: [String: Date] = [:]
         var listedAt: Date?
         var problem: ServerState?
     }
@@ -195,10 +203,26 @@ final class SessionsStore {
                 let unseen = seen.isUnseen(id, changed: changed)
                 let preview = (status != .idle || unseen) ? previews[id]?.preview : nil
                 return Row(session: session, server: name, status: status, stale: stale, unseen: unseen,
-                           preview: preview, changed: changed)
+                           preview: preview, changed: changed, waitingSince: listing.waitingSince[session.id])
             }
         }
-        .sorted { ($0.changed ?? .distantPast, $1.id.session) > ($1.changed ?? .distantPast, $0.id.session) }
+        .sorted(by: Self.precedes)
+    }
+
+    /// The attention order across servers. A stale row's status is only as
+    /// last seen, so it's ordered as idle. Sessions with the same ID on two
+    /// servers fall back to the server's name.
+    static func precedes(_ a: Row, _ b: Row) -> Bool {
+        let first = key(a), second = key(b)
+        if AttentionOrder.precedes(first, second) { return true }
+        if AttentionOrder.precedes(second, first) { return false }
+        return a.server < b.server
+    }
+
+    private static func key(_ row: Row) -> AttentionOrder.Key {
+        let status = row.stale ? .idle : row.status
+        return AttentionOrder.Key(status: status, waitingSince: status == .awaitingResponse ? row.waitingSince : nil,
+                                  updated: row.changed, id: row.session.id)
     }
 
     func rows(_ filter: Filter) -> [Row] {
@@ -251,13 +275,25 @@ final class SessionsStore {
     private func list(_ server: SavedServer) async {
         let network = self.network
         do {
-            async let sessions = network.sessions(on: server)
-            async let activity = network.activity(on: server)
-            let (list, statuses) = try await (sessions, activity)
+            let list: [SessionExcerpt]
+            var statuses: [String: SessionTabStatus] = [:]
+            var since: [String: Date] = [:]
+            switch try await network.sessionsByAttention(on: server) {
+            case .ordered(let listed):
+                list = listed.map(\.session)
+                for entry in listed where entry.status != .idle {
+                    statuses[entry.session.id] = entry.status
+                    since[entry.session.id] = entry.waitingSince
+                }
+            case .unordered(let sessions):
+                list = sessions
+                statuses = try await network.activity(on: server)
+            }
             guard listings[server.name]?.server == server else { return }
             seen.listed(server.name, sessions: list.map { ($0.id, SessionFormat.date($0.lastActivity ?? $0.date)) })
             listings[server.name]?.sessions = list
             listings[server.name]?.activity = statuses
+            listings[server.name]?.waitingSince = since
             listings[server.name]?.listedAt = now()
             listings[server.name]?.problem = nil
         } catch {
@@ -267,7 +303,7 @@ final class SessionsStore {
     }
 
     /// Fetches a snapshot for each standing row whose preview is missing or
-    /// out of date, the most recent first, a few at a time.
+    /// out of date, in the list's order, a few at a time.
     private func fetchPreviews() async {
         let date = now()
         let due = rows.filter { $0.stands && !$0.stale }.prefix(Self.previewLimit).filter { row in

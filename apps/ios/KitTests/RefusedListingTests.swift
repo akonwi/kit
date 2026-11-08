@@ -29,7 +29,7 @@ private struct RevokedNetwork: SessionsNetwork {
                               serverID: "studio", remote: true, configuration: configuration)
     }
 
-    func sessions(on server: SavedServer) async throws -> [SessionExcerpt] { try await http.sessions() }
+    func sessionsByAttention(on server: SavedServer) async throws -> AttentionListing { try await http.sessionsByAttention() }
     func activity(on server: SavedServer) async throws -> [String: SessionTabStatus] { try await http.sessionActivity() }
     func snapshot(_ id: String, on server: SavedServer) async throws -> SessionExcerpt { try await http.snapshot(id) }
     func client(for server: SavedServer) -> ServerClient {
