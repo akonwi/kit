@@ -1,5 +1,5 @@
 {
-  "originHash" : "5d17fcc2f74ad862e1b12288f8f37ec5d00666f6b926d7620b4877bb75097f71",
+  "originHash" : "4572577bdfc039698e5b740235cbcfcb003b3d5d326dec4129cbd94346e62037",
   "pins" : [
     {
       "identity" : "openapikit",
@@ -105,7 +105,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/akonwi/tree-sitter-ard.git",
       "state" : {
-        "revision" : "cff3da3fe80584e8f506c9867fbf17e1eaa7b76c"
+        "revision" : "a3fd3a3dc1164bc654aa3c02acc975845da77d36"
       }
     },
     {

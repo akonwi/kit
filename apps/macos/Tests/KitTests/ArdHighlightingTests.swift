@@ -18,7 +18,9 @@ struct ArdHighlightingTests {
     // Greets someone.
     fn greet(name: Str) Int {
       let count = 42
+      let seen = &count
       io::print("hi")
+      seen.*
       true
     }
     """
@@ -27,7 +29,7 @@ struct ArdHighlightingTests {
     static let transcriptRoles: [(String, String)] = [
         ("use", "keyword"), ("ard/io", "string"), ("// Greets someone.", "comment"), ("fn", "keyword"),
         ("greet", "function"), ("name", "variable"), ("Str", "keywordType"), ("Int", "keywordType"),
-        ("let", "keyword"), ("42", "number"), ("\"hi\"", "string"), ("true", "keyword")
+        ("let", "keyword"), ("42", "number"), ("\"hi\"", "string"), (".*", "operator"), ("true", "keyword")
     ]
 
     private static func roles(of spans: [SyntaxSpan], in source: String) -> [(String, String?)] {

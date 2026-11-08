@@ -43,7 +43,8 @@ struct BundledSyntaxGrammarsTests {
         ("ard", "fn greet() Str {\n  let name = \"Ard\" // note\n  name\n}", "greet", "function"),
         ("ard", "fn greet() Str {\n  let name = \"Ard\" // note\n  name\n}", "Str", "keywordType"),
         ("ard", "fn greet() Str {\n  let name = \"Ard\" // note\n  name\n}", "\"Ard\"", "string"),
-        ("ard", "fn greet() Str {\n  let name = \"Ard\" // note\n  name\n}", "// note", "comment")
+        ("ard", "fn greet() Str {\n  let name = \"Ard\" // note\n  name\n}", "// note", "comment"),
+        ("ard", "fn read(seen: &Int) Int {\n  seen.*\n}", ".*", "operator")
     ])
     func grammarsColorEachLanguage(sample: (String, String, String, String)) async throws {
         let (language, source, word, expected) = sample

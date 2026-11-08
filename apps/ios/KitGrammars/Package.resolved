@@ -1,5 +1,5 @@
 {
-  "originHash" : "221f3563338e2303f44c10ff91f4d22860bb178c136a762458c5084b9cc31506",
+  "originHash" : "a9bcc5ff1541d8f312b18586a83be26c81ffeb2232305bc2f44430012a64b461",
   "pins" : [
     {
       "identity" : "swift-cmark",
@@ -60,7 +60,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/akonwi/tree-sitter-ard.git",
       "state" : {
-        "revision" : "cff3da3fe80584e8f506c9867fbf17e1eaa7b76c"
+        "revision" : "a3fd3a3dc1164bc654aa3c02acc975845da77d36"
       }
     },
     {

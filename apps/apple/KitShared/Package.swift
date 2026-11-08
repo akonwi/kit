@@ -22,7 +22,7 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-markdown.git", exact: "0.8.0"),
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter.git", exact: "0.25.0"),
         // Untagged: pinned to the commit that added its Swift package.
-        .package(url: "https://github.com/akonwi/tree-sitter-ard.git", revision: "cff3da3fe80584e8f506c9867fbf17e1eaa7b76c")
+        .package(url: "https://github.com/akonwi/tree-sitter-ard.git", revision: "a3fd3a3dc1164bc654aa3c02acc975845da77d36")
     ],
     targets: [
         // The session client: the generated OpenAPI transport and the
