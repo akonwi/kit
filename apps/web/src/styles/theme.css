@@ -1,0 +1,73 @@
+/* Kit's theme on Mica: Mica's default look with the Mac app's colors and
+   corner radii (the Kit · Web Paper file's Foundations page). Theming is
+   setting Mica's knobs and roles, never overriding its component CSS. */
+@import "@akonwi/mica/mica.css";
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin-700-normal.woff2") format("woff2");
+}
+
+:root {
+  /* Corners: Mica's three knobs. */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Text sizes: interface, transcript and fields, code, metadata, titles. */
+  --text-ui: 0.875rem;
+  --text-field: 1rem;
+  --text-code: 0.8125rem;
+  --text-meta: 0.6875rem;
+  --text-title: 1.25rem;
+
+  /* Kit's roles, resolved from Mica's default palette as the Mac app does. */
+  --color-surface: light-dark(#ffffff, #090909);
+  --color-surface-raised: light-dark(#f6f6f6, #0f0f0f);
+  --color-surface-overlay: var(--color-surface);
+  --color-fill: var(--color-surface-raised);
+  --color-fill-hover: light-dark(#efefef, #161616);
+  --color-fill-active: light-dark(#e6e6e6, #1d1d1d);
+  --color-frame: light-dark(#ebebeb, #141414);
+  --color-border: light-dark(#dbdbdb, #2e2e2e);
+  --color-border-strong: light-dark(#ababab, #585858);
+  --color-text: light-dark(#121212, #f2f2f2);
+  --color-text-muted: light-dark(#525252, #a1a1a1);
+  --color-accent: light-dark(#2965e9, #5596ff);
+  --color-success-text: light-dark(#006915, #65da84);
+  --color-warn-text: light-dark(#b54a00, #ff9a59);
+  --color-danger-text: light-dark(#98181f, #ff9088);
+  --color-user-wash: light-dark(#dde5f4, #1c273a);
+
+  --color-danger: var(--color-danger-text);
+  /* A switch's off track, as the Mac app draws it. */
+  --color-fill-strong: var(--color-border-strong);
+
+  --color-primary: var(--color-text);
+  --color-on-primary: var(--color-surface);
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Hit targets on touch screens. */
+@media (pointer: coarse) {
+  :root {
+    --control-height: 2.75rem;
+    --control-height-sm: 2.25rem;
+  }
+}

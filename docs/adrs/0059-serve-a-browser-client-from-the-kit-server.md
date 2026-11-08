@@ -121,12 +121,12 @@ widening to use a larger window. It provides, in order:
 3. **Parity.** Attachments, changes with diffs and comments, files, the
    scratchpad, subagents, and paired devices.
 
-Data figures and Mermaid diagrams show their source with the reason they are
-not drawn, as ADRs [0046](0046-draw-mermaid-diagrams-with-kits-own-renderer.md)
-and [0054](0054-draw-data-figures-from-fenced-markdown.md) define for
-unsupported input, until a TypeScript port of the reference renderers is held
-to the shared fixtures in `testdata/mermaid` and `testdata/figures` like the
-Swift port.
+Mermaid flowcharts and sequence diagrams are drawn with Pele, as
+[ADR 0046](0046-draw-mermaid-diagrams-with-kits-own-renderer.md#the-browser-client)
+describes. Data figures are drawn by a TypeScript port of the reference
+parser in [ADR 0054](0054-draw-data-figures-from-fenced-markdown.md), held to
+the shared fixtures in `testdata/figures` like the Swift port, and laid out
+as the macOS client lays them out.
 
 ### Non-goals
 

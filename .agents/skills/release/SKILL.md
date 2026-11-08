@@ -64,6 +64,12 @@ Kit's command line and server); see `apps/cli/README.md`. A release candidate
    the Ard version pinned in `.github/actions/setup-ard/action.yml`.
    Formatting must produce no filenames. Use an isolated `KIT_HOME` for tests.
    CGO and a C/C++ toolchain are required for Tree-sitter (ADR 0021).
+   Run the browser client's checks with the Bun version pinned in
+   `.github/actions/setup-web/action.yml`; `kit` embeds that client (ADR 0059),
+   so a failing check or build blocks the release:
+   ```sh
+   (cd apps/web && bun install --frozen-lockfile && bun run check)
+   ```
 
 4. Dry-run the release build on the local platform before tagging. Substitute
    the intended version below. Use a temporary output directory, not tracked
@@ -72,6 +78,9 @@ Kit's command line and server); see `apps/cli/README.md`. A release candidate
    version=1.2.3
    commit=$(git rev-parse HEAD)
    out=$(mktemp -d)
+   # The executable embeds the browser client; without this build it serves
+   # a placeholder page instead.
+   (cd apps/web && bun run build) && scripts/check-web-build.sh
    # On macOS, also export MACOSX_DEPLOYMENT_TARGET=14.0.
    (cd apps/cli && ard deps fetch && CGO_ENABLED=1 GOFLAGS="-trimpath -ldflags=-s" \
      ard build main.ard --release --define version="$version" \
@@ -90,6 +99,8 @@ Kit's command line and server); see `apps/cli/README.md`. A release candidate
    `~/.local/state/kit/<channel>/home`, and a release names none (ADR 0047).
    Remove the temporary directory when done.
    This validates only the host platform, not all four release targets.
+   `internal/webui/build` is ignored build output; the workflow rebuilds it on
+   every runner.
 
 5. Commit any intended release preparation with a Conventional Commit and push
    `main`. No empty version-bump commit is needed. Ensure the working tree is

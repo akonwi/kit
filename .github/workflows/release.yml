@@ -43,6 +43,16 @@ jobs:
       # The released `kit` is the Ard + Cooper client in apps/cli.
       - uses: ./.github/actions/setup-ard
 
+      # The kit executable embeds the browser client it serves (ADR 0059).
+      - uses: ./.github/actions/setup-web
+
+      - name: Build browser client
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd apps/web && bun run build)
+          scripts/check-web-build.sh
+
       - name: Build release binary
         shell: bash
         run: |

@@ -23,11 +23,13 @@ semantic colors.
 
 ## Decision
 
-Kit's clients draw Mermaid diagrams with Kit's own renderer, which has no
-third-party dependency. The reference renderer is written in Ard in
-`apps/cli/tui/mermaid` and draws the terminal client's diagrams. The macOS
+The terminal and macOS clients draw Mermaid diagrams with Kit's own renderer,
+which has no third-party dependency. The reference renderer is written in Ard
+in `apps/cli/tui/mermaid` and draws the terminal client's diagrams. The macOS
 client draws with a Swift port of it, held to the reference's output by shared
-fixtures (see [The macOS client](#the-macos-client)).
+fixtures (see [The macOS client](#the-macos-client)). The browser client is
+the exception: it draws with a third-party renderer and its own layout (see
+[The browser client](#the-browser-client)).
 
 - **Reviewed subset.** Each diagram type supports a documented subset of
   Mermaid's syntax. A parser accepts exactly that subset and rejects anything
@@ -87,6 +89,46 @@ It depends on nothing beyond Foundation.
   sideways. Its source can be copied. A diagram that isn't drawn shows its
   source as a code block with the reason, and a fence that hasn't closed
   shows its source until it does.
+
+### The browser client
+
+The browser client
+([ADR 0059](./0059-serve-a-browser-client-from-the-kit-server.md)) draws
+diagrams with [Pele](https://pele.run), an MIT-licensed Mermaid renderer from
+Obsidian with no dependencies, rather than a TypeScript port of Kit's renderer.
+A phone's column is narrow, and a diagram laid out on a terminal grid either
+scrolls sideways or shrinks its text; Pele lays a diagram out to the width it
+is given, turning a wide flowchart vertical, so its text stays full size.
+
+- **Same kinds.** The client registers Pele's flowchart and sequence diagrams
+  only, the kinds Kit's renderer draws. Other kinds show their source with the
+  reason, as the other clients do.
+- **Its own layout and syntax.** Pele accepts Mermaid's syntax for those kinds
+  rather than Kit's reviewed subset, and places nodes, participants, and lines
+  its own way. A diagram can draw in the browser and not in the other clients,
+  or look different there; the shared fixtures do not apply to it.
+- **Same presentation rules.** A fence that hasn't closed shows its source
+  without a reason. A diagram that isn't drawn shows its source as a code
+  block with the reason, worded from Pele's error. Its source can be copied.
+  A drawn diagram follows the theme through Pele's CSS variables, set from
+  the client's palette, and opens full screen to pan and zoom. Sequence
+  diagrams name their participants once, at the top.
+- **Safe output.** Pele is loaded only when a reply first shows a diagram and
+  is called with links and images off. Its SVG is parsed apart from the page,
+  kept to drawing elements without event handlers, and any reference in an
+  attribute or style must name one of the drawing's own ids; its inline styles
+  are applied through the CSSOM, so the page's Content Security Policy needs no
+  exception and is not what keeps the drawing from loading anything. Labels
+  are text.
+- **Same limits.** The client refuses what Kit's renderer refuses for size,
+  with the same reasons: source over 16 KiB of UTF-8 before Pele reads it,
+  then, from Pele's parsed model, the reference's limits on nodes, edges, and
+  subgraphs in a flowchart and on participants and statements in a sequence.
+  Pele stops parsing edges just past Kit's limit and keeps its own limit on
+  the size of its output. Drawing runs when a diagram is shown and again when
+  its card changes width.
+- **Pinned and reviewed.** The client pins Pele's version. An upgrade is a
+  reviewed change that rechecks the output handling above.
 
 ### Layered layout
 
@@ -196,3 +238,6 @@ subgraphs.
 - Layout quality is Kit's responsibility. Flowchart layout in particular
   needs its own design for layering, crossing reduction, edge routing, and
   cycles.
+- The browser client depends on Pele and its upkeep. Its diagrams can differ
+  from the other clients' in what they accept and how they are laid out, and
+  its first diagram loads about 77 KB of compressed script.

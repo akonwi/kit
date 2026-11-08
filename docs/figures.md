@@ -2,8 +2,9 @@
 
 Kit draws data figures from fenced Markdown, as decided in
 [ADR 0054](adrs/0054-draw-data-figures-from-fenced-markdown.md). This is the
-reference grammar for each figure. A figure is drawn only once both clients
-implement it; until then its fence shows as an ordinary code block.
+reference grammar for each figure. A figure is drawn only once every
+maintained client (the terminal, the macOS app, and the browser) implements
+it; until then its fence shows as an ordinary code block.
 
 ## Shared rules
 

@@ -150,18 +150,31 @@ The live-server smoke suite is optional and must use isolated state as described
 in [`apps/macos/README.md`](../apps/macos/README.md). It is not a substitute for
 contract and client-owned behavior tests.
 
-### 5. Update maintained callers and documentation
+### 5. Update the browser client types
 
-Use the new direct API in the native TUI, print mode, and macOS client where
-applicable. Do not restore imports of retired internal client stacks or add
+The browser client in `apps/web` uses TypeScript types generated from the
+same OpenAPI document. Regenerate and check them:
+
+```sh
+cd apps/web
+bun run generate:api
+bun run check
+```
+
+`bun run check` fails while `src/api/schema.ts` is stale. A protocol-version
+change also updates `PROTOCOL_VERSION` in `src/api/types.ts`, and a new
+session event kind needs a case in its projection
+(`src/session/projection.ts`).
+
+### 6. Update maintained callers and documentation
+
+Use the new direct API in the native TUI, print mode, the macOS client, and the
+browser client where applicable. Do not restore imports of retired internal client stacks or add
 caller-owned reconnect loops.
 
 Document public lifecycle, cancellation, error, or compatibility behavior when
 it changes. File outstanding or deferred client work as a GitHub issue, not in
 an ADR or an informal checklist.
-
-The semantic browser client is not maintained and is updated only when work on
-it is explicitly requested.
 
 ## Definition of done
 
@@ -173,6 +186,7 @@ it is explicitly requested.
 - [ ] Parent-package aliases are regenerated when required.
 - [ ] The committed OpenAPI document is regenerated and reviewed.
 - [ ] Swift generated sources pass their staleness check.
+- [ ] Browser client types are regenerated and `bun run check` passes.
 - [ ] Handwritten Swift behavior/projections and tests are updated when needed.
 - [ ] Maintained callers use the public capability without raw transport logic.
 - [ ] Compatibility is additive or accompanied by a protocol-version decision.

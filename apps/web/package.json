@@ -1,0 +1,37 @@
+{
+  "name": "@kit/web",
+  "private": true,
+  "type": "module",
+  "description": "Kit's browser client, served by the Kit server (ADR 0059).",
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "dev": "bun scripts/dev.ts",
+    "generate:api": "bun scripts/generate-api.ts",
+    "check:api": "bun scripts/generate-api.ts --check",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "bun test",
+    "check": "bun run check:api && bun run lint && bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "@akonwi/mica": "0.16.0",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "mdast-util-from-markdown": "2.1.0",
+    "mdast-util-gfm": "3.1.0",
+    "micromark-extension-gfm": "3.0.0",
+    "pele": "1.13.0",
+    "solid-js": "1.9.18"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.13",
+    "@babel/preset-typescript": "7.29.7",
+    "@biomejs/biome": "2.6.6",
+    "@types/babel__core": "7.20.5",
+    "@types/bun": "1.4.4",
+    "@types/mdast": "4.0.4",
+    "babel-preset-solid": "1.9.16",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}

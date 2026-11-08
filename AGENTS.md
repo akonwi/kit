@@ -25,7 +25,7 @@ it.
 The TUI is written in Ard with Cooper in `apps/cli`
 ([ADR 0035](docs/adrs/0035-build-the-terminal-client-with-ard-and-cooper.md)),
 and releases build the `kit` executable from it. The maintained clients are the
-TUI and the macOS app (`apps/macos`).
+TUI, the macOS app (`apps/macos`), and the browser client (`apps/web`).
 
 The browser client (`apps/web`) is a maintained client served by the Go
 server ([ADR 0059](docs/adrs/0059-serve-a-browser-client-from-the-kit-server.md)).
@@ -119,8 +119,9 @@ other concurrency-sensitive code when the platform supports it.
 interactive flow runs in `main.ard`. For changes there, run the checks listed
 in `apps/cli/README.md`.
 
-For browser client changes, run its formatting, lint, typecheck, unit, and
-browser suites defined by the web workspace. Bun is a
+For browser client changes, run `bun run check` in `apps/web` (API type
+staleness, formatting and lint, typecheck, unit tests) and see
+`apps/web/README.md`. Bun is a
 development/build-time dependency only and must not become a user runtime
 requirement.
 

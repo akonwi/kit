@@ -25,8 +25,10 @@ On a terminal it also draws a QR code of the first link. Run it in any shell
 on the server's machine: its own terminal, SSH, or a hosting console. It never
 starts the server.
 
-A link looks like `https://kit.example.ts.net/pair#a3k9…`. The code is in the
-URL fragment, so browsers and proxies never send or log it. A code works once
+A link looks like `https://kit.example.ts.net/pair#a3k9…`. Opened in a
+browser, it pairs that browser with the server's
+[browser client](browser-client.md). The code is in the URL fragment, so
+browsers and proxies never send or log it. A code works once
 and expires after 5 minutes.
 
 A plain `http://` link to another machine carries the code, and then the

@@ -1,0 +1,39 @@
+name: Browser client
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "api/kit-session.openapi.json"
+      - "internal/webui/**"
+      - ".github/actions/setup-web/**"
+      - ".github/workflows/web.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-web
+
+      # Generated API types, formatting and lint, types, and unit tests.
+      - name: Check
+        working-directory: apps/web
+        run: bun run check
+
+      - name: Build
+        working-directory: apps/web
+        run: bun run build
+
+      - name: Require a servable build
+        run: scripts/check-web-build.sh
