@@ -188,7 +188,7 @@ struct SessionsView: View {
                                                              temporary: row.session.isTemporary == true)
         Group {
             Button("Rename…", systemImage: "pencil") { renaming = listed(row) }
-            Button(confirmation.item, systemImage: "trash", role: .destructive) {
+            DeleteMenuButton(title: confirmation.item) {
                 confirming = listed(row)
                 confirmingDelete = confirming != nil
             }

@@ -60,7 +60,7 @@ struct SessionMenu: View {
                 Button("Details", systemImage: "info.circle") { present(.details) }
             }
             Section {
-                Button(actions.deleteConfirmation.item, systemImage: "trash", role: .destructive, action: confirmDelete)
+                DeleteMenuButton(title: actions.deleteConfirmation.item, action: confirmDelete)
                     .disabled(!actions.live)
             }
         } label: {
@@ -172,6 +172,23 @@ struct SessionContext: Equatable {
         case "xhigh": "Extra high"
         case "max": "Max"
         default: level
+        }
+    }
+}
+
+/// A menu's Delete or Dispose item. Its trash is red like its title, which
+/// the app's accent tint would otherwise turn blue.
+struct DeleteMenuButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(role: .destructive, action: action) {
+            Label {
+                Text(title)
+            } icon: {
+                Image(uiImage: UIImage(systemName: "trash")!.withTintColor(.systemRed, renderingMode: .alwaysOriginal))
+            }
         }
     }
 }
