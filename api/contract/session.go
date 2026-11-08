@@ -353,8 +353,39 @@ type BashHistoryPage struct {
 }
 
 // SessionList is the authoritative ordered collection of session metadata.
+//
+// Order names the order the server applied when the client asked for one,
+// and is absent otherwise. With SessionListOrderAttention, each listed
+// session that is not idle carries its Activity, and the sessions follow
+// CompareAttention.
 type SessionList struct {
-	Sessions []SessionInfo `json:"sessions"`
+	Sessions []SessionInfo    `json:"sessions"`
+	Order    SessionListOrder `json:"order,omitempty"`
+}
+
+// SessionListOrder names an order a client may ask the session list in.
+type SessionListOrder string
+
+const (
+	// SessionListOrderAttention puts the sessions waiting on their user
+	// first, the one waiting longest first; then the running sessions; then
+	// the idle ones. Running and idle sessions are each most recently
+	// updated first. See CompareAttention.
+	SessionListOrderAttention SessionListOrder = "attention"
+)
+
+// Valid reports whether o is an order the server applies.
+func (o SessionListOrder) Valid() bool { return o == SessionListOrderAttention }
+
+// EnumValues returns the wire vocabulary used by contract generation.
+func (SessionListOrder) EnumValues() []string { return []string{string(SessionListOrderAttention)} }
+
+// SessionInfoActivity is what a listed session is doing, when it is not idle.
+type SessionInfoActivity struct {
+	Status SessionActivity `json:"status"`
+	// Since is when the session's oldest pending interaction was created. It
+	// is present only for SessionActivityAwaitingResponse.
+	Since string `json:"since,omitempty"`
 }
 
 // SessionActivity is what a session is doing that its user would want to
@@ -408,6 +439,9 @@ type SessionInfo struct {
 	ConfigurationRevision uint64           `json:"configurationRevision"`
 	CreatedAt             string           `json:"createdAt"`
 	UpdatedAt             string           `json:"updatedAt"`
+	// Activity is present only in a session list in SessionListOrderAttention,
+	// for a session that is not idle.
+	Activity *SessionInfoActivity `json:"activity,omitempty"`
 }
 
 // VCSHeadKind identifies the checked-out repository head shape.

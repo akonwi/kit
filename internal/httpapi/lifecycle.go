@@ -7,9 +7,11 @@ import (
 	protocol "github.com/akonwi/kit/api/contract"
 )
 
-// ListSessionsPath binds the optional working-directory session filter.
+// ListSessionsPath binds the optional working-directory session filter and
+// the optional order. Without an order the list carries no activity.
 type ListSessionsPath struct {
-	CWD string `query:"cwd,omitempty"`
+	CWD   string                    `query:"cwd,omitempty"`
+	Order protocol.SessionListOrder `query:"order,omitempty"`
 }
 
 // compactingErrors are the failures of a lifecycle operation that may compact

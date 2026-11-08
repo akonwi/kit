@@ -394,6 +394,9 @@ func (list SessionList) Validate() error {
 	if list.Sessions == nil {
 		return fmt.Errorf("session list is null")
 	}
+	if list.Order != "" && !list.Order.Valid() {
+		return fmt.Errorf("session list has unsupported order %q", list.Order)
+	}
 	ids := make(map[string]struct{}, len(list.Sessions))
 	for index, session := range list.Sessions {
 		if err := session.Validate(); err != nil {
@@ -406,6 +409,12 @@ func (list SessionList) Validate() error {
 			return fmt.Errorf("session %d is duplicated", index)
 		}
 		ids[session.ID] = struct{}{}
+		if session.Activity != nil && list.Order != SessionListOrderAttention {
+			return fmt.Errorf("session %d has activity outside the attention order", index)
+		}
+		if list.Order == SessionListOrderAttention && index > 0 && CompareAttention(list.Sessions[index-1], session) >= 0 {
+			return fmt.Errorf("session %d is out of attention order", index)
+		}
 	}
 	return nil
 }
@@ -468,6 +477,20 @@ func (session SessionInfo) Validate() error {
 	}
 	if _, err := time.Parse(time.RFC3339Nano, session.UpdatedAt); err != nil {
 		return fmt.Errorf("session updatedAt is invalid: %w", err)
+	}
+	if activity := session.Activity; activity != nil {
+		switch activity.Status {
+		case SessionActivityAwaitingResponse:
+			if _, err := time.Parse(time.RFC3339Nano, activity.Since); err != nil {
+				return fmt.Errorf("session activity since is invalid: %w", err)
+			}
+		case SessionActivityRunning:
+			if activity.Since != "" {
+				return fmt.Errorf("running session activity has a since")
+			}
+		default:
+			return fmt.Errorf("session activity has unsupported status %q", activity.Status)
+		}
 	}
 	return nil
 }

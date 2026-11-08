@@ -189,7 +189,9 @@ type (
 	SessionEventPayload               = contract.SessionEventPayload
 	SessionFileIndex                  = contract.SessionFileIndex
 	SessionInfo                       = contract.SessionInfo
+	SessionInfoActivity               = contract.SessionInfoActivity
 	SessionList                       = contract.SessionList
+	SessionListOrder                  = contract.SessionListOrder
 	SessionNameChangedEvent           = contract.SessionNameChangedEvent
 	SessionPullRequestStatus          = contract.SessionPullRequestStatus
 	SessionSnapshot                   = contract.SessionSnapshot
@@ -504,6 +506,7 @@ const (
 	SessionEventURLOpenRequested            = contract.SessionEventURLOpenRequested
 	SessionEventUsageChanged                = contract.SessionEventUsageChanged
 	SessionEventUserMessageAdded            = contract.SessionEventUserMessageAdded
+	SessionListOrderAttention               = contract.SessionListOrderAttention
 	SubagentCancel                          = contract.SubagentCancel
 	SubagentDismiss                         = contract.SubagentDismiss
 	SubagentEventBoundaryCreated            = contract.SubagentEventBoundaryCreated

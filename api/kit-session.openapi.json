@@ -5301,6 +5301,9 @@
       "SessionInfo": {
         "additionalProperties": false,
         "properties": {
+          "activity": {
+            "$ref": "#/components/schemas/SessionInfoActivity"
+          },
           "configurationRevision": {
             "format": "uint64",
             "minimum": 0,
@@ -5354,9 +5357,34 @@
         ],
         "type": "object"
       },
+      "SessionInfoActivity": {
+        "additionalProperties": false,
+        "properties": {
+          "since": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "awaitingResponse"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
       "SessionList": {
         "additionalProperties": false,
         "properties": {
+          "order": {
+            "enum": [
+              "attention"
+            ],
+            "type": "string"
+          },
           "sessions": {
             "items": {
               "$ref": "#/components/schemas/SessionInfo"
@@ -12230,6 +12258,17 @@
             "name": "cwd",
             "required": false,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "enum": [
+                "attention"
+              ],
               "type": "string"
             }
           }

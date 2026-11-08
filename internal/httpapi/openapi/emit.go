@@ -145,6 +145,11 @@ func parameterSchema(typ reflect.Type) map[string]any {
 	if typ.Kind() == reflect.Slice {
 		return map[string]any{"type": "array", "items": parameterSchema(typ.Elem())}
 	}
+	if typ.Kind() == reflect.String {
+		if enum, ok := reflect.Zero(typ).Interface().(interface{ EnumValues() []string }); ok {
+			return map[string]any{"type": "string", "enum": enum.EnumValues()}
+		}
+	}
 	switch typ.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
