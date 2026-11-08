@@ -288,7 +288,7 @@ test fn the_footer_item_follows_the_update() Void!Str {
       "",
       "",
       chrome::location_only("~/src/kit"),
-      update: updates::footer_item(themes(), updater.@, noop("open")),
+      update: updates::footer_item(themes(), updater.*, noop("open")),
     )
   }
   try expect_rows(
@@ -340,7 +340,7 @@ test fn the_footer_item_follows_the_update() Void!Str {
         "",
         "2 queued · ↑ restore",
         chrome::location_only("~/src/kit"),
-        update: updates::footer_item(themes(), updater.@, noop("open")),
+        update: updates::footer_item(themes(), updater.*, noop("open")),
       ),
     ),
     [" 2 queued · ↑ restore                                                 ~/src/kit"],
