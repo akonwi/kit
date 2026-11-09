@@ -3,14 +3,23 @@ import SwiftUI
 import Testing
 @testable import Kit
 
-/// Window glass (ADR 0064): the frame is Liquid Glass under the theme's
-/// colour only on macOS 26, with the preference on and Reduce Transparency
-/// off. Otherwise it is the theme colour, opaque, in an opaque window.
+/// Window glass (ADR 0064): the frame is Liquid Glass only on macOS 26,
+/// with the preference on and Reduce Transparency off, and the theme's
+/// colour tints it only when Tint with theme is on. Otherwise it is the
+/// theme colour, opaque, in an opaque window.
 @MainActor struct WindowGlassTests {
-    @Test func thePreferenceIsOnByDefault() {
+    @Test func glassIsOnAndTintedByDefault() {
         #expect(WindowGlass.storageKey == "windowGlass")
         #expect(WindowGlass.defaultValue)
-        #expect(WindowGlass.tint == 0.85)
+        #expect(WindowGlass.themeTintKey == "windowGlassThemeTint")
+        #expect(WindowGlass.themeTintDefault)
+    }
+
+    /// Tint with theme lays the theme colour over the glass at 50%; off,
+    /// the glass is the system's own.
+    @Test func tintWithThemeCoversTheGlassAtHalf() {
+        #expect(WindowGlass.tint(themeTint: true) == 0.5)
+        #expect(WindowGlass.tint(themeTint: false) == 0)
     }
 
     @Test(arguments: [

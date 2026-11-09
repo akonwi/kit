@@ -188,9 +188,10 @@ centred column at either setting.
 
 On macOS 26 and later, the window frame (the session sidebar or top tabs, the
 session bar, and the gaps between tiles) and the Settings section list are
-Liquid Glass under the theme's frame colour, while tiles stay opaque
+Liquid Glass, while tiles stay opaque
 ([ADR 0064](../../docs/adrs/0064-draw-the-macos-window-frame-on-liquid-glass.md)).
-Settings › Appearance › Window glass turns it off. Reduce Transparency and
+Settings › Appearance › Window glass turns it off, and Tint with theme colours
+the glass with the theme. Reduce Transparency and
 macOS 15 always draw the opaque frame.
 
 ## Development and validation

@@ -4,6 +4,8 @@ struct ThemeSettingsView: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("themeConfiguration") private var storedConfiguration = ""
     @AppStorage(WindowGlass.storageKey) private var windowGlass = WindowGlass.defaultValue
+    @AppStorage(WindowGlass.themeTintKey) private var glassThemeTint = WindowGlass.themeTintDefault
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     let library: NativeThemeLibrary
 
     private var configuration: ThemeConfiguration { .decode(storedConfiguration) }
@@ -21,14 +23,18 @@ struct ThemeSettingsView: View {
                 }.labelsHidden().pickerStyle(.segmented).frame(width: 220)
             }
             if WindowGlass.available {
-                Toggle(isOn: $windowGlass) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Window glass")
-                        Text("Lets the desktop show softly through the sidebar and the frame around tiles. Tiles stay solid. Off while Reduce Transparency is on.")
-                            .font(.kit(size: 12)).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 14) {
+                    Toggle(isOn: $windowGlass) {
+                        settingLabel("Window glass", "Lets the desktop show through the sidebar and the frame around tiles. Tiles stay solid. Off while Reduce Transparency is on.")
+                    }.toggleStyle(FormSwitchStyle(trailing: true))
+                    // A sub-option of Window glass, indented beneath it.
+                    Toggle(isOn: $glassThemeTint) {
+                        settingLabel("Tint with theme", "Colours the glass with your theme. Off, it is the system's own glass.")
                     }
-                }.toggleStyle(FormSwitchStyle(trailing: true))
+                    .toggleStyle(FormSwitchStyle(trailing: true))
+                    .padding(.leading, 20)
+                    .disabled(!windowGlass || reduceTransparency)
+                }
             }
             HStack(alignment: .top, spacing: 16) {
                 themeCard(dark: false)
@@ -40,6 +46,15 @@ struct ThemeSettingsView: View {
                 .font(.kit(size: 12)).foregroundStyle(.secondary)
         }
         .onAppear { reloadThemes() }
+    }
+
+    private func settingLabel(_ title: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+            Text(detail)
+                .font(.kit(size: 12)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func themeCard(dark: Bool) -> some View {

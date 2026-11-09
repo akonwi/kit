@@ -3,17 +3,19 @@ import SwiftUI
 
 /// Window glass (ADR 0064): on macOS 26 and later the frame around the
 /// tiles (the session sidebar or top tabs, the session bar, and the gaps
-/// between tiles) and the Settings section list are Liquid Glass under the
-/// theme's own colour, so the desktop shows softly through. Tiles stay
-/// opaque. Earlier systems, the preference off, and Reduce Transparency
-/// all draw today's opaque frame.
+/// between tiles) and the Settings section list are Liquid Glass, plain or
+/// under the theme's own colour. Tiles stay opaque. Earlier systems, the
+/// preference off, and Reduce Transparency all draw the opaque frame.
 enum WindowGlass {
     /// The app preference: whether the frame is glass where it can be. On by default.
     static let storageKey = "windowGlass"
     static let defaultValue = true
-    /// How much of the theme colour covers the glass: the least that keeps
-    /// muted text at 4.5:1 over the opposite scheme's extreme.
-    static let tint = 0.85
+    /// The app preference: whether the theme colour tints the glass. On by
+    /// default; off, the frame is the system's own glass.
+    static let themeTintKey = "windowGlassThemeTint"
+    static let themeTintDefault = true
+    /// How much of the theme colour covers the glass when it is tinted.
+    static let themeTint = 0.5
 
     /// Whether this Mac can draw Liquid Glass.
     static var available: Bool {
@@ -24,16 +26,27 @@ enum WindowGlass {
     static func active(enabled: Bool, reduceTransparency: Bool, available: Bool = available) -> Bool {
         available && enabled && !reduceTransparency
     }
+
+    /// How much of the theme colour covers glass: none for the system's
+    /// own glass.
+    static func tint(themeTint: Bool) -> Double {
+        themeTint ? Self.themeTint : 0
+    }
 }
 
-/// A window's frame: `color`, or `color` over glass while Window glass is on.
+/// A window's frame: `color`, or glass while Window glass is on, under
+/// `color` while Tint with theme is on too.
 struct WindowBackdrop: View {
     let color: Color
     @AppStorage(WindowGlass.storageKey) private var enabled = WindowGlass.defaultValue
+    @AppStorage(WindowGlass.themeTintKey) private var themeTint = WindowGlass.themeTintDefault
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
-        WindowFrameFill(color: color, glass: WindowGlass.active(enabled: enabled, reduceTransparency: reduceTransparency))
+        WindowFrameFill(
+            color: color,
+            glass: WindowGlass.active(enabled: enabled, reduceTransparency: reduceTransparency),
+            tint: WindowGlass.tint(themeTint: themeTint))
     }
 }
 
@@ -44,13 +57,15 @@ struct WindowBackdrop: View {
 struct WindowFrameFill: View {
     let color: Color
     let glass: Bool
+    /// How much of `color` covers the glass.
+    var tint: Double = 0
 
     var body: some View {
         if #available(macOS 26, *) {
             ZStack {
                 if glass {
                     Rectangle().fill(.clear).glassEffect(.regular, in: .rect)
-                    color.opacity(WindowGlass.tint)
+                    if tint > 0 { color.opacity(tint) }
                 } else {
                     color
                 }

@@ -141,7 +141,7 @@ Use semantic tokens rather than assuming a literal color:
 - Use `syntaxStyle()` for syntax-highlighted code.
 - Every `scrollbox` should use `style={scrollbarStyle()}` unless it deliberately has no visible scrollbar.
 - Header context usage uses `progressNormal` below 80%, `progressWarning` from 80% through 90%, and `progressCritical` above 90%.
-- macOS window glass ([ADR 0064](../../../docs/adrs/0064-draw-the-macos-window-frame-on-liquid-glass.md)): on macOS 26 the window frame (sidebar or top tabs, session bar, gaps between tiles) and the Settings section list are Liquid Glass under the theme colour at 85%. Draw frame backgrounds with `WindowBackdrop`, never a raw glass effect or a lower tint. Tiles, dialogs, and content surfaces stay opaque. Window glass off, Reduce Transparency, and macOS 15 draw the opaque frame.
+- macOS window glass ([ADR 0064](../../../docs/adrs/0064-draw-the-macos-window-frame-on-liquid-glass.md)): on macOS 26 the window frame (sidebar or top tabs, session bar, gaps between tiles) and the Settings section list are Liquid Glass under the theme colour at 50% (Tint with theme, on by default), or the system's own glass with Tint with theme off. Draw frame backgrounds with `WindowBackdrop`, never a raw glass effect or a tint of your own. Tiles, dialogs, and content surfaces stay opaque. Window glass off, Reduce Transparency, and macOS 15 draw the opaque frame.
 
 ## Surface Taxonomy
 
