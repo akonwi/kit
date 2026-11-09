@@ -6693,7 +6693,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        error: components["schemas"]["InstanceMismatchError"];
+                        error: components["schemas"]["ConflictError"] | components["schemas"]["InstanceMismatchError"];
                     };
                 };
             };
@@ -6749,6 +6749,17 @@ export interface operations {
                 content: {
                     "application/json": {
                         error: components["schemas"]["InternalError"];
+                    };
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["UnavailableError"];
                     };
                 };
             };
@@ -6833,7 +6844,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        error: components["schemas"]["InstanceMismatchError"];
+                        error: components["schemas"]["ConflictError"] | components["schemas"]["InstanceMismatchError"];
                     };
                 };
             };
@@ -6889,6 +6900,17 @@ export interface operations {
                 content: {
                     "application/json": {
                         error: components["schemas"]["InternalError"];
+                    };
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["UnavailableError"];
                     };
                 };
             };
@@ -6972,7 +6994,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        error: components["schemas"]["InstanceMismatchError"];
+                        error: components["schemas"]["ConflictError"] | components["schemas"]["InstanceMismatchError"];
                     };
                 };
             };
@@ -7028,6 +7050,17 @@ export interface operations {
                 content: {
                     "application/json": {
                         error: components["schemas"]["InternalError"];
+                    };
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: components["schemas"]["UnavailableError"];
                     };
                 };
             };
@@ -9651,7 +9684,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        error: components["schemas"]["WorkspaceStaleWorkspaceError"] | components["schemas"]["WorkspaceStaleFileError"] | components["schemas"]["WorkspaceStaleCursorError"] | components["schemas"]["InstanceMismatchError"];
+                        error: components["schemas"]["WorkspaceStaleWorkspaceError"] | components["schemas"]["WorkspaceStaleFileError"] | components["schemas"]["WorkspaceStaleCursorError"] | components["schemas"]["ConflictError"] | components["schemas"]["InstanceMismatchError"];
                     };
                 };
             };
@@ -13720,7 +13753,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        error: components["schemas"]["WorkspaceStaleWorkspaceError"] | components["schemas"]["WorkspaceStaleFileError"] | components["schemas"]["WorkspaceStaleCursorError"] | components["schemas"]["InstanceMismatchError"];
+                        error: components["schemas"]["WorkspaceStaleWorkspaceError"] | components["schemas"]["WorkspaceStaleFileError"] | components["schemas"]["WorkspaceStaleCursorError"] | components["schemas"]["ConflictError"] | components["schemas"]["InstanceMismatchError"];
                     };
                 };
             };
@@ -13881,7 +13914,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        error: components["schemas"]["WorkspaceStaleWorkspaceError"] | components["schemas"]["WorkspaceStaleFileError"] | components["schemas"]["WorkspaceStaleCursorError"] | components["schemas"]["InstanceMismatchError"];
+                        error: components["schemas"]["WorkspaceStaleWorkspaceError"] | components["schemas"]["WorkspaceStaleFileError"] | components["schemas"]["WorkspaceStaleCursorError"] | components["schemas"]["ConflictError"] | components["schemas"]["InstanceMismatchError"];
                     };
                 };
             };
@@ -14042,7 +14075,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        error: components["schemas"]["WorkspaceStaleWorkspaceError"] | components["schemas"]["WorkspaceStaleFileError"] | components["schemas"]["WorkspaceStaleCursorError"] | components["schemas"]["InstanceMismatchError"];
+                        error: components["schemas"]["WorkspaceStaleWorkspaceError"] | components["schemas"]["WorkspaceStaleFileError"] | components["schemas"]["WorkspaceStaleCursorError"] | components["schemas"]["ConflictError"] | components["schemas"]["InstanceMismatchError"];
                     };
                 };
             };
