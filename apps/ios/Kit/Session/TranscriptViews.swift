@@ -153,6 +153,42 @@ struct ToolBatch: View {
     }
 }
 
+/// The flexible middle of a tool row, as on the Mac: the chip at the
+/// leading edge and the facts at the trailing edge, on one line that never
+/// outgrows the row. When both don't fit, the chip keeps its width up to half
+/// the space, or more if the facts are short, and each cuts what it can't show.
+struct ToolRowDetails: Layout {
+    var spacing: CGFloat
+
+    /// The chip's and facts' widths within `width`, from their ideal widths.
+    static func widths(_ width: CGFloat, chip: CGFloat, facts: CGFloat, spacing: CGFloat) -> (chip: CGFloat, facts: CGFloat) {
+        let gap = chip > 0 && facts > 0 ? spacing : 0
+        guard chip + gap + facts > width else { return (chip, facts) }
+        let room = max(0, width - gap)
+        let chipWidth = min(chip, max(room / 2, room - facts))
+        return (chipWidth, min(facts, room - chipWidth))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let chip = subviews[0].sizeThatFits(.unspecified), facts = subviews[1].sizeThatFits(.unspecified)
+        let ideal = chip.width + facts.width + (chip.width > 0 && facts.width > 0 ? spacing : 0)
+        // It fills the width it's offered and, offered none, takes its own.
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? ideal
+        return CGSize(width: width, height: max(chip.height, facts.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let chip = subviews[0].sizeThatFits(.unspecified), facts = subviews[1].sizeThatFits(.unspecified)
+        let widths = Self.widths(bounds.width, chip: chip.width, facts: facts.width, spacing: spacing)
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
+                          proposal: ProposedViewSize(width: widths.chip, height: bounds.height))
+        subviews[1].place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing,
+                          proposal: ProposedViewSize(width: widths.facts, height: bounds.height))
+    }
+}
+
 /// A tool call: icon, title, chip, and results. A row with details opens
 /// beneath itself.
 private struct ToolRow: View {
@@ -185,25 +221,29 @@ private struct ToolRow: View {
                     .foregroundStyle(tool.notRun == true ? Theme.muted : Theme.text)
                     .lineLimit(1)
                     .layoutPriority(1)
-                if let agent = linkedAgent(presentation), let links = agentLinks {
-                    Button { links.open(agent) } label: {
-                        HStack(spacing: 4) {
-                            chipText(presentation.chip ?? agent, color: Theme.accent, truncation: .tail)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(Theme.strongBorder)
+                // The chip and the facts share one line that never outgrows the row.
+                ToolRowDetails(spacing: 8) {
+                    if let agent = linkedAgent(presentation), let links = agentLinks {
+                        Button { links.open(agent) } label: {
+                            HStack(spacing: 4) {
+                                chipText(presentation.chip ?? agent, color: Theme.accent, truncation: .tail)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(Theme.strongBorder)
+                            }
+                            .chipBox()
                         }
-                        .chipBox()
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open \(agent)")
+                        .accessibilityIdentifier("open-agent-\(agent)")
+                    } else if let chip = presentation.chip {
+                        chipText(chip, color: Theme.text, truncation: presentation.chipIsPath ? .head : .tail)
+                            .chipBox()
+                    } else {
+                        Color.clear.frame(width: 0, height: 0)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open \(agent)")
-                    .accessibilityIdentifier("open-agent-\(agent)")
-                } else if let chip = presentation.chip {
-                    chipText(chip, color: Theme.text, truncation: presentation.chipIsPath ? .head : .tail)
-                        .chipBox()
+                    facts(presentation)
                 }
-                Spacer(minLength: 0)
-                facts(presentation)
             }
             .frame(minHeight: 32)
             .contentShape(Rectangle())
@@ -245,7 +285,9 @@ private struct ToolRow: View {
                         .font(.system(size: 12, design: fact.monospaced ? .monospaced : .default))
                         .foregroundStyle(color(fact.tone))
                         .lineLimit(1)
-                        .fixedSize()
+                        .truncationMode(.tail)
+                        // Counts and codes are short; prose, such as an answer, is cut.
+                        .fixedSize(horizontal: fact.monospaced, vertical: false)
                 }
             }
         }

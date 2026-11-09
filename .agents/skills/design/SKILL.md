@@ -416,6 +416,11 @@ The native TUI transcript mirrors the macOS transcript's reading layout:
   rows use the header's indicator column for their state icons, so tool titles
   align with the group label; interleaved thinking and prose indent to the same
   title column.
+- A tool row is one line that never widens the column. Its chip leads and its
+  result facts trail; when both don't fit, the chip keeps its width up to half
+  the space between title and chevron, or more beside short facts, and each
+  truncates what it can't show. Counts and codes stay whole; prose facts, such
+  as an Ask row's answer, cut at the end and show in full in the row's well.
 
 The macOS transcript keeps a 32 pt gutter on each side of its rows and, by
 default, centres them in a 780 pt reading column. Settings › Workspace ›

@@ -141,13 +141,15 @@ private struct ToolCallRow: View {
                 .font(.kit(size: 13)).lineLimit(1)
                 .foregroundStyle(muted ? theme.muted : theme.text)
                 .frame(width: titleWidth, alignment: .leading)
-            Group {
+            ToolRowDetails(spacing: 10) {
                 if let chip = presentation.chip {
                     ToolChip(text: chip, path: presentation.chipIsPath, muted: muted,
                              fill: shown ? theme.frameHover : theme.frame, action: linkAction)
+                } else {
+                    Color.clear.frame(width: 0, height: 0)
                 }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-            facts
+                HStack(spacing: 10) { facts }
+            }
             if expandable {
                 IconView(shown ? .caretDown : .caretRight, size: 10)
                     .foregroundStyle(shown ? theme.text : theme.muted)
@@ -184,9 +186,11 @@ private struct ToolCallRow: View {
             Text("Not run").font(.kit(size: 11)).foregroundStyle(theme.muted)
         } else {
             ForEach(Array(presentation.facts.enumerated()), id: \.offset) { _, fact in
+                // Counts and codes are short; prose, such as an answer, is cut.
                 Text(fact.text)
                     .font(.kit(size: 11, design: fact.monospaced ? .monospaced : .default))
-                    .foregroundStyle(color(fact.tone)).lineLimit(1).fixedSize()
+                    .foregroundStyle(color(fact.tone)).lineLimit(1).truncationMode(.tail)
+                    .fixedSize(horizontal: fact.monospaced, vertical: false)
             }
             if presentation.showsDuration, presentation.facts.isEmpty, let started = tool.startedAt {
                 if tool.running {
@@ -260,6 +264,42 @@ private struct ToolCallRow: View {
         case "confirm_from_user", "input_from_user", "select_from_user", "guided_questions": return .chatCircleDots
         default: return .wrench
         }
+    }
+}
+
+/// The flexible middle of a tool row: the chip at the leading edge and the
+/// facts at the trailing edge, on one line that never outgrows the row. When
+/// both don't fit, the chip keeps its width up to half the space, or more if
+/// the facts are short, and each cuts what it can't show.
+struct ToolRowDetails: Layout {
+    var spacing: CGFloat
+
+    /// The chip's and facts' widths within `width`, from their ideal widths.
+    static func widths(_ width: CGFloat, chip: CGFloat, facts: CGFloat, spacing: CGFloat) -> (chip: CGFloat, facts: CGFloat) {
+        let gap = chip > 0 && facts > 0 ? spacing : 0
+        guard chip + gap + facts > width else { return (chip, facts) }
+        let room = max(0, width - gap)
+        let chipWidth = min(chip, max(room / 2, room - facts))
+        return (chipWidth, min(facts, room - chipWidth))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let chip = subviews[0].sizeThatFits(.unspecified), facts = subviews[1].sizeThatFits(.unspecified)
+        let ideal = chip.width + facts.width + (chip.width > 0 && facts.width > 0 ? spacing : 0)
+        // It fills the width it's offered and, offered none, takes its own.
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? ideal
+        return CGSize(width: width, height: max(chip.height, facts.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let chip = subviews[0].sizeThatFits(.unspecified), facts = subviews[1].sizeThatFits(.unspecified)
+        let widths = Self.widths(bounds.width, chip: chip.width, facts: facts.width, spacing: spacing)
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
+                          proposal: ProposedViewSize(width: widths.chip, height: bounds.height))
+        subviews[1].place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing,
+                          proposal: ProposedViewSize(width: widths.facts, height: bounds.height))
     }
 }
 
