@@ -141,11 +141,13 @@ struct TabStripRevealTests {
 }
 
 /// A 1200 pt workspace split in two: the Agent on the left, and browser
-/// tabs in the focused right tile, 597 pt wide. Its strip has 499 pt for
-/// tabs and the add button beside the tile actions; 465 pt for the tabs.
+/// tabs in the focused right tile, 597 pt wide from x 603. Its strip starts
+/// at the tile's leading edge and has 505 pt for tabs and the add button
+/// beside the tile actions; 471 pt for the tabs.
 @MainActor private final class TileStripHarness {
     let workspace: WorkspaceState
     let panes: [WorkspacePane]
+    let theme = ThemeConfiguration.decode("").theme(dark: true)
     private let store: SessionStore
     private let engines = FakeBrowserEngines()
     private let host: NSView
@@ -162,9 +164,10 @@ struct TabStripRevealTests {
             panes.append(.browser(workspace.openBrowser(URL(string: "https://example.com/\(index)")).id))
         }
         self.panes = panes
-        let theme = ThemeConfiguration.decode("").theme(dark: true)
         host = NSHostingView(rootView: WorkspaceLayout(state: store).environment(\.mica, theme).environment(\.colorScheme, .dark))
         window = NSWindow(testContentRect: NSRect(x: 0, y: 0, width: 1200, height: 300))
+        // Render in sRGB, whatever the display, so theme colors compare exactly.
+        window.colorSpace = .sRGB
         window.contentView = host
         window.orderFront(nil)
         try await settle()
@@ -225,6 +228,28 @@ struct TabStripRevealTests {
         return try #require(NSEvent(cgEvent: event))
     }
 
+    /// The right tile.
+    var rightTile: UUID {
+        get throws { try #require(workspace.tile(containing: panes[0])) }
+    }
+
+    /// What the workspace draws, as a test of whether a point shows a color.
+    func snapshot() throws -> (CGPoint, Color) throws -> Bool {
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        try #require(bitmap.bitsPerSample == 8 && bitmap.samplesPerPixel >= 3)
+        let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+        return { point, expected in
+            // The window renders in sRGB, so its samples compare with the
+            // theme's sRGB components as they are.
+            var pixel = [Int](repeating: 0, count: bitmap.samplesPerPixel)
+            bitmap.getPixel(&pixel, atX: Int(point.x * scale), y: Int(point.y * scale))
+            let color = try #require(NSColor(expected).usingColorSpace(.sRGB))
+            let components = [color.redComponent, color.greenComponent, color.blueComponent]
+            return zip(pixel, components).allSatisfy { abs(CGFloat($0) / 255 - $1) < 0.02 }
+        }
+    }
+
     /// The right tile's add button.
     var addButton: CGRect {
         get throws {
@@ -242,19 +267,56 @@ struct TileTabStripPresentationTests {
         let strip = try await TileStripHarness(titles: ["Issues", "Research", "Docs"])
         defer { strip.close() }
         let viewport = try strip.viewport
-        #expect(viewport.minX == 609)
+        #expect(viewport.minX == 603)
         #expect(try strip.contentWidth == viewport.width)
         #expect(try strip.offset == 0)
         #expect(try strip.addButton.minX == viewport.maxX + 6)
     }
 
+    @Test func theFirstTabSitsFlushWithTheTileEdge() async throws {
+        let strip = try await TileStripHarness(titles: ["Issues", "Research", "Docs"])
+        defer { strip.close() }
+        let tile = try strip.rightTile
+        strip.workspace.focus(tile: tile)
+        strip.workspace.select(strip.panes[0])
+        try await strip.settle()
+        let theme = strip.theme
+        // The strip, and so its first tab, starts at the tile's edge.
+        #expect(try strip.viewport.minX == 603)
+        #expect(try strip.offset == 0)
+
+        // The selected tab's underline runs from the tile's border, and its
+        // own 10 pt padding keeps the icon off the edge.
+        let draws = try strip.snapshot()
+        #expect(try draws(CGPoint(x: 603.5, y: 32.5), theme.focusBorder))
+        #expect(try draws(CGPoint(x: 604.5, y: 32.5), theme.accent))
+        #expect(try draws(CGPoint(x: 608.5, y: 17), theme.surface))
+        let icon = try (604..<640).first { x in
+            try (4..<30).contains { y in try draws(CGPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5), theme.accent) }
+        }
+        // The 14 pt icon sits at 613; its glyph's stroke starts 1 pt in.
+        #expect(icon == 614)
+
+        // A tab dragged before the first one is marked just inside the
+        // tile's border, 2 pt wide.
+        strip.workspace.tabDrag = .init(pane: strip.panes[2], location: CGPoint(x: 900, y: 200),
+                                        target: TileDropTarget(tile: tile, edge: .center, index: 0))
+        try await strip.settle()
+        let marked = try strip.snapshot()
+        #expect(try marked(CGPoint(x: 603.5, y: 17), theme.focusBorder))
+        #expect(try marked(CGPoint(x: 604.5, y: 17), theme.accent))
+        #expect(try marked(CGPoint(x: 605.5, y: 17), theme.accent))
+        #expect(try marked(CGPoint(x: 606.5, y: 17), theme.surface))
+        strip.workspace.tabDrag = nil
+    }
+
     @Test func tabsShrinkToShareTheStrip() async throws {
-        // Three tabs at 101.67 pt and the selected one at 160 fill 465 pt.
+        // Three tabs at 103.67 pt and the selected one at 160 fill 471 pt.
         let strip = try await TileStripHarness(titles: Array(long.prefix(4)))
         defer { strip.close() }
         let viewport = try strip.viewport
-        #expect(viewport == CGRect(x: 609, y: 0, width: 465, height: 34))
-        #expect(try strip.contentWidth == 465)
+        #expect(viewport == CGRect(x: 603, y: 0, width: 471, height: 34))
+        #expect(try strip.contentWidth == 471)
         #expect(try strip.addButton.minX == 1080)
 
         // The tile actions keep their slot when they hide, so the tabs
@@ -262,7 +324,7 @@ struct TileTabStripPresentationTests {
         let left = try #require(strip.workspace.visibleTiles.first { strip.workspace.tiles[$0]?.panes == [.conversation] })
         strip.workspace.focus(tile: left)
         try await strip.settle()
-        #expect(try strip.viewport == CGRect(x: 609, y: 0, width: 465, height: 34))
+        #expect(try strip.viewport == CGRect(x: 603, y: 0, width: 471, height: 34))
         #expect(try strip.addButton.minX == 1080)
     }
 
@@ -284,7 +346,7 @@ struct TileTabStripPresentationTests {
         let count = NSHostingView(rootView: TabOverflowCount(count: 6)
             .environment(\.mica, ThemeConfiguration.decode("").theme(dark: true))).fittingSize.width
         let viewport = try strip.viewport
-        #expect(viewport == CGRect(x: 609, y: 0, width: 465 - 4 - count, height: 34))
+        #expect(viewport == CGRect(x: 603, y: 0, width: 471 - 4 - count, height: 34))
         #expect(try strip.contentWidth == 952)
         #expect(try strip.offset == 952 - viewport.width)
         #expect(try strip.addButton == CGRect(x: 1080, y: 6, width: 22, height: 22))

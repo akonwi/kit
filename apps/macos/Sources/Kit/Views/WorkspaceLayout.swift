@@ -163,7 +163,9 @@ private struct TileChrome: View {
                 .disabled(!actions)
                 .accessibilityHidden(!actions)
             }
-            .padding(.horizontal, 6)
+            // The first tab sits flush with the tile's leading edge; its
+            // own padding keeps the icon off the border.
+            .padding(.trailing, 6)
             .frame(height: tabStripHeight)
             .overlay(alignment: .bottom) { Rule() }
             Spacer(minLength: 0)
@@ -525,7 +527,9 @@ private struct TabDragOverlay: View {
     /// The x position of the gap before tab `index`, or after the last tab.
     private func insertionX(_ index: Int, in tile: UUID, frame: CGRect) -> CGFloat {
         let tabs = (workspace.tiles[tile]?.panes ?? []).compactMap { tabFrames.frames[$0] }
-        let x = index < tabs.count ? tabs[index].minX : (tabs.last?.maxX ?? frame.minX + 6)
+        let x = index < tabs.count ? tabs[index].minX : (tabs.last?.maxX ?? frame.minX)
+        // Clear of the tile's border, so a marker before the flush first
+        // tab still shows.
         return min(max(x, frame.minX + 2), frame.maxX - 2)
     }
 }
