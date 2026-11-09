@@ -1,4 +1,5 @@
 import AppKit
+import KitDictation
 import Observation
 
 /// Per-window UI state, with per-session drafts and workspaces retained locally.
@@ -49,6 +50,14 @@ final class SessionUIState {
         drafts[session] = DraftState(uploads: saved.uploads, text: [text, saved.text].filter { !$0.isEmpty }.joined(separator: "\n\n"), selection: nil,
             serverAttachmentIDs: ComposerAttachments.uniqueIDs(saved.serverAttachmentIDs + attachmentIDs), attachments: saved.attachments,
             previews: saved.previews, workspace: saved.workspace, transcript: saved.transcript)
+    }
+
+    /// Puts dictated words at the end of the draft and focuses the composer
+    /// with the caret after them, ready to read, fix, and send.
+    func takeDictation(_ text: String) {
+        draft = DictationText.join(draft, text)
+        composerFocus += 1
+        composerFocusAtEndRequest = composerFocus
     }
 
     /// Keeps the drafts of a server's sessions under the server's new name.

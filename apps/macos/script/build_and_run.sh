@@ -115,11 +115,11 @@ $dev_home_entry
 <key>NSContactsUsageDescription</key><string>A program running in a Kit terminal wants to access your contacts.</string>
 <key>NSLocalNetworkUsageDescription</key><string>A program running in a Kit terminal wants to access the local network.</string>
 <key>NSLocationUsageDescription</key><string>A program running in a Kit terminal wants to access your location.</string>
-<key>NSMicrophoneUsageDescription</key><string>A program running in a Kit terminal wants to use the microphone.</string>
+<key>NSMicrophoneUsageDescription</key><string>Kit uses the microphone when you dictate a message, or when a program running in a Kit terminal asks for it.</string>
 <key>NSAudioCaptureUsageDescription</key><string>A program running in a Kit terminal wants to record your computer's audio.</string>
 <key>NSPhotoLibraryUsageDescription</key><string>A program running in a Kit terminal wants to access your photo library.</string>
 <key>NSRemindersUsageDescription</key><string>A program running in a Kit terminal wants to access your reminders.</string>
-<key>NSSpeechRecognitionUsageDescription</key><string>A program running in a Kit terminal wants to use speech recognition.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>Kit turns what you dictate into text on this Mac, and a program running in a Kit terminal may ask to use speech recognition.</string>
 </dict></plist>
 PLIST
 # Seal the assembled development bundle after replacing its executable/resources.

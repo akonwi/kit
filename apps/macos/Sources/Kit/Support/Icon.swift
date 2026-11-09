@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// A Phosphor Regular icon bundled under `Resources/Icons`. Raw values are
-/// the Phosphor file names, so the set stays traceable to the upstream
-/// release recorded in `Resources/Phosphor-LICENSE.txt`.
+/// A Phosphor icon bundled under `Resources/Icons`, Regular unless its name
+/// ends in `-fill`. Raw values are the Phosphor file names, so the set stays
+/// traceable to the upstream release recorded in `Resources/Phosphor-LICENSE.txt`.
 enum Icon: String, CaseIterable, Sendable {
     case arrowClockwise = "arrow-clockwise"
     case arrowDown = "arrow-down"
@@ -50,6 +50,8 @@ enum Icon: String, CaseIterable, Sendable {
     case key
     case lightbulb
     case magnifyingGlass = "magnifying-glass"
+    case microphone
+    case microphoneFill = "microphone-fill"
     case minusCircle = "minus-circle"
     case moon
     case note

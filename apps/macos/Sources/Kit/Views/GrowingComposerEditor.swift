@@ -245,6 +245,10 @@ struct GrowingComposerEditor: NSViewRepresentable {
 /// paste reveal the caret through AppKit's normal text scrolling behavior.
 final class ComposerScrollView: NSScrollView {
     static let maximumHeight: CGFloat = 240
+    /// The height of one line of the draft, which a recording strip in the editor's place matches.
+    @MainActor static var lineHeight: CGFloat {
+        ceil(NSLayoutManager().defaultLineHeight(for: Typography.shared.font(size: 14)))
+    }
     let editor = ComposerTextView(frame: .zero)
     var revealSelectionAfterLayout = false
 

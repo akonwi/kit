@@ -11,14 +11,21 @@ struct InteractionTextInput: NSViewRepresentable {
     let cancel: () -> Void
     /// Whether the field takes focus when it appears.
     var autofocus = true
+    /// Whether focusing puts the caret after the text instead of selecting it,
+    /// as after dictating into the field.
+    var caretAtEnd = false
 
     func makeNSView(context: Context) -> InteractionInputBox {
         let box = InteractionInputBox()
         box.field.delegate = context.coordinator
         guard autofocus else { return box }
+        let caretAtEnd = caretAtEnd
         DispatchQueue.main.async { [weak box] in
             guard let box else { return }
             box.window?.makeFirstResponder(box.field)
+            if caretAtEnd, let editor = box.field.currentEditor() {
+                editor.selectedRange = NSRange(location: (editor.string as NSString).length, length: 0)
+            }
         }
         return box
     }

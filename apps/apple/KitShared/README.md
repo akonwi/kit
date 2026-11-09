@@ -46,9 +46,16 @@ iOS app. It holds no AppKit or UIKit code.
   CodeEditLanguages, which its editors also use.
 - `KitArdGrammar` is Ard's grammar and highlight query from tree-sitter-ard,
   which both apps bundle because CodeEditLanguages has no Ard.
+- `KitDictation` is voice input for text fields: `Dictation` asks for
+  microphone and speech recognition access, records, and returns the words
+  once recording stops. `SpeechDictationEngine` transcribes on the device
+  with `SpeechAnalyzer`, so audio never leaves it; `ScriptedDictationEngine`
+  stands in for UI tests. Its types need iOS 26 or macOS 26 and are marked
+  `@available`, so the package's minimums don't change. The app's
+  Info.plist must say why it uses the microphone and speech recognition.
 
 The macOS app's tests cover these modules (client, Mermaid, figure, Markdown, tool presentation, and highlighting tests);
-run them as the macOS README describes. Check that the package still builds
+run them as the macOS README describes. The iOS app's tests cover `KitDictation`. Check that the package still builds
 for iOS with:
 
 ```sh

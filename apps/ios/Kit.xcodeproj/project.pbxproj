@@ -11,6 +11,7 @@
 		C10000000000000000000098 /* KitDev.icon in Resources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000097 /* KitDev.icon */; };
 		C10000000000000000000052 /* KitClient in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000051 /* KitClient */; };
 		C10000000000000000000062 /* KitTranscript in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000061 /* KitTranscript */; };
+		C100000000000000000000A2 /* KitDictation in Frameworks */ = {isa = PBXBuildFile; productRef = C100000000000000000000A1 /* KitDictation */; };
 		C10000000000000000000072 /* KitHighlighting in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000071 /* KitHighlighting */; };
 		C10000000000000000000082 /* KitGrammars in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000081 /* KitGrammars */; };
 		C10000000000000000000092 /* KitMermaidScene in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000091 /* KitMermaidScene */; };
@@ -56,6 +57,7 @@
 			files = (
 				C10000000000000000000052 /* KitClient in Frameworks */,
 				C10000000000000000000062 /* KitTranscript in Frameworks */,
+				C100000000000000000000A2 /* KitDictation in Frameworks */,
 				C10000000000000000000072 /* KitHighlighting in Frameworks */,
 				C10000000000000000000082 /* KitGrammars in Frameworks */,
 				C10000000000000000000092 /* KitMermaidScene in Frameworks */,
@@ -125,6 +127,7 @@
 			packageProductDependencies = (
 				C10000000000000000000051 /* KitClient */,
 				C10000000000000000000061 /* KitTranscript */,
+				C100000000000000000000A1 /* KitDictation */,
 				C10000000000000000000071 /* KitHighlighting */,
 				C10000000000000000000081 /* KitGrammars */,
 				C10000000000000000000091 /* KitMermaidScene */,
@@ -333,6 +336,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Kit Dev";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Kit scans the pairing code that kit server pair shows, and takes photos you attach to a message.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Kit connects to Kit servers on your local network.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Kit listens while you dictate a message, an answer, or a comment.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Kit turns what you dictate into text on this iPhone. The audio never leaves it.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
@@ -356,6 +361,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Kit;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Kit scans the pairing code that kit server pair shows, and takes photos you attach to a message.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Kit connects to Kit servers on your local network.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Kit listens while you dictate a message, an answer, or a comment.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Kit turns what you dictate into text on this iPhone. The audio never leaves it.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
@@ -491,6 +498,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C10000000000000000000050 /* XCLocalSwiftPackageReference "../apple/KitShared" */;
 			productName = KitTranscript;
+		};
+		C100000000000000000000A1 /* KitDictation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C10000000000000000000050 /* XCLocalSwiftPackageReference "../apple/KitShared" */;
+			productName = KitDictation;
 		};
 		C10000000000000000000071 /* KitHighlighting */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -1,4 +1,5 @@
 import KitClient
+import KitDictation
 import SwiftUI
 
 /// A request the session is waiting on, in the composer's place: a
@@ -9,6 +10,7 @@ struct InteractionDock: View {
     let interactions: SessionInteractions
     @Environment(\.openURL) private var openURL
     @FocusState private var typing: Bool
+    @State private var dictation = Dictation(engine: DictationSupport.engine)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -159,17 +161,31 @@ struct InteractionDock: View {
     private var answer: some View {
         switch flow.mode {
         case .text:
-            TextField(placeholder, text: $flow.answers[flow.step].text, axis: .vertical)
-                .font(.system(size: 17))
-                .lineLimit(1...5)
-                .focused($typing)
-                .textInputAutocapitalization(flow.authorizationURL == nil ? .sentences : .never)
-                .autocorrectionDisabled(flow.authorizationURL != nil)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .disabled(!enabled)
-                .accessibilityIdentifier("interaction-text")
+            if flow.authorizationURL == nil {
+                // A typed answer can be dictated; a pasted address can't.
+                VStack(alignment: .leading, spacing: 6) {
+                    FieldDictation(dictation: dictation, enabled: enabled, fill: fillAnswer) {
+                        answerField
+                    }
+                    .padding(.leading, 14)
+                    .padding(.trailing, 6)
+                    .frame(minHeight: 44)
+                    .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    if let problem = dictation.problem {
+                        DictationProblemLine(problem: problem, dismiss: dictation.dismissProblem)
+                    }
+                }
+                .dictationLifecycle(dictation)
+                .onChange(of: dictation.isActive) { _, active in
+                    if active { typing = false }
+                }
+                .onChange(of: flow.answers[flow.step].text) { dictation.dismissProblem() }
+                .onChange(of: flow.step) { dictation.cancel() }
+            } else {
+                answerField
+                    .padding(.horizontal, 14)
+                    .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
         case .choice, .multiple:
             OptionList(flow: flow, enabled: enabled) { index in
                 if flow.mode == .multiple {
@@ -181,6 +197,25 @@ struct InteractionDock: View {
         case .confirm, .unsupported:
             EmptyView()
         }
+    }
+
+    private var answerField: some View {
+        TextField(placeholder, text: $flow.answers[flow.step].text, axis: .vertical)
+            .font(.system(size: 17))
+            .lineLimit(1...5)
+            .focused($typing)
+            .textInputAutocapitalization(flow.authorizationURL == nil ? .sentences : .never)
+            .autocorrectionDisabled(flow.authorizationURL != nil)
+            .padding(.vertical, 11)
+            .disabled(!enabled)
+            .accessibilityIdentifier("interaction-text")
+    }
+
+    /// Puts dictated words in the answer, after what's typed.
+    private func fillAnswer(_ text: String) {
+        let current = flow.answers[flow.step].text
+        flow.answers[flow.step].text = DictationText.join(
+            current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : current, text)
     }
 
     private var placeholder: String {
@@ -221,7 +256,8 @@ struct InteractionDock: View {
                 DockButton(title: flow.guided && !flow.isLastStep ? "Next" : "Submit", primary: true, busy: flow.submitting) {
                     interactions.forward(flow) { $0.next() }
                 }
-                .disabled(!enabled)
+                // Waits for dictated words to arrive.
+                .disabled(!enabled || dictation.isActive)
             }
         }
     }

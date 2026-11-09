@@ -1,4 +1,5 @@
 import AppKit
+import KitDictation
 import SwiftUI
 
 /// A pending request in the composer's place until it is answered or
@@ -21,6 +22,11 @@ struct InteractionDock: View {
     @State private var bodyHeight: CGFloat = 0
     /// Which way the last move went, so pages slide the way the questions run.
     @State private var direction = Direction.forward
+    @State private var ownDictation = DictationSlot()
+    @Environment(\.dictationSlot) private var givenDictation
+    /// Set when dictated words land in the answer, so the field comes back
+    /// focused with the caret after them.
+    @State private var dictatedInto = false
 
     enum Direction { case forward, backward }
 
@@ -78,6 +84,12 @@ struct InteractionDock: View {
         .onKeyPress(phases: .down, action: handle)
         .onExitCommand { finish(true) }
         .animation(motion, value: page)
+        // A recording belongs to the question it was started on.
+        .onChange(of: page) {
+            dictationSlot.reset()
+            dictatedInto = false
+        }
+        .onDisappear { dictationSlot.reset() }
         .task(id: page) {
             guard takesFocus, flow.mode != .text else { return }
             await Task.yield()
@@ -150,13 +162,33 @@ struct InteractionDock: View {
     @ViewBuilder private var answer: some View {
         switch flow.mode {
         case .text:
-            InteractionTextInput(text: $flow.answers[flow.step].text, prompt: placeholder,
-                                 submit: { forward { flow.submitText() } }, previous: { backward() },
-                                 cancel: { finish(true) }, autofocus: takesFocus)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 4) {
+                    if #available(macOS 26, *), dictation.listening {
+                        DictationStrip(dictation: dictation, done: finishDictation, size: 13).padding(.leading, 10)
+                        DictationSquare(dictation: dictation, size: 22, done: finishDictation)
+                    } else {
+                        InteractionTextInput(text: $flow.answers[flow.step].text, prompt: placeholder,
+                                             submit: { if !dictating { forward { flow.submitText() } } },
+                                             previous: { backward() },
+                                             cancel: { if dictating { dictationSlot.reset() } else { finish(true) } },
+                                             autofocus: takesFocus || dictatedInto,
+                                             caretAtEnd: dictatedInto)
+                        if #available(macOS 26, *), dictates {
+                            DictationMic(dictation: dictation, size: 24, iconSize: 13)
+                        }
+                    }
+                }
+                .padding(.trailing, dictates ? 4 : 0)
                 .frame(height: 32)
                 .background(theme.surface, in: RoundedRectangle(cornerRadius: 3))
                 .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(theme.focusBorder))
                 .disabled(flow.submitting)
+                if #available(macOS 26, *), dictation.hasNotice { DictationNotice(dictation: dictation) }
+            }
+            .onChange(of: flow.answers[flow.step].text) {
+                if #available(macOS 26, *) { dictation.dismissProblem() }
+            }
         case .choice, .multiple:
             DockOptionList(flow: flow) { index in
                 focused = true
@@ -218,6 +250,7 @@ struct InteractionDock: View {
                     .buttonStyle(DockButtonStyle(kind: .bordered)).disabled(flow.submitting)
             }
             primary(flow.guided && !flow.isLastStep ? "Next" : "Submit") { forward { flow.submitText() } }
+                .disabled(dictating)
         case .choice, .multiple:
             primary(flow.isLastStep ? "Submit" : "Next") { forward { flow.next() } }
         }
@@ -248,6 +281,37 @@ struct InteractionDock: View {
         }
         .buttonStyle(DockButtonStyle(kind: .primary))
         .allowsHitTesting(!flow.submitting)
+    }
+
+    // MARK: Dictation
+
+    private var dictationSlot: DictationSlot { givenDictation ?? ownDictation }
+
+    @available(macOS 26, *)
+    private var dictation: Dictation { dictationSlot.dictation }
+
+    /// A typed answer can be dictated on macOS 26 and later; a pasted address can't.
+    private var dictates: Bool {
+        guard #available(macOS 26, *) else { return false }
+        return flow.mode == .text && flow.authorizationURL == nil
+    }
+
+    private var dictating: Bool {
+        if #available(macOS 26, *) { return dictation.isActive }
+        return false
+    }
+
+    /// Stops recording and puts the words after what's typed.
+    private func finishDictation() {
+        guard #available(macOS 26, *) else { return }
+        let flow = flow, step = flow.step
+        dictation.finish { text in
+            guard flow.step == step else { return }
+            let current = flow.answers[step].text
+            flow.answers[step].text = DictationText.join(
+                current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : current, text)
+            dictatedInto = true
+        }
     }
 
     // MARK: Keys

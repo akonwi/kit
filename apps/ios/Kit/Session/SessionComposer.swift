@@ -97,6 +97,13 @@ final class SessionComposer {
     /// Whether the draft can change. It can't while its send is unanswered.
     var editable: Bool { !operations.sending && !operations.uncertain }
 
+    /// Whether the mic shows: the draft has no words and can change.
+    var canDictate: Bool { editable && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// Whether the mic takes Send's slot, with nothing to send or stop.
+    /// Otherwise it sits beside Stop, or beside Send for attachments and comments.
+    var dictatesInSendSlot: Bool { canDictate && !hasContent && !running }
+
     /// Whether the queue's Edit and Clear can act.
     var queueEnabled: Bool { live && editable && !operations.queuePending }
 
@@ -168,6 +175,14 @@ final class SessionComposer {
         operations.submit(client: client, session: id,
                           input: WirePromptInput(text: text, attachmentIds: attachments, annotationIds: notes.map(\.id)),
                           draft: sent, uncertain: uncertain, acknowledged: acknowledged)
+    }
+
+    /// Sends dictated words with the attachments and comments waiting. The
+    /// mic shows only while the draft has no words, so they replace it. If
+    /// the message can't go, the words stay in the draft.
+    func sendDictation(_ text: String) {
+        draft = text
+        send()
     }
 
     /// Attaches a file's bytes; it uploads at once.

@@ -1,4 +1,5 @@
 import AppKit
+import KitDictation
 import KitTranscript
 import SwiftUI
 import UniformTypeIdentifiers
@@ -19,6 +20,8 @@ struct ComposerView: View {
     @State private var lastClosedMenu: ComposerChipMenu?
     @State private var modelAnchor = ComposerPickerAnchor()
     @State private var thinkingAnchor = ComposerPickerAnchor()
+    @State private var ownDictation = DictationSlot()
+    @Environment(\.dictationSlot) private var givenDictation
 
     static func modelLabel(_ model: WireModelCapability) -> String {
         "\(model.name) · \(model.provider)"
@@ -78,27 +81,10 @@ struct ComposerView: View {
                 Rule()
             }
             if !state.isDemo { ComposerAttachmentStrip(state: state) }
-            GrowingComposerEditor(text: $ui.draft, focused: $focused,
-                                  focusRequest: state.ui.composerFocus,
-                                  focusAtEndRequest: state.ui.composerFocusAtEndRequest,
-                                  foreground: theme.text, placeholderColor: theme.muted,
-                                  attachmentDrop: acceptAttachments, attachmentDropTargeted: { attachmentDropTargeted = $0 },
-                                  submit: { state.send() },
-                                  // A hidden Agent pane takes a focus request once it's shown.
-                                  focusEnabled: state.ui.workspace.isVisible(.conversation), exitShell: exitShell,
-                                  openPalette: { state.ui.palette = true }, mentions: mentions,
-                                  history: history, historySession: state.selectedID, historyClient: state.composerHistoryClient,
-                                  recallQueued: {
-                                      guard (state.operations.queue?.count ?? 0) > 0 else { return false }
-                                      state.changeQueue(.edit); return true
-                                  }, mentionRevision: mentions.revision,
-                                  mentionIdentity: state.serverID + "/" + state.selectedID,
-                                  mentionLoader: mentionLoader, sessionMentionLoader: sessionMentionLoader,
-                                  pickerAnchor: pickerAnchor, theme: theme,
-                                  selection: $ui.composerSelection)
-                .fixedSize(horizontal: false, vertical: true)
-                .workspaceFocusTarget(.conversation)
-                .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)
+            if #available(macOS 26, *), dictation.hasNotice {
+                DictationNotice(dictation: dictation).padding(.horizontal, 12).padding(.top, 10)
+            }
+            editor
             HStack(spacing: 12) {
                 if let shell = state.shellMode {
                     HStack(spacing: 8) {
@@ -119,36 +105,133 @@ struct ComposerView: View {
                         .disabled(state.unavailable)
                 }
                 Spacer(minLength: 8)
-                Button {
-                    if state.activeBashID != nil { state.stopBash() }
-                    else if state.running { state.abortRun() }
-                    else if state.replaying { state.stop() }
-                    else { state.send() }
-                } label: {
-                    IconView(state.activeBashID != nil || state.running || state.replaying ? .stop : .arrowUp, size: 12)
-                        .frame(width: 26, height: 26)
-                        .foregroundStyle(theme.surface)
-                        .background(theme.text, in: RoundedRectangle(cornerRadius: 3))
-                }.buttonStyle(.plain)
-                    .accessibilityLabel(state.activeBashID != nil ? "Stop shell command" : state.running ? "Stop run" : state.replaying ? "Stop" : "Send")
-                    .help(state.activeBashID != nil ? "Stop shell command" : state.running || state.replaying ? "Stop response" : "Send message")
-                    .disabled(primaryActionDisabled)
+                actions
             }.font(.kit(size: 11)).padding(.horizontal, 12).padding(.bottom, 10)
         }
         .background(ComposerPickerAnchorView(anchor: pickerAnchor))
         .background(theme.raised)
         .clipShape(shape)
-        .overlay(shape.strokeBorder((focused || attachmentDropTargeted) ? theme.focusBorder : theme.border, lineWidth: 1))
+        .overlay(shape.strokeBorder((focused || attachmentDropTargeted || dictationListening) ? theme.focusBorder : theme.border, lineWidth: 1))
         .onDrop(of: [UTType.fileURL.identifier, UTType.image.identifier], isTargeted: $attachmentDropTargeted,
                 perform: acceptAttachments)
         .task(id: state.selectedID) { await state.loadComposer() }
         .onChange(of: state.selected?.cwd) { mentions.reset() }
-        .onChange(of: state.selectedID) { popover.dismiss() }
+        .onChange(of: state.selectedID) {
+            popover.dismiss()
+            dictationSlot.reset()
+        }
         .onChange(of: state.unavailable) { if state.unavailable { popover.dismiss() } }
-        .onDisappear { popover.dismiss() }
+        .onDisappear {
+            popover.dismiss()
+            dictationSlot.reset()
+        }
         .onChange(of: state.ui.draft) {
             if !state.ui.draft.isEmpty { state.operations.clearAcknowledgement() }
+            if #available(macOS 26, *) { dictation.dismissProblem() }
         }
+        // The editor goes while the strip shows, and may not say it lost focus.
+        .onChange(of: dictationListening) { if dictationListening { focused = false } }
+    }
+
+    // MARK: Dictation
+
+    private var dictationSlot: DictationSlot { givenDictation ?? ownDictation }
+
+    @available(macOS 26, *)
+    private var dictation: Dictation { dictationSlot.dictation }
+
+    /// Whether the recording strip stands in the editor's place.
+    private var dictationListening: Bool {
+        if #available(macOS 26, *) { return dictation.listening }
+        return false
+    }
+
+    /// Where the mic sits; hidden before macOS 26.
+    private var mic: ComposerMic {
+        guard #available(macOS 26, *) else { return .hidden }
+        return ComposerMic.placement(.init(
+            dictating: dictation.isActive, draft: state.ui.draft,
+            hasOtherContent: !state.annotationState.records.isEmpty || !state.ui.workspace.notes.isEmpty
+                || !state.ui.attachments.isEmpty || !state.ui.serverAttachmentIDs.isEmpty || !state.ui.uploads.items.isEmpty,
+            stoppable: state.running || state.replaying || state.activeBashID != nil,
+            shell: state.shellMode != nil, unavailable: state.unavailable))
+    }
+
+    /// Stops recording and puts the words in the draft, with the editor
+    /// focused and the caret at the end, ready to read, fix, and send.
+    private func finishDictation() {
+        guard #available(macOS 26, *) else { return }
+        dictation.finish(into: state.ui.takeDictation)
+    }
+
+    /// Back to the editor after throwing a recording away. The editor is
+    /// remade as the strip goes, and a remade editor takes only an at-end request.
+    private func focusEditor() {
+        state.ui.composerFocus += 1
+        state.ui.composerFocusAtEndRequest = state.ui.composerFocus
+    }
+
+    /// The editor, or the recording strip in its place while dictating.
+    @ViewBuilder private var editor: some View {
+        @Bindable var ui = state.ui
+        if #available(macOS 26, *), dictation.listening {
+            DictationStrip(dictation: dictation, done: finishDictation, cancelled: focusEditor,
+                           height: ComposerScrollView.lineHeight)
+                .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)
+        } else {
+            GrowingComposerEditor(text: $ui.draft, focused: $focused,
+                                  focusRequest: state.ui.composerFocus,
+                                  focusAtEndRequest: state.ui.composerFocusAtEndRequest,
+                                  foreground: theme.text, placeholderColor: theme.muted,
+                                  attachmentDrop: acceptAttachments, attachmentDropTargeted: { attachmentDropTargeted = $0 },
+                                  submit: { if !dictationSlot.isActive { state.send() } },
+                                  // A hidden Agent pane takes a focus request once it's shown.
+                                  focusEnabled: state.ui.workspace.isVisible(.conversation), exitShell: exitShell,
+                                  openPalette: { state.ui.palette = true }, mentions: mentions,
+                                  history: history, historySession: state.selectedID, historyClient: state.composerHistoryClient,
+                                  recallQueued: {
+                                      guard (state.operations.queue?.count ?? 0) > 0 else { return false }
+                                      state.changeQueue(.edit); return true
+                                  }, mentionRevision: mentions.revision,
+                                  mentionIdentity: state.serverID + "/" + state.selectedID,
+                                  mentionLoader: mentionLoader, sessionMentionLoader: sessionMentionLoader,
+                                  pickerAnchor: pickerAnchor, theme: theme,
+                                  selection: $ui.composerSelection)
+                .fixedSize(horizontal: false, vertical: true)
+                .workspaceFocusTarget(.conversation)
+                .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)
+        }
+    }
+
+    /// Send or Stop, with the mic beside it or in its place.
+    private var actions: some View {
+        HStack(spacing: 4) {
+            if #available(macOS 26, *) {
+                switch mic {
+                case .hidden: EmptyView()
+                case .beside: DictationMic(dictation: dictation)
+                case .sendSlot: DictationSquare(dictation: dictation, done: finishDictation)
+                }
+            }
+            if mic != .sendSlot { primaryButton }
+        }
+    }
+
+    private var primaryButton: some View {
+        Button {
+            if state.activeBashID != nil { state.stopBash() }
+            else if state.running { state.abortRun() }
+            else if state.replaying { state.stop() }
+            else { state.send() }
+        } label: {
+            IconView(state.activeBashID != nil || state.running || state.replaying ? .stop : .arrowUp, size: 12)
+                .frame(width: 26, height: 26)
+                .foregroundStyle(theme.surface)
+                .background(theme.text, in: RoundedRectangle(cornerRadius: 3))
+        }.buttonStyle(.plain)
+            .accessibilityLabel(state.activeBashID != nil ? "Stop shell command" : state.running ? "Stop run" : state.replaying ? "Stop" : "Send")
+            .help(state.activeBashID != nil ? "Stop shell command" : state.running || state.replaying ? "Stop response" : "Send message")
+            .disabled(primaryActionDisabled)
     }
 
     private func exitShell() {

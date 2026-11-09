@@ -1,4 +1,5 @@
 import KitClient
+import KitDictation
 import SwiftUI
 
 /// The bottom of a session: the status line, then either the request the
@@ -15,6 +16,11 @@ struct ComposerBar: View {
     var revealable: (FileAnnotation) -> Bool = { $0.isDiff }
     let retryConnection: () -> Void
     @FocusState private var focused: Bool
+    @State private var dictation = Dictation(engine: DictationSupport.engine)
+    @State private var press = DictationPress()
+    /// Dictated words are on their way. The strip stays until the server
+    /// answers, so the words don't show in the field just before they go.
+    @State private var sendingDictation = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -55,6 +61,10 @@ struct ComposerBar: View {
         Group {
             if case .reconnecting = feed.connection {
                 ReconnectLine(server: feed.identity.server, retry: retryConnection)
+            } else if dictation.phase == .preparing(installing: true) {
+                DictationReadyLine()
+            } else if let problem = dictation.problem {
+                DictationProblemLine(problem: problem, dismiss: dictation.dismissProblem)
             } else if let notice = composer.notice {
                 NoticeLine(text: notice)
             } else if let notice = composer.commentNotice {
@@ -74,31 +84,85 @@ struct ComposerBar: View {
 
     // MARK: Capsule
 
+    /// The attach button, the field, and the button at the end. While
+    /// dictating, a recording strip takes the attach button's and field's
+    /// place, and the mic stays where it was pressed.
     private var capsule: some View {
-        HStack(alignment: .bottom, spacing: 4) {
-            AttachMenu(composer: composer)
-            TextField("Ask Kit…", text: $composer.draft, axis: .vertical)
-                .font(.system(size: 17))
-                .foregroundStyle(composer.editable ? Theme.text : Theme.muted)
-                .lineLimit(1...6)
-                .focused($focused)
-                .disabled(!composer.editable)
-                .padding(.vertical, 9)
-                .accessibilityIdentifier("composer")
-                .contentShape(Rectangle())
-                .onTapGesture { focused = true }
-            ComposerButton(action: composer.action, send: composer.send, stop: composer.stop)
+        let listening = dictation.phase == .recording || dictation.phase == .transcribing || sendingDictation
+        let mic = dictation.isActive || composer.canDictate
+        let micOnly = dictation.isActive || composer.dictatesInSendSlot
+        return HStack(alignment: .bottom, spacing: 4) {
+            if listening {
+                DictationStrip(dictation: dictation, hint: hint, sending: sendingDictation)
+            } else {
+                if dictation.isPreparing {
+                    Button { dictation.cancel() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(Theme.text)
+                            .frame(width: 40, height: 40)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Cancel dictation")
+                    .accessibilityIdentifier("dictation-cancel")
+                } else {
+                    AttachMenu(composer: composer)
+                }
+                TextField("Ask Kit…", text: $composer.draft, axis: .vertical)
+                    .font(.system(size: 17))
+                    .foregroundStyle(composer.editable ? Theme.text : Theme.muted)
+                    .lineLimit(1...6)
+                    .focused($focused)
+                    .disabled(!composer.editable || dictation.isActive)
+                    .padding(.vertical, 9)
+                    .accessibilityIdentifier("composer")
+                    .contentShape(Rectangle())
+                    .onTapGesture { focused = true }
+            }
+            if mic {
+                DictationButton(dictation: dictation, look: micOnly ? .filled : .plain, press: $press,
+                                send: sendDictation)
+            }
+            if !micOnly {
+                ComposerButton(action: composer.action, send: composer.send, stop: composer.stop)
+            }
         }
         .padding(.leading, 8)
         .padding(.trailing, 8)
         .padding(.vertical, 8)
         .frame(minHeight: 56)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .onChange(of: composer.draft) { actions.dismissNotice() }
+        .dictationLifecycle(dictation)
+        .onChange(of: composer.draft) {
+            actions.dismissNotice()
+            dictation.dismissProblem()
+        }
+        .onChange(of: dictation.isActive) { _, active in
+            if active { focused = false }
+        }
+        // Sent or refused: a refused message's words are in the field to fix.
+        .onChange(of: composer.editable) { _, editable in
+            if editable { sendingDictation = false }
+        }
         // A session with nothing in it yet, such as one just started, waits for its first message.
         .onChange(of: feed.session?.messages.isEmpty, initial: true) { _, empty in
             if empty == true, composer.draft.isEmpty, composer.editable { focused = true }
         }
+    }
+
+    private func sendDictation(_ text: String) {
+        sendingDictation = true
+        composer.sendDictation(text)
+        // It didn't go, such as while offline; the words wait in the field.
+        if composer.editable { sendingDictation = false }
+    }
+
+    /// What the recording strip suggests: ↑ for a tapped recording, sliding
+    /// to cancel for a held one.
+    private var hint: DictationStrip.Hint {
+        if press.mode == .tap { return .send }
+        return press.cancelArmed ? .letGoToCancel : .slide
     }
 }
 

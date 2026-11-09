@@ -1,4 +1,5 @@
 import KitClient
+import KitDictation
 import SwiftUI
 
 /// How a diff's rows become a comment's range. A comment covers lines on
@@ -106,28 +107,39 @@ struct DiffCommentEditor: View {
     let anchor: WireAnnotationAnchor
     let save: () -> Void
     @FocusState private var focused: Bool
+    @State private var dictation = Dictation(engine: DictationSupport.engine)
 
-    private var canSave: Bool { !annotations.pending && FileAnnotation.validBody(annotations.draft) }
+    /// Comment waits for dictated words to arrive.
+    private var canSave: Bool {
+        !annotations.pending && !dictation.isActive && FileAnnotation.validBody(annotations.draft)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(DiffComments.title(anchor))
                 .font(.system(size: 13))
                 .foregroundStyle(Theme.muted)
-            TextField("Add a comment", text: $annotations.draft, axis: .vertical)
-                .font(.system(size: 16))
-                .foregroundStyle(Theme.text)
-                .lineLimit(1...8)
-                .focused($focused)
-                .disabled(annotations.pending)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Theme.raised, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.cardRadius)
-                        .strokeBorder(focused ? Theme.accent : Theme.border, lineWidth: 1)
-                }
-                .accessibilityIdentifier("diff-comment-field")
+            FieldDictation(dictation: dictation, enabled: !annotations.pending, fill: fill) {
+                TextField("Add a comment", text: $annotations.draft, axis: .vertical)
+                    .font(.system(size: 16))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1...8)
+                    .focused($focused)
+                    .disabled(annotations.pending)
+                    .padding(.vertical, 10)
+                    .accessibilityIdentifier("diff-comment-field")
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 4)
+            .frame(minHeight: 42)
+            .background(Theme.raised, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.cardRadius)
+                    .strokeBorder(focused || dictation.isActive ? Theme.accent : Theme.border, lineWidth: 1)
+            }
+            if let problem = dictation.problem {
+                DictationProblemLine(problem: problem, dismiss: dictation.dismissProblem)
+            }
             if let error = annotations.error {
                 Text(error)
                     .font(.system(size: 13))
@@ -153,6 +165,18 @@ struct DiffCommentEditor: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface)
         .onAppear { focused = true }
+        .dictationLifecycle(dictation)
+        .onChange(of: dictation.isActive) { _, active in
+            if active { focused = false }
+        }
+        .onChange(of: annotations.draft) { dictation.dismissProblem() }
+    }
+
+    /// Puts dictated words in the comment, after what's typed.
+    private func fill(_ text: String) {
+        let current = annotations.draft
+        annotations.draft = DictationText.join(
+            current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : current, text)
     }
 }
 

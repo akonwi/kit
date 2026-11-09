@@ -13,7 +13,8 @@ let package = Package(
         .library(name: "KitFigures", targets: ["KitFigures"]),
         .library(name: "KitTranscript", targets: ["KitTranscript"]),
         .library(name: "KitHighlighting", targets: ["KitHighlighting"]),
-        .library(name: "KitArdGrammar", targets: ["KitArdGrammar"])
+        .library(name: "KitArdGrammar", targets: ["KitArdGrammar"]),
+        .library(name: "KitDictation", targets: ["KitDictation"])
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-openapi-generator.git", exact: "1.13.1"),
@@ -56,6 +57,10 @@ let package = Package(
             "KitHighlighting",
             .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
             .product(name: "TreeSitterArd", package: "tree-sitter-ard")
-        ])
+        ]),
+        // Dictation with the device's microphone and speech model. Its types
+        // need iOS 26 or macOS 26 and are marked so; the package's minimums
+        // stay where they are.
+        .target(name: "KitDictation")
     ]
 )
