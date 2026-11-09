@@ -12,6 +12,7 @@ import typescriptPreset from "@babel/preset-typescript";
 // @ts-expect-error babel presets ship no types
 import solidPreset from "babel-preset-solid";
 import type { BunPlugin } from "bun";
+import { bundledPackages, type Notice, noticesText, packageNotice } from "./licenses";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -54,6 +55,8 @@ export async function bundle({ outdir, minify }: BundleOptions): Promise<void> {
     splitting: true,
     minify,
     sourcemap: "none",
+    // Lists what was bundled, so its licenses ship with it.
+    metafile: true,
     plugins: [solidPlugin],
     // Fonts are copied as files of their own below; the policy allows no data: fonts.
     external: ["/fonts/*"],
@@ -75,14 +78,19 @@ export async function bundle({ outdir, minify }: BundleOptions): Promise<void> {
   );
   if (!script) throw new Error("The browser client build has no script.");
   const styles: string[] = [];
+  let fonts = 0;
   for (const output of result.outputs.filter((value) => value.path.endsWith(".css"))) {
-    styles.push(await placeFonts(output.path, outdir));
+    const placed = await placeFonts(output.path, outdir);
+    styles.push(placed.path);
+    fonts += placed.fonts;
   }
+  const licenses = await writeNotices(result.metafile, fonts > 0, outdir);
 
   const template = await Bun.file(join(root, "src/index.html")).text();
   const links = styles.map((style) => `<link rel="stylesheet" href="/${relative(style)}">`).join("\n    ");
   const html = template
     .replace("<!-- styles -->", links)
+    .replace("<!-- license -->", `<link rel="license" href="/${relative(licenses)}">`)
     .replace("<!-- script -->", `<script type="module" src="/${relative(script.path)}"></script>`);
   await Bun.write(join(outdir, "index.html"), html);
 
@@ -103,7 +111,7 @@ function contentHash(data: Uint8Array | string): string {
  * content-hashed names, points the stylesheet at them, and renames the
  * stylesheet by its final content. Returns the stylesheet's new path.
  */
-async function placeFonts(path: string, outdir: string): Promise<string> {
+async function placeFonts(path: string, outdir: string): Promise<{ path: string; fonts: number }> {
   let css = await Bun.file(path).text();
   const fonts = new Set(css.match(/\/fonts\/[a-z0-9-]+\.woff2/g) ?? []);
   for (const font of fonts) {
@@ -117,13 +125,40 @@ async function placeFonts(path: string, outdir: string): Promise<string> {
   const renamed = join(outdir, "assets", `main-${contentHash(css)}.css`);
   await Bun.write(path, css);
   await rename(path, renamed);
-  return renamed;
+  return { path: renamed, fonts: fonts.size };
+}
+
+/**
+ * Writes the notices of what the build ships, the bundled packages, the
+ * font, and the icon paths, to a content-hashed file under assets/, and
+ * returns its path.
+ */
+async function writeNotices(metafile: unknown, font: boolean, outdir: string): Promise<string> {
+  const meta = (typeof metafile === "string" ? JSON.parse(metafile) : metafile) as
+    | { inputs?: Record<string, unknown> }
+    | undefined;
+  if (!meta?.inputs) throw new Error("The build didn’t say what it bundled.");
+  const dirs = bundledPackages(Object.keys(meta.inputs));
+  if (font) dirs.push("node_modules/@fontsource/jetbrains-mono");
+  const notices: Notice[] = await Promise.all(dirs.map((dir) => packageNotice(join(root, dir))));
+  notices.push({
+    name: "Phosphor Icons (icon paths, Regular weight)",
+    version: "2.1.1",
+    license: "MIT",
+    source: "https://github.com/phosphor-icons/core",
+    text: (await Bun.file(join(root, "licenses/phosphor.txt")).text()).trim(),
+  });
+  notices.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
+  const text = noticesText(notices);
+  const path = join(outdir, "assets", `licenses-${contentHash(text)}.txt`);
+  await Bun.write(path, text);
+  return path;
 }
 
 /** Writes a gzip sibling for each compressible build file that it shrinks. */
 async function compress(dir: string): Promise<void> {
   for (const name of await readdir(dir)) {
-    if (!/\.(js|css|svg|json)$/.test(name)) continue;
+    if (!/\.(js|css|svg|json|txt)$/.test(name)) continue;
     const path = join(dir, name);
     if ((await stat(path)).size < 1024) continue;
     const data = new Uint8Array(await Bun.file(path).arrayBuffer());

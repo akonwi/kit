@@ -97,3 +97,6 @@ text and without links or images.
 Use `https`, or `http` only on a private network such as a tailnet: over plain
 `http` to another machine, the pairing code and device token travel
 unencrypted.
+
+The **Licenses** link on the pairing page lists the third-party software and
+fonts the browser client includes, with their licenses.

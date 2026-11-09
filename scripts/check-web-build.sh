@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Refuses a browser client build the kit executable can't serve: it needs
-# index.html, every asset index.html names, and every file those assets load,
-# including chunks a script imports only when needed (ADR 0059).
+# index.html, its third-party notices, every asset index.html names, and every
+# file those assets load, including chunks a script imports only when needed
+# (ADR 0059).
 set -euo pipefail
 
 build="${1:-internal/webui/build}"
 index="$build/index.html"
 if [[ ! -s "$index" ]]; then
   echo "No browser client build at $index. Run 'bun run build' in apps/web." >&2
+  exit 1
+fi
+# The build ships its third-party notices and links them from the page.
+if ! grep -qE '<link rel="license" href="/assets/licenses-[A-Za-z0-9]+\.txt">' "$index"; then
+  echo "$index links no third-party notices (rel=\"license\")." >&2
   exit 1
 fi
 assets=$(grep -oE '/assets/[^"]+' "$index" | sort -u)

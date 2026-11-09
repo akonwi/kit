@@ -35,6 +35,20 @@ function Notice(props: {
   );
 }
 
+/** The third-party notices the build ships, linked from its page as rel="license". */
+function LicensesLink() {
+  const href = document.querySelector<HTMLLinkElement>('link[rel="license"]')?.getAttribute("href");
+  return (
+    <Show when={href}>
+      {(target) => (
+        <a class="licenses-link" href={target()} target="_blank" rel="noopener">
+          Licenses
+        </a>
+      )}
+    </Show>
+  );
+}
+
 /** How to pair, with a notice saying why this browser isn't paired. */
 export function NotPaired(props: { reason?: UnpairedReason; refused?: boolean }) {
   return (
@@ -77,6 +91,7 @@ export function NotPaired(props: { reason?: UnpairedReason; refused?: boolean })
           <span>Name this browser and choose Pair.</span>
         </li>
       </ol>
+      <LicensesLink />
     </main>
   );
 }
@@ -163,6 +178,7 @@ export function PairingPage(props: { code: string }) {
             </p>
           </div>
         </form>
+        <LicensesLink />
       </main>
     </Show>
   );

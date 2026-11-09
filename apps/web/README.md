@@ -62,5 +62,17 @@ fails while `src/api/schema.ts` is stale. `PROTOCOL_VERSION` in
 `bun run build` writes `internal/webui/build`, which Go embeds. The directory
 is ignored except its `.gitignore`. An executable built without it answers the
 client's pages with a 404 page. Release builds run `bun run build` and
-`scripts/check-web-build.sh`, which refuses a build without `index.html` or
-with an asset it names but lacks.
+`scripts/check-web-build.sh`, which refuses a build without `index.html`,
+without its third-party notices, or with an asset it names but lacks.
+
+## Third-party notices
+
+The build writes the licenses of what it ships to `assets/licenses-*.txt`
+and links that file from `index.html` as `rel="license"`. The pairing pages
+show it as a **Licenses** link. The file lists every npm package the
+production bundle includes, as Bun's metafile reports them, plus the
+JetBrains Mono font and the Phosphor icon paths in `src/ui/phosphor.ts`,
+whose license is kept in `licenses/phosphor.txt`. The build fails when a
+bundled package has no license file or a license outside the allowed list in
+`scripts/licenses.ts`. Before allowing another license, check what it asks of
+a distributor.
