@@ -3,7 +3,7 @@
 A Kit server serves a browser client on the same address as its session API
 ([ADR 0059](../adrs/0059-serve-a-browser-client-from-the-kit-server.md)).
 It is for an Android phone, or any browser on a machine without Kit
-installed. It needs no install: open the server's address and pair.
+installed. It needs no install: open a pairing link from the server and pair.
 
 ## Opening it
 
@@ -52,8 +52,19 @@ controls. It needs the server to be reachable; it does not work offline.
   which open full screen to pan and zoom. A figure or diagram that can't be
   drawn shows its source with the reason.
 
-It does not show diffs, files, the scratchpad, or subagents. Use the TUI or
-the Mac app for those.
+- **Changes**, in the session menu, shows the session folder's uncommitted
+  changes, its branch, or a commit, file by file, colored by the server.
+  Tap line numbers to comment on those lines; comments go with the next
+  message, as on the Mac, and can be edited or deleted. A comment whose
+  lines changed must be moved to new lines or deleted before the message is
+  sent.
+- **Open File…**, in the session menu, searches the session folder's files.
+  A file also opens from a Read or Edit tool call, a row in Changes, and a
+  comment. It shows the source, colored by the server, or Markdown as a
+  preview, and takes comments on its lines like Changes.
+
+It does not show the scratchpad or subagents. Use the TUI or the Mac app for
+those.
 
 When a page returns from the background or the network comes back, it takes
 a fresh snapshot of the session. If the server restarts with a different
