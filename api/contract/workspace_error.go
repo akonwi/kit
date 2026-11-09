@@ -31,13 +31,21 @@ type WorkspaceError struct {
 
 func (e *WorkspaceError) Error() string { return e.Message }
 
-func (e WorkspaceError) Validate() error {
-	switch e.Code {
+// Valid reports whether c is a workspace error code.
+func (c WorkspaceErrorCode) Valid() bool {
+	switch c {
 	case WorkspaceErrorInvalidPath, WorkspaceErrorNotFound, WorkspaceErrorNotDirectory, WorkspaceErrorNotFile,
 		WorkspaceErrorPermissionDenied, WorkspaceErrorOutside, WorkspaceErrorSymlink, WorkspaceErrorBinary,
 		WorkspaceErrorStaleWorkspace, WorkspaceErrorStaleFile, WorkspaceErrorStaleCursor, WorkspaceErrorLimit,
 		WorkspaceErrorCapacity, WorkspaceErrorUnavailable:
+		return true
 	default:
+		return false
+	}
+}
+
+func (e WorkspaceError) Validate() error {
+	if !e.Code.Valid() {
 		return fmt.Errorf("workspace error code is invalid")
 	}
 	if !ValidErrorMessage(e.Message) || len(e.Details) > 4 {

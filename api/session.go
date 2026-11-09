@@ -532,7 +532,7 @@ func projectDiffError(err error) error {
 	if !errors.As(err, &apiError) || !protocol.DiffErrorCode(apiError.Code).Valid() {
 		return projectError(err)
 	}
-	details, ok := diffErrorDetails(apiError)
+	details, ok := stringErrorDetails(apiError)
 	projected := &protocol.DiffError{Code: protocol.DiffErrorCode(apiError.Code), Message: apiError.Message, Details: details}
 	if !ok || projected.Validate() != nil {
 		return fmt.Errorf("daemon returned malformed diff error")
@@ -540,10 +540,11 @@ func projectDiffError(err error) error {
 	return projected
 }
 
-// diffErrorDetails flattens the details of a diff error into the string map
-// carried by protocol.DiffError. The transport decodes declared details into
-// typed records, so those are re-encoded through their JSON field names.
-func diffErrorDetails(apiError *clienttransport.APIError) (map[string]string, bool) {
+// stringErrorDetails flattens the details of a diff or workspace error into
+// the string map carried by protocol.DiffError and protocol.WorkspaceError.
+// The transport decodes declared details into typed records, so those are
+// re-encoded through their JSON field names.
+func stringErrorDetails(apiError *clienttransport.APIError) (map[string]string, bool) {
 	if apiError.TypedDetails == nil {
 		return apiError.Details, true
 	}
@@ -582,13 +583,18 @@ func (c *Session) DeleteAnnotation(ctx context.Context, input protocol.DeleteAnn
 	})
 }
 
+// projectWorkspaceError projects a workspace operation failure. Workspace
+// error codes become *protocol.WorkspaceError values carrying their decoded
+// details. The generic codes workspace operations also declare, such as
+// conflict or internal, are projected like any other server error.
 func projectWorkspaceError(err error) error {
 	var apiError *clienttransport.APIError
-	if !errors.As(err, &apiError) || apiError.Code == "" {
+	if !errors.As(err, &apiError) || !protocol.WorkspaceErrorCode(apiError.Code).Valid() {
 		return projectError(err)
 	}
-	projected := &protocol.WorkspaceError{Code: protocol.WorkspaceErrorCode(apiError.Code), Message: apiError.Message, Details: apiError.Details}
-	if projected.Validate() != nil {
+	details, ok := stringErrorDetails(apiError)
+	projected := &protocol.WorkspaceError{Code: protocol.WorkspaceErrorCode(apiError.Code), Message: apiError.Message, Details: details}
+	if !ok || projected.Validate() != nil {
 		return fmt.Errorf("daemon returned malformed workspace error")
 	}
 	return projected

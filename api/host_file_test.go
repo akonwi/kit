@@ -36,3 +36,31 @@ func TestReadHostFileProjectsAnOlderServerAndWorkspaceErrors(t *testing.T) {
 		t.Fatalf("declared error = %v", err)
 	}
 }
+
+func TestWorkspaceOperationsProjectDeclaredFailures(t *testing.T) {
+	limit := httpapi.DecodeOperationError(httpapi.ReadHostFile, http.StatusRequestEntityTooLarge,
+		[]byte(`{"error":{"code":"limit_exceeded","message":"the image is too large","details":{"limit":"image_pixels"}}}`))
+	session := newSession(nil, hostFileTransport{err: limit}, "session_test", protocol.SessionSnapshot{})
+	_, err := session.ReadHostFile(t.Context(), protocol.ReadHostFileInput{Path: "/tmp/huge.png"})
+	var workspaceErr *protocol.WorkspaceError
+	if !errors.As(err, &workspaceErr) || workspaceErr.Code != protocol.WorkspaceErrorLimit || workspaceErr.Details["limit"] != "image_pixels" {
+		t.Fatalf("limit error = %#v", err)
+	}
+
+	for _, test := range []struct {
+		status int
+		body   string
+		want   ServerError
+	}{
+		{http.StatusBadRequest, `{"error":{"code":"invalid_request","message":"invalid request"}}`, ServerError{Code: ErrorInvalidRequest, Message: "invalid request"}},
+		{http.StatusInternalServerError, `{"error":{"code":"internal","message":"internal server error"}}`, ServerError{Code: ErrorInternal, Message: "internal server error"}},
+	} {
+		declared := httpapi.DecodeOperationError(httpapi.ReadHostFile, test.status, []byte(test.body))
+		session := newSession(nil, hostFileTransport{err: declared}, "session_test", protocol.SessionSnapshot{})
+		_, err := session.ReadHostFile(t.Context(), protocol.ReadHostFileInput{Path: "/tmp/file"})
+		var server *ServerError
+		if !errors.As(err, &server) || server.Code != test.want.Code || server.Message != test.want.Message {
+			t.Fatalf("HTTP %d error = %#v, want %+v", test.status, err, test.want)
+		}
+	}
+}
